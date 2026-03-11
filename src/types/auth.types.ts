@@ -4,9 +4,7 @@ export interface LoginResponse {
   user: UserSession
 }
 
-export interface MeResponse {
-  user: UserSession
-}
+export type MeResponse = UserSession
 
 export interface MessageResponse {
   message: string

@@ -1,6 +1,9 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useRef, useState } from 'react'
+import type {
+  NativeScrollEvent,
+  NativeSyntheticEvent} from 'react-native';
 import {
   ActivityIndicator,
   FlatList,
@@ -18,6 +21,7 @@ import { MessageInput } from '../../src/components/chat/MessageInput'
 import { useMessages, useSendMessage } from '../../src/hooks/useMessages'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useChatStore } from '../../src/stores/chatStore'
+import type { Message } from '../../src/types/conversation.types'
 
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -28,11 +32,10 @@ export default function ChatScreen() {
   const { data, isLoading, fetchNextPage, hasNextPage } = useMessages(id as string)
   const { mutate: sendMessage } = useSendMessage(id as string)
 
-  const listRef = useRef<any>(null)
+  const listRef = useRef<FlatList>(null)
   const [showScrollButton, setShowScrollButton] = useState(false)
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const serverMessages = data?.pages.flat() || []
+  const serverMessages = (data?.pages.flat() as Message[]) || []
   const localOptimistic = optimisticMessages[id as string] || []
   const serverIds = new Set(serverMessages.map((m) => m?.id))
   const pendingMessages = localOptimistic.filter((m) => m && !serverIds.has(m.id))
@@ -41,8 +44,7 @@ export default function ChatScreen() {
     (a, b) => new Date(b?.createdAt).getTime() - new Date(a?.createdAt).getTime(),
   )
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const handleScroll = (event: any) => {
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const offsetY = event.nativeEvent.contentOffset.y
     setShowScrollButton(offsetY > 200)
   }
@@ -78,15 +80,13 @@ export default function ChatScreen() {
               <FlatList
                 ref={listRef}
                 data={allMessages}
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                renderItem={({ item }: { item: any }) => {
+                renderItem={({ item }: { item: Message }) => {
                   // Skip rendering if the item is somehow undefined
                   if (!item) return null
                   return <MessageBubble message={item} isOwn={item.senderId === user?.id} />
                 }}
                 // Fallback key if item.id is missing
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                keyExtractor={(item: any, index: number) =>
+                keyExtractor={(item: Message, index: number) =>
                   item?.id?.toString() || `fallback-${index}`
                 }
                 onEndReached={() => {

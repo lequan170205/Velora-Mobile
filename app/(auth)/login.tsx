@@ -2,17 +2,17 @@ import { MaterialIcons } from '@expo/vector-icons'
 import { Link, useRouter } from 'expo-router'
 import React, { useState } from 'react'
 import {
-    Alert,
-    Keyboard,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    View,
+  Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
 } from 'react-native'
 
 import { authApi } from '../../src/api/auth.api'
@@ -36,7 +36,7 @@ export default function LoginScreen() {
       await authApi.login({ email, password })
       const meResponse = await authApi.me()
 
-      setUser(meResponse.user)
+      setUser(meResponse)
       router.replace('/')
     } catch (err: unknown) {
       const error = err as Error & { response?: { data?: { message?: string }; status?: number } }
