@@ -1,53 +1,46 @@
-/* eslint-disable react-native/no-unused-styles */
 import React from 'react'
-import { StyleSheet, Text, type TextProps } from 'react-native'
+import type { TextProps } from 'react-native'
+import { Text } from 'react-native'
 
-import { colors, typography } from '../../constants/theme'
+import { cn } from '../../lib/cn'
+
+type TypographyVariant = 'display' | 'h1' | 'h2' | 'body' | 'bodyMedium' | 'caption' | 'button'
+
+const variantClasses: Record<TypographyVariant, string> = {
+  display:    'font-bold text-hero text-text-primary',
+  h1:         'font-bold text-xxl text-text-primary',
+  h2:         'font-heading text-xl text-text-primary',
+  body:       'font-sans text-base text-text-primary',
+  bodyMedium: 'font-medium text-md text-text-primary',
+  button:     'font-heading text-md text-text-primary',
+  caption:    'font-sans text-xs2 text-text-secondary',
+}
 
 interface TypographyProps extends TextProps {
-  variant?: 'display' | 'h1' | 'h2' | 'body' | 'bodyMedium' | 'caption' | 'button'
+  variant?: TypographyVariant
   color?: string
   align?: 'auto' | 'left' | 'right' | 'center' | 'justify'
+  className?: string
 }
 
 export function Typography({
   variant = 'body',
-  color = colors.text.primary,
+  color,
   align = 'left',
+  className,
   style,
   ...props
 }: TypographyProps) {
-  return <Text style={[styles[variant], { color, textAlign: align }, style]} {...props} />
+  return (
+    <Text
+      className={cn(variantClasses[variant], className)}
+      style={[
+        // NativeWind limitation: kept as inline — dynamic color/align props cannot map to className at runtime
+        color ? { color } : undefined,
+        align !== 'left' ? { textAlign: align } : undefined,
+        style,
+      ]}
+      {...props}
+    />
+  )
 }
-
-const styles = StyleSheet.create({
-  body: {
-    fontFamily: typography.fonts.body,
-    fontSize: typography.sizes.base,
-  },
-  bodyMedium: {
-    fontFamily: typography.fonts.bodyMedium,
-    fontSize: typography.sizes.md,
-  },
-  button: {
-    fontFamily: typography.fonts.heading,
-    fontSize: typography.sizes.md,
-  },
-  caption: {
-    color: colors.text.secondary,
-    fontFamily: typography.fonts.body,
-    fontSize: typography.sizes.sm,
-  },
-  display: {
-    fontFamily: typography.fonts.display,
-    fontSize: typography.sizes.display,
-  },
-  h1: {
-    fontFamily: typography.fonts.heading,
-    fontSize: typography.sizes.xxl,
-  },
-  h2: {
-    fontFamily: typography.fonts.heading,
-    fontSize: typography.sizes.xl,
-  },
-})

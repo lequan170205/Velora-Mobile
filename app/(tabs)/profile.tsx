@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons'
 import { Image } from 'expo-image'
 import * as ImagePicker from 'expo-image-picker'
 import React from 'react'
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { authApi } from '../../src/api/auth.api'
@@ -45,208 +45,93 @@ export default function ProfileScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Profile</Text>
+    <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
+      <ScrollView
+        contentContainerStyle={{ alignItems: 'center', paddingBottom: 40, paddingHorizontal: 16 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Header */}
+        <View className="items-center mb-6 pt-4">
+          <Text className="text-text-primary font-bold text-display">Profile</Text>
         </View>
 
-        <View style={styles.avatarSection}>
+        {/* Avatar section */}
+        <View className="items-center mb-6">
           <TouchableOpacity
             onPress={handlePickImage}
             disabled={isUpdatingAvatar}
-            style={styles.avatarWrapper}
+            className="items-center justify-center mb-5 relative"
             activeOpacity={0.8}
           >
             {user?.avatar ? (
-              <Image source={{ uri: user.avatar }} style={styles.avatarImage} />
+              <Image
+                source={{ uri: user.avatar }}
+                // NativeWind limitation: kept as inline — exact borderRadius needs to match width/2
+                style={{ width: 144, height: 144, borderRadius: 72 }}
+              />
             ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Text style={styles.avatarText}>
+              <View className="w-36 h-36 rounded-full bg-surface-card items-center justify-center">
+                <Text className="text-text-primary font-bold text-[48px]">
                   {user?.firstName?.charAt(0).toUpperCase() || 'U'}
                 </Text>
               </View>
             )}
 
-            <View style={styles.editBadge}>
+            {/* Edit badge */}
+            <View className="absolute bottom-1 right-1 w-8 h-8 rounded-badge bg-brand border-2 border-bg-primary items-center justify-center">
               <MaterialIcons name="camera-alt" size={16} color="#ffffff" />
             </View>
           </TouchableOpacity>
 
-          <View style={styles.nameContainer}>
-            <Text style={styles.name}>
+          {/* Name & email */}
+          <View className="items-center">
+            <Text className="text-text-primary font-bold text-xxl text-center">
               {user?.firstName} {user?.lastName}
             </Text>
-            <Text style={styles.email}>{user?.email}</Text>
+            <Text className="text-text-secondary font-sans text-base2 mt-1">{user?.email}</Text>
           </View>
         </View>
 
-        <View style={styles.statsContainer}>
-          <View style={styles.statBox}>
-            <Text style={styles.statValue}>42</Text>
-            <Text style={styles.statLabel}>Missions</Text>
+        {/* Stats */}
+        <View className="flex-row gap-3 mt-2 w-full">
+          <View className="flex-1 items-center bg-surface-card rounded-xl p-3">
+            <Text className="text-text-primary font-bold text-xl">42</Text>
+            <Text className="text-text-secondary font-sans text-xs2 mt-1">Missions</Text>
           </View>
-          <View style={styles.statBox}>
-            <Text style={styles.statValue}>Elite</Text>
-            <Text style={styles.statLabel}>Status</Text>
+          <View className="flex-1 items-center bg-surface-card rounded-xl p-3">
+            <Text className="text-text-primary font-bold text-xl">Elite</Text>
+            <Text className="text-text-secondary font-sans text-xs2 mt-1">Status</Text>
           </View>
         </View>
 
-        <View style={styles.section}>
-          <TouchableOpacity style={styles.menuCell} activeOpacity={0.7}>
-            <MaterialIcons name="edit" size={24} color="#94a3b8" style={styles.btnIcon} />
-            <Text style={styles.btnText}>Edit Profile</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.menuCell} activeOpacity={0.7}>
-            <MaterialIcons name="palette" size={24} color="#94a3b8" style={styles.btnIcon} />
-            <Text style={styles.btnText}>Theme Settings</Text>
+        {/* Menu section */}
+        <View className="gap-2 mt-8 w-full">
+          <TouchableOpacity
+            className="flex-row items-center bg-surface-card rounded-xl h-14 px-5"
+            activeOpacity={0.7}
+          >
+            <MaterialIcons name="edit" size={24} color="#94a3b8" style={{ marginRight: 16 }} />
+            <Text className="text-text-primary font-medium text-md flex-1">Edit Profile</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.menuCell, styles.logoutCell]}
+            className="flex-row items-center bg-surface-card rounded-xl h-14 px-5"
+            activeOpacity={0.7}
+          >
+            <MaterialIcons name="palette" size={24} color="#94a3b8" style={{ marginRight: 16 }} />
+            <Text className="text-text-primary font-medium text-md flex-1">Theme Settings</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            className="flex-row items-center bg-surface-card rounded-xl h-14 px-5 mt-2"
             onPress={handleLogout}
             activeOpacity={0.7}
           >
-            <MaterialIcons name="logout" size={24} color="#ef4444" style={styles.btnIcon} />
-            <Text style={styles.logoutText}>Logout</Text>
+            <MaterialIcons name="logout" size={24} color="#ef4444" style={{ marginRight: 16 }} />
+            <Text className="text-status-error font-medium text-md flex-1">Logout</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
     </SafeAreaView>
   )
 }
-
-const styles = StyleSheet.create({
-  avatarImage: {
-    borderRadius: 72,
-    height: 144,
-    width: 144,
-  },
-  avatarPlaceholder: {
-    alignItems: 'center',
-    backgroundColor: '#1E1E24',
-    borderRadius: 72,
-    height: 144,
-    justifyContent: 'center',
-    width: 144,
-  },
-  avatarSection: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  avatarText: {
-    color: '#f8fafc',
-    fontFamily: 'Inter_700Bold',
-    fontSize: 48,
-  },
-  avatarWrapper: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-    position: 'relative',
-  },
-  btnIcon: {
-    marginRight: 16,
-  },
-  btnText: {
-    color: '#f8fafc',
-    flex: 1,
-    fontFamily: 'Inter_500Medium',
-    fontSize: 16,
-  },
-  container: {
-    backgroundColor: '#121212',
-    flex: 1,
-  },
-  editBadge: {
-    alignItems: 'center',
-    backgroundColor: '#0A7CFF',
-    borderColor: '#121212',
-    borderRadius: 16,
-    borderWidth: 2,
-    bottom: 4,
-    height: 32,
-    justifyContent: 'center',
-    position: 'absolute',
-    right: 4,
-    width: 32,
-  },
-  email: {
-    color: '#94a3b8',
-    fontFamily: 'Inter_400Regular',
-    fontSize: 14,
-    marginTop: 4,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 24,
-    paddingTop: 16,
-  },
-  headerTitle: {
-    color: '#f8fafc',
-    fontFamily: 'Inter_700Bold',
-    fontSize: 32,
-  },
-  logoutCell: {
-    marginTop: 8,
-  },
-  logoutText: {
-    color: '#ef4444',
-    flex: 1,
-    fontFamily: 'Inter_500Medium',
-    fontSize: 16,
-  },
-  menuCell: {
-    alignItems: 'center',
-    backgroundColor: '#1E1E24',
-    borderRadius: 16,
-    flexDirection: 'row',
-    height: 56,
-    paddingHorizontal: 20,
-    width: '100%',
-  },
-  name: {
-    color: '#f8fafc',
-    fontFamily: 'Inter_700Bold',
-    fontSize: 24,
-    textAlign: 'center',
-  },
-  nameContainer: {
-    alignItems: 'center',
-  },
-  scroll: {
-    alignItems: 'center',
-    paddingBottom: 40,
-    paddingHorizontal: 16,
-  },
-  section: {
-    gap: 8,
-    marginTop: 32,
-    width: '100%',
-  },
-  statBox: {
-    alignItems: 'center',
-    backgroundColor: '#1E1E24',
-    borderRadius: 16,
-    flex: 1,
-    padding: 12,
-  },
-  statLabel: {
-    color: '#94a3b8',
-    fontFamily: 'Inter_400Regular',
-    fontSize: 12,
-    marginTop: 4,
-  },
-  statValue: {
-    color: '#f8fafc',
-    fontFamily: 'Inter_700Bold',
-    fontSize: 20,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
-    width: '100%',
-  },
-})

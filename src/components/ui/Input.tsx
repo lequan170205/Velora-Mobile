@@ -1,120 +1,27 @@
-import React, { useState } from 'react'
-import { Animated, StyleSheet, TextInput, View, type TextInputProps } from 'react-native'
+import React from 'react'
+import { Text } from 'react-native'
+import { TextInput as PaperTextInput } from 'react-native-paper'
+import type { TextInputProps as PaperTextInputProps } from 'react-native-paper'
 
-import { colors, radius, spacing, typography } from '../../constants/theme'
-
-import { Typography } from './Typography'
-
-interface InputProps extends TextInputProps {
+interface InputProps extends Omit<PaperTextInputProps, 'mode'> {
   label: string
   error?: string
 }
 
-export function Input({ label, error, style, onFocus, onBlur, ...props }: InputProps) {
-  const [isFocused, setIsFocused] = useState(false)
-  const [focusAnim] = useState(new Animated.Value(props.value ? 1 : 0))
-
-  const handleFocus: TextInputProps['onFocus'] = (e) => {
-    setIsFocused(true)
-    Animated.timing(focusAnim, {
-      toValue: 1,
-      duration: 150,
-      useNativeDriver: false,
-    }).start()
-    onFocus?.(e)
-  }
-
-  const handleBlur: TextInputProps['onBlur'] = (e) => {
-    setIsFocused(false)
-    if (!props.value) {
-      Animated.timing(focusAnim, {
-        toValue: 0,
-        duration: 150,
-        useNativeDriver: false,
-      }).start()
-    }
-    onBlur?.(e)
-  }
-
+export function Input({ label, error, style, ...rest }: InputProps) {
   return (
-    <View style={styles.container}>
-      <Animated.Text
-        style={[
-          styles.label,
-          {
-            top: focusAnim.interpolate({
-              inputRange: [0, 1],
-              outputRange: [18, 8],
-            }),
-            fontSize: focusAnim.interpolate({
-              inputRange: [0, 1],
-              outputRange: [typography.sizes.base, typography.sizes.xs],
-            }),
-            color: error
-              ? colors.status.error
-              : isFocused
-                ? colors.brand.primary
-                : colors.text.secondary,
-          },
-        ]}
-      >
-        {label}
-      </Animated.Text>
-
-      <TextInput
-        style={[
-          styles.input,
-          isFocused && styles.inputFocused,
-          !!error && styles.inputError,
-          style,
-        ]}
-        placeholderTextColor="transparent"
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-        {...props}
+    <>
+      <PaperTextInput
+        mode="outlined"
+        label={label}
+        error={!!error}
+        // NativeWind limitation: kept as inline — Paper TextInput background not styleable via className
+        style={[{ backgroundColor: '#1E1E24' }, style]}
+        {...rest}
       />
-
       {!!error && (
-        <Typography variant="caption" color={colors.status.error} style={styles.errorText}>
-          {error}
-        </Typography>
+        <Text className="text-status-error text-xs2 mt-1 ml-1 font-sans">{error}</Text>
       )}
-    </View>
+    </>
   )
 }
-
-const styles = StyleSheet.create({
-  container: {
-    marginBottom: spacing.md,
-  },
-  errorText: {
-    marginLeft: spacing.xs,
-    marginTop: spacing.xs,
-  },
-  input: {
-    backgroundColor: colors.surface.input,
-    // eslint-disable-next-line react-native/no-color-literals
-    borderColor: 'transparent',
-    borderRadius: radius.md,
-    borderWidth: 1,
-    color: colors.text.primary,
-    fontFamily: typography.fonts.body,
-    fontSize: typography.sizes.base,
-    height: 56,
-    paddingHorizontal: spacing.lg,
-    paddingTop: 16,
-  },
-  inputError: {
-    borderColor: colors.status.error,
-  },
-  inputFocused: {
-    backgroundColor: colors.bg.elevated,
-    borderColor: colors.brand.primary,
-  },
-  label: {
-    fontFamily: typography.fonts.bodyMedium,
-    left: spacing.lg,
-    position: 'absolute',
-    zIndex: 1,
-  },
-})

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { Modal, StyleSheet, TouchableOpacity, View } from 'react-native'
+import { Modal, TouchableOpacity, View } from 'react-native'
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -8,7 +8,6 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 
-import { colors, radius, spacing } from '../../constants/theme'
 import { Typography } from '../ui/Typography'
 
 interface IncomingCallModalProps {
@@ -40,39 +39,56 @@ export function IncomingCallModal({
     }
   }, [visible, scale])
 
+  // NativeWind limitation: reanimated animated value — must stay as inline style
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }))
 
   return (
     <Modal visible={visible} transparent animationType="fade">
-      <View style={styles.overlay}>
-        <View style={styles.content}>
-          <Typography variant="caption" color={colors.text.secondary}>
+      {/* Overlay */}
+      <View className="flex-1 items-center justify-center bg-overlay">
+        {/* Content */}
+        <View className="items-center w-full">
+          <Typography variant="caption" color="#8E8EA0">
             Incoming {type === 'VIDEO' ? 'Video' : 'Voice'} Call
           </Typography>
 
-          <Animated.View style={[styles.avatarRing, animatedStyle]}>
-            <View style={styles.avatar}>
-              <Typography variant="h1" color={colors.text.inverse}>
+          {/* Animated avatar ring */}
+          <Animated.View
+            // NativeWind limitation: reanimated animated value — must stay as inline style
+            style={[{ marginVertical: 32 }, animatedStyle]}
+            className="w-[140px] h-[140px] rounded-full bg-[rgba(108,99,255,0.2)] items-center justify-center"
+          >
+            <View className="w-[100px] h-[100px] rounded-full bg-brand-violet items-center justify-center">
+              <Typography variant="h1" color="#ffffff">
                 {callerName.charAt(0)}
               </Typography>
             </View>
           </Animated.View>
 
-          <Typography variant="h2" style={styles.name}>
+          <Typography variant="h2" className="mb-8">
             {callerName}
           </Typography>
 
-          <View style={styles.actionsBox}>
-            <TouchableOpacity style={[styles.actionBtn, styles.rejectBtn]} onPress={onReject}>
-              <Typography variant="button" color={colors.text.primary}>
+          {/* Action buttons */}
+          <View className="flex-row justify-around w-4/5 mt-8">
+            <TouchableOpacity
+              className="w-[100px] h-[100px] rounded-full bg-status-error items-center justify-center"
+              onPress={onReject}
+              activeOpacity={0.8}
+            >
+              <Typography variant="button" color="#f8fafc">
                 Decline
               </Typography>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.actionBtn, styles.acceptBtn]} onPress={onAccept}>
-              <Typography variant="button" color={colors.text.primary}>
+            <TouchableOpacity
+              className="w-[100px] h-[100px] rounded-full bg-status-success items-center justify-center"
+              onPress={onAccept}
+              activeOpacity={0.8}
+            >
+              <Typography variant="button" color="#f8fafc">
                 Accept
               </Typography>
             </TouchableOpacity>
@@ -82,48 +98,3 @@ export function IncomingCallModal({
     </Modal>
   )
 }
-
-const styles = StyleSheet.create({
-  acceptBtn: { backgroundColor: colors.status.success },
-  actionBtn: {
-    alignItems: 'center',
-    borderRadius: radius.full,
-    height: 100,
-    justifyContent: 'center',
-    width: 100,
-  },
-  actionsBox: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: spacing.xxxl,
-    width: '80%',
-  },
-  avatar: {
-    alignItems: 'center',
-    backgroundColor: colors.brand.primary,
-    borderRadius: radius.full,
-    height: 100,
-    justifyContent: 'center',
-    width: 100,
-  },
-  avatarRing: {
-    alignItems: 'center',
-    // eslint-disable-next-line react-native/no-color-literals
-    backgroundColor: 'rgba(108, 99, 255, 0.2)',
-    borderRadius: radius.full,
-    height: 140,
-    justifyContent: 'center',
-    marginVertical: spacing.xxxl,
-    width: 140,
-  },
-  content: { alignItems: 'center', width: '100%' },
-  name: { marginBottom: spacing.xxxl },
-  overlay: {
-    alignItems: 'center',
-    // eslint-disable-next-line react-native/no-color-literals
-    backgroundColor: 'rgba(10, 10, 15, 0.95)',
-    flex: 1,
-    justifyContent: 'center',
-  },
-  rejectBtn: { backgroundColor: colors.status.error },
-})

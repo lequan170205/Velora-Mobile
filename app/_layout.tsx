@@ -1,19 +1,61 @@
+import '../src/global.css'
+
 import { Inter_400Regular, Inter_500Medium, useFonts } from '@expo-google-fonts/inter'
 import { SpaceGrotesk_600SemiBold, SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk'
+import { MaterialIcons } from '@expo/vector-icons'
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet'
-import { Stack } from 'expo-router'
+import { Stack, useRouter } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { useEffect } from 'react'
+import { Text, TouchableOpacity, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
+import { PaperProvider } from 'react-native-paper'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { paperTheme } from '../src/constants/paperTheme'
 import { colors } from '../src/constants/theme'
 import { AuthProvider } from '../src/providers/AuthProvider'
 import { QueryProvider } from '../src/providers/QueryProvider'
 import { SocketProvider } from '../src/providers/SocketProvider'
 import { useAuthStore } from '../src/stores/authStore'
+import { useCallStore } from '../src/stores/callStore'
 
 SplashScreen.preventAutoHideAsync()
+
+function ActiveCallBanner() {
+  const { isActive, duration, callId } = useCallStore()
+  const router = useRouter()
+  const insets = useSafeAreaInsets()
+
+  if (!isActive) return null
+
+  const formatDuration = (secs: number) => {
+    const m = Math.floor(secs / 60)
+    const s = secs % 60
+    return `${m}:${s < 10 ? '0' : ''}${s}`
+  }
+
+  return (
+    <TouchableOpacity
+      // NativeWind limitation: kept as inline — runtime computed from safe area insets
+      style={{ bottom: insets.bottom > 0 ? insets.bottom + 60 : 80 }}
+      className="absolute left-5 right-5 flex-row items-center justify-between px-4 py-3 bg-surface-card border border-call-green rounded-xl z-[9999]"
+      activeOpacity={0.9}
+      onPress={() => {
+        if (callId) router.push(`/call/${callId}`)
+      }}
+    >
+      <View className="flex-row items-center gap-3">
+        <View className="w-7 h-7 rounded-full bg-call-green items-center justify-center">
+          <MaterialIcons name="call" size={16} color="#ffffff" />
+        </View>
+        <Text className="text-text-primary font-medium text-md">Cuộc gọi đang diễn ra...</Text>
+      </View>
+      <Text className="text-call-green font-semibold text-md">{formatDuration(duration)}</Text>
+    </TouchableOpacity>
+  )
+}
 
 export default function RootLayout() {
   const [loaded, error] = useFonts({
@@ -40,32 +82,35 @@ export default function RootLayout() {
   }
 
   return (
-    // eslint-disable-next-line react-native/no-inline-styles
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg.primary }}>
-      <KeyboardProvider>
-        <BottomSheetModalProvider>
-          <QueryProvider>
-            <AuthProvider>
-              <SocketProvider>
-                <Stack
-                  screenOptions={{
-                    headerShown: false,
-                    contentStyle: { backgroundColor: colors.bg.primary },
-                  }}
-                >
-                  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                  <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-                  <Stack.Screen name="conversation/[id]" options={{ headerShown: false }} />
-                  <Stack.Screen
-                    name="call/[id]"
-                    options={{ presentation: 'fullScreenModal', headerShown: false }}
-                  />
-                </Stack>
-              </SocketProvider>
-            </AuthProvider>
-          </QueryProvider>
-        </BottomSheetModalProvider>
-      </KeyboardProvider>
+    <GestureHandlerRootView className="flex-1 bg-bg-primary">
+      <PaperProvider theme={paperTheme}>
+        <KeyboardProvider>
+          <BottomSheetModalProvider>
+            <QueryProvider>
+              <AuthProvider>
+                <SocketProvider>
+                  <Stack
+                    screenOptions={{
+                      headerShown: false,
+                      contentStyle: { backgroundColor: colors.bg.primary },
+                    }}
+                  >
+                    <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                    <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+                    <Stack.Screen name="conversation/[id]" options={{ headerShown: false }} />
+                    <Stack.Screen
+                      name="call/[id]"
+                      options={{ presentation: 'fullScreenModal', headerShown: false }}
+                    />
+                  </Stack>
+                  {/* Active call overlay banner */}
+                  <ActiveCallBanner />
+                </SocketProvider>
+              </AuthProvider>
+            </QueryProvider>
+          </BottomSheetModalProvider>
+        </KeyboardProvider>
+      </PaperProvider>
     </GestureHandlerRootView>
   )
 }

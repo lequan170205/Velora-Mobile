@@ -1,12 +1,17 @@
 import { MaterialIcons } from '@expo/vector-icons'
+import * as DocumentPicker from 'expo-document-picker'
+import * as ImagePicker from 'expo-image-picker'
 import React, { useState } from 'react'
-import { StyleSheet, TextInput, TouchableOpacity, View } from 'react-native'
+import { Alert, TextInput, TouchableOpacity, View } from 'react-native'
+
+import { cn } from '../../lib/cn'
 
 interface MessageInputProps {
   onSend: (text: string) => void
+  onSendMedia?: (uri: string, type: 'IMAGE' | 'FILE', fileInfo: any) => void
 }
 
-export function MessageInput({ onSend }: MessageInputProps) {
+export function MessageInput({ onSend, onSendMedia }: MessageInputProps) {
   const [text, setText] = useState('')
   const [isFocused, setIsFocused] = useState(false)
 
@@ -17,21 +22,92 @@ export function MessageInput({ onSend }: MessageInputProps) {
     }
   }
 
+  const handleAttachImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      if (status !== 'granted') {
+        Alert.alert('Permission denied', 'App needs access to your photos.')
+        return
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.8,
+      })
+
+      if (!result.canceled && result.assets && result.assets.length > 0 && onSendMedia) {
+        const asset = result.assets[0]
+        onSendMedia(asset.uri, 'IMAGE', asset)
+      }
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  const handleAttachFile = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+      })
+
+      if (!result.canceled && result.assets && result.assets.length > 0 && onSendMedia) {
+        const file = result.assets[0]
+        onSendMedia(file.uri, 'FILE', file)
+      }
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
   const hasText = text.trim().length > 0
 
   return (
-    <View style={styles.container}>
-      <View style={styles.actionRow}>
-        <TouchableOpacity style={styles.iconButton}>
-          <MaterialIcons name="add-circle" size={28} color="#64748b" />
-        </TouchableOpacity>
+    <View className="bg-bg-primary border-t border-surface-card px-3 pb-2.5 pt-3">
+      <View className="flex-row items-end gap-2">
+        {/* Attachment buttons — shown when not focused and no text */}
+        {!isFocused && !hasText && (
+          <View className="flex-row gap-0.5">
+            <TouchableOpacity
+              className="w-9 h-10 items-center justify-center mb-1"
+              onPress={handleAttachImage}
+            >
+              <MaterialIcons name="image" size={24} color="#0A7CFF" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              className="w-9 h-10 items-center justify-center mb-1"
+              onPress={handleAttachFile}
+            >
+              <MaterialIcons name="attach-file" size={24} color="#0A7CFF" />
+            </TouchableOpacity>
+          </View>
+        )}
 
-        <View style={[styles.inputWrapper, isFocused && styles.inputWrapperFocused]}>
+        {/* Expand button — shown when focused or has text */}
+        {(isFocused || hasText) && (
+          <TouchableOpacity
+            className="w-9 h-10 items-center justify-center mb-1"
+            onPress={() => setIsFocused(false)}
+          >
+            <MaterialIcons name="add-circle" size={26} color="#0A7CFF" />
+          </TouchableOpacity>
+        )}
+
+        {/* Text input wrapper */}
+        <View
+          className={cn(
+            'flex-1 flex-row items-end rounded-3xl pr-1.5 py-1',
+            isFocused
+              ? 'bg-surface-focus border border-[#333333]'
+              : 'bg-surface-input',
+          )}
+        >
           <TextInput
-            style={styles.input}
+            className="flex-1 text-text-primary font-sans text-md px-4 py-2.5 min-h-[40px] max-h-[120px]"
             value={text}
             onChangeText={setText}
-            placeholder="Type a message..."
+            placeholder="Message..."
             placeholderTextColor="#64748b"
             multiline
             maxLength={1000}
@@ -39,72 +115,26 @@ export function MessageInput({ onSend }: MessageInputProps) {
             onBlur={() => setIsFocused(false)}
           />
 
-          {hasText && (
-            <TouchableOpacity
-              style={styles.sendButtonActive}
-              onPress={handleSend}
-              disabled={!hasText}
-            >
-              <MaterialIcons name="send" size={20} color="#ffffff" style={{ marginLeft: 3 }} />
-            </TouchableOpacity>
-          )}
+          {/* Send button */}
+          <TouchableOpacity
+            className={cn(
+              'w-9 h-9 rounded-full items-center justify-center mb-0.5',
+              hasText ? 'bg-brand' : 'bg-transparent',
+            )}
+            onPress={handleSend}
+            disabled={!hasText}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons
+              name="send"
+              size={18}
+              color={hasText ? '#ffffff' : '#64748b'}
+              // NativeWind limitation: kept as inline — marginLeft is a style on the icon itself
+              style={{ marginLeft: 3 }}
+            />
+          </TouchableOpacity>
         </View>
       </View>
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  actionRow: {
-    alignItems: 'flex-end',
-    flexDirection: 'row',
-    gap: 8,
-  },
-  container: {
-    backgroundColor: '#121212',
-    borderTopColor: '#1E1E24',
-    borderTopWidth: 1,
-    paddingBottom: 24,
-    paddingHorizontal: 12,
-    paddingTop: 12,
-  },
-  iconButton: {
-    alignItems: 'center',
-    height: 40,
-    justifyContent: 'center',
-    marginBottom: 4,
-    width: 40,
-  },
-  input: {
-    color: '#f8fafc',
-    flex: 1,
-    fontFamily: 'Inter_400Regular',
-    fontSize: 16,
-    maxHeight: 120,
-    minHeight: 40,
-    paddingBottom: 10,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-  },
-  inputWrapper: {
-    alignItems: 'flex-end',
-    backgroundColor: '#1E1E24',
-    borderRadius: 24,
-    flex: 1,
-    flexDirection: 'row',
-    paddingRight: 6,
-    paddingVertical: 4,
-  },
-  inputWrapperFocused: {
-    backgroundColor: '#26262E',
-  },
-  sendButtonActive: {
-    alignItems: 'center',
-    backgroundColor: '#0A7CFF',
-    borderRadius: 16,
-    height: 32,
-    justifyContent: 'center',
-    marginBottom: 4,
-    width: 32,
-  },
-})

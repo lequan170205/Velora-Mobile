@@ -3,17 +3,17 @@ import { FlashList as OriginalFlashList } from '@shopify/flash-list'
 import { useRouter } from 'expo-router'
 import React, { useState } from 'react'
 import {
-    ActivityIndicator,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { conversationApi } from '../../src/api/conversation.api'
 import { useContacts } from '../../src/hooks/useContacts'
+import { cn } from '../../src/lib/cn'
 import { useChatStore } from '../../src/stores/chatStore'
 import type { UserSession } from '../../src/types/user.types'
 
@@ -44,40 +44,46 @@ export default function ContactsScreen() {
   const renderItem = ({ item }: { item: UserSession }) => {
     if (!item) return null
     const isOnline = onlineUsers.has(item.id)
+
     return (
       <TouchableOpacity
-        style={styles.contactItem}
+        className="mx-4"
         onPress={() => handleUserPress(item)}
         activeOpacity={0.7}
       >
-        <View style={styles.contactRow}>
-          <View style={styles.avatarContainer}>
-            <View style={styles.avatarSolid}>
-              <Text style={styles.avatarText}>{item.firstName.charAt(0).toUpperCase()}</Text>
+        <View className="flex-row items-center py-3">
+          {/* Avatar with online badge */}
+          <View className="relative mr-3">
+            <View className="w-12 h-12 rounded-avatar bg-surface-card items-center justify-center">
+              <Text className="text-text-primary font-bold text-lg">
+                {item.firstName.charAt(0).toUpperCase()}
+              </Text>
             </View>
             <View
-              style={[
-                styles.onlineBadge,
-                isOnline ? styles.onlineBadgeActive : styles.onlineBadgeInactive,
-              ]}
+              className={cn(
+                'absolute bottom-[-2px] right-[-2px] w-3.5 h-3.5 rounded-full border-2 border-bg-primary',
+                isOnline ? 'bg-status-online' : 'bg-text-muted',
+              )}
             />
           </View>
 
-          <View style={styles.infoContainer}>
-            <Text style={styles.contactName} numberOfLines={1}>
+          {/* Info */}
+          <View className="flex-1 justify-center">
+            <Text className="text-text-primary font-semibold text-md mb-1" numberOfLines={1}>
               {item.firstName} {item.lastName}
             </Text>
             <Text
-              style={[
-                styles.statusText,
-                isOnline ? styles.statusTextActive : styles.statusTextInactive,
-              ]}
+              className={cn(
+                'font-sans text-sm2',
+                isOnline ? 'text-status-online' : 'text-text-muted',
+              )}
             >
               {isOnline ? 'Active Now' : 'Offline'}
             </Text>
           </View>
 
-          <View style={styles.actionIconContainer}>
+          {/* Action icon */}
+          <View className="w-10 h-10 items-center justify-center">
             <MaterialIcons name="chat-bubble" size={24} color="#0A7CFF" />
           </View>
         </View>
@@ -86,14 +92,16 @@ export default function ContactsScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Contacts</Text>
+    <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
+      {/* Header */}
+      <View className="px-4 pt-4 z-10">
+        <Text className="text-text-primary font-bold text-display">Contacts</Text>
 
-        <View style={styles.searchContainer}>
-          <MaterialIcons name="search" size={20} color="#64748b" style={styles.searchIcon} />
+        {/* Search bar */}
+        <View className="flex-row items-center bg-surface-card rounded-full h-10 mt-4 px-3">
+          <MaterialIcons name="search" size={20} color="#64748b" style={{ marginRight: 8 }} />
           <TextInput
-            style={styles.searchInput}
+            className="flex-1 text-text-primary font-sans text-md h-full"
             value={search}
             onChangeText={setSearch}
             placeholder="Search users..."
@@ -102,9 +110,10 @@ export default function ContactsScreen() {
         </View>
       </View>
 
-      <View style={styles.listContainer}>
+      {/* List */}
+      <View className="flex-1 pt-2 z-10">
         {isLoading ? (
-          <ActivityIndicator color="#0A7CFF" size="large" style={styles.loader} />
+          <ActivityIndicator color="#0A7CFF" size="large" className="flex-1 justify-center" />
         ) : (
           <FlashList
             data={users}
@@ -117,8 +126,8 @@ export default function ContactsScreen() {
             }}
             onEndReachedThreshold={0.5}
             ListEmptyComponent={
-              <View style={styles.empty}>
-                <Text style={styles.emptyText}>No contacts found</Text>
+              <View className="items-center p-8">
+                <Text className="text-text-secondary font-sans text-base2">No contacts found</Text>
               </View>
             }
           />
@@ -127,125 +136,3 @@ export default function ContactsScreen() {
     </SafeAreaView>
   )
 }
-
-const styles = StyleSheet.create({
-  actionIconContainer: {
-    alignItems: 'center',
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
-  },
-  avatarContainer: {
-    marginRight: 12,
-    position: 'relative',
-  },
-  avatarSolid: {
-    alignItems: 'center',
-    backgroundColor: '#1E1E24',
-    borderRadius: 24,
-    height: 48,
-    justifyContent: 'center',
-    width: 48,
-  },
-  avatarText: {
-    color: '#f8fafc',
-    fontFamily: 'Inter_700Bold',
-    fontSize: 18,
-  },
-  contactItem: {
-    marginHorizontal: 16,
-  },
-  contactName: {
-    color: '#f8fafc',
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 16,
-    marginBottom: 4,
-  },
-  contactRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    paddingVertical: 12,
-  },
-  container: {
-    backgroundColor: '#121212',
-    flex: 1,
-  },
-  empty: {
-    alignItems: 'center',
-    padding: 32,
-  },
-  emptyText: {
-    color: '#94a3b8',
-    fontFamily: 'Inter_400Regular',
-    fontSize: 14,
-  },
-  header: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    zIndex: 10,
-  },
-  infoContainer: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  listContainer: {
-    flex: 1,
-    paddingTop: 8,
-    zIndex: 10,
-  },
-  loader: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  onlineBadge: {
-    borderRadius: 7,
-    borderWidth: 2,
-    bottom: -2,
-    height: 14,
-    position: 'absolute',
-    right: -2,
-    width: 14,
-  },
-  onlineBadgeActive: {
-    backgroundColor: '#4ade80',
-    borderColor: '#121212',
-  },
-  onlineBadgeInactive: {
-    backgroundColor: '#64748b',
-    borderColor: '#121212',
-  },
-  searchContainer: {
-    alignItems: 'center',
-    backgroundColor: '#1E1E24',
-    borderRadius: 24,
-    flexDirection: 'row',
-    height: 40,
-    marginTop: 16,
-    paddingHorizontal: 12,
-  },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInput: {
-    color: '#f8fafc',
-    flex: 1,
-    fontFamily: 'Inter_400Regular',
-    fontSize: 16,
-    height: '100%',
-  },
-  statusText: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 13,
-  },
-  statusTextActive: {
-    color: '#4ade80',
-  },
-  statusTextInactive: {
-    color: '#64748b',
-  },
-  title: {
-    color: '#f8fafc',
-    fontFamily: 'Inter_700Bold',
-    fontSize: 32,
-  },
-})

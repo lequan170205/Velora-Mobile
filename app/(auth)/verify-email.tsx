@@ -5,7 +5,6 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
@@ -13,6 +12,7 @@ import {
 } from 'react-native'
 
 import { authApi } from '../../src/api/auth.api'
+import { cn } from '../../src/lib/cn'
 import { useAuthStore } from '../../src/stores/authStore'
 
 export default function VerifyEmailScreen() {
@@ -58,29 +58,40 @@ export default function VerifyEmailScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      className="flex-1 bg-bg-primary"
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={styles.formContainer}>
-        <View style={styles.content}>
-          <View style={styles.navBar}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+      <View className="flex-1">
+        <View className="flex-1 px-6 pb-12 pt-16">
+          {/* Nav bar */}
+          <View className="flex-row items-start">
+            <TouchableOpacity
+              onPress={() => router.back()}
+              className="w-12 h-12 rounded-full items-center justify-center"
+            >
               <MaterialIcons name="arrow-back" size={24} color="#f8fafc" />
             </TouchableOpacity>
           </View>
 
-          <View style={styles.header}>
-            <Text style={styles.title}>Verify Email</Text>
-            <Text style={styles.subtitle}>
+          {/* Header */}
+          <View className="gap-2 mt-8">
+            <Text className="text-text-primary font-bold text-display">Verify Email</Text>
+            <Text className="text-text-secondary font-sans text-md leading-6">
               We sent a 6-digit code to{'\n'}
-              <Text style={styles.emailHighlight}>{email}</Text>
+              <Text className="text-text-primary font-semibold">{email}</Text>
             </Text>
           </View>
 
-          <View style={styles.formSection}>
-            <View style={[styles.codeContainer, isFocused && styles.codeContainerFocused]}>
+          {/* OTP input */}
+          <View className="mt-8">
+            <View
+              className={cn(
+                'rounded-xl h-16 justify-center overflow-hidden mt-4',
+                isFocused ? 'bg-surface-focus' : 'bg-surface-input',
+              )}
+            >
               <TextInput
-                style={styles.codeInput}
+                className="text-text-primary font-semibold text-[32px] text-center"
                 value={token}
                 onChangeText={setToken}
                 keyboardType="number-pad"
@@ -90,32 +101,40 @@ export default function VerifyEmailScreen() {
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
                 textAlign="center"
+                // NativeWind limitation: letterSpacing kept as inline — no Tailwind class maps to this exact value
+                style={{ letterSpacing: 16 }}
               />
             </View>
 
-            <View style={styles.buttonContainer}>
-              <TouchableOpacity
-                style={styles.buttonWrapper}
-                onPress={handleVerify}
-                disabled={isLoading}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.buttonText}>{isLoading ? 'Verifying...' : 'VERIFY'}</Text>
-              </TouchableOpacity>
-            </View>
+            {/* Verify button */}
+            <TouchableOpacity
+              className="items-center justify-center flex-row bg-brand rounded-xl h-14 mt-8"
+              onPress={handleVerify}
+              disabled={isLoading}
+              activeOpacity={0.8}
+            >
+              <Text className="text-white font-bold text-md">
+                {isLoading ? 'Verifying...' : 'VERIFY'}
+              </Text>
+            </TouchableOpacity>
           </View>
 
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>Didn&apos;t receive the code?</Text>
-            <View style={styles.resendRow}>
+          {/* Footer */}
+          <View className="items-center gap-2 mt-auto pt-8">
+            <Text className="text-text-secondary font-sans text-base2">
+              Didn&apos;t receive the code?
+            </Text>
+            <View className="flex-row items-center gap-2">
               {countdown > 0 ? (
                 <>
-                  <Text style={styles.resendTextDisabled}>Resend Code in</Text>
-                  <Text style={styles.timerText}>00:{countdown.toString().padStart(2, '0')}</Text>
+                  <Text className="text-text-muted font-sans text-base2">Resend Code in</Text>
+                  <Text className="text-text-primary font-semibold text-base2">
+                    00:{countdown.toString().padStart(2, '0')}
+                  </Text>
                 </>
               ) : (
                 <TouchableOpacity onPress={handleResend} activeOpacity={0.7}>
-                  <Text style={styles.resendTextActive}>Resend Code</Text>
+                  <Text className="text-brand font-semibold text-base2">Resend Code</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -125,117 +144,3 @@ export default function VerifyEmailScreen() {
     </KeyboardAvoidingView>
   )
 }
-
-const styles = StyleSheet.create({
-  backButton: {
-    alignItems: 'center',
-    borderRadius: 24,
-    height: 48,
-    justifyContent: 'center',
-    width: 48,
-  },
-  buttonContainer: {
-    marginTop: 32,
-  },
-  buttonText: {
-    color: '#ffffff',
-    fontFamily: 'Inter_700Bold',
-    fontSize: 16,
-  },
-  buttonWrapper: {
-    alignItems: 'center',
-    backgroundColor: '#0A7CFF',
-    borderRadius: 12,
-    flexDirection: 'row',
-    height: 56,
-    justifyContent: 'center',
-  },
-  codeContainer: {
-    backgroundColor: '#1E1E24',
-    borderRadius: 12,
-    height: 64,
-    justifyContent: 'center',
-    marginTop: 16,
-    overflow: 'hidden',
-  },
-  codeContainerFocused: {
-    backgroundColor: '#26262E',
-  },
-  codeInput: {
-    color: '#f8fafc',
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 32,
-    letterSpacing: 16,
-    textAlign: 'center',
-  },
-  container: {
-    backgroundColor: '#121212',
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-    paddingBottom: 48,
-    paddingHorizontal: 24,
-    paddingTop: 64,
-  },
-  emailHighlight: {
-    color: '#f8fafc',
-    fontFamily: 'Inter_600SemiBold',
-  },
-  footer: {
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 'auto',
-    paddingTop: 32,
-  },
-  footerText: {
-    color: '#94a3b8',
-    fontFamily: 'Inter_400Regular',
-    fontSize: 14,
-  },
-  formContainer: {
-    flex: 1,
-  },
-  formSection: {
-    marginTop: 32,
-  },
-  header: {
-    gap: 8,
-    marginTop: 32,
-  },
-  navBar: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-  },
-  resendRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-  },
-  resendTextActive: {
-    color: '#0A7CFF',
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 14,
-  },
-  resendTextDisabled: {
-    color: '#64748b',
-    fontFamily: 'Inter_400Regular',
-    fontSize: 14,
-  },
-  subtitle: {
-    color: '#94a3b8',
-    fontFamily: 'Inter_400Regular',
-    fontSize: 16,
-    lineHeight: 24,
-  },
-  timerText: {
-    color: '#f8fafc',
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 14,
-  },
-  title: {
-    color: '#f8fafc',
-    fontFamily: 'Inter_700Bold',
-    fontSize: 32,
-  },
-})

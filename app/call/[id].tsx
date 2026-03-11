@@ -1,20 +1,30 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useEffect, useState } from 'react'
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Image, Text, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
+import { cn } from '../../src/lib/cn'
+import { useCallStore } from '../../src/stores/callStore'
+
 export default function ActiveCallScreen() {
-  const { type } = useLocalSearchParams<{ id: string; type: string }>()
+  const { id, type } = useLocalSearchParams<{ id: string; type: string }>()
   const router = useRouter()
-  const [duration, setDuration] = useState(0)
+
+  const { isActive, duration, callerName, avatarUrl, isVideo, endCall } = useCallStore()
+
+  const [isMuted, setIsMuted] = useState(false)
+  const [isVideoEnabled, setIsVideoEnabled] = useState(type?.toLowerCase() === 'video')
+  const [isSpeakerOn, setIsSpeakerOn] = useState(type?.toLowerCase() === 'video')
 
   useEffect(() => {
-    const timer = setInterval(() => setDuration((d) => d + 1), 1000)
-    return () => clearInterval(timer)
-  }, [])
+    if (!isActive) {
+      router.canGoBack() ? router.back() : router.replace('/')
+    }
+  }, [isActive])
 
   const handleEndCall = () => {
+    endCall()
     router.back()
   }
 
@@ -25,59 +35,128 @@ export default function ActiveCallScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <MaterialIcons name="keyboard-arrow-down" size={28} color="#f8fafc" />
+    <View className="flex-1 bg-bg-primary">
+      <SafeAreaView className="flex-1 justify-between" edges={['top', 'bottom']}>
+        {/* Header */}
+        <View className="flex-row items-center justify-between px-4 pt-4 z-10">
+          <TouchableOpacity
+            className="w-12 h-12 items-center justify-center"
+            onPress={() => router.back()}
+          >
+            <MaterialIcons name="keyboard-arrow-down" size={32} color="#f8fafc" />
           </TouchableOpacity>
-          <View style={styles.secureHeader}>
+          <View className="flex-row items-center">
             <MaterialIcons name="lock" size={14} color="#94a3b8" />
-            <Text style={styles.headerTitle}>End-to-End Encrypted</Text>
+            <Text className="text-text-secondary font-medium text-xs2 ml-1">
+              End-to-End Encrypted
+            </Text>
           </View>
-          <View style={{ width: 48 }} />
+          <View className="w-12" />
         </View>
 
-        <View style={styles.mainContent}>
-          {type === 'VIDEO' ? (
-            <View style={styles.videoPlaceholder}>
-              <Text style={styles.videoText}>Remote Video Stream</Text>
-
-              <View style={styles.localVideoPip}>
-                <Text style={styles.localVideoText}>Local</Text>
+        {/* Main content */}
+        <View className="flex-1 items-center justify-center w-full z-10">
+          {isVideo ? (
+            // Video call placeholder
+            <View className="flex-1 w-full items-center justify-center bg-black relative">
+              <Text className="text-text-muted font-medium text-base2">Remote Video Stream</Text>
+              {/* PiP local video */}
+              <View className="absolute bottom-6 right-6 w-[110px] h-40 bg-surface-card rounded-xl items-center justify-center">
+                <Text className="text-text-secondary font-medium text-xs2">Local</Text>
               </View>
             </View>
           ) : (
-            <View style={styles.audioPlaceholder}>
-              <View style={styles.avatarContainer}>
-                <View style={styles.avatarSolid}>
-                  <Text style={styles.avatarText}>U</Text>
-                </View>
+            // Voice call placeholder
+            <View className="flex-1 items-center justify-center w-full">
+              <View className="w-40 h-40 items-center justify-center mb-10">
+                {avatarUrl ? (
+                  <Image
+                    source={{ uri: avatarUrl }}
+                    // NativeWind limitation: kept as inline — exact borderRadius must match w/h
+                    style={{ width: 160, height: 160, borderRadius: 80 }}
+                  />
+                ) : (
+                  <View className="w-40 h-40 rounded-full bg-surface-card items-center justify-center">
+                    <Text className="text-text-primary font-bold text-[64px]">
+                      {callerName.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
               </View>
-
-              <Text style={styles.callerName}>User Name</Text>
-              <Text style={styles.durationText}>{formatDuration(duration)}</Text>
+              <Text
+                className="text-text-primary font-bold text-[25px] text-center px-6 mb-2"
+                numberOfLines={1}
+                adjustsFontSizeToFit={true}
+              >
+                {callerName}
+              </Text>
+              <Text className="text-text-secondary font-medium text-lg">
+                {formatDuration(duration)}
+              </Text>
             </View>
           )}
         </View>
 
-        <View style={styles.controlsWrapper}>
-          <View style={styles.controlsRow}>
-            <TouchableOpacity style={styles.controlBtn}>
-              <MaterialIcons name="mic-off" size={28} color="#f8fafc" />
+        {/* Controls */}
+        <View className="w-full pb-12 pt-8">
+          {/* Control buttons row */}
+          <View className="flex-row justify-between px-12 w-full">
+            {/* Mute */}
+            <TouchableOpacity
+              className={cn(
+                'w-14 h-14 rounded-full items-center justify-center',
+                isMuted ? 'bg-text-primary' : 'bg-surface-card',
+              )}
+              onPress={() => setIsMuted(!isMuted)}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons
+                name={isMuted ? 'mic-off' : 'mic'}
+                size={28}
+                color={isMuted ? '#121212' : '#f8fafc'}
+              />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.controlBtn}>
-              <MaterialIcons name="videocam" size={28} color="#f8fafc" />
+            {/* Video toggle */}
+            <TouchableOpacity
+              className={cn(
+                'w-14 h-14 rounded-full items-center justify-center',
+                !isVideoEnabled ? 'bg-text-primary' : 'bg-surface-card',
+              )}
+              onPress={() => setIsVideoEnabled(!isVideoEnabled)}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons
+                name={isVideoEnabled ? 'videocam' : 'videocam-off'}
+                size={28}
+                color={!isVideoEnabled ? '#121212' : '#f8fafc'}
+              />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.controlBtn}>
-              <MaterialIcons name="volume-up" size={28} color="#f8fafc" />
+            {/* Speaker */}
+            <TouchableOpacity
+              className={cn(
+                'w-14 h-14 rounded-full items-center justify-center',
+                isSpeakerOn ? 'bg-text-primary' : 'bg-surface-card',
+              )}
+              onPress={() => setIsSpeakerOn(!isSpeakerOn)}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons
+                name={isSpeakerOn ? 'volume-up' : 'volume-down'}
+                size={28}
+                color={isSpeakerOn ? '#121212' : '#f8fafc'}
+              />
             </TouchableOpacity>
           </View>
 
-          <View style={styles.endCallContainer}>
-            <TouchableOpacity style={styles.endCallBtn} onPress={handleEndCall}>
+          {/* End call button */}
+          <View className="items-center w-full mt-10">
+            <TouchableOpacity
+              className="w-20 h-20 rounded-full bg-status-error items-center justify-center"
+              onPress={handleEndCall}
+              activeOpacity={0.8}
+            >
               <MaterialIcons name="call-end" size={36} color="#ffffff" />
             </TouchableOpacity>
           </View>
@@ -86,144 +165,3 @@ export default function ActiveCallScreen() {
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  audioPlaceholder: {
-    alignItems: 'center',
-    flex: 1,
-    justifyContent: 'center',
-    width: '100%',
-  },
-  avatarContainer: {
-    alignItems: 'center',
-    height: 160,
-    justifyContent: 'center',
-    marginBottom: 40,
-    width: 160,
-  },
-  avatarSolid: {
-    alignItems: 'center',
-    backgroundColor: '#1E1E24',
-    borderRadius: 80,
-    height: 160,
-    justifyContent: 'center',
-    width: 160,
-  },
-  avatarText: {
-    color: '#f8fafc',
-    fontFamily: 'Inter_700Bold',
-    fontSize: 64,
-  },
-  backButton: {
-    alignItems: 'center',
-    height: 48,
-    justifyContent: 'center',
-    width: 48,
-  },
-  callerName: {
-    color: '#f8fafc',
-    fontFamily: 'Inter_700Bold',
-    fontSize: 32,
-    letterSpacing: -0.5,
-    marginBottom: 8,
-  },
-  container: {
-    backgroundColor: '#121212',
-    flex: 1,
-  },
-  controlBtn: {
-    alignItems: 'center',
-    backgroundColor: '#1E1E24',
-    borderRadius: 28,
-    height: 56,
-    justifyContent: 'center',
-    width: 56,
-  },
-  controlsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 48,
-    width: '100%',
-  },
-  controlsWrapper: {
-    paddingBottom: 48,
-    paddingTop: 32,
-    width: '100%',
-  },
-  durationText: {
-    color: '#94a3b8',
-    fontFamily: 'Inter_500Medium',
-    fontSize: 18,
-  },
-  endCallBtn: {
-    alignItems: 'center',
-    backgroundColor: '#ef4444',
-    borderRadius: 40,
-    height: 80,
-    justifyContent: 'center',
-    width: 80,
-  },
-  endCallContainer: {
-    alignItems: 'center',
-    marginTop: 40,
-    width: '100%',
-  },
-  header: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    zIndex: 10,
-  },
-  headerTitle: {
-    color: '#94a3b8',
-    fontFamily: 'Inter_500Medium',
-    fontSize: 12,
-    marginLeft: 4,
-  },
-  localVideoPip: {
-    alignItems: 'center',
-    backgroundColor: '#1E1E24',
-    borderRadius: 16,
-    bottom: 24,
-    height: 160,
-    justifyContent: 'center',
-    position: 'absolute',
-    right: 24,
-    width: 110,
-  },
-  localVideoText: {
-    color: '#94a3b8',
-    fontFamily: 'Inter_500Medium',
-    fontSize: 12,
-  },
-  mainContent: {
-    alignItems: 'center',
-    flex: 1,
-    justifyContent: 'center',
-    width: '100%',
-    zIndex: 10,
-  },
-  safeArea: {
-    flex: 1,
-    justifyContent: 'space-between',
-  },
-  secureHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-  },
-  videoPlaceholder: {
-    alignItems: 'center',
-    backgroundColor: '#000000',
-    flex: 1,
-    justifyContent: 'center',
-    position: 'relative',
-    width: '100%',
-  },
-  videoText: {
-    color: '#64748b',
-    fontFamily: 'Inter_500Medium',
-    fontSize: 14,
-  },
-})

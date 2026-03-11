@@ -1,8 +1,10 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { FlashList as OriginalFlashList } from '@shopify/flash-list'
 import React from 'react'
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Text, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+
+import { cn } from '../../src/lib/cn'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const FlashList = OriginalFlashList as any
@@ -39,6 +41,7 @@ export default function CallsScreen() {
     const isMissed = item.direction === 'MISSED'
 
     let iconName: keyof typeof MaterialIcons.glyphMap = 'call-received'
+    // Dynamic color is a component prop value, not a style prop — not a NativeWind limitation
     let iconColor = '#94a3b8'
     if (isMissed) {
       iconName = 'call-missed'
@@ -55,33 +58,37 @@ export default function CallsScreen() {
       item.type === 'VIDEO' ? 'videocam' : 'call'
 
     return (
-      <View style={styles.callItemWrapper}>
-        <View style={styles.callItem}>
-          <View style={styles.avatarContainer}>
-            <View style={styles.avatarSolid}>
-              <Text style={styles.avatarText}>{item.name.charAt(0)}</Text>
+      <View className="mx-5">
+        <View className="flex-row items-center py-3">
+          {/* Avatar */}
+          <View className="mr-3">
+            <View className="w-14 h-14 rounded-avatar bg-surface-card items-center justify-center">
+              <Text className="text-text-primary font-bold text-xl">
+                {item.name.charAt(0)}
+              </Text>
             </View>
           </View>
 
-          <View style={styles.info}>
-            <Text style={[styles.name, isMissed && styles.nameMissed]} numberOfLines={1}>
+          {/* Info */}
+          <View className="flex-1 justify-center">
+            <Text
+              className={cn('font-semibold text-md', isMissed ? 'text-status-error' : 'text-text-primary')}
+              numberOfLines={1}
+            >
               {item.name}
             </Text>
-
-            <View style={styles.detailsRow}>
-              <MaterialIcons
-                name={iconName}
-                size={16}
-                color={iconColor}
-                style={styles.directionIcon}
-              />
-              <Text style={styles.detailsText}>{item.type === 'VIDEO' ? 'Video' : 'Audio'}</Text>
+            <View className="flex-row items-center mt-1">
+              <MaterialIcons name={iconName} size={16} color={iconColor} style={{ marginRight: 4 }} />
+              <Text className="text-text-secondary font-sans text-base2">
+                {item.type === 'VIDEO' ? 'Video' : 'Audio'}
+              </Text>
             </View>
           </View>
 
-          <View style={styles.rightContent}>
-            <Text style={styles.dateText}>{item.date}</Text>
-            <TouchableOpacity style={styles.actionButton}>
+          {/* Right: date + action */}
+          <View className="items-end justify-center">
+            <Text className="text-text-muted font-sans text-xs2">{item.date}</Text>
+            <TouchableOpacity className="w-10 h-10 rounded-full bg-surface-card items-center justify-center mt-1.5">
               <MaterialIcons name={typeIconName} size={24} color="#f8fafc" />
             </TouchableOpacity>
           </View>
@@ -91,12 +98,14 @@ export default function CallsScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Calls</Text>
+    <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
+      {/* Header */}
+      <View className="flex-row items-center px-5 pt-4 pb-4 z-10">
+        <Text className="text-text-primary font-bold text-display">Calls</Text>
       </View>
 
-      <View style={styles.listContainer}>
+      {/* List */}
+      <View className="flex-1 z-10">
         <FlashList
           data={MOCK_CALLS}
           renderItem={renderItem}
@@ -104,8 +113,8 @@ export default function CallsScreen() {
           estimatedItemSize={90}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>No recent calls.</Text>
+            <View className="items-center p-8">
+              <Text className="text-text-secondary font-sans text-base2">No recent calls.</Text>
             </View>
           }
         />
@@ -113,103 +122,3 @@ export default function CallsScreen() {
     </SafeAreaView>
   )
 }
-
-const styles = StyleSheet.create({
-  actionButton: {
-    alignItems: 'center',
-    backgroundColor: '#1E1E24',
-    borderRadius: 20,
-    height: 40,
-    justifyContent: 'center',
-    marginTop: 6,
-    width: 40,
-  },
-  avatarContainer: {
-    marginRight: 12,
-  },
-  avatarSolid: {
-    alignItems: 'center',
-    backgroundColor: '#1E1E24',
-    borderRadius: 28,
-    height: 56,
-    justifyContent: 'center',
-    width: 56,
-  },
-  avatarText: {
-    color: '#f8fafc',
-    fontFamily: 'Inter_700Bold',
-    fontSize: 20,
-  },
-  callItem: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    paddingVertical: 12,
-  },
-  callItemWrapper: {
-    marginHorizontal: 20,
-  },
-  container: {
-    backgroundColor: '#121212',
-    flex: 1,
-  },
-  dateText: {
-    color: '#64748b',
-    fontFamily: 'Inter_400Regular',
-    fontSize: 12,
-  },
-  detailsRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    marginTop: 4,
-  },
-  detailsText: {
-    color: '#94a3b8',
-    fontFamily: 'Inter_400Regular',
-    fontSize: 14,
-  },
-  directionIcon: {
-    marginRight: 4,
-  },
-  empty: {
-    alignItems: 'center',
-    padding: 32,
-  },
-  emptyText: {
-    color: '#94a3b8',
-    fontFamily: 'Inter_400Regular',
-    fontSize: 14,
-  },
-  header: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    paddingBottom: 16,
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    zIndex: 10,
-  },
-  info: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  listContainer: {
-    flex: 1,
-    zIndex: 10,
-  },
-  name: {
-    color: '#f8fafc',
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 16,
-  },
-  nameMissed: {
-    color: '#ef4444',
-  },
-  rightContent: {
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-  },
-  title: {
-    color: '#f8fafc',
-    fontFamily: 'Inter_700Bold',
-    fontSize: 32,
-  },
-})

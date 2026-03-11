@@ -2,18 +2,18 @@ import { MaterialIcons } from '@expo/vector-icons'
 import { Link, useRouter } from 'expo-router'
 import React, { useState } from 'react'
 import {
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native'
 
 import { authApi } from '../../src/api/auth.api'
+import { cn } from '../../src/lib/cn'
 
 export default function RegisterScreen() {
   const [firstName, setFirstName] = useState('')
@@ -23,7 +23,6 @@ export default function RegisterScreen() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
-
   const [focusedInput, setFocusedInput] = useState<string | null>(null)
   const [showPassword, setShowPassword] = useState(false)
 
@@ -50,37 +49,52 @@ export default function RegisterScreen() {
     }
   }
 
+  const inputClass = (name: string) =>
+    cn(
+      'rounded-xl h-14 justify-center overflow-hidden',
+      focusedInput === name ? 'bg-surface-focus' : 'bg-surface-input',
+    )
+
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      className="flex-1 bg-bg-primary"
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
-        contentContainerStyle={styles.scrollContainer}
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingBottom: 48,
+          paddingHorizontal: 24,
+          paddingTop: Platform.OS === 'ios' ? 60 : 48,
+        }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.navBar}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        {/* Nav bar */}
+        <View className="items-start pb-4">
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className="w-12 h-12 rounded-full items-center justify-center"
+          >
             <MaterialIcons name="arrow-back" size={24} color="#f8fafc" />
           </TouchableOpacity>
         </View>
 
-        <View style={styles.header}>
-          <Text style={styles.title}>Create Account</Text>
-          <Text style={styles.subtitle}>Join our messaging community.</Text>
+        {/* Header */}
+        <View className="pb-6 pt-2">
+          <Text className="text-text-primary font-bold text-display">Create Account</Text>
+          <Text className="text-text-secondary font-sans text-md mt-2">
+            Join our messaging community.
+          </Text>
         </View>
 
-        <View style={styles.formSection}>
-          <View style={styles.row}>
-            <View style={styles.halfInputContainer}>
-              <View
-                style={[
-                  styles.inputGroup,
-                  focusedInput === 'firstName' && styles.inputGroupFocused,
-                ]}
-              >
+        {/* Form */}
+        <View className="gap-4 mt-4">
+          {/* First + Last name row */}
+          <View className="flex-row gap-4">
+            <View className="flex-1">
+              <View className={inputClass('firstName')}>
                 <TextInput
-                  style={styles.input}
+                  className="text-text-primary font-sans text-md flex-1 px-4 py-4"
                   placeholder="First Name"
                   placeholderTextColor="#94a3b8"
                   value={firstName}
@@ -91,13 +105,10 @@ export default function RegisterScreen() {
                 />
               </View>
             </View>
-
-            <View style={styles.halfInputContainer}>
-              <View
-                style={[styles.inputGroup, focusedInput === 'lastName' && styles.inputGroupFocused]}
-              >
+            <View className="flex-1">
+              <View className={inputClass('lastName')}>
                 <TextInput
-                  style={styles.input}
+                  className="text-text-primary font-sans text-md flex-1 px-4 py-4"
                   placeholder="Last Name"
                   placeholderTextColor="#94a3b8"
                   value={lastName}
@@ -110,90 +121,87 @@ export default function RegisterScreen() {
             </View>
           </View>
 
-          <View style={styles.fullInputContainer}>
-            <View style={[styles.inputGroup, focusedInput === 'email' && styles.inputGroupFocused]}>
-              <TextInput
-                style={styles.input}
-                placeholder="Email address"
-                placeholderTextColor="#94a3b8"
-                value={email}
-                onChangeText={setEmail}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                onFocus={() => setFocusedInput('email')}
-                onBlur={() => setFocusedInput(null)}
-              />
-            </View>
+          {/* Email */}
+          <View className={inputClass('email')}>
+            <TextInput
+              className="text-text-primary font-sans text-md flex-1 px-4 py-4"
+              placeholder="Email address"
+              placeholderTextColor="#94a3b8"
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              onFocus={() => setFocusedInput('email')}
+              onBlur={() => setFocusedInput(null)}
+            />
           </View>
 
-          <View style={styles.fullInputContainer}>
-            <View
-              style={[styles.inputGroup, focusedInput === 'password' && styles.inputGroupFocused]}
-            >
-              <View style={styles.inputInner}>
-                <TextInput
-                  style={styles.inputPassword}
-                  placeholder="Password"
-                  placeholderTextColor="#94a3b8"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  onFocus={() => setFocusedInput('password')}
-                  onBlur={() => setFocusedInput(null)}
-                />
-                <TouchableOpacity
-                  style={styles.iconContainerRight}
-                  onPress={() => setShowPassword(!showPassword)}
-                >
-                  <MaterialIcons
-                    name={showPassword ? 'visibility' : 'visibility-off'}
-                    size={20}
-                    color="#94a3b8"
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.fullInputContainer}>
-            <View
-              style={[
-                styles.inputGroup,
-                focusedInput === 'confirmPassword' && styles.inputGroupFocused,
-              ]}
-            >
+          {/* Password */}
+          <View className={inputClass('password')}>
+            <View className="flex-row relative">
               <TextInput
-                style={styles.input}
-                placeholder="Confirm password"
+                className="text-text-primary font-sans text-md flex-1 pl-4 pr-12 py-4"
+                placeholder="Password"
                 placeholderTextColor="#94a3b8"
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
+                value={password}
+                onChangeText={setPassword}
                 secureTextEntry={!showPassword}
-                onFocus={() => setFocusedInput('confirmPassword')}
+                onFocus={() => setFocusedInput('password')}
                 onBlur={() => setFocusedInput(null)}
               />
+              <TouchableOpacity
+                className="absolute right-0 h-full items-center justify-center px-4"
+                onPress={() => setShowPassword(!showPassword)}
+              >
+                <MaterialIcons
+                  name={showPassword ? 'visibility' : 'visibility-off'}
+                  size={20}
+                  color="#94a3b8"
+                />
+              </TouchableOpacity>
             </View>
           </View>
 
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity
-              style={styles.buttonWrapper}
-              onPress={handleRegister}
-              disabled={isLoading}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.buttonText}>{isLoading ? 'Loading...' : 'Sign Up'}</Text>
-            </TouchableOpacity>
+          {/* Confirm password */}
+          <View className={inputClass('confirmPassword')}>
+            <TextInput
+              className="text-text-primary font-sans text-md flex-1 px-4 py-4"
+              placeholder="Confirm password"
+              placeholderTextColor="#94a3b8"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              secureTextEntry={!showPassword}
+              onFocus={() => setFocusedInput('confirmPassword')}
+              onBlur={() => setFocusedInput(null)}
+            />
           </View>
+
+          {/* Error */}
+          {error ? (
+            <Text className="text-status-error font-medium text-base2 text-center mt-1">
+              {error}
+            </Text>
+          ) : null}
+
+          {/* Sign Up button */}
+          <TouchableOpacity
+            className="items-center justify-center bg-brand rounded-xl flex-row h-14 mt-2"
+            onPress={handleRegister}
+            disabled={isLoading}
+            activeOpacity={0.8}
+          >
+            <Text className="text-white font-bold text-md">
+              {isLoading ? 'Loading...' : 'Sign Up'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>Already have an account? </Text>
+        {/* Footer */}
+        <View className="flex-row items-center justify-center mt-8">
+          <Text className="text-text-secondary font-sans text-base2">Already have an account? </Text>
           <Link href="/(auth)/login" asChild>
             <TouchableOpacity>
-              <Text style={styles.signinText}>Sign in</Text>
+              <Text className="text-brand font-semibold text-base2">Sign in</Text>
             </TouchableOpacity>
           </Link>
         </View>
@@ -201,135 +209,3 @@ export default function RegisterScreen() {
     </KeyboardAvoidingView>
   )
 }
-
-const styles = StyleSheet.create({
-  backButton: {
-    alignItems: 'center',
-    borderRadius: 24,
-    height: 48,
-    justifyContent: 'center',
-    width: 48,
-  },
-  buttonContainer: {
-    marginTop: 24,
-  },
-  buttonText: {
-    color: '#ffffff',
-    fontFamily: 'Inter_700Bold',
-    fontSize: 16,
-  },
-  buttonWrapper: {
-    alignItems: 'center',
-    backgroundColor: '#0A7CFF',
-    borderRadius: 12,
-    flexDirection: 'row',
-    height: 56,
-    justifyContent: 'center',
-  },
-  container: {
-    backgroundColor: '#121212',
-    flex: 1,
-  },
-  errorText: {
-    color: '#ef4444',
-    fontFamily: 'Inter_500Medium',
-    fontSize: 14,
-    marginTop: 4,
-    textAlign: 'center',
-  },
-  footer: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 32,
-  },
-  footerText: {
-    color: '#94a3b8',
-    fontFamily: 'Inter_400Regular',
-    fontSize: 14,
-  },
-  formSection: {
-    gap: 16,
-    marginTop: 16,
-  },
-  fullInputContainer: {
-    flexDirection: 'column',
-  },
-  halfInputContainer: {
-    flex: 1,
-    flexDirection: 'column',
-  },
-  header: {
-    paddingBottom: 24,
-    paddingTop: 8,
-  },
-  iconContainerRight: {
-    alignItems: 'center',
-    height: '100%',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    position: 'absolute',
-    right: 0,
-  },
-  input: {
-    color: '#f8fafc',
-    flex: 1,
-    fontFamily: 'Inter_400Regular',
-    fontSize: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  inputGroup: {
-    backgroundColor: '#1E1E24',
-    borderRadius: 12,
-    height: 56,
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  inputGroupFocused: {
-    backgroundColor: '#26262E',
-  },
-  inputInner: {
-    flexDirection: 'row',
-    position: 'relative',
-  },
-  inputPassword: {
-    color: '#f8fafc',
-    flex: 1,
-    fontFamily: 'Inter_400Regular',
-    fontSize: 16,
-    paddingLeft: 16,
-    paddingRight: 48,
-    paddingVertical: 16,
-  },
-  navBar: {
-    alignItems: 'flex-start',
-    paddingBottom: 16,
-  },
-  row: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  scrollContainer: {
-    flexGrow: 1,
-    paddingBottom: 48,
-    paddingHorizontal: 24,
-    paddingTop: Platform.OS === 'ios' ? 60 : 48,
-  },
-  signinText: {
-    color: '#0A7CFF',
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 14,
-  },
-  subtitle: {
-    color: '#94a3b8',
-    fontFamily: 'Inter_400Regular',
-    fontSize: 16,
-    marginTop: 8,
-  },
-  title: {
-    color: '#f8fafc',
-    fontFamily: 'Inter_700Bold',
-    fontSize: 32,
-  },
-})
