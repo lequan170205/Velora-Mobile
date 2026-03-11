@@ -8,6 +8,7 @@
     "noUnusedParameters": true,
     "exactOptionalPropertyTypes": true,
     "baseUrl": ".",
+    "jsx": "react-native",
     "paths": {
       "@/*": [
         "src/*"
