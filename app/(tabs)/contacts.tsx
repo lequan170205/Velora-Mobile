@@ -27,7 +27,7 @@ export default function ContactsScreen() {
   const { onlineUsers } = useChatStore()
   const router = useRouter()
 
-  const users = data?.pages.flatMap((page) => page?.users || []) || []
+  const users = (data?.pages.flatMap((page) => page?.users || []) || []) as UserSession[]
 
   const handleUserPress = async (user: UserSession) => {
     try {

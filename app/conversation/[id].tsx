@@ -23,7 +23,7 @@ import { useMessages, useSendMessage } from '../../src/hooks/useMessages'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useCallStore } from '../../src/stores/callStore'
 import { useChatStore } from '../../src/stores/chatStore'
-import type { Message } from '../../src/types/conversation.types'
+import type { ChatParticipant, Conversation, Message } from '../../src/types/conversation.types'
 
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -40,8 +40,8 @@ export default function ChatScreen() {
 
   const serverMessages = (data?.pages.flat() as Message[]) || []
   const localOptimistic = optimisticMessages[id as string] || []
-  const serverIds = new Set(serverMessages.map((m) => m?.id))
-  const pendingMessages = localOptimistic.filter((m) => m && !serverIds.has(m.id))
+  const serverIds = new Set(serverMessages.map((m: Message) => m?.id))
+  const pendingMessages = localOptimistic.filter((m: Message) => m && !serverIds.has(m.id))
   const startCall = useCallStore((state) => state.startCall)
 
   const allMessages = [...pendingMessages, ...serverMessages].sort(
@@ -57,16 +57,20 @@ export default function ChatScreen() {
     listRef.current?.scrollToOffset({ offset: 0, animated: true })
   }
 
-  const cachedData = queryClient.getQueryData<any>(queryKeys.conversations.all)
-  const allConversations = Array.isArray(cachedData) ? cachedData : cachedData?.pages?.flat() || []
-  const currentConversation = allConversations.find((c: any) => c.id === id)
+  const cachedData = queryClient.getQueryData<unknown>(queryKeys.conversations.all)
+  const allConversations: Conversation[] = Array.isArray(cachedData)
+    ? (cachedData as Conversation[])
+    : (cachedData as { pages?: Conversation[][] })?.pages?.flat() || []
+  const currentConversation = allConversations.find((c: Conversation) => c?.id === id)
 
   let displayName = 'Unknown'
   let avatarUrl: string | undefined = undefined
 
   if (currentConversation) {
     if (!currentConversation.isGroup) {
-      const otherUser = currentConversation.participants?.find((p: any) => p.id !== user?.id)
+      const otherUser = currentConversation.participants?.find(
+        (p: ChatParticipant) => p.id !== user?.id,
+      )
       if (otherUser) {
         displayName = otherUser.email || 'Unknown'
         avatarUrl = otherUser.picture
@@ -80,17 +84,22 @@ export default function ChatScreen() {
   const isOnline = true
 
   const handleVoiceCall = () => {
-    startCall(displayName, false, avatarUrl)
-    router.push(`/call/${id}?type=voice` as any)
+    startCall(id as string, displayName, false, avatarUrl)
+    router.push(`/call/${id}?type=voice` as never)
   }
 
   const handleVideoCall = () => {
-    startCall(displayName, true, avatarUrl)
-    router.push(`/call/${id}?type=video` as any)
+    startCall(id as string, displayName, true, avatarUrl)
+    router.push(`/call/${id}?type=video` as never)
   }
 
-  const handleSendMedia = async (uri: string, type: 'IMAGE' | 'FILE', fileInfo: any) => {
-    Alert.alert('Media Selected', `Type: ${type}\nName: ${fileInfo.fileName || 'file'}`)
+  const handleSendMedia = async (
+    uri: string,
+    type: 'IMAGE' | 'FILE',
+    fileInfo: { fileName?: string } | unknown,
+  ) => {
+    const fileName = (fileInfo as { fileName?: string })?.fileName || 'file'
+    Alert.alert('Media Selected', `Type: ${type}\nName: ${fileName}`)
   }
 
   return (
@@ -121,7 +130,7 @@ export default function ChatScreen() {
 
             <TouchableOpacity
               className="flex-1 flex-row items-center ml-1"
-              onPress={() => router.push(`/conversation/${id}/info` as any)}
+              onPress={() => router.push(`/conversation/${id}/info` as never)}
               activeOpacity={0.7}
             >
               <View className="relative">
@@ -178,7 +187,7 @@ export default function ChatScreen() {
                 data={allMessages}
                 renderItem={({ item }: { item: Message }) => {
                   if (!item) return null
-                  return <MessageBubble message={item} isOwn={item.senderId === user?.id} />
+                  return <MessageBubble message={item} isOwn={item?.senderId === user?.id} />
                 }}
                 keyExtractor={(item: Message, index: number) =>
                   item?.id?.toString() || `fallback-${index}`

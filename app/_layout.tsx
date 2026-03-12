@@ -43,7 +43,7 @@ function ActiveCallBanner() {
       className="absolute left-5 right-5 flex-row items-center justify-between px-4 py-3 bg-surface-card border border-call-green rounded-xl z-[9999]"
       activeOpacity={0.9}
       onPress={() => {
-        if (callId) router.push(`/call/${callId}`)
+        if (callId) router.push(`/call/${callId}` as never)
       }}
     >
       <View className="flex-row items-center gap-3">
