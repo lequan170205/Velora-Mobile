@@ -63,12 +63,32 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     })
 
     newSocket.on('new_message', (message: Message) => {
+      if (user?.id && message.senderId === user.id) {
+        const store = useChatStore.getState()
+        const pendingMsgs = store.optimisticMessages[message.conversationId] || []
+        const match = pendingMsgs.find((m) => m.content === message.content)
+
+        if (match) {
+          store.confirmMessage(match.id, message)
+        }
+      }
+
       queryClient.invalidateQueries({
         queryKey: queryKeys.conversations.messages(message.conversationId),
       })
     })
 
     newSocket.on('message_synced', (message: Message) => {
+      if (user?.id && message.senderId === user.id) {
+        const store = useChatStore.getState()
+        const pendingMsgs = store.optimisticMessages[message.conversationId] || []
+        const match = pendingMsgs.find((m) => m.content === message.content)
+
+        if (match) {
+          store.confirmMessage(match.id, message)
+        }
+      }
+
       queryClient.invalidateQueries({
         queryKey: queryKeys.conversations.messages(message.conversationId),
       })

@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native'
 import {
   ActivityIndicator,
@@ -104,15 +104,19 @@ export default function ChatScreen() {
 
   const serverMessages = (data?.pages.flat() as Message[]) || []
   const localOptimistic = optimisticMessages[id as string] || []
-  const serverIds = new Set(serverMessages.map((m: Message) => m?.id))
-  const pendingMessages = localOptimistic.filter((m: Message) => m && !serverIds.has(m.id))
+
   const startCall = useCallStore((state) => state.startCall)
 
-  const allMessages = [...pendingMessages, ...serverMessages].sort(
-    (a, b) => new Date(b?.createdAt).getTime() - new Date(a?.createdAt).getTime(),
-  )
+  const allMessages = useMemo(() => {
+    const serverIds = new Set(serverMessages.map((m: Message) => m?.id))
+    const pendingMessages = localOptimistic.filter((m: Message) => m && !serverIds.has(m.id))
 
-  const prevMessagesLength = useRef(allMessages.length)
+    return [...pendingMessages, ...serverMessages].sort(
+      (a, b) => new Date(b?.createdAt).getTime() - new Date(a?.createdAt).getTime(),
+    )
+  }, [serverMessages, localOptimistic])
+
+  const prevFirstMessageId = useRef(allMessages[0]?.id)
 
   const keyboard = useAnimatedKeyboard()
   const insets = useSafeAreaInsets()
@@ -134,16 +138,20 @@ export default function ChatScreen() {
   }, [socket, socket?.connected, id])
 
   useEffect(() => {
-    if (allMessages.length > prevMessagesLength.current) {
-      if (showScrollButton) {
+    const currentFirstMessageId = allMessages[0]?.id
+
+    if (currentFirstMessageId && currentFirstMessageId !== prevFirstMessageId.current) {
+      if (!showScrollButton || allMessages[0]?.senderId === user?.id) {
         scrollToBottom()
       }
+
       if (socket?.connected) {
         socket.emit('mark_seen', id)
       }
     }
-    prevMessagesLength.current = allMessages.length
-  }, [allMessages.length, showScrollButton, socket, id])
+
+    prevFirstMessageId.current = currentFirstMessageId
+  }, [allMessages, showScrollButton, socket, id, user?.id])
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const offsetY = event.nativeEvent.contentOffset.y
@@ -231,6 +239,70 @@ export default function ChatScreen() {
     }, 2000)
   }
 
+  const renderItem = useCallback(
+    ({ item, index }: { item: Message; index: number }) => {
+      if (!item) return null
+
+      const isOwn = item?.senderId === user?.id
+      const previousMessage = allMessages[index + 1]
+      const nextMessage = allMessages[index - 1]
+
+      let showDateSeparator = false
+      if (!previousMessage) {
+        showDateSeparator = true
+      } else {
+        const currentDay = new Date(item.createdAt).setHours(0, 0, 0, 0)
+        const prevDay = new Date(previousMessage.createdAt).setHours(0, 0, 0, 0)
+        if (currentDay !== prevDay) showDateSeparator = true
+      }
+
+      let isNextDay = false
+      if (nextMessage) {
+        const currentDay = new Date(item.createdAt).setHours(0, 0, 0, 0)
+        const nextDay = new Date(nextMessage.createdAt).setHours(0, 0, 0, 0)
+        if (currentDay !== nextDay) isNextDay = true
+      }
+
+      const FIVE_MINS = 5 * 60 * 1000
+      const timeGapPrev = previousMessage
+        ? new Date(item.createdAt).getTime() - new Date(previousMessage.createdAt).getTime()
+        : 0
+      const timeGapNext = nextMessage
+        ? new Date(nextMessage.createdAt).getTime() - new Date(item.createdAt).getTime()
+        : 0
+
+      const isGroupedTop =
+        previousMessage?.senderId === item.senderId && timeGapPrev < FIVE_MINS && !showDateSeparator
+      const isGroupedBottom =
+        nextMessage?.senderId === item.senderId && timeGapNext < FIVE_MINS && !isNextDay
+
+      const showAvatar = nextMessage?.senderId !== item.senderId || isNextDay
+
+      return (
+        <View>
+          {showDateSeparator && (
+            <View className="items-center my-4">
+              <Text
+                className="text-text-muted text-xs2 font-medium bg-surface-card px-3 py-1 overflow-hidden"
+                style={{ borderRadius: 12 }}
+              >
+                {formatSeparatorDate(item.createdAt)}
+              </Text>
+            </View>
+          )}
+          <MessageBubble
+            message={item}
+            isOwn={isOwn}
+            showAvatar={showAvatar}
+            isGroupedTop={isGroupedTop}
+            isGroupedBottom={isGroupedBottom}
+          />
+        </View>
+      )
+    },
+    [user?.id, allMessages],
+  )
+
   return (
     <SafeAreaView className="flex-1 bg-bg-primary" edges={['top', 'bottom']}>
       <Animated.View className="flex-1 z-10" style={animatedKeyboardStyle}>
@@ -307,71 +379,9 @@ export default function ChatScreen() {
           ) : (
             <>
               <FlatList
-                ref={listRef as any}
+                ref={listRef}
                 data={allMessages}
-                renderItem={({ item, index }: { item: Message; index: number }) => {
-                  if (!item) return null
-
-                  const isOwn = item?.senderId === user?.id
-                  const previousMessage = allMessages[index + 1]
-                  const nextMessage = allMessages[index - 1]
-
-                  let showDateSeparator = false
-                  if (!previousMessage) {
-                    showDateSeparator = true
-                  } else {
-                    const currentDay = new Date(item.createdAt).setHours(0, 0, 0, 0)
-                    const prevDay = new Date(previousMessage.createdAt).setHours(0, 0, 0, 0)
-                    if (currentDay !== prevDay) showDateSeparator = true
-                  }
-
-                  let isNextDay = false
-                  if (nextMessage) {
-                    const currentDay = new Date(item.createdAt).setHours(0, 0, 0, 0)
-                    const nextDay = new Date(nextMessage.createdAt).setHours(0, 0, 0, 0)
-                    if (currentDay !== nextDay) isNextDay = true
-                  }
-
-                  const FIVE_MINS = 5 * 60 * 1000
-                  const timeGapPrev = previousMessage
-                    ? new Date(item.createdAt).getTime() -
-                      new Date(previousMessage.createdAt).getTime()
-                    : 0
-                  const timeGapNext = nextMessage
-                    ? new Date(nextMessage.createdAt).getTime() - new Date(item.createdAt).getTime()
-                    : 0
-
-                  const isGroupedTop =
-                    previousMessage?.senderId === item.senderId &&
-                    timeGapPrev < FIVE_MINS &&
-                    !showDateSeparator
-                  const isGroupedBottom =
-                    nextMessage?.senderId === item.senderId && timeGapNext < FIVE_MINS && !isNextDay
-
-                  const showAvatar = nextMessage?.senderId !== item.senderId || isNextDay
-
-                  return (
-                    <View>
-                      {showDateSeparator && (
-                        <View className="items-center my-4">
-                          <Text
-                            className="text-text-muted text-xs2 font-medium bg-surface-card px-3 py-1 overflow-hidden"
-                            style={{ borderRadius: 12 }}
-                          >
-                            {formatSeparatorDate(item.createdAt)}
-                          </Text>
-                        </View>
-                      )}
-                      <MessageBubble
-                        message={item}
-                        isOwn={isOwn}
-                        showAvatar={showAvatar}
-                        isGroupedTop={isGroupedTop}
-                        isGroupedBottom={isGroupedBottom}
-                      />
-                    </View>
-                  )
-                }}
+                renderItem={renderItem}
                 keyExtractor={(item: Message, index: number) =>
                   item?.id?.toString() || `fallback-${index}`
                 }
