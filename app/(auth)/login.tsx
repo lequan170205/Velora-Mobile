@@ -1,6 +1,11 @@
-import { MaterialIcons } from '@expo/vector-icons'
+import { AntDesign, MaterialIcons } from '@expo/vector-icons'
+import {
+  GoogleSignin,
+  isErrorWithCode,
+  statusCodes,
+} from '@react-native-google-signin/google-signin'
 import { Link, useRouter } from 'expo-router'
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   Alert,
   Keyboard,
@@ -28,6 +33,12 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false)
   const { setUser } = useAuthStore()
   const router = useRouter()
+  useEffect(() => {
+    GoogleSignin.configure({
+      webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '',
+      iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '',
+    })
+  }, [])
 
   const handleLogin = async () => {
     try {
@@ -45,6 +56,42 @@ export default function LoginScreen() {
         const errorMsg = error?.response?.data?.message || 'Login failed'
         setError(errorMsg)
         Alert.alert('Error', errorMsg)
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleGoogleLogin = async () => {
+    try {
+      setIsLoading(true)
+      setError('')
+      await GoogleSignin.hasPlayServices()
+      const userInfo = await GoogleSignin.signIn()
+
+      if (userInfo.data?.idToken) {
+        await authApi.verifyGoogleToken({ idToken: userInfo.data.idToken })
+        const meResponse = await authApi.me()
+        setUser(meResponse)
+        router.replace('/')
+      } else {
+        throw new Error('No ID token present in Google response.')
+      }
+    } catch (err: unknown) {
+      if (isErrorWithCode(err)) {
+        switch (err.code) {
+          case statusCodes.SIGN_IN_CANCELLED:
+            break
+          case statusCodes.IN_PROGRESS:
+            break
+          case statusCodes.PLAY_SERVICES_NOT_AVAILABLE:
+            Alert.alert('Error', 'Play services not available or outdated')
+            break
+          default:
+            Alert.alert('Error', err.message || 'Google Sign-In failed')
+        }
+      } else {
+        Alert.alert('Error', 'An unknown error occurred during Google Sign-In')
       }
     } finally {
       setIsLoading(false)
@@ -159,6 +206,22 @@ export default function LoginScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
+
+              <View className="flex-row items-center mt-6 mb-4">
+                <View className="flex-1 h-[1px] bg-surface-focus" />
+                <Text className="text-text-secondary px-4 font-sans text-base2">OR</Text>
+                <View className="flex-1 h-[1px] bg-surface-focus" />
+              </View>
+
+              <TouchableOpacity
+                className="items-center justify-center bg-white border border-gray-200 rounded-xl h-14 flex-row"
+                onPress={handleGoogleLogin}
+                disabled={isLoading}
+                activeOpacity={0.8}
+              >
+                <AntDesign name="google" size={24} color="#DB4437" />
+                <Text className="text-black font-bold text-md ml-3">Continue with Google</Text>
+              </TouchableOpacity>
 
               {/* Footer */}
               <View className="flex-row items-center justify-center mt-auto pt-8">
