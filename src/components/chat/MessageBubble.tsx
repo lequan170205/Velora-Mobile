@@ -62,8 +62,7 @@ export function MessageBubble({
   }
 
   const getStatusText = () => {
-    if (message.status === 'SEEN') return 'Seen'
-    if (message.status === 'sending') return 'Sending...'
+    if (message.status === 'READ') return 'Read'
     return 'Sent'
   }
 
@@ -133,7 +132,7 @@ export function MessageBubble({
               {timeString}
               {isOwn && ` • ${getStatusText()}`}
             </Text>
-            {isOwn && message.status === 'SEEN' && (
+            {isOwn && message.status === 'READ' && (
               <MaterialIcons name="done-all" size={12} color="#0A7CFF" style={{ marginLeft: 2 }} />
             )}
           </View>

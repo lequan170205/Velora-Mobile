@@ -7,7 +7,7 @@ interface CallState {
   callerName: string
   avatarUrl: string | null
   isVideo: boolean
-  timerInterval: NodeJS.Timeout | null
+  timerInterval: ReturnType<typeof setInterval> | null
 
   startCall: (id: string, name: string, isVideo: boolean, avatar?: string) => void
   endCall: () => void

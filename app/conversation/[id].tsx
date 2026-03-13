@@ -100,7 +100,7 @@ export default function ChatScreen() {
 
   const listRef = useRef<FlatList>(null)
   const [showScrollButton, setShowScrollButton] = useState(false)
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const typingTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
 
   const serverMessages = (data?.pages.flat() as Message[]) || []
   const localOptimistic = optimisticMessages[id as string] || []
@@ -209,7 +209,7 @@ export default function ChatScreen() {
   }
 
   const handleSendMedia = async (
-    uri: string,
+    _uri: string,
     type: 'image' | 'file',
     fileInfo: { fileName?: string } | unknown,
   ) => {

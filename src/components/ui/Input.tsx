@@ -3,7 +3,7 @@ import { Text } from 'react-native'
 import { TextInput as PaperTextInput } from 'react-native-paper'
 import type { TextInputProps as PaperTextInputProps } from 'react-native-paper'
 
-interface InputProps extends Omit<PaperTextInputProps, 'mode'> {
+interface InputProps extends Omit<PaperTextInputProps, 'mode' | 'error'> {
   label: string
   error?: string
 }

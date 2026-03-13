@@ -111,7 +111,7 @@ export const useChatStore = create<ChatState>()(
             optimisticMessages: {
               ...state.optimisticMessages,
               [conversationId]: msgs.map((m) =>
-                m.senderId !== userId && m.status !== 'SEEN' ? { ...m, status: 'SEEN' } : m,
+                m.senderId !== userId && m.status !== 'READ' ? { ...m, status: 'READ' as const } : m,
               ),
             },
           }
