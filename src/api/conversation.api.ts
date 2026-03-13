@@ -25,9 +25,10 @@ export const conversationApi = {
   },
   sendMessage: async (
     id: string,
-    data: { content: string; type: 'TEXT' | 'IMAGE' | 'FILE' | 'VOICE' },
+    data: { content: string; type: 'text' | 'image' | 'file' | 'voice' },
   ) => {
     const response = await apiClient.post<Message>(`/conversations/${id}/messages`, data)
+
     return response.data
   },
   deleteMessage: async (id: string, messageId: string) => {

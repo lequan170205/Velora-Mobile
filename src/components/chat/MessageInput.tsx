@@ -8,7 +8,7 @@ import { cn } from '../../lib/cn'
 
 interface MessageInputProps {
   onSend: (text: string) => void
-  onSendMedia?: (uri: string, type: 'IMAGE' | 'FILE', fileInfo: any) => void
+  onSendMedia?: (uri: string, type: 'image' | 'file', fileInfo: any) => void
 }
 
 export function MessageInput({ onSend, onSendMedia }: MessageInputProps) {
@@ -38,7 +38,7 @@ export function MessageInput({ onSend, onSendMedia }: MessageInputProps) {
 
       if (!result.canceled && result.assets && result.assets.length > 0 && onSendMedia) {
         const asset = result.assets[0]
-        onSendMedia(asset.uri, 'IMAGE', asset)
+        onSendMedia(asset.uri, 'image', asset)
       }
     } catch (error) {
       console.error(error)
@@ -54,7 +54,7 @@ export function MessageInput({ onSend, onSendMedia }: MessageInputProps) {
 
       if (!result.canceled && result.assets && result.assets.length > 0 && onSendMedia) {
         const file = result.assets[0]
-        onSendMedia(file.uri, 'FILE', file)
+        onSendMedia(file.uri, 'file', file)
       }
     } catch (error) {
       console.error(error)
@@ -64,7 +64,7 @@ export function MessageInput({ onSend, onSendMedia }: MessageInputProps) {
   const hasText = text.trim().length > 0
 
   return (
-    <View className="bg-bg-primary border-t border-surface-card px-3 pb-2.5 pt-3">
+    <View className="bg-bg-primary border-surface-card px-3 pb-3 pt-3">
       <View className="flex-row items-end gap-2">
         {/* Attachment buttons — shown when not focused and no text */}
         {!isFocused && !hasText && (
@@ -97,10 +97,8 @@ export function MessageInput({ onSend, onSendMedia }: MessageInputProps) {
         {/* Text input wrapper */}
         <View
           className={cn(
-            'flex-1 flex-row items-end rounded-3xl pr-1.5 py-1',
-            isFocused
-              ? 'bg-surface-focus border border-[#333333]'
-              : 'bg-surface-input',
+            'flex-1 flex-row items-center rounded-3xl pr-1.5 py-0.5',
+            isFocused ? 'bg-surface-focus border border-[#333333]' : 'bg-surface-input',
           )}
         >
           <TextInput
@@ -118,7 +116,7 @@ export function MessageInput({ onSend, onSendMedia }: MessageInputProps) {
           {/* Send button */}
           <TouchableOpacity
             className={cn(
-              'w-9 h-9 rounded-full items-center justify-center mb-0.5',
+              'w-9 h-9 rounded-full items-center justify-center',
               hasText ? 'bg-brand' : 'bg-transparent',
             )}
             onPress={handleSend}

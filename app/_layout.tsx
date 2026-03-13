@@ -13,6 +13,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { PaperProvider } from 'react-native-paper'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { paperTheme } from '../src/constants/paperTheme'
 import { colors } from '../src/constants/theme'
 import { AuthProvider } from '../src/providers/AuthProvider'
@@ -83,34 +84,36 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView className="flex-1 bg-bg-primary">
-      <PaperProvider theme={paperTheme}>
-        <KeyboardProvider>
-          <BottomSheetModalProvider>
-            <QueryProvider>
-              <AuthProvider>
-                <SocketProvider>
-                  <Stack
-                    screenOptions={{
-                      headerShown: false,
-                      contentStyle: { backgroundColor: colors.bg.primary },
-                    }}
-                  >
-                    <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                    <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-                    <Stack.Screen name="conversation/[id]" options={{ headerShown: false }} />
-                    <Stack.Screen
-                      name="call/[id]"
-                      options={{ presentation: 'fullScreenModal', headerShown: false }}
-                    />
-                  </Stack>
-                  {/* Active call overlay banner */}
-                  <ActiveCallBanner />
-                </SocketProvider>
-              </AuthProvider>
-            </QueryProvider>
-          </BottomSheetModalProvider>
-        </KeyboardProvider>
-      </PaperProvider>
+      <SafeAreaProvider>
+        <PaperProvider theme={paperTheme}>
+          <KeyboardProvider>
+            <BottomSheetModalProvider>
+              <QueryProvider>
+                <AuthProvider>
+                  <SocketProvider>
+                    <Stack
+                      screenOptions={{
+                        headerShown: false,
+                        contentStyle: { backgroundColor: colors.bg.primary },
+                      }}
+                    >
+                      <Stack.Screen name="(tabs)" />
+                      <Stack.Screen name="(auth)" />
+                      <Stack.Screen name="conversation/[id]" />
+                      <Stack.Screen
+                        name="call/[id]"
+                        options={{ presentation: 'fullScreenModal' }}
+                      />
+                    </Stack>
+
+                    <ActiveCallBanner />
+                  </SocketProvider>
+                </AuthProvider>
+              </QueryProvider>
+            </BottomSheetModalProvider>
+          </KeyboardProvider>
+        </PaperProvider>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   )
 }

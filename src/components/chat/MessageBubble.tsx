@@ -1,16 +1,54 @@
+import { MaterialIcons } from '@expo/vector-icons'
+import { useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
-import React from 'react'
-import { Text, View } from 'react-native'
+import React, { useMemo } from 'react'
+import { Image, Pressable, Text, View } from 'react-native'
+import Animated, {
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated'
 
+import { queryKeys } from '../../constants/queryKeys'
 import { cn } from '../../lib/cn'
 import type { Message } from '../../types/conversation.types'
 
 interface MessageBubbleProps {
   message: Message
   isOwn: boolean
+  isGroupedTop?: boolean
+  isGroupedBottom?: boolean
+  showAvatar?: boolean
 }
 
-export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
+export function MessageBubble({
+  message,
+  isOwn,
+  isGroupedTop,
+  isGroupedBottom,
+  showAvatar,
+}: MessageBubbleProps) {
+  const queryClient = useQueryClient()
+  const progress = useSharedValue(0)
+
+  const senderInfo = useMemo(() => {
+    if (message.sender) return message.sender
+
+    const cachedData = queryClient.getQueryData<unknown>(queryKeys.conversations.all)
+    const allConversations = Array.isArray(cachedData)
+      ? cachedData
+      : (cachedData as { pages?: any[] })?.pages?.flat() || []
+
+    const conversation = allConversations.find((c: any) => c.id === message.conversationId)
+
+    if (conversation && conversation.participants) {
+      return conversation.participants.find((p: any) => p.id === message.senderId)
+    }
+
+    return null
+  }, [message.sender, message.conversationId, message.senderId, queryClient])
+
   let timeString = ''
   if (message.createdAt) {
     try {
@@ -23,25 +61,60 @@ export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
     }
   }
 
-  const getStatusIcon = () => {
-    switch (message.status) {
-      case 'READ':
-      case 'DELIVERED':
-        return '✓✓'
-      default:
-        return '✓'
-    }
+  const getStatusText = () => {
+    if (message.status === 'SEEN') return 'Seen'
+    if (message.status === 'sending') return 'Sending...'
+    return 'Sent'
   }
 
+  const toggleDetails = () => {
+    progress.value = withTiming(progress.value === 0 ? 1 : 0, { duration: 250 })
+  }
+
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      height: interpolate(progress.value, [0, 1], [0, 20]),
+      opacity: progress.value,
+      marginTop: interpolate(progress.value, [0, 1], [0, 4]),
+    }
+  })
+
+  const picture = senderInfo?.picture
+  const fallbackInitial =
+    senderInfo?.name?.charAt(0).toUpperCase() || senderInfo?.email?.charAt(0).toUpperCase() || '?'
+
   return (
-    <View className={cn('w-full my-1 px-4', isOwn ? 'items-end' : 'items-start')}>
-      <View className="flex-row items-end">
-        <View
+    <View
+      className={cn(
+        'w-full px-4 flex-row items-end',
+        isOwn ? 'justify-end' : 'justify-start',
+        isGroupedBottom ? 'mb-[2px]' : 'mb-3',
+      )}
+    >
+      {!isOwn && (
+        <View className="w-7 mr-2 items-center justify-end pb-0.5">
+          {showAvatar &&
+            (picture ? (
+              <Image source={{ uri: picture }} className="w-7 h-7 rounded-full" />
+            ) : (
+              <View className="w-7 h-7 rounded-full bg-surface-focus items-center justify-center">
+                <Text className="text-text-primary text-[10px] font-bold">{fallbackInitial}</Text>
+              </View>
+            ))}
+        </View>
+      )}
+
+      <View className={cn('max-w-[75%]', isOwn ? 'items-end' : 'items-start')}>
+        <Pressable
+          onPress={toggleDetails}
           className={cn(
-            'max-w-[82%] px-3.5 py-2.5',
-            isOwn
-              ? 'bg-bubble-out rounded-xl rounded-br-bubble-sm'
-              : 'bg-bubble-in rounded-xl rounded-bl-bubble-sm',
+            'px-3.5 py-2.5',
+            isOwn ? 'bg-bubble-out' : 'bg-bubble-in',
+            'rounded-2xl',
+            isOwn && isGroupedTop && 'rounded-tr-[4px]',
+            isOwn && isGroupedBottom && 'rounded-br-[4px]',
+            !isOwn && isGroupedTop && 'rounded-tl-[4px]',
+            !isOwn && isGroupedBottom && 'rounded-bl-[4px]',
           )}
         >
           <Text
@@ -52,23 +125,19 @@ export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
           >
             {message.content}
           </Text>
+        </Pressable>
 
-          <View className="flex-row items-center self-end mt-1">
-            <Text
-              className={cn(
-                'text-[10px] font-medium',
-                isOwn ? 'text-white/70' : 'text-text-secondary',
-              )}
-            >
+        <Animated.View style={[animatedStyle, { overflow: 'hidden' }]}>
+          <View className={cn('flex-row items-center', isOwn ? 'justify-end' : 'justify-start')}>
+            <Text className="text-[11px] text-text-muted px-1">
               {timeString}
+              {isOwn && ` • ${getStatusText()}`}
             </Text>
-            {isOwn && (
-              <Text className="text-[10px] font-medium text-white/80 ml-1.5">
-                {getStatusIcon()}
-              </Text>
+            {isOwn && message.status === 'SEEN' && (
+              <MaterialIcons name="done-all" size={12} color="#0A7CFF" style={{ marginLeft: 2 }} />
             )}
           </View>
-        </View>
+        </Animated.View>
       </View>
     </View>
   )

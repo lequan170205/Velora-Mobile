@@ -1,42 +1,106 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native'
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   Image,
-  KeyboardAvoidingView,
-  Platform,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import Animated, {
+  FadeIn,
+  FadeOut,
+  useAnimatedKeyboard,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { MessageBubble } from '../../src/components/chat/MessageBubble'
 import { MessageInput } from '../../src/components/chat/MessageInput'
 import { queryKeys } from '../../src/constants/queryKeys'
 import { useMessages, useSendMessage } from '../../src/hooks/useMessages'
+import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useCallStore } from '../../src/stores/callStore'
 import { useChatStore } from '../../src/stores/chatStore'
 import type { ChatParticipant, Conversation, Message } from '../../src/types/conversation.types'
 
+const formatSeparatorDate = (dateString: string) => {
+  const date = new Date(dateString)
+  const today = new Date()
+  const yesterday = new Date(today)
+  yesterday.setDate(yesterday.getDate() - 1)
+
+  if (date.toDateString() === today.toDateString()) return 'Today'
+  if (date.toDateString() === yesterday.toDateString()) return 'Yesterday'
+
+  return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+const Dot = ({ delay }: { delay: number }) => {
+  const translateY = useSharedValue(0)
+
+  useEffect(() => {
+    translateY.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(withTiming(-4, { duration: 300 }), withTiming(0, { duration: 300 })),
+        -1,
+        true,
+      ),
+    )
+  }, [delay, translateY])
+
+  const style = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }))
+
+  return <Animated.View style={style} className="w-1 h-1 bg-text-muted rounded-full mx-[1px]" />
+}
+
+const TypingIndicator = ({ displayName }: { displayName: string }) => {
+  return (
+    <Animated.View
+      entering={FadeIn}
+      exiting={FadeOut}
+      className="flex-row items-center px-4 py-2 mb-2"
+    >
+      <Text className="text-text-muted text-xs italic mr-1">{displayName} is typing</Text>
+      <View className="flex-row items-end pb-[2px]">
+        <Dot delay={0} />
+        <Dot delay={150} />
+        <Dot delay={300} />
+      </View>
+    </Animated.View>
+  )
+}
+
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
   const { user } = useAuthStore()
-  const { optimisticMessages } = useChatStore()
+  const { optimisticMessages, typingUsers } = useChatStore()
   const queryClient = useQueryClient()
+
+  const { socket } = useSocket()
+  const [isOnline, setIsOnline] = useState(false)
 
   const { data, isLoading, fetchNextPage, hasNextPage } = useMessages(id as string)
   const { mutate: sendMessage } = useSendMessage(id as string)
 
   const listRef = useRef<FlatList>(null)
   const [showScrollButton, setShowScrollButton] = useState(false)
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const serverMessages = (data?.pages.flat() as Message[]) || []
   const localOptimistic = optimisticMessages[id as string] || []
@@ -47,6 +111,39 @@ export default function ChatScreen() {
   const allMessages = [...pendingMessages, ...serverMessages].sort(
     (a, b) => new Date(b?.createdAt).getTime() - new Date(a?.createdAt).getTime(),
   )
+
+  const prevMessagesLength = useRef(allMessages.length)
+
+  const keyboard = useAnimatedKeyboard()
+  const insets = useSafeAreaInsets()
+
+  const animatedKeyboardStyle = useAnimatedStyle(() => {
+    return {
+      paddingBottom: Math.max(0, keyboard.height.value - insets.bottom),
+    }
+  })
+
+  const activeTypers = typingUsers[id as string] || []
+  const isOtherUserTyping = activeTypers.some((typerId) => typerId !== user?.id)
+
+  useEffect(() => {
+    if (socket?.connected) {
+      socket.emit('join_conversation', id)
+      socket.emit('mark_seen', id)
+    }
+  }, [socket, socket?.connected, id])
+
+  useEffect(() => {
+    if (allMessages.length > prevMessagesLength.current) {
+      if (showScrollButton) {
+        scrollToBottom()
+      }
+      if (socket?.connected) {
+        socket.emit('mark_seen', id)
+      }
+    }
+    prevMessagesLength.current = allMessages.length
+  }, [allMessages.length, showScrollButton, socket, id])
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const offsetY = event.nativeEvent.contentOffset.y
@@ -65,6 +162,7 @@ export default function ChatScreen() {
 
   let displayName = 'Unknown'
   let avatarUrl: string | undefined = undefined
+  let otherUserId: string | undefined = undefined
 
   if (currentConversation) {
     if (!currentConversation.isGroup) {
@@ -74,6 +172,7 @@ export default function ChatScreen() {
       if (otherUser) {
         displayName = otherUser.email || 'Unknown'
         avatarUrl = otherUser.picture
+        otherUserId = otherUser.id
       }
     } else {
       displayName = currentConversation.name || 'Group Chat'
@@ -81,7 +180,23 @@ export default function ChatScreen() {
     }
   }
 
-  const isOnline = true
+  useEffect(() => {
+    if (!socket || !otherUserId || currentConversation?.isGroup) return
+
+    socket.emit('check_presence', { userId: otherUserId })
+
+    const handlePresence = (data: { userId: string; isOnline: boolean }) => {
+      if (data.userId === otherUserId) {
+        setIsOnline(data.isOnline)
+      }
+    }
+
+    socket.on('presence_update', handlePresence)
+
+    return () => {
+      socket.off('presence_update', handlePresence)
+    }
+  }, [socket, otherUserId, currentConversation?.isGroup])
 
   const handleVoiceCall = () => {
     startCall(id as string, displayName, false, avatarUrl)
@@ -95,20 +210,30 @@ export default function ChatScreen() {
 
   const handleSendMedia = async (
     uri: string,
-    type: 'IMAGE' | 'FILE',
+    type: 'image' | 'file',
     fileInfo: { fileName?: string } | unknown,
   ) => {
     const fileName = (fileInfo as { fileName?: string })?.fileName || 'file'
     Alert.alert('Media Selected', `Type: ${type}\nName: ${fileName}`)
   }
 
+  const handleTyping = () => {
+    if (!socket?.connected) return
+
+    socket.emit('typing_start', id)
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current)
+    }
+
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit('typing_stop', id)
+    }, 2000)
+  }
+
   return (
     <SafeAreaView className="flex-1 bg-bg-primary" edges={['top', 'bottom']}>
-      <KeyboardAvoidingView
-        className="flex-1 z-10"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        {/* Header — iOS shadow kept as inline: NativeWind limitation */}
+      <Animated.View className="flex-1 z-10" style={animatedKeyboardStyle}>
         <View
           className="flex-row items-center justify-between bg-bg-primary border-b border-surface-card px-2 pt-2 pb-2.5 z-10"
           style={{
@@ -119,7 +244,6 @@ export default function ChatScreen() {
             elevation: 4,
           }}
         >
-          {/* Left: back + user info */}
           <View className="flex-1 flex-row items-center">
             <TouchableOpacity
               onPress={() => router.back()}
@@ -156,14 +280,15 @@ export default function ChatScreen() {
                 <Text className="text-text-primary font-semibold text-md" numberOfLines={1}>
                   {displayName}
                 </Text>
-                <Text className="text-text-muted text-xs2 mt-0.5">
-                  {isOnline ? 'Active now' : 'Offline'}
-                </Text>
+                {!currentConversation?.isGroup && (
+                  <Text className="text-text-muted text-xs2 mt-0.5">
+                    {isOnline ? 'Active now' : 'Offline'}
+                  </Text>
+                )}
               </View>
             </TouchableOpacity>
           </View>
 
-          {/* Right: call actions */}
           <View className="flex-row items-center gap-4 pr-2">
             <TouchableOpacity className="items-center justify-center" onPress={handleVoiceCall}>
               <MaterialIcons name="call" size={24} color="#0A7CFF" />
@@ -174,7 +299,6 @@ export default function ChatScreen() {
           </View>
         </View>
 
-        {/* Message list */}
         <View className="flex-1">
           {isLoading && serverMessages.length === 0 ? (
             <View className="flex-1 items-center justify-center">
@@ -183,11 +307,70 @@ export default function ChatScreen() {
           ) : (
             <>
               <FlatList
-                ref={listRef}
+                ref={listRef as any}
                 data={allMessages}
-                renderItem={({ item }: { item: Message }) => {
+                renderItem={({ item, index }: { item: Message; index: number }) => {
                   if (!item) return null
-                  return <MessageBubble message={item} isOwn={item?.senderId === user?.id} />
+
+                  const isOwn = item?.senderId === user?.id
+                  const previousMessage = allMessages[index + 1]
+                  const nextMessage = allMessages[index - 1]
+
+                  let showDateSeparator = false
+                  if (!previousMessage) {
+                    showDateSeparator = true
+                  } else {
+                    const currentDay = new Date(item.createdAt).setHours(0, 0, 0, 0)
+                    const prevDay = new Date(previousMessage.createdAt).setHours(0, 0, 0, 0)
+                    if (currentDay !== prevDay) showDateSeparator = true
+                  }
+
+                  let isNextDay = false
+                  if (nextMessage) {
+                    const currentDay = new Date(item.createdAt).setHours(0, 0, 0, 0)
+                    const nextDay = new Date(nextMessage.createdAt).setHours(0, 0, 0, 0)
+                    if (currentDay !== nextDay) isNextDay = true
+                  }
+
+                  const FIVE_MINS = 5 * 60 * 1000
+                  const timeGapPrev = previousMessage
+                    ? new Date(item.createdAt).getTime() -
+                      new Date(previousMessage.createdAt).getTime()
+                    : 0
+                  const timeGapNext = nextMessage
+                    ? new Date(nextMessage.createdAt).getTime() - new Date(item.createdAt).getTime()
+                    : 0
+
+                  const isGroupedTop =
+                    previousMessage?.senderId === item.senderId &&
+                    timeGapPrev < FIVE_MINS &&
+                    !showDateSeparator
+                  const isGroupedBottom =
+                    nextMessage?.senderId === item.senderId && timeGapNext < FIVE_MINS && !isNextDay
+
+                  const showAvatar = nextMessage?.senderId !== item.senderId || isNextDay
+
+                  return (
+                    <View>
+                      {showDateSeparator && (
+                        <View className="items-center my-4">
+                          <Text
+                            className="text-text-muted text-xs2 font-medium bg-surface-card px-3 py-1 overflow-hidden"
+                            style={{ borderRadius: 12 }}
+                          >
+                            {formatSeparatorDate(item.createdAt)}
+                          </Text>
+                        </View>
+                      )}
+                      <MessageBubble
+                        message={item}
+                        isOwn={isOwn}
+                        showAvatar={showAvatar}
+                        isGroupedTop={isGroupedTop}
+                        isGroupedBottom={isGroupedBottom}
+                      />
+                    </View>
+                  )
                 }}
                 keyExtractor={(item: Message, index: number) =>
                   item?.id?.toString() || `fallback-${index}`
@@ -199,32 +382,51 @@ export default function ChatScreen() {
                 onScroll={handleScroll}
                 scrollEventThrottle={16}
                 inverted
-                contentContainerStyle={{ paddingVertical: 16 }}
+                onContentSizeChange={() => {
+                  if (!showScrollButton) {
+                    scrollToBottom()
+                  }
+                }}
+                ListHeaderComponent={
+                  isOtherUserTyping ? <TypingIndicator displayName={displayName} /> : null
+                }
                 showsVerticalScrollIndicator={false}
               />
               {showScrollButton && (
-                <TouchableOpacity
-                  className="absolute bottom-5 right-4 w-10 h-10 rounded-full bg-surface-focus border border-[#333333] items-center justify-center z-10"
-                  onPress={scrollToBottom}
-                  activeOpacity={0.8}
-                  style={{
-                    // NativeWind limitation: iOS shadow
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 3 },
-                    shadowOpacity: 0.4,
-                    shadowRadius: 4,
-                    elevation: 5,
-                  }}
+                <Animated.View
+                  entering={FadeIn}
+                  exiting={FadeOut}
+                  className="absolute bottom-5 right-4 z-10"
                 >
-                  <MaterialIcons name="keyboard-arrow-down" size={24} color="#f8fafc" />
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    className="w-10 h-10 rounded-full bg-surface-focus border border-[#333333] items-center justify-center"
+                    onPress={scrollToBottom}
+                    activeOpacity={0.8}
+                    style={{
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 3 },
+                      shadowOpacity: 0.4,
+                      shadowRadius: 4,
+                      elevation: 5,
+                    }}
+                  >
+                    <MaterialIcons name="keyboard-arrow-down" size={24} color="#f8fafc" />
+                  </TouchableOpacity>
+                </Animated.View>
               )}
             </>
           )}
         </View>
 
-        <MessageInput onSend={(text) => sendMessage(text)} onSendMedia={handleSendMedia} />
-      </KeyboardAvoidingView>
+        <MessageInput
+          onSend={(text) => {
+            sendMessage(text)
+            socket?.emit('typing_stop', id)
+          }}
+          onSendMedia={handleSendMedia}
+          onChangeText={handleTyping}
+        />
+      </Animated.View>
     </SafeAreaView>
   )
 }

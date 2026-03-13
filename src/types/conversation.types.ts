@@ -18,7 +18,7 @@ export interface Conversation {
   updatedAt: string
   messages?: Message[]
   isGroup: boolean
-  
+
   // Custom frontend fields typically attached by the backend wrapper
   name?: string
   picture?: string
@@ -31,7 +31,7 @@ export interface Message {
   senderId: string
   sender: UserSummary
   content: string
-  type: 'TEXT' | 'IMAGE' | 'FILE' | 'VOICE'
+  type: 'text' | 'image' | 'file' | 'voice'
   status: 'SENT' | 'DELIVERED' | 'READ'
   replyTo?: Message
   createdAt: string
