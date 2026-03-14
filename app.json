@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "__tmp_expo",
-    "slug": "__tmp_expo",
+    "name": "velora",
+    "slug": "velora-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -15,7 +15,10 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "UIBackgroundModes": ["audio", "voip"],
+        "UIBackgroundModes": [
+          "audio",
+          "voip"
+        ],
         "CFBundleURLTypes": [
           {
             "CFBundleURLSchemes": "apps.googleusercontent.com.448991830808-ocr9rlrbmla6m5g2pr3c9ea59pson6su"
@@ -59,9 +62,10 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "918cb27d-97dc-41c5-8727-1e0078916c3d"
+        "projectId": "2e55409d-d006-4739-a323-93fd82fb055e"
       }
     },
-    "jsEngine": "hermes"
+    "jsEngine": "hermes",
+    "owner": "velora-mobile"
   }
 }
