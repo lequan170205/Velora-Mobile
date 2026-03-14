@@ -15,20 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "UIBackgroundModes": [
-          "audio",
-          "voip",
-          "audio",
-          "voip"
-        ],
-        "CFBundleURLTypes": [
-          {
-            "CFBundleURLSchemes": "apps.googleusercontent.com.448991830808-ocr9rlrbmla6m5g2pr3c9ea59pson6su"
-          },
-          {
-            "CFBundleURLSchemes": "apps.googleusercontent.com.448991830808-ocr9rlrbmla6m5g2pr3c9ea59pson6su"
-          }
-        ],
+        "UIBackgroundModes": ["audio", "voip"],
         "ITSAppUsesNonExemptEncryption": false
       },
       "bundleIdentifier": "com.yourcompany.velora",
@@ -60,7 +47,12 @@
       "expo-secure-store",
       "expo-font",
       "expo-web-browser",
-      "@react-native-google-signin/google-signin"
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.448991830808-ocr9rlrbmla6m5g2pr3c9ea59pson6su"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

@@ -18,7 +18,7 @@ const SocketContext = createContext<SocketContextType>({ socket: null, isConnect
 export const useSocket = () => useContext(SocketContext)
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, user } = useAuthStore()
+  const { isAuthenticated, user, isLoading } = useAuthStore()
   const { setTyping, setUserOnline, markMessagesAsSeen } = useChatStore()
   const queryClient = useQueryClient()
 
@@ -26,6 +26,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   const [isConnected, setIsConnected] = useState(false)
 
   useEffect(() => {
+    if (isLoading) {
+      return
+    }
+
     if (!isAuthenticated || !user) {
       if (socket) {
         socket.disconnect()
@@ -37,6 +41,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     const newSocket = io(process.env.EXPO_PUBLIC_WS_URL || 'http://localhost:3000', {
       withCredentials: true,
       query: { userId: user.id },
+      forceNew: true,
+      transports: ['websocket'],
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
@@ -63,7 +69,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     })
 
     newSocket.on('new_message', (message: Message) => {
-      if (user?.id && message.senderId === user.id) {
+      const currentUser = useAuthStore.getState().user
+
+      if (currentUser?.id && message.senderId === currentUser.id) {
         const store = useChatStore.getState()
         const pendingMsgs = store.optimisticMessages[message.conversationId] || []
         const match = pendingMsgs.find((m) => m.content === message.content)
@@ -128,9 +136,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     setSocket(newSocket)
 
     return () => {
+      newSocket.removeAllListeners()
       newSocket.disconnect()
     }
-  }, [isAuthenticated, user?.id])
+  }, [isAuthenticated, user?.id, isLoading])
 
   return <SocketContext.Provider value={{ socket, isConnected }}>{children}</SocketContext.Provider>
 }
