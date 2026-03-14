@@ -8,10 +8,11 @@ import { cn } from '../../lib/cn'
 
 interface MessageInputProps {
   onSend: (text: string) => void
-  onSendMedia?: (uri: string, type: 'IMAGE' | 'FILE', fileInfo: any) => void
+  onSendMedia?: (uri: string, type: 'image' | 'file', fileInfo: any) => void
+  onChangeText?: (text: string) => void
 }
 
-export function MessageInput({ onSend, onSendMedia }: MessageInputProps) {
+export function MessageInput({ onSend, onSendMedia, onChangeText }: MessageInputProps) {
   const [text, setText] = useState('')
   const [isFocused, setIsFocused] = useState(false)
 
@@ -19,6 +20,13 @@ export function MessageInput({ onSend, onSendMedia }: MessageInputProps) {
     if (text.trim()) {
       onSend(text.trim())
       setText('')
+    }
+  }
+
+  const handleTextChange = (value: string) => {
+    setText(value)
+    if (onChangeText) {
+      onChangeText(value)
     }
   }
 
@@ -38,7 +46,7 @@ export function MessageInput({ onSend, onSendMedia }: MessageInputProps) {
 
       if (!result.canceled && result.assets && result.assets.length > 0 && onSendMedia) {
         const asset = result.assets[0]
-        onSendMedia(asset.uri, 'IMAGE', asset)
+        onSendMedia(asset.uri, 'image', asset)
       }
     } catch (error) {
       console.error(error)
@@ -54,7 +62,7 @@ export function MessageInput({ onSend, onSendMedia }: MessageInputProps) {
 
       if (!result.canceled && result.assets && result.assets.length > 0 && onSendMedia) {
         const file = result.assets[0]
-        onSendMedia(file.uri, 'FILE', file)
+        onSendMedia(file.uri, 'file', file)
       }
     } catch (error) {
       console.error(error)
@@ -64,9 +72,8 @@ export function MessageInput({ onSend, onSendMedia }: MessageInputProps) {
   const hasText = text.trim().length > 0
 
   return (
-    <View className="bg-bg-primary border-t border-surface-card px-3 pb-2.5 pt-3">
+    <View className="bg-bg-primary border-surface-card px-3 pb-3 pt-3">
       <View className="flex-row items-end gap-2">
-        {/* Attachment buttons — shown when not focused and no text */}
         {!isFocused && !hasText && (
           <View className="flex-row gap-0.5">
             <TouchableOpacity
@@ -84,7 +91,6 @@ export function MessageInput({ onSend, onSendMedia }: MessageInputProps) {
           </View>
         )}
 
-        {/* Expand button — shown when focused or has text */}
         {(isFocused || hasText) && (
           <TouchableOpacity
             className="w-9 h-10 items-center justify-center mb-1"
@@ -94,19 +100,16 @@ export function MessageInput({ onSend, onSendMedia }: MessageInputProps) {
           </TouchableOpacity>
         )}
 
-        {/* Text input wrapper */}
         <View
           className={cn(
-            'flex-1 flex-row items-end rounded-3xl pr-1.5 py-1',
-            isFocused
-              ? 'bg-surface-focus border border-[#333333]'
-              : 'bg-surface-input',
+            'flex-1 flex-row items-center rounded-3xl pr-1.5 py-0.5',
+            isFocused ? 'bg-surface-focus border border-[#333333]' : 'bg-surface-input',
           )}
         >
           <TextInput
             className="flex-1 text-text-primary font-sans text-md px-4 py-2.5 min-h-[40px] max-h-[120px]"
             value={text}
-            onChangeText={setText}
+            onChangeText={handleTextChange}
             placeholder="Message..."
             placeholderTextColor="#64748b"
             multiline
@@ -115,10 +118,9 @@ export function MessageInput({ onSend, onSendMedia }: MessageInputProps) {
             onBlur={() => setIsFocused(false)}
           />
 
-          {/* Send button */}
           <TouchableOpacity
             className={cn(
-              'w-9 h-9 rounded-full items-center justify-center mb-0.5',
+              'w-9 h-9 rounded-full items-center justify-center',
               hasText ? 'bg-brand' : 'bg-transparent',
             )}
             onPress={handleSend}
@@ -129,7 +131,6 @@ export function MessageInput({ onSend, onSendMedia }: MessageInputProps) {
               name="send"
               size={18}
               color={hasText ? '#ffffff' : '#64748b'}
-              // NativeWind limitation: kept as inline — marginLeft is a style on the icon itself
               style={{ marginLeft: 3 }}
             />
           </TouchableOpacity>

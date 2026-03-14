@@ -27,7 +27,7 @@ export default function ConversationsScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
+    <SafeAreaView className="flex-1 bg-bg-primary">
       {/* Header */}
       <View className="flex-row items-center justify-between px-5 pt-4 pb-4 z-10">
         <Text className="text-text-primary font-bold text-display">Messages</Text>

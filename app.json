@@ -17,13 +17,19 @@
       "infoPlist": {
         "UIBackgroundModes": [
           "audio",
+          "voip",
+          "audio",
           "voip"
         ],
         "CFBundleURLTypes": [
           {
             "CFBundleURLSchemes": "apps.googleusercontent.com.448991830808-ocr9rlrbmla6m5g2pr3c9ea59pson6su"
+          },
+          {
+            "CFBundleURLSchemes": "apps.googleusercontent.com.448991830808-ocr9rlrbmla6m5g2pr3c9ea59pson6su"
           }
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       },
       "bundleIdentifier": "com.yourcompany.velora",
       "jsEngine": "jsc"

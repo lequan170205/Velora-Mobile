@@ -8,7 +8,7 @@ import { cn } from '../../src/lib/cn'
 import { useCallStore } from '../../src/stores/callStore'
 
 export default function ActiveCallScreen() {
-  const { id, type } = useLocalSearchParams<{ id: string; type: string }>()
+  const { type } = useLocalSearchParams<{ type: string }>()
   const router = useRouter()
 
   const { isActive, duration, callerName, avatarUrl, isVideo, endCall } = useCallStore()

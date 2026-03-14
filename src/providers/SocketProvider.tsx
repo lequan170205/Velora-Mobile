@@ -19,7 +19,7 @@ export const useSocket = () => useContext(SocketContext)
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user } = useAuthStore()
-  const { setTyping, setUserOnline } = useChatStore()
+  const { setTyping, setUserOnline, markMessagesAsSeen } = useChatStore()
   const queryClient = useQueryClient()
 
   const [socket, setSocket] = useState<Socket | null>(null)
@@ -36,6 +36,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     const newSocket = io(process.env.EXPO_PUBLIC_WS_URL || 'http://localhost:3000', {
       withCredentials: true,
+      query: { userId: user.id },
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
@@ -44,24 +45,57 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     newSocket.on('connect', () => {
       setIsConnected(true)
+
+      const queue = useChatStore.getState().offlineQueue
+      queue.forEach((msg) => {
+        newSocket.emit('send_message', {
+          conversationId: msg.conversationId,
+          content: msg.content,
+          type: 'text',
+          signalType: 0,
+        })
+        useChatStore.getState().dequeueOfflineMessage(msg.id)
+      })
     })
 
     newSocket.on('disconnect', () => {
       setIsConnected(false)
     })
 
-    // Message events
-    newSocket.on('message:new', (message: Message) => {
+    newSocket.on('new_message', (message: Message) => {
+      if (user?.id && message.senderId === user.id) {
+        const store = useChatStore.getState()
+        const pendingMsgs = store.optimisticMessages[message.conversationId] || []
+        const match = pendingMsgs.find((m) => m.content === message.content)
+
+        if (match) {
+          store.confirmMessage(match.id, message)
+        }
+      }
+
       queryClient.invalidateQueries({
         queryKey: queryKeys.conversations.messages(message.conversationId),
       })
-      queryClient.invalidateQueries({ queryKey: queryKeys.conversations.all })
     })
 
-    newSocket.on('message:updated', (message: Message) => {
+    newSocket.on('message_synced', (message: Message) => {
+      if (user?.id && message.senderId === user.id) {
+        const store = useChatStore.getState()
+        const pendingMsgs = store.optimisticMessages[message.conversationId] || []
+        const match = pendingMsgs.find((m) => m.content === message.content)
+
+        if (match) {
+          store.confirmMessage(match.id, message)
+        }
+      }
+
       queryClient.invalidateQueries({
         queryKey: queryKeys.conversations.messages(message.conversationId),
       })
+    })
+
+    newSocket.on('user_typing', ({ conversationId, userId, isTyping }) => {
+      setTyping(conversationId, userId, isTyping)
     })
 
     newSocket.on('message:deleted', ({ conversationId }) => {
@@ -70,12 +104,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       })
     })
 
-    // Typing presence
     newSocket.on('typing', ({ userId, conversationId, isTyping }) => {
       setTyping(conversationId, userId, isTyping)
     })
 
-    // User presence
     newSocket.on('user:online', ({ userId }) => {
       setUserOnline(userId, true)
     })
@@ -84,17 +116,20 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       setUserOnline(userId, false)
     })
 
-    // Call events placeholder
-    newSocket.on('call:incoming', (_payload) => {
-      // Show incoming call modal (Phase 5)
+    newSocket.on('messages_seen', ({ conversationId, readByUserId }) => {
+      markMessagesAsSeen(conversationId, readByUserId)
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.conversations.messages(conversationId),
+      })
     })
+
+    newSocket.on('call:incoming', (_payload) => {})
 
     setSocket(newSocket)
 
     return () => {
       newSocket.disconnect()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, user?.id])
 
   return <SocketContext.Provider value={{ socket, isConnected }}>{children}</SocketContext.Provider>
