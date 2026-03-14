@@ -1,4 +1,4 @@
-import { AntDesign, MaterialIcons } from '@expo/vector-icons'
+import { MaterialIcons } from '@expo/vector-icons'
 import {
   GoogleSignin,
   isErrorWithCode,
@@ -20,6 +20,7 @@ import {
 } from 'react-native'
 
 import { authApi } from '../../src/api/auth.api'
+import { GoogleIcon } from '../../src/components/ui/GoogleIcon'
 import { cn } from '../../src/lib/cn'
 import { useAuthStore } from '../../src/stores/authStore'
 
@@ -205,23 +206,25 @@ export default function LoginScreen() {
                     {isLoading ? 'Loading...' : 'Sign In'}
                   </Text>
                 </TouchableOpacity>
-              </View>
 
-              <View className="flex-row items-center mt-6 mb-4">
-                <View className="flex-1 h-[1px] bg-surface-focus" />
-                <Text className="text-text-secondary px-4 font-sans text-base2">OR</Text>
-                <View className="flex-1 h-[1px] bg-surface-focus" />
-              </View>
+                <View className="flex-row items-center mt-6 mb-4">
+                  <View className="flex-1 h-[1px] bg-surface-focus" />
+                  <Text className="text-text-secondary px-4 font-sans text-base2">OR</Text>
+                  <View className="flex-1 h-[1px] bg-surface-focus" />
+                </View>
 
-              <TouchableOpacity
-                className="items-center justify-center bg-white border border-gray-200 rounded-xl h-14 flex-row"
-                onPress={handleGoogleLogin}
-                disabled={isLoading}
-                activeOpacity={0.8}
-              >
-                <AntDesign name="google" size={24} color="#DB4437" />
-                <Text className="text-black font-bold text-md ml-3">Continue with Google</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  className="items-center justify-center bg-white border border-gray-200 rounded-xl h-14 flex-row"
+                  onPress={handleGoogleLogin}
+                  disabled={isLoading}
+                  activeOpacity={0.8}
+                >
+                  <GoogleIcon size={24} />
+                  <Text className="text-[#3C4043] font-bold text-md ml-3">
+                    Continue with Google
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
               {/* Footer */}
               <View className="flex-row items-center justify-center mt-auto pt-8">
