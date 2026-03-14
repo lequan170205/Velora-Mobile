@@ -3,15 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native'
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Image,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native'
+import { ActivityIndicator, FlatList, Image, Text, TouchableOpacity, View } from 'react-native'
 import Animated, {
   FadeIn,
   FadeOut,
@@ -217,12 +209,28 @@ export default function ChatScreen() {
   }
 
   const handleSendMedia = async (
-    _uri: string,
+    uri: string,
     type: 'image' | 'file',
-    fileInfo: { fileName?: string } | unknown,
+    _fileInfo: { fileName?: string } | unknown,
   ) => {
-    const fileName = (fileInfo as { fileName?: string })?.fileName || 'file'
-    Alert.alert('Media Selected', `Type: ${type}\nName: ${fileName}`)
+    if (!user?.id) return
+
+    const now = new Date().toISOString()
+    const tempId = `temp-${Date.now()}`
+
+    const tempMessage: Message = {
+      id: tempId,
+      conversationId: id as string,
+      senderId: user.id,
+      sender: user as any,
+      content: uri,
+      type: type,
+      status: 'SENT',
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    useChatStore.getState().addOptimisticMessage(id as string, tempMessage)
   }
 
   const handleTyping = () => {

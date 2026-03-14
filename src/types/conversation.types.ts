@@ -42,6 +42,5 @@ export interface Message {
 export interface ConversationMember {
   userId: string
   user: UserSummary
-  role: 'OWNER' | 'ADMIN' | 'MEMBER'
   joinedAt: string
 }

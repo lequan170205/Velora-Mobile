@@ -3,7 +3,7 @@ export interface UserSession {
   email: string
   firstName: string
   lastName: string
-  avatar?: string
+  picture?: string
   role: 'USER' | 'ADMIN'
   isEmailVerified: boolean
   createdAt: string
@@ -11,7 +11,6 @@ export interface UserSession {
 
 export interface UserSummary {
   id: string
-  firstName: string
-  lastName: string
-  avatar?: string
+  email: string
+  picture?: string
 }
