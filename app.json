@@ -38,7 +38,24 @@
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
-    "plugins": ["expo-router", "expo-secure-store", "expo-font", "expo-web-browser"],
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-font",
+      "expo-web-browser",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.448991830808-ocr9rlrbmla6m5g2pr3c9ea59pson6su"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#0A7CFF"
+        }
+      ]
+    ],
     "experiments": {
       "typedRoutes": true
     }

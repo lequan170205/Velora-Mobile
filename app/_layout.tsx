@@ -17,6 +17,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { paperTheme } from '../src/constants/paperTheme'
 import { colors } from '../src/constants/theme'
 import { AuthProvider } from '../src/providers/AuthProvider'
+import { NotificationProvider } from '../src/providers/NotificationProvider'
 import { QueryProvider } from '../src/providers/QueryProvider'
 import { SocketProvider } from '../src/providers/SocketProvider'
 import { useAuthStore } from '../src/stores/authStore'
@@ -90,24 +91,26 @@ export default function RootLayout() {
             <BottomSheetModalProvider>
               <QueryProvider>
                 <AuthProvider>
-                  <SocketProvider>
-                    <Stack
-                      screenOptions={{
-                        headerShown: false,
-                        contentStyle: { backgroundColor: colors.bg.primary },
-                      }}
-                    >
-                      <Stack.Screen name="(tabs)" />
-                      <Stack.Screen name="(auth)" />
-                      <Stack.Screen name="conversation/[id]" />
-                      <Stack.Screen
-                        name="call/[id]"
-                        options={{ presentation: 'fullScreenModal' }}
-                      />
-                    </Stack>
+                  <NotificationProvider>
+                    <SocketProvider>
+                      <Stack
+                        screenOptions={{
+                          headerShown: false,
+                          contentStyle: { backgroundColor: colors.bg.primary },
+                        }}
+                      >
+                        <Stack.Screen name="(tabs)" />
+                        <Stack.Screen name="(auth)" />
+                        <Stack.Screen name="conversation/[id]" />
+                        <Stack.Screen
+                          name="call/[id]"
+                          options={{ presentation: 'fullScreenModal' }}
+                        />
+                      </Stack>
 
-                    <ActiveCallBanner />
-                  </SocketProvider>
+                      <ActiveCallBanner />
+                    </SocketProvider>
+                  </NotificationProvider>
                 </AuthProvider>
               </QueryProvider>
             </BottomSheetModalProvider>

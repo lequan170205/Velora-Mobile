@@ -63,9 +63,9 @@ export default function ProfileScreen() {
             className="items-center justify-center mb-5 relative"
             activeOpacity={0.8}
           >
-            {user?.avatar ? (
+            {user?.picture ? (
               <Image
-                source={{ uri: user.avatar }}
+                source={{ uri: user.picture }}
                 // NativeWind limitation: kept as inline — exact borderRadius needs to match width/2
                 style={{ width: 144, height: 144, borderRadius: 72 }}
               />
