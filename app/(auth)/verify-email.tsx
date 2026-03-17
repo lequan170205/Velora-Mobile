@@ -67,7 +67,7 @@ export default function VerifyEmailScreen() {
           <View className="flex-row items-start">
             <TouchableOpacity
               onPress={() => router.back()}
-              className="w-12 h-12 rounded-full items-center justify-center"
+              className="h-12 rounded-full items-center justify-center"
             >
               <MaterialIcons name="arrow-back" size={24} color="#f8fafc" />
             </TouchableOpacity>

@@ -16,8 +16,6 @@ import { authApi } from '../../src/api/auth.api'
 import { cn } from '../../src/lib/cn'
 
 export default function RegisterScreen() {
-  const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -37,7 +35,9 @@ export default function RegisterScreen() {
     try {
       setIsLoading(true)
       setError('')
-      await authApi.register({ email, password, firstName, lastName })
+
+      await authApi.register({ email, password })
+
       router.push(`/verify-email?email=${encodeURIComponent(email)}`)
     } catch (err: unknown) {
       const error = err as Error & { response?: { data?: { message?: string }; status?: number } }
@@ -73,7 +73,7 @@ export default function RegisterScreen() {
         <View className="items-start pb-4">
           <TouchableOpacity
             onPress={() => router.back()}
-            className="w-12 h-12 rounded-full items-center justify-center"
+            className="h-12 rounded-full items-center justify-center"
           >
             <MaterialIcons name="arrow-back" size={24} color="#f8fafc" />
           </TouchableOpacity>
@@ -89,38 +89,6 @@ export default function RegisterScreen() {
 
         {/* Form */}
         <View className="gap-4 mt-4">
-          {/* First + Last name row */}
-          <View className="flex-row gap-4">
-            <View className="flex-1">
-              <View className={inputClass('firstName')}>
-                <TextInput
-                  className="text-text-primary font-sans text-md flex-1 px-4 py-4"
-                  placeholder="First Name"
-                  placeholderTextColor="#94a3b8"
-                  value={firstName}
-                  onChangeText={setFirstName}
-                  autoCapitalize="words"
-                  onFocus={() => setFocusedInput('firstName')}
-                  onBlur={() => setFocusedInput(null)}
-                />
-              </View>
-            </View>
-            <View className="flex-1">
-              <View className={inputClass('lastName')}>
-                <TextInput
-                  className="text-text-primary font-sans text-md flex-1 px-4 py-4"
-                  placeholder="Last Name"
-                  placeholderTextColor="#94a3b8"
-                  value={lastName}
-                  onChangeText={setLastName}
-                  autoCapitalize="words"
-                  onFocus={() => setFocusedInput('lastName')}
-                  onBlur={() => setFocusedInput(null)}
-                />
-              </View>
-            </View>
-          </View>
-
           {/* Email */}
           <View className={inputClass('email')}>
             <TextInput
@@ -198,7 +166,9 @@ export default function RegisterScreen() {
 
         {/* Footer */}
         <View className="flex-row items-center justify-center mt-8">
-          <Text className="text-text-secondary font-sans text-base2">Already have an account? </Text>
+          <Text className="text-text-secondary font-sans text-base2">
+            Already have an account?{' '}
+          </Text>
           <Link href="/(auth)/login" asChild>
             <TouchableOpacity>
               <Text className="text-brand font-semibold text-base2">Sign in</Text>
