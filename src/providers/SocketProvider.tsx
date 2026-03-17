@@ -6,7 +6,7 @@ import { io } from 'socket.io-client'
 import { queryKeys } from '../constants/queryKeys'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
-import type { Message } from '../types/conversation.types'
+import type { Message, Reaction } from '../types/conversation.types'
 
 interface SocketContextType {
   socket: Socket | null
@@ -19,7 +19,7 @@ export const useSocket = () => useContext(SocketContext)
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user } = useAuthStore()
-  const { setTyping, setUserOnline, markMessagesAsSeen } = useChatStore()
+  const { setTyping, setUserOnline, markMessagesAsSeen, addReaction, removeReaction, markMessageDeleted } = useChatStore()
   const queryClient = useQueryClient()
 
   const [socket, setSocket] = useState<Socket | null>(null)
@@ -124,6 +124,36 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     })
 
     newSocket.on('call:incoming', (_payload) => {})
+
+    // Message reactions
+    newSocket.on('reaction_added', (data: { messageId: string; conversationId: string; userId: string; emoji: string }) => {
+      const reaction: Reaction = {
+        id: `server-${Date.now()}`,
+        messageId: data.messageId,
+        userId: data.userId,
+        emoji: data.emoji,
+        createdAt: new Date().toISOString(),
+      }
+      addReaction(data.conversationId, data.messageId, reaction)
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.conversations.messages(data.conversationId),
+      })
+    })
+
+    newSocket.on('reaction_removed', (data: { messageId: string; conversationId: string; userId: string }) => {
+      removeReaction(data.conversationId, data.messageId, data.userId)
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.conversations.messages(data.conversationId),
+      })
+    })
+
+    // Unsend message
+    newSocket.on('message_unsent', (data: { messageId: string; conversationId: string; deletedBy: string }) => {
+      markMessageDeleted(data.conversationId, data.messageId, data.deletedBy)
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.conversations.messages(data.conversationId),
+      })
+    })
 
     setSocket(newSocket)
 

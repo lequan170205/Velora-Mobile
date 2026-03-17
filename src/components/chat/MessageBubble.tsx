@@ -12,6 +12,8 @@ import Animated, {
 
 import { queryKeys } from '../../constants/queryKeys'
 import { cn } from '../../lib/cn'
+import { useAddReaction } from '../../hooks/useReactions'
+import { useUnsendMessage } from '../../hooks/useUnsend'
 import type { Message } from '../../types/conversation.types'
 import { MessageContextMenu, type BubbleAnchor } from './MessageContextMenu'
 
@@ -35,6 +37,24 @@ export function MessageBubble({
   const [menuVisible, setMenuVisible] = useState(false)
   const [anchor, setAnchor] = useState<BubbleAnchor | null>(null)
   const bubbleRef = useRef<View>(null)
+
+  const { mutate: addReaction } = useAddReaction()
+  const { mutate: unsendMessage } = useUnsendMessage()
+
+  const handleReaction = (emoji: string) => {
+    addReaction({
+      messageId: message.id,
+      conversationId: message.conversationId,
+      emoji,
+    })
+  }
+
+  const handleUnsend = () => {
+    unsendMessage({
+      messageId: message.id,
+      conversationId: message.conversationId,
+    })
+  }
 
   const senderInfo = useMemo(() => {
     if (message.sender) return message.sender
@@ -75,8 +95,7 @@ export function MessageBubble({
   }
 
   const handleLongPress = () => {
-    // measureInWindow returns coords in the root window frame — exactly what
-    // we need since the Modal also renders at the window level.
+    if (isDeleted) return
     bubbleRef.current?.measureInWindow((x, y, width, height) => {
       setAnchor({ x, y, width, height })
       setMenuVisible(true)
@@ -94,6 +113,18 @@ export function MessageBubble({
     senderInfo?.name?.charAt(0).toUpperCase() || senderInfo?.email?.charAt(0).toUpperCase() || '?'
 
   const isImage = message.type === 'image'
+  const isDeleted = message.isDeleted === true
+
+  // Group reactions by emoji and count
+  const reactions = message.reactions || []
+  const reactionCounts = reactions.reduce((acc, r) => {
+    acc[r.emoji] = (acc[r.emoji] || 0) + 1
+    return acc
+  }, {} as Record<string, number>)
+  const reactionEmojis = Object.entries(reactionCounts).map(([emoji, count]) => ({
+    emoji,
+    count,
+  }))
 
   return (
     <>
@@ -132,9 +163,12 @@ export function MessageBubble({
               isOwn && isGroupedBottom && 'rounded-br-[4px]',
               !isOwn && isGroupedTop && 'rounded-tl-[4px]',
               !isOwn && isGroupedBottom && 'rounded-bl-[4px]',
+              isDeleted && 'opacity-60',
             )}
           >
-            {isImage ? (
+            {isDeleted ? (
+              <Text className="font-sans text-base italic text-text-muted">This message was unsent</Text>
+            ) : isImage ? (
               <View className="relative">
                 <Image
                   source={{ uri: message.content }}
@@ -164,6 +198,19 @@ export function MessageBubble({
             )}
           </Pressable>
 
+          {/* Reactions display */}
+          {reactionEmojis.length > 0 && (
+            <View className={cn('flex-row mt-1', isOwn ? 'justify-end' : 'justify-start')}>
+              <View className="flex-row items-center bg-surface-card px-2 py-0.5 rounded-full">
+                {reactionEmojis.map((item) => (
+                  <Text key={item.emoji} className="text-sm mr-1">
+                    {item.emoji}
+                  </Text>
+                ))}
+              </View>
+            </View>
+          )}
+
           <Animated.View style={[animatedStyle, { overflow: 'hidden' }]}>
             <View className={cn('flex-row items-center', isOwn ? 'justify-end' : 'justify-start')}>
               <Text className="text-[11px] text-text-muted px-1">
@@ -192,6 +239,8 @@ export function MessageBubble({
         onReply={() => {
           // TODO: set reply state
         }}
+        onReaction={handleReaction}
+        onUnsend={handleUnsend}
       />
     </>
   )

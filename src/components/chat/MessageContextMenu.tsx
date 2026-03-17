@@ -11,7 +11,6 @@ import Animated, {
     withTiming,
 } from 'react-native-reanimated'
 
-import { useChatStore } from '../../stores/chatStore'
 import type { Message } from '../../types/conversation.types'
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
@@ -30,6 +29,8 @@ interface MessageContextMenuProps {
   anchor: BubbleAnchor | null
   onClose: () => void
   onReply?: () => void
+  onReaction?: (emoji: string) => void
+  onUnsend?: () => void
 }
 
 const REACTIONS = ['❤️', '😂', '😮', '😢', '😡', '👍']
@@ -47,6 +48,8 @@ export function MessageContextMenu({
   anchor,
   onClose,
   onReply,
+  onReaction,
+  onUnsend,
 }: MessageContextMenuProps) {
   const theme = useTheme()
   const isDark = theme.dark
@@ -95,13 +98,6 @@ export function MessageContextMenu({
     close()
   }
 
-  const handleDelete = () => {
-    if (message) {
-      useChatStore.getState().removeOptimisticMessage(message.conversationId, message.id)
-    }
-    close()
-  }
-
   const handleReply = () => {
     onReply?.()
     close()
@@ -137,10 +133,13 @@ export function MessageContextMenu({
     {
       id: 'delete',
       icon: 'delete-outline' as const,
-      label: 'Remove',
-      onPress: handleDelete,
+      label: 'Unsend',
+      onPress: () => {
+        onUnsend?.()
+        close()
+      },
       destructive: true,
-      show: isOwn,
+      show: isOwn && !message?.isDeleted,
     },
   ].filter((a) => a.show)
 
@@ -176,7 +175,10 @@ export function MessageContextMenu({
           {REACTIONS.map((emoji) => (
             <Pressable
               key={emoji}
-              onPress={close}
+              onPress={() => {
+                onReaction?.(emoji)
+                close()
+              }}
               className="w-[34px] h-[34px] rounded-full items-center justify-center"
               style={({ pressed }) => ({
                 backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'transparent',

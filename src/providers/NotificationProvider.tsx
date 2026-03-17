@@ -1,9 +1,9 @@
-import { useEffect, useRef, useCallback } from 'react'
-import { useRouter } from 'expo-router'
 import * as Notifications from 'expo-notifications'
-import { useAuthStore } from '../stores/authStore'
+import { useRouter } from 'expo-router'
+import { useCallback, useEffect, useRef } from 'react'
 import { registerPushToken, unregisterAllTokens } from '../api/notification.api'
 import { useMessageNotifications } from '../hooks/useMessageNotifications'
+import { useAuthStore } from '../stores/authStore'
 
 // Configure notification handler at module level
 Notifications.setNotificationHandler({

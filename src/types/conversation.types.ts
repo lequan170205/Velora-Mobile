@@ -1,5 +1,13 @@
 import type { UserSummary } from './user.types'
 
+export interface Reaction {
+  id: string
+  messageId: string
+  userId: string
+  emoji: string
+  createdAt: string
+}
+
 export interface ChatParticipant {
   id: string
   name?: string
@@ -34,9 +42,12 @@ export interface Message {
   type: 'text' | 'image' | 'file' | 'voice'
   status: 'SENT' | 'DELIVERED' | 'READ'
   replyTo?: Message
+  reactions?: Reaction[]
+  isDeleted?: boolean
+  deletedAt?: string
+  deletedBy?: string
   createdAt: string
   updatedAt: string
-  deletedAt?: string
 }
 
 export interface ConversationMember {

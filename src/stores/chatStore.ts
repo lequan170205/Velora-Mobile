@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
-import type { Message } from '../types/conversation.types'
+import type { Message, Reaction } from '../types/conversation.types'
 
 interface OfflineMessage {
   id: string
@@ -24,6 +24,9 @@ interface ChatState {
   enqueueOfflineMessage: (message: OfflineMessage) => void
   dequeueOfflineMessage: (id: string) => void
   markMessagesAsSeen: (conversationId: string, userId: string) => void
+  addReaction: (conversationId: string, messageId: string, reaction: Reaction) => void
+  removeReaction: (conversationId: string, messageId: string, userId: string) => void
+  markMessageDeleted: (conversationId: string, messageId: string, deletedBy: string) => void
 }
 
 export const useChatStore = create<ChatState>()(
@@ -113,6 +116,67 @@ export const useChatStore = create<ChatState>()(
               [conversationId]: msgs.map((m) =>
                 m.senderId !== userId && m.status !== 'READ' ? { ...m, status: 'READ' as const } : m,
               ),
+            },
+          }
+        }),
+
+      addReaction: (conversationId, messageId, reaction) =>
+        set((state) => {
+          const msgs = state.optimisticMessages[conversationId] || []
+          return {
+            optimisticMessages: {
+              ...state.optimisticMessages,
+              [conversationId]: msgs.map((m) => {
+                if (m.id === messageId) {
+                  const existingReactions = m.reactions || []
+                  // Remove existing reaction from same user with same emoji
+                  const filtered = existingReactions.filter(
+                    (r) => !(r.userId === reaction.userId && r.emoji === reaction.emoji),
+                  )
+                  return { ...m, reactions: [...filtered, reaction] }
+                }
+                return m
+              }),
+            },
+          }
+        }),
+
+      removeReaction: (conversationId, messageId, userId) =>
+        set((state) => {
+          const msgs = state.optimisticMessages[conversationId] || []
+          return {
+            optimisticMessages: {
+              ...state.optimisticMessages,
+              [conversationId]: msgs.map((m) => {
+                if (m.id === messageId) {
+                  return {
+                    ...m,
+                    reactions: (m.reactions || []).filter((r) => r.userId !== userId),
+                  }
+                }
+                return m
+              }),
+            },
+          }
+        }),
+
+      markMessageDeleted: (conversationId, messageId, deletedBy) =>
+        set((state) => {
+          const msgs = state.optimisticMessages[conversationId] || []
+          return {
+            optimisticMessages: {
+              ...state.optimisticMessages,
+              [conversationId]: msgs.map((m) => {
+                if (m.id === messageId) {
+                  return {
+                    ...m,
+                    isDeleted: true,
+                    deletedBy,
+                    deletedAt: new Date().toISOString(),
+                  }
+                }
+                return m
+              }),
             },
           }
         }),
