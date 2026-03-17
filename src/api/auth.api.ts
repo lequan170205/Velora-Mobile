@@ -39,4 +39,8 @@ export const authApi = {
     const response = await apiClient.post<MessageResponse>('/auth/google/verify', data)
     return response.data
   },
+  resendVerificationEmail: async (email: string) => {
+    const response = await apiClient.post<MessageResponse>('/auth/resend-verification', { email })
+    return response.data
+  },
 }

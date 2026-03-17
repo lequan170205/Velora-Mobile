@@ -54,15 +54,12 @@ export default function ForgotPasswordScreen() {
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View className="flex-1">
-            <View
-              className="flex-1 px-6"
-              style={{ paddingTop: Platform.OS === 'ios' ? 60 : 24 }}
-            >
+            <View className="flex-1 px-6" style={{ paddingTop: Platform.OS === 'ios' ? 60 : 40 }}>
               {/* Nav bar */}
               <View className="flex-row items-start -ml-3">
                 <TouchableOpacity
                   onPress={() => router.back()}
-                  className="w-12 h-12 rounded-full items-center justify-center"
+                  className="h-12 rounded-full items-center justify-center"
                 >
                   <MaterialIcons name="chevron-left" size={32} color="#f8fafc" />
                 </TouchableOpacity>

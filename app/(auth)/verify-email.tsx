@@ -19,6 +19,7 @@ export default function VerifyEmailScreen() {
   const { email } = useLocalSearchParams<{ email: string }>()
   const [token, setToken] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [isResending, setIsResending] = useState(false)
   const [countdown, setCountdown] = useState(60)
   const [isFocused, setIsFocused] = useState(false)
   const router = useRouter()
@@ -52,8 +53,19 @@ export default function VerifyEmailScreen() {
   }
 
   const handleResend = async () => {
-    setCountdown(60)
-    Alert.alert('Sent', 'Verification code resent to your email.')
+    if (!email) return
+
+    try {
+      setIsResending(true)
+      await authApi.resendVerificationEmail(email)
+      setCountdown(60)
+      Alert.alert('Sent', 'Verification code resent to your email.')
+    } catch (err: unknown) {
+      const error = err as Error & { response?: { data?: { message?: string }; status?: number } }
+      Alert.alert('Error', error?.response?.data?.message || 'Failed to resend code')
+    } finally {
+      setIsResending(false)
+    }
   }
 
   return (
@@ -101,7 +113,6 @@ export default function VerifyEmailScreen() {
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
                 textAlign="center"
-                // NativeWind limitation: letterSpacing kept as inline — no Tailwind class maps to this exact value
                 style={{ letterSpacing: 16 }}
               />
             </View>
@@ -133,8 +144,10 @@ export default function VerifyEmailScreen() {
                   </Text>
                 </>
               ) : (
-                <TouchableOpacity onPress={handleResend} activeOpacity={0.7}>
-                  <Text className="text-brand font-semibold text-base2">Resend Code</Text>
+                <TouchableOpacity onPress={handleResend} activeOpacity={0.7} disabled={isResending}>
+                  <Text className="text-brand font-semibold text-base2">
+                    {isResending ? 'Sending...' : 'Resend Code'}
+                  </Text>
                 </TouchableOpacity>
               )}
             </View>
