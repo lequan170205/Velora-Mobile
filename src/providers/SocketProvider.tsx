@@ -18,14 +18,25 @@ const SocketContext = createContext<SocketContextType>({ socket: null, isConnect
 export const useSocket = () => useContext(SocketContext)
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, user } = useAuthStore()
-  const { setTyping, setUserOnline, markMessagesAsSeen, addReaction, removeReaction, markMessageDeleted } = useChatStore()
+  const { isAuthenticated, user, isLoading } = useAuthStore()
+  const {
+    setTyping,
+    setUserOnline,
+    markMessagesAsSeen,
+    addReaction,
+    removeReaction,
+    markMessageDeleted,
+  } = useChatStore()
   const queryClient = useQueryClient()
 
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
 
   useEffect(() => {
+    if (isLoading) {
+      return
+    }
+
     if (!isAuthenticated || !user) {
       if (socket) {
         socket.disconnect()
@@ -37,6 +48,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     const newSocket = io(process.env.EXPO_PUBLIC_WS_URL || 'http://localhost:3000', {
       withCredentials: true,
       query: { userId: user.id },
+      forceNew: true,
+      transports: ['websocket'],
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
@@ -63,7 +76,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     })
 
     newSocket.on('new_message', (message: Message) => {
-      if (user?.id && message.senderId === user.id) {
+      const currentUser = useAuthStore.getState().user
+
+      if (currentUser?.id && message.senderId === currentUser.id) {
         const store = useChatStore.getState()
         const pendingMsgs = store.optimisticMessages[message.conversationId] || []
         const match = pendingMsgs.find((m) => m.content === message.content)
@@ -126,41 +141,51 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     newSocket.on('call:incoming', (_payload) => {})
 
     // Message reactions
-    newSocket.on('reaction_added', (data: { messageId: string; conversationId: string; userId: string; emoji: string }) => {
-      const reaction: Reaction = {
-        id: `server-${Date.now()}`,
-        messageId: data.messageId,
-        userId: data.userId,
-        emoji: data.emoji,
-        createdAt: new Date().toISOString(),
-      }
-      addReaction(data.conversationId, data.messageId, reaction)
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.conversations.messages(data.conversationId),
-      })
-    })
+    newSocket.on(
+      'reaction_added',
+      (data: { messageId: string; conversationId: string; userId: string; emoji: string }) => {
+        const reaction: Reaction = {
+          id: `server-${Date.now()}`,
+          messageId: data.messageId,
+          userId: data.userId,
+          emoji: data.emoji,
+          createdAt: new Date().toISOString(),
+        }
+        addReaction(data.conversationId, data.messageId, reaction)
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.conversations.messages(data.conversationId),
+        })
+      },
+    )
 
-    newSocket.on('reaction_removed', (data: { messageId: string; conversationId: string; userId: string }) => {
-      removeReaction(data.conversationId, data.messageId, data.userId)
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.conversations.messages(data.conversationId),
-      })
-    })
+    newSocket.on(
+      'reaction_removed',
+      (data: { messageId: string; conversationId: string; userId: string }) => {
+        removeReaction(data.conversationId, data.messageId, data.userId)
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.conversations.messages(data.conversationId),
+        })
+      },
+    )
 
     // Unsend message
-    newSocket.on('message_unsent', (data: { messageId: string; conversationId: string; deletedBy: string }) => {
-      markMessageDeleted(data.conversationId, data.messageId, data.deletedBy)
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.conversations.messages(data.conversationId),
-      })
-    })
+    newSocket.on(
+      'message_unsent',
+      (data: { messageId: string; conversationId: string; deletedBy: string }) => {
+        markMessageDeleted(data.conversationId, data.messageId, data.deletedBy)
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.conversations.messages(data.conversationId),
+        })
+      },
+    )
 
     setSocket(newSocket)
 
     return () => {
+      newSocket.removeAllListeners()
       newSocket.disconnect()
     }
-  }, [isAuthenticated, user?.id])
+  }, [isAuthenticated, user?.id, isLoading])
 
   return <SocketContext.Provider value={{ socket, isConnected }}>{children}</SocketContext.Provider>
 }

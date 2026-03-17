@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "__tmp_expo",
-    "slug": "__tmp_expo",
+    "name": "velora",
+    "slug": "velora-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -15,8 +15,11 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "UIBackgroundModes": ["audio", "voip"]
-      }
+        "UIBackgroundModes": ["audio", "voip"],
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "com.yourcompany.velora",
+      "jsEngine": "jsc"
     },
     "android": {
       "adaptiveIcon": {
@@ -31,7 +34,8 @@
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MICROPHONE"
-      ]
+      ],
+      "package": "com.yourcompany.velora"
     },
     "web": {
       "bundler": "metro",
@@ -48,16 +52,18 @@
         {
           "iosUrlScheme": "com.googleusercontent.apps.448991830808-ocr9rlrbmla6m5g2pr3c9ea59pson6su"
         }
-      ],
-      [
-        "expo-notifications",
-        {
-          "color": "#0A7CFF"
-        }
       ]
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "2e55409d-d006-4739-a323-93fd82fb055e"
+      }
+    },
+    "jsEngine": "hermes",
+    "owner": "velora-mobile"
   }
 }

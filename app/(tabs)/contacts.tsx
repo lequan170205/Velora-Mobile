@@ -2,13 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons'
 import { FlashList as OriginalFlashList } from '@shopify/flash-list'
 import { useRouter } from 'expo-router'
 import React, { useState } from 'react'
-import {
-  ActivityIndicator,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native'
+import { ActivityIndicator, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { conversationApi } from '../../src/api/conversation.api'
@@ -46,11 +40,7 @@ export default function ContactsScreen() {
     const isOnline = onlineUsers.has(item.id)
 
     return (
-      <TouchableOpacity
-        className="mx-4"
-        onPress={() => handleUserPress(item)}
-        activeOpacity={0.7}
-      >
+      <TouchableOpacity className="mx-4" onPress={() => handleUserPress(item)} activeOpacity={0.7}>
         <View className="flex-row items-center py-3">
           {/* Avatar with online badge */}
           <View className="relative mr-3">

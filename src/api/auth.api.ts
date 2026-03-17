@@ -35,4 +35,8 @@ export const authApi = {
     const response = await apiClient.post<MessageResponse>('/auth/reset-password', data)
     return response.data
   },
+  verifyGoogleToken: async (data: { idToken: string }) => {
+    const response = await apiClient.post<MessageResponse>('/auth/google/verify', data)
+    return response.data
+  },
 }
