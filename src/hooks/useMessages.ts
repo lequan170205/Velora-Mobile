@@ -25,33 +25,54 @@ export function useMessages(conversationId: string) {
 
 export function useSendMessage(conversationId: string) {
   const { socket } = useSocket()
-  const { addOptimisticMessage, enqueueOfflineMessage } = useChatStore()
+  const { addOptimisticMessage, enqueueOfflineMessage, replyToMessage } = useChatStore()
   const { user } = useAuthStore()
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (content: string) => {
+    mutationFn: async ({ content, replyToId }: { content: string; replyToId?: string }) => {
       if (!socket) throw new Error('Socket is not connected')
 
       if (!socket.connected) {
         return Promise.resolve({ pending: true })
       }
 
-      const payload = {
+      const payload: {
+        conversationId: string
+        content: string
+        type: string
+        signalType: number
+        replyToId?: string
+      } = {
         conversationId,
         content,
         type: 'text',
         signalType: 0,
       }
 
+      if (replyToId) {
+        payload.replyToId = replyToId
+      }
+
       socket.emit('send_message', payload)
       return payload
     },
-    onMutate: async (content) => {
+    onMutate: async ({ content, replyToId }) => {
       if (!user) return
 
       const now = new Date().toISOString()
       const tempId = `temp-${Date.now()}`
+
+      // Build replyPreview from replyToMessage if replying
+      let replyPreview: Message['replyPreview'] = undefined
+      if (replyToId && replyToMessage) {
+        replyPreview = {
+          senderName: replyToMessage.sender?.email?.split('@')[0] || 'User',
+          content: replyToMessage.content || '',
+          type: (replyToMessage.type === 'voice' ? 'text' : replyToMessage.type) as 'text' | 'image' | 'video' | 'file' | 'call',
+        }
+      }
+
       const tempMessage: Message = {
         id: tempId,
         conversationId,
@@ -62,6 +83,8 @@ export function useSendMessage(conversationId: string) {
         status: 'SENT',
         createdAt: now,
         updatedAt: now,
+        ...(replyToId && { replyToId }),
+        ...(replyPreview && { replyPreview }),
       }
 
       addOptimisticMessage(conversationId, tempMessage)
@@ -72,6 +95,14 @@ export function useSendMessage(conversationId: string) {
 
       queryClient.setQueryData<any>(queryKeys.conversations.all, (oldData: any) => {
         if (!oldData) return oldData
+
+        const sortConvs = (convs: any[]) => {
+          return convs.sort((a: any, b: any) => {
+            const dateA = new Date(a.lastMessageAt || 0).getTime()
+            const dateB = new Date(b.lastMessageAt || 0).getTime()
+            return dateB - dateA
+          })
+        }
 
         if (oldData.pages) {
           let targetConv: any = null
@@ -93,6 +124,8 @@ export function useSendMessage(conversationId: string) {
           if (targetConv) {
             if (newPages.length > 0) {
               newPages[0].unshift(targetConv)
+              // Sort to ensure correct position
+              newPages[0] = sortConvs(newPages[0])
             } else {
               newPages.push([targetConv])
             }
@@ -110,7 +143,7 @@ export function useSendMessage(conversationId: string) {
               lastMessage: content,
               lastMessageAt: now,
             }
-            return [updatedConv, ...filteredConvs]
+            return sortConvs([updatedConv, ...filteredConvs])
           }
         }
 

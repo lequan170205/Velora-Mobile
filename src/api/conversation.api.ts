@@ -25,7 +25,7 @@ export const conversationApi = {
   },
   sendMessage: async (
     id: string,
-    data: { content: string; type: 'text' | 'image' | 'file' | 'voice' },
+    data: { content: string; type: 'text' | 'image' | 'file' | 'voice'; signalType?: number; replyToId?: string },
   ) => {
     const response = await apiClient.post<Message>(`/conversations/${id}/messages`, data)
 
@@ -43,6 +43,29 @@ export const conversationApi = {
   },
   readMessage: async (id: string, data: { messageId: string }) => {
     await apiClient.post(`/conversations/${id}/read`, data)
+  },
+
+  // New methods for Recall, Reply, Reactions
+
+  recallMessage: async (conversationId: string, messageId: string, userId: string) => {
+    const response = await apiClient.post<Message>(
+      `/conversations/${conversationId}/messages/${messageId}/recall`,
+      { userId },
+    )
+    return response.data
+  },
+
+  addReaction: async (messageId: string, userId: string, emoji: string) => {
+    const response = await apiClient.post<Message>(`/messages/${messageId}/reactions`, {
+      userId,
+      emoji,
+    })
+    return response.data
+  },
+
+  removeReaction: async (messageId: string, userId: string) => {
+    const response = await apiClient.delete<Message>(`/messages/${messageId}/reactions/${userId}`)
+    return response.data
   },
   getMembers: async (id: string) => {
     const response = await apiClient.get<ConversationMember[]>(`/conversations/${id}/members`)

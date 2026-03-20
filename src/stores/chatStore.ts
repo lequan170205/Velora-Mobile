@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
-import type { Message, Reaction } from '../types/conversation.types'
+import type { Message } from '../types/conversation.types'
 
 interface OfflineMessage {
   id: string
@@ -15,6 +15,8 @@ interface ChatState {
   typingUsers: Record<string, string[]>
   onlineUsers: Set<string>
   offlineQueue: OfflineMessage[]
+  replyToMessage: Message | null // Currently replying to message
+  seenMessages: Record<string, Set<string>> // conversationId -> Set<messageId> đã được read
 
   addOptimisticMessage: (conversationId: string, message: Message) => void
   removeOptimisticMessage: (conversationId: string, tempId: string) => void
@@ -24,18 +26,39 @@ interface ChatState {
   enqueueOfflineMessage: (message: OfflineMessage) => void
   dequeueOfflineMessage: (id: string) => void
   markMessagesAsSeen: (conversationId: string, userId: string) => void
-  addReaction: (conversationId: string, messageId: string, reaction: Reaction) => void
-  removeReaction: (conversationId: string, messageId: string, userId: string) => void
-  markMessageDeleted: (conversationId: string, messageId: string, deletedBy: string) => void
+  setMessageAsSeen: (conversationId: string, messageId: string) => void
+  isMessageSeen: (conversationId: string, messageId: string) => boolean
+  setReplyToMessage: (message: Message | null) => void
+  clearCache: () => void
 }
 
 export const useChatStore = create<ChatState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       optimisticMessages: {},
       typingUsers: {},
       onlineUsers: new Set(),
       offlineQueue: [],
+      replyToMessage: null,
+      seenMessages: {},
+
+      setMessageAsSeen: (conversationId, messageId) =>
+        set((state) => {
+          const convSeen = state.seenMessages[conversationId] || new Set()
+          const newSeen = new Set(convSeen)
+          newSeen.add(messageId)
+          return {
+            seenMessages: {
+              ...state.seenMessages,
+              [conversationId]: newSeen,
+            },
+          }
+        }),
+
+      isMessageSeen: (conversationId, messageId) => {
+        const convSeen = get().seenMessages[conversationId]
+        return convSeen?.has(messageId) || false
+      },
 
       addOptimisticMessage: (conversationId, message) =>
         set((state) => {
@@ -63,10 +86,27 @@ export const useChatStore = create<ChatState>()(
         set((state) => {
           const conversationId = currentMessage.conversationId
           const msgs = state.optimisticMessages[conversationId] || []
+
           return {
             optimisticMessages: {
               ...state.optimisticMessages,
-              [conversationId]: msgs.map((m) => (m.id === tempId ? currentMessage : m)),
+              [conversationId]: msgs.map((m) => {
+                if (m.id === tempId) {
+                  // Keep replyPreview from optimistic message if server doesn't return it
+                  const optimisticPreview = m.replyPreview
+                  const mergedMessage: Message = {
+                    ...currentMessage,
+                  }
+                  // Only set replyPreview if either currentMessage or optimistic has it
+                  if (currentMessage.replyPreview) {
+                    mergedMessage.replyPreview = currentMessage.replyPreview
+                  } else if (optimisticPreview) {
+                    mergedMessage.replyPreview = optimisticPreview
+                  }
+                  return mergedMessage
+                }
+                return m
+              }),
             },
           }
         }),
@@ -114,72 +154,30 @@ export const useChatStore = create<ChatState>()(
             optimisticMessages: {
               ...state.optimisticMessages,
               [conversationId]: msgs.map((m) =>
-                m.senderId !== userId && m.status !== 'READ' ? { ...m, status: 'READ' as const } : m,
+                m.senderId !== userId && m.status !== 'READ'
+                  ? { ...m, status: 'READ' as const }
+                  : m,
               ),
             },
           }
         }),
 
-      addReaction: (conversationId, messageId, reaction) =>
-        set((state) => {
-          const msgs = state.optimisticMessages[conversationId] || []
-          return {
-            optimisticMessages: {
-              ...state.optimisticMessages,
-              [conversationId]: msgs.map((m) => {
-                if (m.id === messageId) {
-                  const existingReactions = m.reactions || []
-                  // Remove existing reaction from same user with same emoji
-                  const filtered = existingReactions.filter(
-                    (r) => !(r.userId === reaction.userId && r.emoji === reaction.emoji),
-                  )
-                  return { ...m, reactions: [...filtered, reaction] }
-                }
-                return m
-              }),
-            },
-          }
-        }),
+      setReplyToMessage: (message) =>
+        set(() => ({
+          replyToMessage: message,
+        })),
 
-      removeReaction: (conversationId, messageId, userId) =>
-        set((state) => {
-          const msgs = state.optimisticMessages[conversationId] || []
-          return {
-            optimisticMessages: {
-              ...state.optimisticMessages,
-              [conversationId]: msgs.map((m) => {
-                if (m.id === messageId) {
-                  return {
-                    ...m,
-                    reactions: (m.reactions || []).filter((r) => r.userId !== userId),
-                  }
-                }
-                return m
-              }),
-            },
-          }
-        }),
-
-      markMessageDeleted: (conversationId, messageId, deletedBy) =>
-        set((state) => {
-          const msgs = state.optimisticMessages[conversationId] || []
-          return {
-            optimisticMessages: {
-              ...state.optimisticMessages,
-              [conversationId]: msgs.map((m) => {
-                if (m.id === messageId) {
-                  return {
-                    ...m,
-                    isDeleted: true,
-                    deletedBy,
-                    deletedAt: new Date().toISOString(),
-                  }
-                }
-                return m
-              }),
-            },
-          }
-        }),
+      clearCache: async () => {
+        // Clear Zustand state
+        set(() => ({
+          optimisticMessages: {},
+          offlineQueue: [],
+          replyToMessage: null,
+          seenMessages: {},
+        }))
+        // Clear AsyncStorage persisted data
+        await AsyncStorage.removeItem('chat-storage')
+      },
     }),
     {
       name: 'chat-storage',

@@ -1,14 +1,14 @@
 import { format } from 'date-fns'
 import { useRouter } from 'expo-router'
-import React from 'react'
+import React, { memo } from 'react'
 import { Image, Text, View } from 'react-native'
 
 import { cn } from '../../lib/cn'
-import { SafeTouchableOpacity } from '../common/SafeTouchableOpacity'
 import { useAuthStore } from '../../stores/authStore'
 import type { Conversation } from '../../types/conversation.types'
+import { SafeTouchableOpacity } from '../common/SafeTouchableOpacity'
 
-export function ConversationItem({ conversation }: { conversation: Conversation }) {
+const ConversationItemComponent = function ConversationItem({ conversation }: { conversation: Conversation }) {
   const router = useRouter()
   const { user } = useAuthStore()
 
@@ -80,7 +80,12 @@ export function ConversationItem({ conversation }: { conversation: Conversation 
           >
             {displayName}
           </Text>
-          <Text className={cn('text-xs2', isUnread ? 'text-brand font-semibold' : 'text-text-muted font-medium')}>
+          <Text
+            className={cn(
+              'text-xs2',
+              isUnread ? 'text-brand font-semibold' : 'text-text-muted font-medium',
+            )}
+          >
             {timeString}
           </Text>
         </View>
@@ -97,11 +102,18 @@ export function ConversationItem({ conversation }: { conversation: Conversation 
             {conversation.lastMessage || 'No messages yet'}
           </Text>
 
-          {isUnread && (
-            <View className="w-2.5 h-2.5 rounded-full bg-brand mt-1" />
-          )}
+          {isUnread && <View className="w-2.5 h-2.5 rounded-full bg-brand mt-1" />}
         </View>
       </View>
     </SafeTouchableOpacity>
   )
 }
+
+// Memoize to prevent unnecessary re-renders
+export const ConversationItem = memo(ConversationItemComponent, (prevProps, nextProps) => {
+  return (
+    prevProps.conversation.id === nextProps.conversation.id &&
+    prevProps.conversation.lastMessage === nextProps.conversation.lastMessage &&
+    prevProps.conversation.lastMessageAt === nextProps.conversation.lastMessageAt
+  )
+})

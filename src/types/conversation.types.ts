@@ -1,13 +1,5 @@
 import type { UserSummary } from './user.types'
 
-export interface Reaction {
-  id: string
-  messageId: string
-  userId: string
-  emoji: string
-  createdAt: string
-}
-
 export interface ChatParticipant {
   id: string
   name?: string
@@ -33,6 +25,25 @@ export interface Conversation {
   unreadCount?: number
 }
 
+export interface Reaction {
+  userId: string
+  emoji: string
+  createdAt: string
+}
+
+export interface ReactionMap {
+  [userId: string]: {
+    emoji: string
+    createdAt: string
+  }
+}
+
+export interface ReplyPreviewData {
+  senderName: string
+  content: string
+  type: 'text' | 'image' | 'video' | 'file' | 'call'
+}
+
 export interface Message {
   id: string
   conversationId: string
@@ -42,12 +53,24 @@ export interface Message {
   type: 'text' | 'image' | 'file' | 'voice'
   status: 'SENT' | 'DELIVERED' | 'READ'
   replyTo?: Message
-  reactions?: Reaction[]
   isDeleted?: boolean
-  deletedAt?: string
   deletedBy?: string
   createdAt: string
   updatedAt: string
+
+  // New fields for Recall, Reply, Reactions (camelCase)
+  isRecalled?: boolean
+  recalledAt?: string
+  replyToId?: string
+  replyPreview?: string | ReplyPreviewData
+  reactions?: ReactionMap
+
+  // Backend also returns snake_case and MongoDB _id
+  _id?: string
+  is_recalled?: boolean
+  recalled_at?: string
+  reply_to_id?: string
+  reply_preview?: string
 }
 
 export interface ConversationMember {

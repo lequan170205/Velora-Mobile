@@ -1,16 +1,21 @@
 import { MaterialIcons } from '@expo/vector-icons'
+import { useQueryClient } from '@tanstack/react-query'
 import { Image } from 'expo-image'
 import * as ImagePicker from 'expo-image-picker'
 import React from 'react'
 import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
+
 import { authApi } from '../../src/api/auth.api'
 import { useUpdateAvatar } from '../../src/hooks/useProfile'
 import { useAuthStore } from '../../src/stores/authStore'
+import { useChatStore } from '../../src/stores/chatStore'
 
 export default function ProfileScreen() {
   const { user, clearAuth } = useAuthStore()
+  const { clearCache } = useChatStore()
+  const queryClient = useQueryClient()
   const { mutate: updateAvatar, isPending: isUpdatingAvatar } = useUpdateAvatar()
 
   const handleLogout = async () => {
@@ -26,6 +31,20 @@ export default function ProfileScreen() {
             console.error(e)
           }
           clearAuth()
+        },
+      },
+    ])
+  }
+
+  const handleClearCache = async () => {
+    Alert.alert('Clear Cache', 'Clear all cached messages?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Clear',
+        onPress: async () => {
+          await clearCache()
+          queryClient.clear()
+          Alert.alert('Success', 'Cache cleared!')
         },
       },
     ])
@@ -120,6 +139,15 @@ export default function ProfileScreen() {
           >
             <MaterialIcons name="palette" size={24} color="#94a3b8" style={{ marginRight: 16 }} />
             <Text className="text-text-primary font-medium text-md flex-1">Theme Settings</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            className="flex-row items-center bg-surface-card rounded-xl h-14 px-5 mt-2"
+            onPress={handleClearCache}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons name="delete-sweep" size={24} color="#f59e0b" style={{ marginRight: 16 }} />
+            <Text className="text-yellow-500 font-medium text-md flex-1">Clear Cache</Text>
           </TouchableOpacity>
 
           <TouchableOpacity

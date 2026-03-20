@@ -4,13 +4,15 @@ import React, { useEffect } from 'react'
 import { Dimensions, Modal, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useTheme } from 'react-native-paper'
 import Animated, {
-    runOnJS,
-    useAnimatedStyle,
-    useSharedValue,
-    withSpring,
-    withTiming,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
 } from 'react-native-reanimated'
 
+import { useAddReaction, useRemoveReaction } from '../../hooks/useMessageActions'
+import { useAuthStore } from '../../stores/authStore'
 import type { Message } from '../../types/conversation.types'
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
@@ -29,11 +31,12 @@ interface MessageContextMenuProps {
   anchor: BubbleAnchor | null
   onClose: () => void
   onReply?: () => void
-  onReaction?: (emoji: string) => void
-  onUnsend?: () => void
+  onRecall?: () => void
+  conversationId?: string
 }
 
-const REACTIONS = ['❤️', '😂', '😮', '😢', '😡', '👍']
+// All 8 valid emojis (matching backend)
+const REACTIONS = ['👍', '❤️', '😂', '😢', '😮', '😡', '👏', '🎉']
 
 const TOOLTIP_W = 210
 const REACTION_H = 48
@@ -48,11 +51,14 @@ export function MessageContextMenu({
   anchor,
   onClose,
   onReply,
-  onReaction,
-  onUnsend,
+  onRecall,
+  conversationId,
 }: MessageContextMenuProps) {
   const theme = useTheme()
   const isDark = theme.dark
+  const { user } = useAuthStore()
+  const addReaction = useAddReaction()
+  const removeReaction = useRemoveReaction()
 
   // Tooltip always uses a dark chrome surface regardless of app theme —
   // same pattern as iOS context menu and Messenger.
@@ -98,12 +104,48 @@ export function MessageContextMenu({
     close()
   }
 
+  const handleRecall = () => {
+    onRecall?.()
+    close()
+  }
+
   const handleReply = () => {
     onReply?.()
     close()
   }
 
+  const handleReactionPress = (emoji: string) => {
+    if (!message || !user || !conversationId) return
+
+    // Check if user already has this emoji - if same, remove (toggle), if different, replace
+    // Handle both old array format and new map format
+    const reactionsData = message.reactions
+    let currentUserEmoji: string | undefined
+
+    if (reactionsData && typeof reactionsData === 'object') {
+      if (Array.isArray(reactionsData)) {
+        // Old array format
+        const userReaction = reactionsData.find((r: any) => r.userId === user.id)
+        currentUserEmoji = userReaction?.emoji
+      } else {
+        // New map format
+        currentUserEmoji = (reactionsData as Record<string, any>)[user.id]?.emoji
+      }
+    }
+
+    if (currentUserEmoji === emoji) {
+      // Same emoji - remove reaction
+      removeReaction.mutate({ messageId: message.id, conversationId })
+    } else {
+      // Different emoji or no reaction - add/replace
+      addReaction.mutate({ messageId: message.id, emoji, conversationId })
+    }
+    close()
+  }
+
   if (!message || !anchor) return null
+
+  const isRecalled = message.isRecalled === true || message.is_recalled === true
 
   const actions = [
     {
@@ -112,7 +154,7 @@ export function MessageContextMenu({
       label: 'Reply',
       onPress: handleReply,
       destructive: false,
-      show: true,
+      show: !isRecalled,
     },
     {
       id: 'copy',
@@ -120,7 +162,7 @@ export function MessageContextMenu({
       label: 'Copy',
       onPress: handleCopy,
       destructive: false,
-      show: message.type === 'text',
+      show: message.type === 'text' && !isRecalled,
     },
     {
       id: 'forward',
@@ -128,18 +170,15 @@ export function MessageContextMenu({
       label: 'Forward',
       onPress: close,
       destructive: false,
-      show: true,
+      show: !isRecalled,
     },
     {
-      id: 'delete',
-      icon: 'delete-outline' as const,
-      label: 'Unsend',
-      onPress: () => {
-        onUnsend?.()
-        close()
-      },
+      id: 'recall',
+      icon: 'undo' as const,
+      label: 'Thu hồi',
+      onPress: handleRecall,
       destructive: true,
-      show: isOwn && !message?.isDeleted,
+      show: isOwn && !isRecalled,
     },
   ].filter((a) => a.show)
 
@@ -167,28 +206,27 @@ export function MessageContextMenu({
       <Animated.View
         style={[styles.tooltip, tooltipStyle, { top, left, backgroundColor: surface }]}
       >
-        {/* Reaction strip */}
-        <View
-          className="flex-row items-center justify-between px-2.5"
-          style={{ height: REACTION_H }}
-        >
-          {REACTIONS.map((emoji) => (
-            <Pressable
-              key={emoji}
-              onPress={() => {
-                onReaction?.(emoji)
-                close()
-              }}
-              className="w-[34px] h-[34px] rounded-full items-center justify-center"
-              style={({ pressed }) => ({
-                backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'transparent',
-                transform: [{ scale: pressed ? 1.28 : 1 }],
-              })}
-            >
-              <Text style={styles.emoji}>{emoji}</Text>
-            </Pressable>
-          ))}
-        </View>
+        {/* Reaction strip - only show if message is not recalled */}
+        {!isRecalled && (
+          <View
+            className="flex-row items-center justify-between px-2.5"
+            style={{ height: REACTION_H }}
+          >
+            {REACTIONS.map((emoji) => (
+              <Pressable
+                key={emoji}
+                onPress={() => handleReactionPress(emoji)}
+                className="w-[34px] h-[34px] rounded-full items-center justify-center"
+                style={({ pressed }) => ({
+                  backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'transparent',
+                  transform: [{ scale: pressed ? 1.28 : 1 }],
+                })}
+              >
+                <Text style={styles.emoji}>{emoji}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
 
         {/* Full-width divider */}
         <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: divider }} />
@@ -253,19 +291,19 @@ export function MessageContextMenu({
 }
 
 const styles = StyleSheet.create({
+  emoji: {
+    fontSize: 20,
+    lineHeight: 25,
+  },
   tooltip: {
-    position: 'absolute',
-    width: TOOLTIP_W,
     borderRadius: 14,
+    elevation: 14,
     overflow: 'hidden',
+    position: 'absolute',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.28,
     shadowRadius: 20,
-    elevation: 14,
-  },
-  emoji: {
-    fontSize: 20,
-    lineHeight: 25,
+    width: TOOLTIP_W,
   },
 })
