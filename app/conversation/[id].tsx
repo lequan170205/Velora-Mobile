@@ -21,7 +21,6 @@ import { MessageBubble } from '../../src/components/chat/MessageBubble'
 import { MessageInput } from '../../src/components/chat/MessageInput'
 import { queryKeys } from '../../src/constants/queryKeys'
 import { useRecallMessage } from '../../src/hooks/useMessageActions'
-import { useMessageNotifications } from '../../src/hooks/useMessageNotifications'
 import { useMessages, useSendMessage } from '../../src/hooks/useMessages'
 import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
@@ -87,7 +86,6 @@ export default function ChatScreen() {
   const queryClient = useQueryClient()
 
   const { socket } = useSocket()
-  const { setCurrentConversation } = useMessageNotifications()
   const [isOnline, setIsOnline] = useState(false)
 
   const { data, isLoading, fetchNextPage, hasNextPage } = useMessages(id as string)
@@ -133,14 +131,8 @@ export default function ChatScreen() {
       socket.emit('mark_seen', id)
     }
 
-    // Set current conversation to suppress notifications for this conversation
-    setCurrentConversation(id)
-
-    // Clear current conversation when leaving
-    return () => {
-      setCurrentConversation(null)
-    }
-  }, [socket, socket?.connected, id, setCurrentConversation])
+    return () => {}
+  }, [socket, socket?.connected, id])
 
   useEffect(() => {
     const currentFirstMessageId = allMessages[0]?.id

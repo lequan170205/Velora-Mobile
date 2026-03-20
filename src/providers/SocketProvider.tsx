@@ -278,8 +278,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
       if (!messageIds.length) return // Nếu mảng rỗng thì không cần chạy vòng lặp làm gì
 
-      console.log('📝 reply_previews_updated received:', messageIds)
-
       const allQueries = queryClient.getQueriesData<any>({ queryKey: ['conversations'] })
 
       for (const [queryKey, oldData] of allQueries) {

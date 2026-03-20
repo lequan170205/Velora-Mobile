@@ -1,8 +1,8 @@
 import '../src/global.css'
 
-import { MaterialIcons } from '@expo/vector-icons'
 import { Inter_400Regular, Inter_500Medium, useFonts } from '@expo-google-fonts/inter'
 import { SpaceGrotesk_600SemiBold, SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk'
+import { MaterialIcons } from '@expo/vector-icons'
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet'
 import { Stack, useRouter } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
@@ -11,12 +11,11 @@ import { Text, TouchableOpacity, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { PaperProvider } from 'react-native-paper'
-import { useSafeAreaInsets , SafeAreaProvider } from 'react-native-safe-area-context'
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { paperTheme } from '../src/constants/paperTheme'
 import { colors } from '../src/constants/theme'
 import { AuthProvider } from '../src/providers/AuthProvider'
-import { NotificationProvider } from '../src/providers/NotificationProvider'
 import { QueryProvider } from '../src/providers/QueryProvider'
 import { SocketProvider } from '../src/providers/SocketProvider'
 import { useAuthStore } from '../src/stores/authStore'
@@ -90,26 +89,24 @@ export default function RootLayout() {
             <BottomSheetModalProvider>
               <QueryProvider>
                 <AuthProvider>
-                  <NotificationProvider>
-                    <SocketProvider>
-                      <Stack
-                        screenOptions={{
-                          headerShown: false,
-                          contentStyle: { backgroundColor: colors.bg.primary },
-                        }}
-                      >
-                        <Stack.Screen name="(tabs)" />
-                        <Stack.Screen name="(auth)" />
-                        <Stack.Screen name="conversation/[id]" />
-                        <Stack.Screen
-                          name="call/[id]"
-                          options={{ presentation: 'fullScreenModal' }}
-                        />
-                      </Stack>
+                  <SocketProvider>
+                    <Stack
+                      screenOptions={{
+                        headerShown: false,
+                        contentStyle: { backgroundColor: colors.bg.primary },
+                      }}
+                    >
+                      <Stack.Screen name="(tabs)" />
+                      <Stack.Screen name="(auth)" />
+                      <Stack.Screen name="conversation/[id]" />
+                      <Stack.Screen
+                        name="call/[id]"
+                        options={{ presentation: 'fullScreenModal' }}
+                      />
+                    </Stack>
 
-                      <ActiveCallBanner />
-                    </SocketProvider>
-                  </NotificationProvider>
+                    <ActiveCallBanner />
+                  </SocketProvider>
                 </AuthProvider>
               </QueryProvider>
             </BottomSheetModalProvider>
