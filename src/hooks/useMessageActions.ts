@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Alert } from 'react-native'
 
 import { queryKeys } from '../constants/queryKeys'
 import { useSocket } from '../providers/SocketProvider'
@@ -53,12 +54,16 @@ export function useRecallMessage(conversationId: string) {
       })
     },
     onError: (error) => {
-      // Nếu lỗi là "Message already recalled", không rollback mà giữ nguyên trạng thái đã thu hồi
       const errorMessage = error?.message || ''
       if (errorMessage === 'Message already recalled') {
         return
       }
-      // Các lỗi khác thì invalidate queries
+      Alert.alert(
+        'Không thể thu hồi',
+        errorMessage ||
+          'Tin nhắn không thể thu hồi. Có thể đã quá 24 giờ hoặc không hỗ trợ loại tin nhắn này.',
+        [{ text: 'OK' }],
+      )
       queryClient.invalidateQueries({
         queryKey: queryKeys.conversations.messages(conversationId),
       })

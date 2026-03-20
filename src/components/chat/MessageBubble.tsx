@@ -20,6 +20,12 @@ import { MessageContextMenu, type BubbleAnchor } from './MessageContextMenu'
 // Valid emojis for reactions (matching backend)
 export const VALID_EMOJIS = ['👍', '❤️', '😂', '😢', '😮', '😡', '👏', '🎉']
 
+// Backend sends English strings — map to Vietnamese display text
+const RECALLED_PREVIEW_MAP: Record<string, string> = {
+  'Message recalled': 'Tin nhắn đã thu hồi',
+  'message recalled': 'Tin nhắn đã thu hồi',
+}
+
 interface MessageBubbleProps {
   message: Message
   isOwn: boolean
@@ -202,9 +208,13 @@ const MessageBubbleComponent = function MessageBubble({
                   numberOfLines={1}
                   className={cn('text-[12px]', isOwn ? 'text-white/60' : 'text-text-muted')}
                 >
-                  {typeof message.replyPreview === 'string'
-                    ? message.replyPreview
-                    : (message.replyPreview as any).content}
+                  {(() => {
+                    const content =
+                      typeof message.replyPreview === 'string'
+                        ? message.replyPreview
+                        : (message.replyPreview as any).content
+                    return RECALLED_PREVIEW_MAP[content] ?? content
+                  })()}
                 </Text>
               </View>
             </Pressable>

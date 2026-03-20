@@ -7,6 +7,7 @@ module.exports = {
     'plugin:react/recommended',
     'plugin:react-hooks/recommended',
     'plugin:react-native/all',
+    'plugin:prettier/recommended',
   ],
   plugins: [
     '@typescript-eslint',
@@ -47,7 +48,13 @@ module.exports = {
     'import/order': [
       'error',
       {
-        groups: ['builtin', 'external', 'internal', 'parent', 'sibling', 'index'],
+        groups: ['builtin', 'external', 'internal', 'parent', 'sibling', 'index', 'object', 'type'],
+        pathGroups: [
+          {
+            pattern: '@*/**',
+            group: 'internal',
+          },
+        ],
         'newlines-between': 'always',
         alphabetize: { order: 'asc', caseInsensitive: true },
       },
@@ -72,9 +79,19 @@ module.exports = {
     eqeqeq: ['error', 'always'],
     'prefer-const': 'error',
     'no-var': 'error',
+    'prettier/prettier': 'error',
   },
   settings: {
     react: { version: 'detect' },
+    'import/resolver': {
+      typescript: {
+        alwaysTryTypes: true,
+        project: './tsconfig.json',
+      },
+      node: {
+        extensions: ['.js', '.jsx', '.ts', '.tsx'],
+      },
+    },
   },
   ignorePatterns: ['node_modules/', '.expo/', 'dist/', '*.config.js'],
 }

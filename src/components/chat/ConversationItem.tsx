@@ -8,7 +8,11 @@ import { useAuthStore } from '../../stores/authStore'
 import type { Conversation } from '../../types/conversation.types'
 import { SafeTouchableOpacity } from '../common/SafeTouchableOpacity'
 
-const ConversationItemComponent = function ConversationItem({ conversation }: { conversation: Conversation }) {
+const ConversationItemComponent = function ConversationItem({
+  conversation,
+}: {
+  conversation: Conversation
+}) {
   const router = useRouter()
   const { user } = useAuthStore()
 
@@ -43,6 +47,8 @@ const ConversationItemComponent = function ConversationItem({ conversation }: { 
   }
 
   const isUnread = false
+  const displayLastMessage =
+    LASTMSG_MAP[conversation.lastMessage ?? ''] ?? (conversation.lastMessage || 'No messages yet')
 
   return (
     <SafeTouchableOpacity
@@ -99,7 +105,7 @@ const ConversationItemComponent = function ConversationItem({ conversation }: { 
             )}
             numberOfLines={2}
           >
-            {conversation.lastMessage || 'No messages yet'}
+            {displayLastMessage}
           </Text>
 
           {isUnread && <View className="w-2.5 h-2.5 rounded-full bg-brand mt-1" />}
@@ -107,6 +113,11 @@ const ConversationItemComponent = function ConversationItem({ conversation }: { 
       </View>
     </SafeTouchableOpacity>
   )
+}
+
+// Backend sends English strings — map to Vietnamese display text
+const LASTMSG_MAP: Record<string, string> = {
+  '🚫 Message recalled': '🚫 Tin nhắn đã thu hồi',
 }
 
 // Memoize to prevent unnecessary re-renders

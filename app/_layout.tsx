@@ -1,8 +1,8 @@
 import '../src/global.css'
 
+import { MaterialIcons } from '@expo/vector-icons'
 import { Inter_400Regular, Inter_500Medium, useFonts } from '@expo-google-fonts/inter'
 import { SpaceGrotesk_600SemiBold, SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk'
-import { MaterialIcons } from '@expo/vector-icons'
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet'
 import { Stack, useRouter } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'

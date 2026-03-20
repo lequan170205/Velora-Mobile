@@ -88,7 +88,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           oldData ? `${Array.isArray(oldData) ? oldData.length + ' items' : 'not array'}` : 'null',
         )
 
-        // Nếu chưa có data, tạo mảng mới
         let conversations = oldData
         if (!oldData || !Array.isArray(oldData)) {
           console.log('[DEBUG] Creating new array, oldData was:', oldData)
@@ -99,7 +98,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         console.log('[DEBUG] Existing conversation:', existingConv ? 'found' : 'not found')
 
         if (existingConv) {
-          // Conversation đã tồn tại - cập nhật bình thường
           const updatedConversation = {
             ...existingConv,
             lastMessage: message.content || existingConv.lastMessage,
@@ -110,13 +108,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           console.log('[DEBUG] Returning updated conversation')
           return [updatedConversation, ...otherConversations]
         } else {
-          // Conversation CHƯA tồn tại trong cache - TẠO PLACEHOLDER
-          // Đây là tin nhắn đầu tiên từ người lạ gửi cho mình
           const placeholderConversation = {
             id: conversationId,
             lastMessage: message.content,
             lastMessageAt: message.createdAt,
-            participants: [], // Sẽ được API load sau
+            participants: [],
             isGroup: false,
             creatorId: '',
             participantIds: [message.senderId],
@@ -129,9 +125,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         }
       })
 
-      // 2. GỌI API NGẦM - Để "đắp thịt" vào placeholder (lấy avatar, name, participants)
-      // Always trigger refetch after optimistic update
-      // Use setTimeout to ensure backend has saved to DB
       setTimeout(() => {
         console.log('🔄 [DEBUG SOCKET] Refetching conversation list...')
         queryClient.refetchQueries({
@@ -139,14 +132,12 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         })
       }, 100)
 
-      // 3. CẬP NHẬT CACHE MESSAGE LIST
       if (currentUser?.id && message.senderId !== currentUser.id) {
         queryClient.invalidateQueries({
           queryKey: queryKeys.conversations.messages(conversationId),
         })
       }
 
-      // 4. CONFIRM MESSAGE (Nếu là mình gửi)
       if (currentUser?.id && message.senderId === currentUser.id) {
         const store = useChatStore.getState()
         const pendingMsgs = store.optimisticMessages[conversationId] || []
@@ -158,24 +149,20 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
-    // Handle conversation_updated from backend - this is the main event for new messages
     newSocket.on('conversation_updated', (conversation: any) => {
       console.log('📬 [DEBUG] conversation_updated received:', conversation)
 
       if (!conversation?.id) return
 
-      // Update conversations cache with the new conversation data
       queryClient.setQueryData(queryKeys.conversations.all, (oldData: any) => {
         if (!oldData || !Array.isArray(oldData)) return oldData
 
         const existingConv = oldData.find((c: any) => c.id === conversation.id)
 
         if (existingConv) {
-          // Update existing conversation
           const otherConversations = oldData.filter((c: any) => c.id !== conversation.id)
           return [conversation, ...otherConversations]
         } else {
-          // Add new conversation at the top
           return [conversation, ...oldData]
         }
       })
@@ -208,123 +195,147 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       })
     })
 
-    // Handle message recall - cập nhật cache trực tiếp thay vì invalidate
-    // Backend chỉ gửi messageId, ta cần tìm conversationId từ message trong cache
     newSocket.on('message_recalled', ({ messageId }: { messageId: string }) => {
       const now = new Date().toISOString()
-
-      // Tìm conversationId từ tất cả các conversation messages đã cache
       const allQueries = queryClient.getQueriesData<any>({ queryKey: ['conversations'] })
 
-      for (const [queryKey, data] of allQueries) {
-        if (!data) continue
-        // Chỉ xử lý query messages: ['conversations', id, 'messages']
+      for (const [queryKey] of allQueries) {
         if (!Array.isArray(queryKey) || queryKey.length !== 3 || queryKey[2] !== 'messages')
           continue
 
-        const conversationId = queryKey[1]
-        if (!conversationId) continue
+        queryClient.setQueryData(queryKey, (oldData: any) => {
+          if (!oldData) return oldData
 
-        // Kiểm tra và cập nhật nếu tìm thấy message
-        let updated = false
-        let newData = data
+          let updated = false
+          let newData = oldData
 
-        if (data.pages) {
-          newData = {
-            ...data,
-            pages: data.pages.map((page: any[]) =>
-              page.map((msg: any) => {
-                if (msg.id === messageId) {
-                  updated = true
-                  return {
-                    ...msg,
-                    isRecalled: true,
-                    recalledAt: now,
-                    is_recalled: true,
-                    recalled_at: now,
+          if (oldData.pages) {
+            newData = {
+              ...oldData,
+              pages: oldData.pages.map((page: any[]) =>
+                page.map((msg: any) => {
+                  if (msg.id === messageId) {
+                    updated = true
+                    return {
+                      ...msg,
+                      isRecalled: true,
+                      recalledAt: now,
+                      is_recalled: true,
+                      recalled_at: now,
+                      reactions: {}, // Clear reactions on recall
+                    }
                   }
-                }
-                return msg
-              }),
-            ),
-          }
-        } else if (Array.isArray(data)) {
-          newData = data.map((msg: any) => {
-            if (msg.id === messageId) {
-              updated = true
-              return {
-                ...msg,
-                isRecalled: true,
-                recalledAt: now,
-                is_recalled: true,
-                recalled_at: now,
-              }
+                  return msg
+                }),
+              ),
             }
-            return msg
-          })
-        }
+          } else if (Array.isArray(oldData)) {
+            newData = oldData.map((msg: any) => {
+              if (msg.id === messageId) {
+                updated = true
+                return {
+                  ...msg,
+                  isRecalled: true,
+                  recalledAt: now,
+                  is_recalled: true,
+                  recalled_at: now,
+                  reactions: {}, // Clear reactions on recall
+                }
+              }
+              return msg
+            })
+          }
 
-        if (updated) {
-          // Tạo deep copy để đảm bảo reference thay đổi
-          queryClient.setQueryData(queryKey, JSON.parse(JSON.stringify(newData)))
-        }
+          return updated ? newData : oldData
+        })
       }
     })
 
-    // Handle reply_previews_updated - cập nhật reply preview khi tin nhắn gốc bị thu hồi
     newSocket.on('reply_previews_updated', (payload: any) => {
-      // Lấy đúng key từ backend (updatedMessageIds) và thêm fallback [] để chống crash
       const messageIds = payload?.updatedMessageIds || payload?.messageIds || []
 
-      if (!messageIds.length) return // Nếu mảng rỗng thì không cần chạy vòng lặp làm gì
+      if (!messageIds.length) return
 
-      const allQueries = queryClient.getQueriesData<any>({ queryKey: ['conversations'] })
+      console.log('📝 reply_previews_updated received:', messageIds)
 
-      for (const [queryKey, oldData] of allQueries) {
-        if (!oldData) continue
-        // Chỉ xử lý query messages: ['conversations', id, 'messages']
-        if (!Array.isArray(queryKey) || queryKey.length !== 3 || queryKey[2] !== 'messages')
-          continue
+      const store = useChatStore.getState()
+      if (store.optimisticMessages) {
+        let hasChanges = false
+        const newOptimistic = { ...store.optimisticMessages }
 
-        let newData = oldData
-        let updated = false
-
-        if (oldData.pages) {
-          newData = {
-            ...oldData,
-            pages: oldData.pages.map((page: any[]) =>
-              page.map((msg: any) => {
-                if (messageIds.includes(msg.id) && msg.replyPreview) {
-                  updated = true
-                  // Cập nhật replyPreview.content
-                  const updatedPreview =
-                    typeof msg.replyPreview === 'object'
-                      ? { ...msg.replyPreview, content: 'Tin nhắn đã thu hồi' }
-                      : 'Tin nhắn đã thu hồi'
-                  return { ...msg, replyPreview: updatedPreview }
-                }
-                return msg
-              }),
-            ),
-          }
-        } else if (Array.isArray(oldData)) {
-          newData = oldData.map((msg: any) => {
+        Object.keys(newOptimistic).forEach((convId) => {
+          let convChanged = false
+          const updatedMsgs = newOptimistic[convId].map((msg) => {
             if (messageIds.includes(msg.id) && msg.replyPreview) {
-              updated = true
+              hasChanges = true
+              convChanged = true
               const updatedPreview =
                 typeof msg.replyPreview === 'object'
-                  ? { ...msg.replyPreview, content: 'Tin nhắn đã thu hồi' }
-                  : 'Tin nhắn đã thu hồi'
+                  ? {
+                      ...msg.replyPreview,
+                      content: payload.previewContent || 'Tin nhắn đã thu hồi',
+                    }
+                  : payload.previewContent || 'Tin nhắn đã thu hồi'
               return { ...msg, replyPreview: updatedPreview }
             }
             return msg
           })
-        }
+          if (convChanged) newOptimistic[convId] = updatedMsgs
+        })
 
-        if (updated) {
-          // Chỉ cần spread operator tạo reference mới, không cần deep clone
-          queryClient.setQueryData(queryKey, newData)
+        if (hasChanges) {
+          useChatStore.setState({ optimisticMessages: newOptimistic })
         }
+      }
+
+      const allQueries = queryClient.getQueriesData<any>({ queryKey: ['conversations'] })
+
+      for (const [queryKey] of allQueries) {
+        if (!Array.isArray(queryKey) || queryKey.length !== 3 || queryKey[2] !== 'messages')
+          continue
+
+        queryClient.setQueryData(queryKey, (oldData: any) => {
+          if (!oldData) return oldData
+
+          let updated = false
+          let newData = oldData
+
+          if (oldData.pages) {
+            newData = {
+              ...oldData,
+              pages: oldData.pages.map((page: any[]) =>
+                page.map((msg: any) => {
+                  if (messageIds.includes(msg.id) && msg.replyPreview) {
+                    updated = true
+                    const updatedPreview =
+                      typeof msg.replyPreview === 'object'
+                        ? {
+                            ...msg.replyPreview,
+                            content: payload.previewContent || 'Tin nhắn đã thu hồi',
+                          }
+                        : payload.previewContent || 'Tin nhắn đã thu hồi'
+                    return { ...msg, replyPreview: updatedPreview }
+                  }
+                  return msg
+                }),
+              ),
+            }
+          } else if (Array.isArray(oldData)) {
+            newData = oldData.map((msg: any) => {
+              if (messageIds.includes(msg.id) && msg.replyPreview) {
+                updated = true
+                const updatedPreview =
+                  typeof msg.replyPreview === 'object'
+                    ? { ...msg.replyPreview, content: 'Tin nhắn đã thu hồi' }
+                    : 'Tin nhắn đã thu hồi'
+                return { ...msg, replyPreview: updatedPreview }
+              }
+              return msg
+            })
+          }
+
+          return updated ? newData : oldData
+        })
       }
     })
 
@@ -353,11 +364,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       const currentUserId = user?.id
       if (!currentUserId) return
 
-      // Cập nhật optimisticMessages (tin nhắn tạm)
       markMessagesAsSeen(conversationId, readByUserId)
 
-      // Lưu vào Zustand store để không bị overwrite khi fetch lại
-      // Cập nhật tin nhắn mà MÌNH gửi, khi người khác (readByUserId) đã xem
       queryClient.setQueryData(queryKeys.conversations.messages(conversationId), (oldData: any) => {
         if (!oldData) return oldData
 
@@ -368,9 +376,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
             ...oldData,
             pages: oldData.pages.map((page: any[]) =>
               page.map((msg: any) => {
-                // Chỉ cập nhật tin nhắn mình gửi, khi người khác đã xem
                 if (msg.senderId === currentUserId && msg.status !== 'READ') {
-                  // Lưu vào Zustand store để giữ trạng thái READ
                   setMessageAsSeen(conversationId, msg.id)
                   return { ...msg, status: 'READ', seenAt: now }
                 }
@@ -383,7 +389,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         if (Array.isArray(oldData)) {
           return oldData.map((msg: any) => {
             if (msg.senderId === currentUserId && msg.status !== 'READ') {
-              // Lưu vào Zustand store để giữ trạng thái READ
               setMessageAsSeen(conversationId, msg.id)
               return { ...msg, status: 'READ', seenAt: now }
             }

@@ -36,7 +36,12 @@ interface MessageContextMenuProps {
 }
 
 // All 8 valid emojis (matching backend)
+// All 8 valid emojis (matching backend)
 const REACTIONS = ['👍', '❤️', '😂', '😢', '😮', '😡', '👏', '🎉']
+
+// Recall constraints (matching backend rules)
+const RECALL_WINDOW_MS = 24 * 60 * 60 * 1000
+const RESTRICTED_TYPES = ['system', 'call', 'call_log']
 
 const TOOLTIP_W = 210
 const REACTION_H = 48
@@ -146,6 +151,8 @@ export function MessageContextMenu({
   if (!message || !anchor) return null
 
   const isRecalled = message.isRecalled === true || message.is_recalled === true
+  const isExpired = Date.now() - new Date(message.createdAt).getTime() > RECALL_WINDOW_MS
+  const isRestrictedType = RESTRICTED_TYPES.includes(message.type)
 
   const actions = [
     {
@@ -178,7 +185,7 @@ export function MessageContextMenu({
       label: 'Thu hồi',
       onPress: handleRecall,
       destructive: true,
-      show: isOwn && !isRecalled,
+      show: isOwn && !isRecalled && !isExpired && !isRestrictedType,
     },
   ].filter((a) => a.show)
 
