@@ -20,6 +20,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { MessageBubble } from '../../src/components/chat/MessageBubble'
 import { MessageInput } from '../../src/components/chat/MessageInput'
 import { queryKeys } from '../../src/constants/queryKeys'
+import { useRecallMessage } from '../../src/hooks/useMessageActions'
 import { useMessages, useSendMessage } from '../../src/hooks/useMessages'
 import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
@@ -81,7 +82,7 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
   const { user } = useAuthStore()
-  const { optimisticMessages, typingUsers } = useChatStore()
+  const { optimisticMessages, typingUsers, replyToMessage, setReplyToMessage } = useChatStore()
   const queryClient = useQueryClient()
 
   const { socket } = useSocket()
@@ -89,6 +90,8 @@ export default function ChatScreen() {
 
   const { data, isLoading, fetchNextPage, hasNextPage } = useMessages(id as string)
   const { mutate: sendMessage } = useSendMessage(id as string)
+  const { mutate: recallMessage } = useRecallMessage(id as string)
+  const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
 
   const listRef = useRef<FlatList>(null)
   const [showScrollButton, setShowScrollButton] = useState(false)
@@ -127,6 +130,8 @@ export default function ChatScreen() {
       socket.emit('join_conversation', id)
       socket.emit('mark_seen', id)
     }
+
+    return () => {}
   }, [socket, socket?.connected, id])
 
   useEffect(() => {
@@ -247,6 +252,38 @@ export default function ChatScreen() {
     }, 2000)
   }
 
+  const handleReply = (message: Message) => {
+    setReplyToMessage(message)
+  }
+
+  const handleCancelReply = () => {
+    setReplyToMessage(null)
+  }
+
+  const handleRecall = (messageId: string) => {
+    recallMessage(messageId)
+  }
+
+  const handleToggleDetails = useCallback((messageId: string) => {
+    setExpandedMessageId((prevId) => (prevId === messageId ? null : messageId))
+  }, [])
+
+  const handleScrollToMessage = useCallback(
+    (replyToId?: string) => {
+      if (!replyToId) return
+
+      const index = allMessages.findIndex((m) => m.id === replyToId)
+      if (index !== -1) {
+        listRef.current?.scrollToIndex({
+          index,
+          animated: true,
+          viewPosition: 0.5, // Cuộn sao cho tin nhắn nằm giữa màn hình
+        })
+      }
+    },
+    [allMessages],
+  )
+
   const renderItem = useCallback(
     ({ item, index }: { item: Message; index: number }) => {
       if (!item) return null
@@ -304,11 +341,17 @@ export default function ChatScreen() {
             showAvatar={showAvatar}
             isGroupedTop={isGroupedTop}
             isGroupedBottom={isGroupedBottom}
+            isExpanded={expandedMessageId === item.id} // <-- Thêm
+            onToggleDetails={() => handleToggleDetails(item.id)} // <-- Thêm
+            onPressReplyPreview={() => handleScrollToMessage(item.replyToId)}
+            onReply={() => handleReply(item)}
+            onRecall={() => handleRecall(item.id)}
+            conversationId={id}
           />
         </View>
       )
     },
-    [user?.id, allMessages],
+    [user?.id, allMessages, expandedMessageId, handleToggleDetails, handleScrollToMessage],
   )
 
   return (
@@ -389,9 +432,10 @@ export default function ChatScreen() {
               <FlatList
                 ref={listRef}
                 data={allMessages}
+                extraData={expandedMessageId}
                 renderItem={renderItem}
                 keyExtractor={(item: Message, index: number) =>
-                  item?.id?.toString() || `fallback-${index}`
+                  item?.id ? item.id.toString() : `fallback-${index}`
                 }
                 onEndReached={() => {
                   if (hasNextPage) fetchNextPage()
@@ -409,6 +453,22 @@ export default function ChatScreen() {
                   isOtherUserTyping ? <TypingIndicator displayName={displayName} /> : null
                 }
                 showsVerticalScrollIndicator={false}
+                // Performance optimizations
+                removeClippedSubviews={true}
+                initialNumToRender={20}
+                maxToRenderPerBatch={10}
+                windowSize={10}
+                updateCellsBatchingPeriod={50}
+                onScrollToIndexFailed={(info) => {
+                  const wait = new Promise((resolve) => setTimeout(resolve, 500))
+                  wait.then(() => {
+                    listRef.current?.scrollToIndex({
+                      index: info.index,
+                      animated: true,
+                      viewPosition: 0.5,
+                    })
+                  })
+                }}
               />
               {showScrollButton && (
                 <Animated.View
@@ -437,12 +497,14 @@ export default function ChatScreen() {
         </View>
 
         <MessageInput
-          onSend={(text) => {
-            sendMessage(text)
+          onSend={(text, replyToId) => {
+            sendMessage({ content: text, ...(replyToId ? { replyToId } : {}) })
             socket?.emit('typing_stop', id)
           }}
           onSendMedia={handleSendMedia}
           onChangeText={handleTyping}
+          replyTo={replyToMessage}
+          onCancelReply={handleCancelReply}
         />
       </Animated.View>
     </SafeAreaView>

@@ -1,25 +1,31 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import * as DocumentPicker from 'expo-document-picker'
 import * as ImagePicker from 'expo-image-picker'
-import React, { useState } from 'react'
-import { Alert, TextInput, TouchableOpacity, View } from 'react-native'
+import React, { memo, useState } from 'react'
+import { Alert, Text, TextInput, TouchableOpacity, View } from 'react-native'
 
 import { cn } from '../../lib/cn'
+import type { Message } from '../../types/conversation.types'
 
 interface MessageInputProps {
-  onSend: (text: string) => void
+  onSend: (text: string, replyToId?: string) => void
   onSendMedia?: (uri: string, type: 'image' | 'file', fileInfo: any) => void
   onChangeText?: (text: string) => void
+  replyTo?: Message | null
+  onCancelReply?: () => void
 }
 
-export function MessageInput({ onSend, onSendMedia, onChangeText }: MessageInputProps) {
+const MessageInputComponent = function MessageInput({ onSend, onSendMedia, onChangeText, replyTo, onCancelReply }: MessageInputProps) {
   const [text, setText] = useState('')
   const [isFocused, setIsFocused] = useState(false)
 
   const handleSend = () => {
     if (text.trim()) {
-      onSend(text.trim())
+      onSend(text.trim(), replyTo?.id)
       setText('')
+      if (onCancelReply) {
+        onCancelReply()
+      }
     }
   }
 
@@ -73,6 +79,26 @@ export function MessageInput({ onSend, onSendMedia, onChangeText }: MessageInput
 
   return (
     <View className="bg-bg-primary border-surface-card px-3 pb-3 pt-3">
+      {/* Reply Preview */}
+      {replyTo && (
+        <View className="flex-row items-center bg-surface-focus rounded-lg px-3 py-2 mb-2">
+          <View className="w-1 h-full bg-brand rounded-full mr-3" />
+          <View className="flex-1">
+            <Text className="text-xs text-text-muted">Replying to</Text>
+            <Text className="text-sm text-text-primary" numberOfLines={1}>
+              {typeof replyTo.replyPreview === 'string'
+                ? replyTo.replyPreview
+                : replyTo.replyPreview
+                  ? `${(replyTo.replyPreview as any).senderName}: ${(replyTo.replyPreview as any).content}`
+                  : replyTo.content}
+            </Text>
+          </View>
+          <TouchableOpacity onPress={onCancelReply} className="p-1">
+            <MaterialIcons name="close" size={20} color="#64748b" />
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View className="flex-row items-end gap-2">
         {!isFocused && !hasText && (
           <View className="flex-row gap-0.5">
@@ -139,3 +165,11 @@ export function MessageInput({ onSend, onSendMedia, onChangeText }: MessageInput
     </View>
   )
 }
+
+// Memoize to prevent unnecessary re-renders
+export const MessageInput = memo(MessageInputComponent, (prevProps, nextProps) => {
+  return (
+    prevProps.replyTo?.id === nextProps.replyTo?.id &&
+    prevProps.replyTo?.content === nextProps.replyTo?.content
+  )
+})

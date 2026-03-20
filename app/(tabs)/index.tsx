@@ -1,7 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import { FlashList } from '@shopify/flash-list'
 import React from 'react'
-import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, FlatList, Text, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { ConversationItem } from '../../src/components/chat/ConversationItem'
@@ -38,13 +37,16 @@ export default function ConversationsScreen() {
 
       {/* List */}
       <View className="flex-1 z-10">
-        <FlashList
+        <FlatList
           data={conversations || []}
           renderItem={({ item }) => <ConversationItem conversation={item} />}
           keyExtractor={(item) => item.id}
-          // @ts-expect-error FlashList types mismatch
-          estimatedItemSize={100}
           showsVerticalScrollIndicator={false}
+          initialNumToRender={15}
+          maxToRenderPerBatch={10}
+          windowSize={10}
+          updateCellsBatchingPeriod={50}
+          removeClippedSubviews={true}
           ListEmptyComponent={
             <View className="items-center p-8">
               <Text className="text-text-secondary font-sans text-base2">

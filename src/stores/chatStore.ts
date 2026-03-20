@@ -15,6 +15,8 @@ interface ChatState {
   typingUsers: Record<string, string[]>
   onlineUsers: Set<string>
   offlineQueue: OfflineMessage[]
+  replyToMessage: Message | null // Currently replying to message
+  seenMessages: Record<string, Set<string>> // conversationId -> Set<messageId> đã được read
 
   addOptimisticMessage: (conversationId: string, message: Message) => void
   removeOptimisticMessage: (conversationId: string, tempId: string) => void
@@ -24,15 +26,39 @@ interface ChatState {
   enqueueOfflineMessage: (message: OfflineMessage) => void
   dequeueOfflineMessage: (id: string) => void
   markMessagesAsSeen: (conversationId: string, userId: string) => void
+  setMessageAsSeen: (conversationId: string, messageId: string) => void
+  isMessageSeen: (conversationId: string, messageId: string) => boolean
+  setReplyToMessage: (message: Message | null) => void
+  clearCache: () => void
 }
 
 export const useChatStore = create<ChatState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       optimisticMessages: {},
       typingUsers: {},
       onlineUsers: new Set(),
       offlineQueue: [],
+      replyToMessage: null,
+      seenMessages: {},
+
+      setMessageAsSeen: (conversationId, messageId) =>
+        set((state) => {
+          const convSeen = state.seenMessages[conversationId] || new Set()
+          const newSeen = new Set(convSeen)
+          newSeen.add(messageId)
+          return {
+            seenMessages: {
+              ...state.seenMessages,
+              [conversationId]: newSeen,
+            },
+          }
+        }),
+
+      isMessageSeen: (conversationId, messageId) => {
+        const convSeen = get().seenMessages[conversationId]
+        return convSeen?.has(messageId) || false
+      },
 
       addOptimisticMessage: (conversationId, message) =>
         set((state) => {
@@ -60,10 +86,27 @@ export const useChatStore = create<ChatState>()(
         set((state) => {
           const conversationId = currentMessage.conversationId
           const msgs = state.optimisticMessages[conversationId] || []
+
           return {
             optimisticMessages: {
               ...state.optimisticMessages,
-              [conversationId]: msgs.map((m) => (m.id === tempId ? currentMessage : m)),
+              [conversationId]: msgs.map((m) => {
+                if (m.id === tempId) {
+                  // Keep replyPreview from optimistic message if server doesn't return it
+                  const optimisticPreview = m.replyPreview
+                  const mergedMessage: Message = {
+                    ...currentMessage,
+                  }
+                  // Only set replyPreview if either currentMessage or optimistic has it
+                  if (currentMessage.replyPreview) {
+                    mergedMessage.replyPreview = currentMessage.replyPreview
+                  } else if (optimisticPreview) {
+                    mergedMessage.replyPreview = optimisticPreview
+                  }
+                  return mergedMessage
+                }
+                return m
+              }),
             },
           }
         }),
@@ -111,11 +154,30 @@ export const useChatStore = create<ChatState>()(
             optimisticMessages: {
               ...state.optimisticMessages,
               [conversationId]: msgs.map((m) =>
-                m.senderId !== userId && m.status !== 'READ' ? { ...m, status: 'READ' as const } : m,
+                m.senderId !== userId && m.status !== 'READ'
+                  ? { ...m, status: 'READ' as const }
+                  : m,
               ),
             },
           }
         }),
+
+      setReplyToMessage: (message) =>
+        set(() => ({
+          replyToMessage: message,
+        })),
+
+      clearCache: async () => {
+        // Clear Zustand state
+        set(() => ({
+          optimisticMessages: {},
+          offlineQueue: [],
+          replyToMessage: null,
+          seenMessages: {},
+        }))
+        // Clear AsyncStorage persisted data
+        await AsyncStorage.removeItem('chat-storage')
+      },
     }),
     {
       name: 'chat-storage',

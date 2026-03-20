@@ -7,6 +7,5 @@ export function useConversations() {
   return useQuery({
     queryKey: queryKeys.conversations.all,
     queryFn: () => conversationApi.getAll(),
-    staleTime: 30_000,
   })
 }
