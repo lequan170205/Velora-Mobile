@@ -7,7 +7,7 @@ import { BottomSheetModalProvider } from '@gorhom/bottom-sheet'
 import { Stack, useRouter } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { useEffect } from 'react'
-import { Text, TouchableOpacity, View } from 'react-native'
+import { Platform, Text, TouchableOpacity, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { PaperProvider } from 'react-native-paper'
@@ -39,7 +39,10 @@ function ActiveCallBanner() {
   return (
     <TouchableOpacity
       // NativeWind limitation: kept as inline — runtime computed from safe area insets
-      style={{ bottom: insets.bottom > 0 ? insets.bottom + 60 : 80 }}
+      style={{
+        bottom:
+          Platform.OS === 'ios' ? insets.bottom + 64 : insets.bottom > 0 ? insets.bottom + 84 : 90,
+      }}
       className="absolute left-5 right-5 flex-row items-center justify-between px-4 py-3 bg-surface-card border border-call-green rounded-xl z-[9999]"
       activeOpacity={0.9}
       onPress={() => {
