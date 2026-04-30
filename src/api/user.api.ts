@@ -1,6 +1,6 @@
-import type { UserSession } from '../types/user.types'
-
 import { apiClient } from './client'
+
+import type { UserSession } from '../types/user.types'
 
 export const userApi = {
   getAll: async (params: { page: number; limit: number; search?: string }) => {

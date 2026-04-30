@@ -5,8 +5,9 @@ import { Image, Text, View } from 'react-native'
 
 import { cn } from '../../lib/cn'
 import { useAuthStore } from '../../stores/authStore'
-import type { Conversation } from '../../types/conversation.types'
 import { SafeTouchableOpacity } from '../common/SafeTouchableOpacity'
+
+import type { Conversation } from '../../types/conversation.types'
 
 const ConversationItemComponent = function ConversationItem({
   conversation,

@@ -5,6 +5,7 @@ import React, { memo, useState } from 'react'
 import { Alert, Text, TextInput, TouchableOpacity, View } from 'react-native'
 
 import { cn } from '../../lib/cn'
+
 import type { Message } from '../../types/conversation.types'
 
 interface MessageInputProps {
@@ -15,7 +16,13 @@ interface MessageInputProps {
   onCancelReply?: () => void
 }
 
-const MessageInputComponent = function MessageInput({ onSend, onSendMedia, onChangeText, replyTo, onCancelReply }: MessageInputProps) {
+const MessageInputComponent = function MessageInput({
+  onSend,
+  onSendMedia,
+  onChangeText,
+  replyTo,
+  onCancelReply,
+}: MessageInputProps) {
   const [text, setText] = useState('')
   const [isFocused, setIsFocused] = useState(false)
 

@@ -13,9 +13,10 @@ import Animated, {
 import { queryKeys } from '../../constants/queryKeys'
 import { cn } from '../../lib/cn'
 import { useChatStore } from '../../stores/chatStore'
-import type { Message } from '../../types/conversation.types'
 
 import { MessageContextMenu, type BubbleAnchor } from './MessageContextMenu'
+
+import type { Message } from '../../types/conversation.types'
 
 // Valid emojis for reactions (matching backend)
 export const VALID_EMOJIS = ['👍', '❤️', '😂', '😢', '😮', '😡', '👏', '🎉']

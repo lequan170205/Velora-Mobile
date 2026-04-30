@@ -13,6 +13,7 @@ import Animated, {
 
 import { useAddReaction, useRemoveReaction } from '../../hooks/useMessageActions'
 import { useAuthStore } from '../../stores/authStore'
+
 import type { Message } from '../../types/conversation.types'
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')

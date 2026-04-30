@@ -1,6 +1,7 @@
 import React, { useCallback, useRef } from 'react'
-import type { TouchableOpacityProps } from 'react-native';
 import { TouchableOpacity } from 'react-native'
+
+import type { TouchableOpacityProps } from 'react-native'
 
 interface SafeTouchableOpacityProps extends TouchableOpacityProps {
   delay?: number

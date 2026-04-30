@@ -1,12 +1,13 @@
 import { useQueryClient } from '@tanstack/react-query'
 import React, { createContext, useContext, useEffect, useState } from 'react'
-import type { Socket } from 'socket.io-client'
 import { io } from 'socket.io-client'
 
 import { queryKeys } from '../constants/queryKeys'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
+
 import type { Message } from '../types/conversation.types'
+import type { Socket } from 'socket.io-client'
 
 interface SocketContextType {
   socket: Socket | null

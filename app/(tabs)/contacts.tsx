@@ -9,6 +9,7 @@ import { conversationApi } from '../../src/api/conversation.api'
 import { useContacts } from '../../src/hooks/useContacts'
 import { cn } from '../../src/lib/cn'
 import { useChatStore } from '../../src/stores/chatStore'
+
 import type { UserSession } from '../../src/types/user.types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -2,7 +2,6 @@ import { MaterialIcons } from '@expo/vector-icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native'
 import { ActivityIndicator, FlatList, Image, Text, TouchableOpacity, View } from 'react-native'
 import Animated, {
   FadeIn,
@@ -26,7 +25,9 @@ import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useCallStore } from '../../src/stores/callStore'
 import { useChatStore } from '../../src/stores/chatStore'
+
 import type { ChatParticipant, Conversation, Message } from '../../src/types/conversation.types'
+import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native'
 
 const formatSeparatorDate = (dateString: string) => {
   const date = new Date(dateString)

@@ -5,6 +5,7 @@ import { queryKeys } from '../constants/queryKeys'
 import { useSocket } from '../providers/SocketProvider'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
+
 import type { Message } from '../types/conversation.types'
 
 export function useMessages(conversationId: string) {
@@ -69,7 +70,12 @@ export function useSendMessage(conversationId: string) {
         replyPreview = {
           senderName: replyToMessage.sender?.email?.split('@')[0] || 'User',
           content: replyToMessage.content || '',
-          type: (replyToMessage.type === 'voice' ? 'text' : replyToMessage.type) as 'text' | 'image' | 'video' | 'file' | 'call',
+          type: (replyToMessage.type === 'voice' ? 'text' : replyToMessage.type) as
+            | 'text'
+            | 'image'
+            | 'video'
+            | 'file'
+            | 'call',
         }
       }
 

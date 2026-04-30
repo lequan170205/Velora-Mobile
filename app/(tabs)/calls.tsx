@@ -63,22 +63,28 @@ export default function CallsScreen() {
           {/* Avatar */}
           <View className="mr-3">
             <View className="w-14 h-14 rounded-avatar bg-surface-card items-center justify-center">
-              <Text className="text-text-primary font-bold text-xl">
-                {item.name.charAt(0)}
-              </Text>
+              <Text className="text-text-primary font-bold text-xl">{item.name.charAt(0)}</Text>
             </View>
           </View>
 
           {/* Info */}
           <View className="flex-1 justify-center">
             <Text
-              className={cn('font-semibold text-md', isMissed ? 'text-status-error' : 'text-text-primary')}
+              className={cn(
+                'font-semibold text-md',
+                isMissed ? 'text-status-error' : 'text-text-primary',
+              )}
               numberOfLines={1}
             >
               {item.name}
             </Text>
             <View className="flex-row items-center mt-1">
-              <MaterialIcons name={iconName} size={16} color={iconColor} style={{ marginRight: 4 }} />
+              <MaterialIcons
+                name={iconName}
+                size={16}
+                color={iconColor}
+                style={{ marginRight: 4 }}
+              />
               <Text className="text-text-secondary font-sans text-base2">
                 {item.type === 'VIDEO' ? 'Video' : 'Audio'}
               </Text>
