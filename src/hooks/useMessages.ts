@@ -208,7 +208,12 @@ export function useSendBotMessage(conversationId: string) {
 
       return { tempId }
     },
-    onSuccess: () => {
+    onSuccess: (data, variables, context) => {
+      const { tempId } = context || {}
+      if (tempId) {
+        useChatStore.getState().removeOptimisticMessage(conversationId, tempId)
+      }
+
       // The bot reply is generated asynchronously and may take several
       // seconds. Poll with increasing delays until we pick it up.
       const delays = [500, 1500, 3000, 5000, 8000]
@@ -217,8 +222,15 @@ export function useSendBotMessage(conversationId: string) {
       delays.forEach((ms) => {
         setTimeout(() => {
           queryClient.refetchQueries({ queryKey: messageKey })
+          queryClient.refetchQueries({ queryKey: queryKeys.conversations.all })
         }, ms)
       })
+    },
+    onError: (err, variables, context) => {
+      const { tempId } = context || {}
+      if (tempId) {
+        useChatStore.getState().removeOptimisticMessage(conversationId, tempId)
+      }
     },
   })
 }

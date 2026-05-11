@@ -44,6 +44,7 @@ export function useBotChat() {
           queryClient.refetchQueries({
             queryKey: queryKeys.conversations.messages(conversationId),
           })
+          queryClient.refetchQueries({ queryKey: queryKeys.conversations.all })
         }, ms)
       })
     },

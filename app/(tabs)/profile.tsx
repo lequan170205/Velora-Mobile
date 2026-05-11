@@ -38,6 +38,20 @@ export default function ProfileScreen() {
     ])
   }
 
+  const handleClearCache = async () => {
+    Alert.alert('Clear Cache', 'Clear all cached messages?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Clear',
+        onPress: async () => {
+          await clearCache()
+          queryClient.clear()
+          Alert.alert('Success', 'Cache cleared!')
+        },
+      },
+    ])
+  }
+
   const handlePickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -127,6 +141,20 @@ export default function ProfileScreen() {
           >
             <MaterialIcons name="palette" size={24} color="#94a3b8" style={{ marginRight: 16 }} />
             <Text className="text-text-primary font-medium text-md flex-1">Theme Settings</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            className="flex-row items-center bg-surface-card rounded-xl h-14 px-5 mt-2"
+            onPress={handleClearCache}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons
+              name="delete-sweep"
+              size={24}
+              color="#f59e0b"
+              style={{ marginRight: 16 }}
+            />
+            <Text className="text-yellow-500 font-medium text-md flex-1">Clear Cache</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
