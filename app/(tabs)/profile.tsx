@@ -6,7 +6,6 @@ import React from 'react'
 import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
-
 import { authApi } from '../../src/api/auth.api'
 import { useUpdateAvatar } from '../../src/hooks/useProfile'
 import { useAuthStore } from '../../src/stores/authStore'
@@ -30,6 +29,9 @@ export default function ProfileScreen() {
           } catch (e) {
             console.error(e)
           }
+          // Clear all cached data so the next user doesn't see stale data
+          queryClient.clear()
+          clearCache()
           clearAuth()
         },
       },
@@ -146,7 +148,12 @@ export default function ProfileScreen() {
             onPress={handleClearCache}
             activeOpacity={0.7}
           >
-            <MaterialIcons name="delete-sweep" size={24} color="#f59e0b" style={{ marginRight: 16 }} />
+            <MaterialIcons
+              name="delete-sweep"
+              size={24}
+              color="#f59e0b"
+              style={{ marginRight: 16 }}
+            />
             <Text className="text-yellow-500 font-medium text-md flex-1">Clear Cache</Text>
           </TouchableOpacity>
 
