@@ -17,6 +17,7 @@ interface ChatState {
   offlineQueue: OfflineMessage[]
   replyToMessage: Message | null // Currently replying to message
   seenMessages: Record<string, Set<string>> // conversationId -> Set<messageId> đã được read
+  botConversationIds: Set<string> // Conversation IDs that belong to bot chats
 
   addOptimisticMessage: (conversationId: string, message: Message) => void
   removeOptimisticMessage: (conversationId: string, tempId: string) => void
@@ -29,6 +30,8 @@ interface ChatState {
   setMessageAsSeen: (conversationId: string, messageId: string) => void
   isMessageSeen: (conversationId: string, messageId: string) => boolean
   setReplyToMessage: (message: Message | null) => void
+  markAsBotConversation: (conversationId: string) => void
+  isBotConversation: (conversationId: string) => boolean
   clearCache: () => void
 }
 
@@ -41,6 +44,7 @@ export const useChatStore = create<ChatState>()(
       offlineQueue: [],
       replyToMessage: null,
       seenMessages: {},
+      botConversationIds: new Set(),
 
       setMessageAsSeen: (conversationId, messageId) =>
         set((state) => {
@@ -167,6 +171,17 @@ export const useChatStore = create<ChatState>()(
           replyToMessage: message,
         })),
 
+      markAsBotConversation: (conversationId) =>
+        set((state) => {
+          const newIds = new Set(state.botConversationIds)
+          newIds.add(conversationId)
+          return { botConversationIds: newIds }
+        }),
+
+      isBotConversation: (conversationId) => {
+        return get().botConversationIds.has(conversationId)
+      },
+
       clearCache: async () => {
         // Clear Zustand state
         set(() => ({
@@ -174,6 +189,7 @@ export const useChatStore = create<ChatState>()(
           offlineQueue: [],
           replyToMessage: null,
           seenMessages: {},
+          // Keep botConversationIds — they are stable
         }))
         // Clear AsyncStorage persisted data
         await AsyncStorage.removeItem('chat-storage')
@@ -185,7 +201,19 @@ export const useChatStore = create<ChatState>()(
       partialize: (state) => ({
         offlineQueue: state.offlineQueue,
         optimisticMessages: state.optimisticMessages,
+        botConversationIds: Array.from(state.botConversationIds),
       }),
+      merge: (persistedState, currentState) => {
+        const persisted = (persistedState || {}) as Record<string, unknown>
+        return {
+          ...currentState,
+          ...persisted,
+          // Rehydrate botConversationIds from array → Set
+          botConversationIds: new Set<string>((persisted.botConversationIds as string[]) || []),
+          // Ensure onlineUsers stays a Set
+          onlineUsers: currentState.onlineUsers,
+        }
+      },
     },
   ),
 )

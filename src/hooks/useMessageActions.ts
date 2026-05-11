@@ -1,9 +1,13 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Alert } from 'react-native'
 
+import type { InfiniteData } from '@tanstack/react-query'
+
 import { queryKeys } from '../constants/queryKeys'
 import { useSocket } from '../providers/SocketProvider'
 import { useAuthStore } from '../stores/authStore'
+
+import type { Message } from '../types/conversation.types'
 
 export function useRecallMessage(conversationId: string) {
   const queryClient = useQueryClient()
@@ -20,38 +24,41 @@ export function useRecallMessage(conversationId: string) {
     },
     onMutate: async (messageId) => {
       const now = new Date().toISOString()
-      queryClient.setQueryData(queryKeys.conversations.messages(conversationId), (oldData: any) => {
-        if (!oldData) return oldData
+      queryClient.setQueryData(
+        queryKeys.conversations.messages(conversationId),
+        (oldData: InfiniteData<Message[]> | Message[] | undefined) => {
+          if (!oldData) return oldData
 
-        if (oldData.pages) {
-          return {
-            ...oldData,
-            pages: oldData.pages.map((page: any[]) =>
-              page.map((msg: any) =>
-                msg.id === messageId
-                  ? {
-                      ...msg,
-                      isRecalled: true,
-                      recalledAt: now,
-                      is_recalled: true,
-                      recalled_at: now,
-                    }
-                  : msg,
+          if ('pages' in oldData) {
+            return {
+              ...oldData,
+              pages: (oldData as InfiniteData<Message[]>).pages.map((page: Message[]) =>
+                page.map((msg: Message) =>
+                  msg.id === messageId
+                    ? {
+                        ...msg,
+                        isRecalled: true,
+                        recalledAt: now,
+                        is_recalled: true,
+                        recalled_at: now,
+                      }
+                    : msg,
+                ),
               ),
-            ),
+            }
           }
-        }
 
-        if (Array.isArray(oldData)) {
-          return oldData.map((msg: any) =>
-            msg.id === messageId
-              ? { ...msg, isRecalled: true, recalledAt: now, is_recalled: true, recalled_at: now }
-              : msg,
-          )
-        }
+          if (Array.isArray(oldData)) {
+            return (oldData as Message[]).map((msg: Message) =>
+              msg.id === messageId
+                ? { ...msg, isRecalled: true, recalledAt: now, is_recalled: true, recalled_at: now }
+                : msg,
+            )
+          }
 
-        return oldData
-      })
+          return oldData
+        },
+      )
     },
     onError: (error) => {
       const errorMessage = error?.message || ''
@@ -97,51 +104,54 @@ export function useAddReaction() {
       if (!user) return
 
       const now = new Date().toISOString()
-      queryClient.setQueryData(queryKeys.conversations.messages(conversationId), (oldData: any) => {
-        if (!oldData) return oldData
+      queryClient.setQueryData(
+        queryKeys.conversations.messages(conversationId),
+        (oldData: InfiniteData<Message[]> | Message[] | undefined) => {
+          if (!oldData) return oldData
 
-        // Handle paginated data (pages array)
-        if (oldData.pages) {
-          return {
-            ...oldData,
-            pages: oldData.pages.map((page: any[]) =>
-              page.map((msg: any) => {
-                if (msg.id === messageId) {
-                  // New map structure
-                  const reactionsMap = msg.reactions || {}
-                  return {
-                    ...msg,
-                    reactions: {
-                      ...reactionsMap,
-                      [user.id]: { emoji, createdAt: now },
-                    },
+          // Handle paginated data (pages array)
+          if ('pages' in oldData) {
+            return {
+              ...oldData,
+              pages: (oldData as InfiniteData<Message[]>).pages.map((page: Message[]) =>
+                page.map((msg: Message) => {
+                  if (msg.id === messageId) {
+                    // New map structure
+                    const reactionsMap = msg.reactions || {}
+                    return {
+                      ...msg,
+                      reactions: {
+                        ...reactionsMap,
+                        [user.id]: { emoji, createdAt: now },
+                      },
+                    }
                   }
-                }
-                return msg
-              }),
-            ),
-          }
-        }
-
-        // Handle regular array data
-        if (Array.isArray(oldData)) {
-          return oldData.map((msg: any) => {
-            if (msg.id === messageId) {
-              const reactionsMap = msg.reactions || {}
-              return {
-                ...msg,
-                reactions: {
-                  ...reactionsMap,
-                  [user.id]: { emoji, createdAt: now },
-                },
-              }
+                  return msg
+                }),
+              ),
             }
-            return msg
-          })
-        }
+          }
 
-        return oldData
-      })
+          // Handle regular array data
+          if (Array.isArray(oldData)) {
+            return (oldData as Message[]).map((msg: Message) => {
+              if (msg.id === messageId) {
+                const reactionsMap = msg.reactions || {}
+                return {
+                  ...msg,
+                  reactions: {
+                    ...reactionsMap,
+                    [user.id]: { emoji, createdAt: now },
+                  },
+                }
+              }
+              return msg
+            })
+          }
+
+          return oldData
+        },
+      )
     },
     onError: (_err, vars) => {
       queryClient.invalidateQueries({
@@ -174,44 +184,47 @@ export function useRemoveReaction() {
     onMutate: async ({ messageId, conversationId }) => {
       if (!user) return
 
-      queryClient.setQueryData(queryKeys.conversations.messages(conversationId), (oldData: any) => {
-        if (!oldData) return oldData
+      queryClient.setQueryData(
+        queryKeys.conversations.messages(conversationId),
+        (oldData: InfiniteData<Message[]> | Message[] | undefined) => {
+          if (!oldData) return oldData
 
-        if (oldData.pages) {
-          return {
-            ...oldData,
-            pages: oldData.pages.map((page: any[]) =>
-              page.map((msg: any) => {
-                if (msg.id === messageId) {
-                  const reactionsMap = msg.reactions || {}
-                  const { [user.id]: _removed, ...remainingReactions } = reactionsMap
-                  return {
-                    ...msg,
-                    reactions: remainingReactions,
+          if ('pages' in oldData) {
+            return {
+              ...oldData,
+              pages: (oldData as InfiniteData<Message[]>).pages.map((page: Message[]) =>
+                page.map((msg: Message) => {
+                  if (msg.id === messageId) {
+                    const reactionsMap = msg.reactions || {}
+                    const { [user.id]: _removed, ...remainingReactions } = reactionsMap
+                    return {
+                      ...msg,
+                      reactions: remainingReactions,
+                    }
                   }
-                }
-                return msg
-              }),
-            ),
-          }
-        }
-
-        if (Array.isArray(oldData)) {
-          return oldData.map((msg: any) => {
-            if (msg.id === messageId) {
-              const reactionsMap = msg.reactions || {}
-              const { [user.id]: removed, ...remainingReactions } = reactionsMap
-              return {
-                ...msg,
-                reactions: remainingReactions,
-              }
+                  return msg
+                }),
+              ),
             }
-            return msg
-          })
-        }
+          }
 
-        return oldData
-      })
+          if (Array.isArray(oldData)) {
+            return (oldData as Message[]).map((msg: Message) => {
+              if (msg.id === messageId) {
+                const reactionsMap = msg.reactions || {}
+                const { [user.id]: removed, ...remainingReactions } = reactionsMap
+                return {
+                  ...msg,
+                  reactions: remainingReactions,
+                }
+              }
+              return msg
+            })
+          }
+
+          return oldData
+        },
+      )
     },
     onError: (_err, vars) => {
       queryClient.invalidateQueries({

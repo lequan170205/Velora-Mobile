@@ -5,7 +5,8 @@ import { queryKeys } from '../constants/queryKeys'
 import { useSocket } from '../providers/SocketProvider'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
-import type { Message } from '../types/conversation.types'
+
+import type { Conversation, Message } from '../types/conversation.types'
 
 export function useMessages(conversationId: string) {
   return useInfiniteQuery({
@@ -69,7 +70,12 @@ export function useSendMessage(conversationId: string) {
         replyPreview = {
           senderName: replyToMessage.sender?.email?.split('@')[0] || 'User',
           content: replyToMessage.content || '',
-          type: (replyToMessage.type === 'voice' ? 'text' : replyToMessage.type) as 'text' | 'image' | 'video' | 'file' | 'call',
+          type: (replyToMessage.type === 'voice' ? 'text' : replyToMessage.type) as
+            | 'text'
+            | 'image'
+            | 'video'
+            | 'file'
+            | 'call',
         }
       }
 
@@ -93,64 +99,126 @@ export function useSendMessage(conversationId: string) {
         enqueueOfflineMessage({ id: tempId, conversationId, content })
       }
 
-      queryClient.setQueryData<any>(queryKeys.conversations.all, (oldData: any) => {
-        if (!oldData) return oldData
+      queryClient.setQueryData<Conversation[] | undefined>(
+        queryKeys.conversations.all,
+        (oldData: Conversation[] | undefined) => {
+          if (!oldData) return oldData
 
-        const sortConvs = (convs: any[]) => {
-          return convs.sort((a: any, b: any) => {
-            const dateA = new Date(a.lastMessageAt || 0).getTime()
-            const dateB = new Date(b.lastMessageAt || 0).getTime()
-            return dateB - dateA
-          })
-        }
-
-        if (oldData.pages) {
-          let targetConv: any = null
-
-          const newPages = oldData.pages.map((page: any[]) => {
-            return page.filter((conv: any) => {
-              if (conv.id === conversationId) {
-                targetConv = {
-                  ...conv,
-                  lastMessage: content,
-                  lastMessageAt: now,
-                }
-                return false
-              }
-              return true
+          const sortConvs = (convs: Conversation[]) => {
+            return convs.sort((a: Conversation, b: Conversation) => {
+              const dateA = new Date(a.lastMessageAt || 0).getTime()
+              const dateB = new Date(b.lastMessageAt || 0).getTime()
+              return dateB - dateA
             })
-          })
+          }
 
-          if (targetConv) {
-            if (newPages.length > 0) {
-              newPages[0].unshift(targetConv)
-              // Sort to ensure correct position
-              newPages[0] = sortConvs(newPages[0])
-            } else {
-              newPages.push([targetConv])
+          if (Array.isArray(oldData)) {
+            const targetConv = (oldData as Conversation[]).find(
+              (c: Conversation) => c.id === conversationId,
+            )
+            const filteredConvs = (oldData as Conversation[]).filter(
+              (c: Conversation) => c.id !== conversationId,
+            )
+
+            if (targetConv) {
+              const updatedConv = {
+                ...targetConv,
+                lastMessage: content,
+                lastMessageAt: now,
+              }
+              return sortConvs([updatedConv, ...filteredConvs])
             }
           }
-          return { ...oldData, pages: newPages }
-        }
 
-        if (Array.isArray(oldData)) {
-          const targetConv = oldData.find((c: any) => c.id === conversationId)
-          const filteredConvs = oldData.filter((c: any) => c.id !== conversationId)
-
-          if (targetConv) {
-            const updatedConv = {
-              ...targetConv,
-              lastMessage: content,
-              lastMessageAt: now,
-            }
-            return sortConvs([updatedConv, ...filteredConvs])
-          }
-        }
-
-        return oldData
-      })
+          return oldData
+        },
+      )
 
       return { tempId }
+    },
+  })
+}
+
+/**
+ * Mutation hook for sending messages in bot conversations.
+ * Uses the REST endpoint POST /conversations/chat instead of socket.emit
+ * because bot auto-replies are only triggered by the REST endpoint.
+ */
+export function useSendBotMessage(conversationId: string) {
+  const { addOptimisticMessage } = useChatStore()
+  const { user } = useAuthStore()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ content }: { content: string }) => {
+      return conversationApi.chatWithBot({ content })
+    },
+    onMutate: async ({ content }) => {
+      if (!user) return
+
+      const now = new Date().toISOString()
+      const tempId = `temp-${Date.now()}`
+
+      const tempMessage: Message = {
+        id: tempId,
+        conversationId,
+        senderId: user.id,
+        sender: user,
+        content,
+        type: 'text',
+        status: 'SENT',
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      addOptimisticMessage(conversationId, tempMessage)
+
+      // Move this conversation to the top of the list
+      queryClient.setQueryData<Conversation[] | undefined>(
+        queryKeys.conversations.all,
+        (oldData: Conversation[] | undefined) => {
+          if (!oldData) return oldData
+
+          const sortConvs = (convs: Conversation[]) => {
+            return convs.sort((a: Conversation, b: Conversation) => {
+              const dateA = new Date(a.lastMessageAt || 0).getTime()
+              const dateB = new Date(b.lastMessageAt || 0).getTime()
+              return dateB - dateA
+            })
+          }
+
+          if (Array.isArray(oldData)) {
+            const targetConv = (oldData as Conversation[]).find(
+              (c: Conversation) => c.id === conversationId,
+            )
+            const filteredConvs = (oldData as Conversation[]).filter(
+              (c: Conversation) => c.id !== conversationId,
+            )
+            if (targetConv) {
+              return sortConvs([
+                { ...targetConv, lastMessage: content, lastMessageAt: now },
+                ...filteredConvs,
+              ])
+            }
+          }
+
+          return oldData
+        },
+      )
+
+      return { tempId }
+    },
+    onSuccess: () => {
+      // The bot reply is generated asynchronously and may take several
+      // seconds. Poll with increasing delays until we pick it up.
+      const delays = [500, 1500, 3000, 5000, 8000]
+      const messageKey = queryKeys.conversations.messages(conversationId)
+
+      delays.forEach((ms) => {
+        setTimeout(() => {
+          queryClient.refetchQueries({ queryKey: messageKey })
+        }, ms)
+      })
     },
   })
 }

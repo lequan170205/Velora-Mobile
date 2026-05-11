@@ -1,6 +1,11 @@
-import type { Conversation, ConversationMember, Message } from '../types/conversation.types'
-
 import { apiClient } from './client'
+
+import type {
+  BotChatResponse,
+  Conversation,
+  ConversationMember,
+  Message,
+} from '../types/conversation.types'
 
 export const conversationApi = {
   getAll: async () => {
@@ -25,7 +30,12 @@ export const conversationApi = {
   },
   sendMessage: async (
     id: string,
-    data: { content: string; type: 'text' | 'image' | 'file' | 'voice'; signalType?: number; replyToId?: string },
+    data: {
+      content: string
+      type: 'text' | 'image' | 'file' | 'voice'
+      signalType?: number
+      replyToId?: string
+    },
   ) => {
     const response = await apiClient.post<Message>(`/conversations/${id}/messages`, data)
 
@@ -77,5 +87,15 @@ export const conversationApi = {
   },
   removeMember: async (id: string, userId: string) => {
     await apiClient.delete(`/conversations/${id}/members/${userId}`)
+  },
+
+  /** Creates (or retrieves) a bot conversation and sends the initial message. */
+  chatWithBot: async (data: { content: string }) => {
+    const response = await apiClient.post<BotChatResponse>('/conversations/chat', {
+      type: 'text',
+      signalType: 0,
+      content: data.content,
+    })
+    return response.data
   },
 }

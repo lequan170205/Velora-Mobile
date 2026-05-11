@@ -13,9 +13,15 @@ import Animated, {
 import { queryKeys } from '../../constants/queryKeys'
 import { cn } from '../../lib/cn'
 import { useChatStore } from '../../stores/chatStore'
-import type { Message } from '../../types/conversation.types'
 
 import { MessageContextMenu, type BubbleAnchor } from './MessageContextMenu'
+
+import type {
+  ChatParticipant,
+  Conversation,
+  Message,
+  ReplyPreviewData,
+} from '../../types/conversation.types'
 
 // Valid emojis for reactions (matching backend)
 export const VALID_EMOJIS = ['👍', '❤️', '😂', '😢', '😮', '😡', '👏', '🎉']
@@ -68,11 +74,11 @@ const MessageBubbleComponent = function MessageBubble({
     const cachedData = queryClient.getQueryData<unknown>(queryKeys.conversations.all)
     const allConversations = Array.isArray(cachedData)
       ? cachedData
-      : (cachedData as { pages?: any[] })?.pages?.flat() || []
+      : (cachedData as { pages?: Conversation[][] })?.pages?.flat() || []
 
-    const conversation = allConversations.find((c: any) => c.id === message.conversationId)
+    const conversation = allConversations.find((c: Conversation) => c.id === message.conversationId)
     if (conversation?.participants) {
-      return conversation.participants.find((p: any) => p.id === message.senderId)
+      return conversation.participants.find((p: ChatParticipant) => p.id === message.senderId)
     }
     return null
   }, [message.sender, message.conversationId, message.senderId, queryClient])
@@ -102,7 +108,7 @@ const MessageBubbleComponent = function MessageBubble({
 
   useEffect(() => {
     progress.value = withTiming(isExpanded ? 1 : 0, { duration: 250 })
-  }, [isExpanded])
+  }, [isExpanded, progress])
 
   const toggleDetails = () => {
     // Gọi hàm từ parent truyền xuống thay vì tự set state
@@ -138,7 +144,7 @@ const MessageBubbleComponent = function MessageBubble({
   // Build reaction summary for display
   const reactionSummary = useMemo(() => {
     const summary: Record<string, number> = {}
-    Object.values(reactionsMap).forEach((reaction: any) => {
+    Object.values(reactionsMap).forEach((reaction: { emoji: string }) => {
       if (reaction?.emoji) {
         summary[reaction.emoji] = (summary[reaction.emoji] || 0) + 1
       }
@@ -201,7 +207,7 @@ const MessageBubbleComponent = function MessageBubble({
                 >
                   {typeof message.replyPreview === 'string'
                     ? 'Trả lời'
-                    : (message.replyPreview as any).senderName}
+                    : (message.replyPreview as ReplyPreviewData).senderName}
                 </Text>
 
                 <Text
@@ -212,7 +218,7 @@ const MessageBubbleComponent = function MessageBubble({
                     const content =
                       typeof message.replyPreview === 'string'
                         ? message.replyPreview
-                        : (message.replyPreview as any).content
+                        : (message.replyPreview as ReplyPreviewData).content
                     return RECALLED_PREVIEW_MAP[content] ?? content
                   })()}
                 </Text>
@@ -344,12 +350,12 @@ export const MessageBubble = memo(MessageBubbleComponent, (prevProps, nextProps)
   const prevPreviewContent =
     typeof prevProps.message.replyPreview === 'string'
       ? prevProps.message.replyPreview
-      : (prevProps.message.replyPreview as any)?.content
+      : (prevProps.message.replyPreview as ReplyPreviewData)?.content
 
   const nextPreviewContent =
     typeof nextProps.message.replyPreview === 'string'
       ? nextProps.message.replyPreview
-      : (nextProps.message.replyPreview as any)?.content
+      : (nextProps.message.replyPreview as ReplyPreviewData)?.content
 
   return (
     prevProps.message.id === nextProps.message.id &&

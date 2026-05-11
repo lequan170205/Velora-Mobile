@@ -13,6 +13,7 @@ import Animated, {
 
 import { useAddReaction, useRemoveReaction } from '../../hooks/useMessageActions'
 import { useAuthStore } from '../../stores/authStore'
+
 import type { Message } from '../../types/conversation.types'
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
@@ -130,11 +131,13 @@ export function MessageContextMenu({
     if (reactionsData && typeof reactionsData === 'object') {
       if (Array.isArray(reactionsData)) {
         // Old array format
-        const userReaction = reactionsData.find((r: any) => r.userId === user.id)
+        const userReaction = reactionsData.find(
+          (r: { userId: string; emoji: string }) => r.userId === user.id,
+        )
         currentUserEmoji = userReaction?.emoji
       } else {
         // New map format
-        currentUserEmoji = (reactionsData as Record<string, any>)[user.id]?.emoji
+        currentUserEmoji = (reactionsData as Record<string, { emoji: string }>)[user.id]?.emoji
       }
     }
 

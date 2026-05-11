@@ -2,7 +2,6 @@ import { MaterialIcons } from '@expo/vector-icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native'
 import { ActivityIndicator, FlatList, Image, Text, TouchableOpacity, View } from 'react-native'
 import Animated, {
   FadeIn,
@@ -21,12 +20,14 @@ import { MessageBubble } from '../../src/components/chat/MessageBubble'
 import { MessageInput } from '../../src/components/chat/MessageInput'
 import { queryKeys } from '../../src/constants/queryKeys'
 import { useRecallMessage } from '../../src/hooks/useMessageActions'
-import { useMessages, useSendMessage } from '../../src/hooks/useMessages'
+import { useMessages, useSendBotMessage, useSendMessage } from '../../src/hooks/useMessages'
 import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useCallStore } from '../../src/stores/callStore'
 import { useChatStore } from '../../src/stores/chatStore'
+
 import type { ChatParticipant, Conversation, Message } from '../../src/types/conversation.types'
+import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native'
 
 const formatSeparatorDate = (dateString: string) => {
   const date = new Date(dateString)
@@ -82,7 +83,9 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
   const { user } = useAuthStore()
-  const { optimisticMessages, typingUsers, replyToMessage, setReplyToMessage } = useChatStore()
+  const { optimisticMessages, typingUsers, replyToMessage, setReplyToMessage, isBotConversation } =
+    useChatStore()
+  const isBot = isBotConversation(id as string)
   const queryClient = useQueryClient()
 
   const { socket } = useSocket()
@@ -90,6 +93,7 @@ export default function ChatScreen() {
 
   const { data, isLoading, fetchNextPage, hasNextPage } = useMessages(id as string)
   const { mutate: sendMessage } = useSendMessage(id as string)
+  const { mutate: sendBotMessage } = useSendBotMessage(id as string)
   const { mutate: recallMessage } = useRecallMessage(id as string)
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
 
@@ -104,7 +108,24 @@ export default function ChatScreen() {
 
   const allMessages = useMemo(() => {
     const serverIds = new Set(serverMessages.map((m: Message) => m?.id))
-    const pendingMessages = localOptimistic.filter((m: Message) => m && !serverIds.has(m.id))
+
+    // Build a set of "senderId::content" for server messages so we can also
+    // discard optimistic messages whose content has already been persisted
+    // (handles bot conversations where confirmMessage is never called).
+    const serverContentKeys = new Set(
+      serverMessages.map((m: Message) => `${m?.senderId}::${m?.content}`),
+    )
+
+    const pendingMessages = localOptimistic.filter((m: Message) => {
+      if (!m) return false
+      // Already confirmed by ID
+      if (serverIds.has(m.id)) return false
+      // Already persisted by content match (same sender + same text)
+      if (m.id.startsWith('temp-') && serverContentKeys.has(`${m.senderId}::${m.content}`)) {
+        return false
+      }
+      return true
+    })
 
     return [...pendingMessages, ...serverMessages].sort(
       (a, b) => new Date(b?.createdAt).getTime() - new Date(a?.createdAt).getTime(),
@@ -227,7 +248,7 @@ export default function ChatScreen() {
       id: tempId,
       conversationId: id as string,
       senderId: user.id,
-      sender: user as any,
+      sender: user,
       content: uri,
       type: type,
       status: 'SENT',
@@ -498,7 +519,11 @@ export default function ChatScreen() {
 
         <MessageInput
           onSend={(text, replyToId) => {
-            sendMessage({ content: text, ...(replyToId ? { replyToId } : {}) })
+            if (isBot) {
+              sendBotMessage({ content: text })
+            } else {
+              sendMessage({ content: text, ...(replyToId ? { replyToId } : {}) })
+            }
             socket?.emit('typing_stop', id)
           }}
           onSendMedia={handleSendMedia}

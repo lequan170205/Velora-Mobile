@@ -78,3 +78,16 @@ export interface ConversationMember {
   user: UserSummary
   joinedAt: string
 }
+
+/** Response from POST /conversations/chat (bot auto-reply endpoint) */
+export interface BotChatResponse {
+  id: string
+  conversationId: string
+  senderId: string
+  content: string
+  type: 'text' | 'image' | 'file' | 'voice'
+  signalType: number
+  createdAt: string
+  createdAtMs: number
+  readBy: { userId: string; at: string }[]
+}

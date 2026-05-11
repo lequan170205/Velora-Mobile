@@ -5,17 +5,24 @@ import React, { memo, useState } from 'react'
 import { Alert, Text, TextInput, TouchableOpacity, View } from 'react-native'
 
 import { cn } from '../../lib/cn'
-import type { Message } from '../../types/conversation.types'
+
+import type { Message, ReplyPreviewData } from '../../types/conversation.types'
 
 interface MessageInputProps {
   onSend: (text: string, replyToId?: string) => void
-  onSendMedia?: (uri: string, type: 'image' | 'file', fileInfo: any) => void
+  onSendMedia?: (uri: string, type: 'image' | 'file', fileInfo: unknown) => void
   onChangeText?: (text: string) => void
   replyTo?: Message | null
   onCancelReply?: () => void
 }
 
-const MessageInputComponent = function MessageInput({ onSend, onSendMedia, onChangeText, replyTo, onCancelReply }: MessageInputProps) {
+const MessageInputComponent = function MessageInput({
+  onSend,
+  onSendMedia,
+  onChangeText,
+  replyTo,
+  onCancelReply,
+}: MessageInputProps) {
   const [text, setText] = useState('')
   const [isFocused, setIsFocused] = useState(false)
 
@@ -89,7 +96,7 @@ const MessageInputComponent = function MessageInput({ onSend, onSendMedia, onCha
               {typeof replyTo.replyPreview === 'string'
                 ? replyTo.replyPreview
                 : replyTo.replyPreview
-                  ? `${(replyTo.replyPreview as any).senderName}: ${(replyTo.replyPreview as any).content}`
+                  ? `${(replyTo.replyPreview as ReplyPreviewData).senderName}: ${(replyTo.replyPreview as ReplyPreviewData).content}`
                   : replyTo.content}
             </Text>
           </View>

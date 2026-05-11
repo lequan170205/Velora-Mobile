@@ -1,13 +1,23 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import React from 'react'
-import { ActivityIndicator, FlatList, Text, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, Alert, FlatList, Text, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { ConversationItem } from '../../src/components/chat/ConversationItem'
+import { useBotChat } from '../../src/hooks/useBotChat'
 import { useConversations } from '../../src/hooks/useConversations'
 
 export default function ConversationsScreen() {
   const { data: conversations, isLoading, isError } = useConversations()
+  const { mutate: startBotChat, isPending: isBotLoading } = useBotChat()
+
+  const handleBotChat = () => {
+    startBotChat('Hello!', {
+      onError: () => {
+        Alert.alert('Error', 'Could not connect to bot. Please try again.')
+      },
+    })
+  }
 
   if (isLoading) {
     return (
@@ -30,9 +40,26 @@ export default function ConversationsScreen() {
       {/* Header */}
       <View className="flex-row items-center justify-between px-5 pt-4 pb-4 z-10">
         <Text className="text-text-primary font-bold text-display">Messages</Text>
-        <TouchableOpacity className="w-10 h-10 rounded-full bg-surface-card items-center justify-center">
-          <MaterialIcons name="edit" size={24} color="#f8fafc" />
-        </TouchableOpacity>
+        <View className="flex-row items-center gap-3">
+          {/* Bot Chat button */}
+          <TouchableOpacity
+            className="w-10 h-10 rounded-full bg-surface-card items-center justify-center"
+            onPress={handleBotChat}
+            disabled={isBotLoading}
+            activeOpacity={0.7}
+          >
+            {isBotLoading ? (
+              <ActivityIndicator color="#0A7CFF" size="small" />
+            ) : (
+              <MaterialIcons name="smart-toy" size={22} color="#0A7CFF" />
+            )}
+          </TouchableOpacity>
+
+          {/* Compose button */}
+          <TouchableOpacity className="w-10 h-10 rounded-full bg-surface-card items-center justify-center">
+            <MaterialIcons name="edit" size={24} color="#f8fafc" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* List */}
