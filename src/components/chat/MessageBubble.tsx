@@ -1,6 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
+import * as Haptics from 'expo-haptics'
 import React, { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Image, Pressable, Text, View } from 'react-native'
 import Animated, {
@@ -26,7 +27,6 @@ import type {
 // Valid emojis for reactions (matching backend)
 export const VALID_EMOJIS = ['👍', '❤️', '😂', '😢', '😮', '😡', '👏', '🎉']
 
-// Backend sends English strings — map to Vietnamese display text
 const RECALLED_PREVIEW_MAP: Record<string, string> = {
   'Message recalled': 'Tin nhắn đã thu hồi',
   'message recalled': 'Tin nhắn đã thu hồi',
@@ -97,7 +97,6 @@ const MessageBubbleComponent = function MessageBubble({
 
   const getStatusText = () => {
     if (isSending) return 'Sending...'
-    // Kiểm tra cả status từ message và từ Zustand store
     const isSeen =
       message.status === 'READ' ||
       isMessageSeen(conversationId || message.conversationId, message.id)
@@ -111,13 +110,11 @@ const MessageBubbleComponent = function MessageBubble({
   }, [isExpanded, progress])
 
   const toggleDetails = () => {
-    // Gọi hàm từ parent truyền xuống thay vì tự set state
     if (onToggleDetails) onToggleDetails()
   }
 
   const handleLongPress = () => {
-    // measureInWindow returns coords in the root window frame — exactly what
-    // we need since the Modal also renders at the window level.
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
     bubbleRef.current?.measureInWindow((x, y, width, height) => {
       setAnchor({ x, y, width, height })
       setMenuVisible(true)
@@ -135,13 +132,9 @@ const MessageBubbleComponent = function MessageBubble({
     senderInfo?.name?.charAt(0).toUpperCase() || senderInfo?.email?.charAt(0).toUpperCase() || '?'
 
   const isImage = message.type === 'image'
-  // Handle both camelCase and snake_case
   const isRecalled = message.isRecalled === true || message.is_recalled === true
-
-  // Handle reactions as object/map (new backend structure)
   const reactionsMap = message.reactions || {}
 
-  // Build reaction summary for display
   const reactionSummary = useMemo(() => {
     const summary: Record<string, number> = {}
     Object.values(reactionsMap).forEach((reaction: { emoji: string }) => {
@@ -169,7 +162,7 @@ const MessageBubbleComponent = function MessageBubble({
               (picture ? (
                 <Image source={{ uri: picture }} className="w-7 h-7 rounded-full" />
               ) : (
-                <View className="w-7 h-7 rounded-full bg-surface-focus items-center justify-center">
+                <View className="w-7 h-7 rounded-full bg-surface-card items-center justify-center">
                   <Text className="text-text-primary text-[10px] font-bold">{fallbackInitial}</Text>
                 </View>
               ))}
@@ -177,7 +170,6 @@ const MessageBubbleComponent = function MessageBubble({
         )}
 
         <View className={cn('max-w-[75%]', isOwn ? 'items-end' : 'items-start')}>
-          {/* Reply Preview - handle both string and JSON object */}
           {message.replyPreview && (
             <Pressable
               onPress={onPressReplyPreview}
@@ -187,22 +179,17 @@ const MessageBubbleComponent = function MessageBubble({
               )}
               style={{ maxWidth: '100%' }}
             >
-              {/* Thanh accent dọc */}
-              <View className={cn('w-[3px]', isOwn ? 'bg-white/50' : 'bg-blue-500')} />
+              <View className={cn('w-[3px]', isOwn ? 'bg-white/50' : 'bg-brand')} />
 
-              {/* Nội dung */}
               <View
-                className={cn(
-                  'px-2.5 py-1.5',
-                  isOwn ? 'bg-black/20' : 'bg-black/5 border-[0.5px] border-black/10',
-                )}
+                className={cn('px-2.5 py-1.5', isOwn ? 'bg-brand-dark/30' : 'bg-surface-card')}
                 style={{ flexShrink: 1, minWidth: 0 }}
               >
                 <Text
                   numberOfLines={1}
                   className={cn(
                     'text-[11px] font-semibold mb-0.5',
-                    isOwn ? 'text-white/85' : 'text-blue-600',
+                    isOwn ? 'text-white/85' : 'text-brand',
                   )}
                 >
                   {typeof message.replyPreview === 'string'
@@ -281,7 +268,6 @@ const MessageBubbleComponent = function MessageBubble({
             )}
           </Pressable>
 
-          {/* Reactions display */}
           {hasReactions && (
             <View
               className={cn(
@@ -295,12 +281,15 @@ const MessageBubbleComponent = function MessageBubble({
                   onPress={() => onReactionPress?.(emoji)}
                   className={cn(
                     'flex-row items-center px-1.5 py-0.5 rounded-full',
-                    isOwn ? 'bg-black/20' : 'bg-surface-focus',
+                    isOwn ? 'bg-brand-dark/20' : 'bg-surface-card',
                   )}
                 >
                   <Text className="text-xs">{emoji}</Text>
                   <Text
-                    className={cn('text-xs ml-0.5', isOwn ? 'text-white/70' : 'text-text-muted')}
+                    className={cn(
+                      'text-xs ml-0.5',
+                      isOwn ? 'text-text-secondary' : 'text-text-muted',
+                    )}
                   >
                     {count}
                   </Text>
@@ -322,7 +311,7 @@ const MessageBubbleComponent = function MessageBubble({
                   <MaterialIcons
                     name="done-all"
                     size={12}
-                    color="#0A7CFF"
+                    color="#FF6B2C"
                     style={{ marginLeft: 2 }}
                   />
                 )}
@@ -337,15 +326,14 @@ const MessageBubbleComponent = function MessageBubble({
         isOwn={isOwn}
         anchor={anchor}
         onClose={() => setMenuVisible(false)}
-        onReply={onReply || (() => {})}
-        onRecall={onRecall || (() => {})}
+        onReply={onReply}
+        onRecall={onRecall}
         conversationId={conversationId || message.conversationId}
       />
     </>
   )
 }
 
-// Memoize to prevent unnecessary re-renders
 export const MessageBubble = memo(MessageBubbleComponent, (prevProps, nextProps) => {
   const prevPreviewContent =
     typeof prevProps.message.replyPreview === 'string'

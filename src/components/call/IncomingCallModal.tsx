@@ -48,9 +48,18 @@ export function IncomingCallModal({
     <Modal visible={visible} transparent animationType="fade">
       {/* Overlay */}
       <View className="flex-1 items-center justify-center bg-overlay">
-        {/* Content */}
-        <View className="items-center w-full">
-          <Typography variant="caption" color="#8E8EA0">
+        {/* Content card — white frosted glass */}
+        <View
+          className="items-center w-[85%] bg-bg-primary rounded-3xl py-10 px-6"
+          style={{
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.15,
+            shadowRadius: 24,
+            elevation: 12,
+          }}
+        >
+          <Typography variant="caption" color="#8E8E93">
             Incoming {type === 'VIDEO' ? 'Video' : 'Voice'} Call
           </Typography>
 
@@ -58,9 +67,9 @@ export function IncomingCallModal({
           <Animated.View
             // NativeWind limitation: reanimated animated value — must stay as inline style
             style={[{ marginVertical: 32 }, animatedStyle]}
-            className="w-[140px] h-[140px] rounded-full bg-[rgba(108,99,255,0.2)] items-center justify-center"
+            className="w-[140px] h-[140px] rounded-full bg-[rgba(255,107,44,0.12)] items-center justify-center"
           >
-            <View className="w-[100px] h-[100px] rounded-full bg-brand-violet items-center justify-center">
+            <View className="w-[100px] h-[100px] rounded-full bg-brand items-center justify-center">
               <Typography variant="h1" color="#ffffff">
                 {callerName.charAt(0)}
               </Typography>
@@ -72,23 +81,37 @@ export function IncomingCallModal({
           </Typography>
 
           {/* Action buttons */}
-          <View className="flex-row justify-around w-4/5 mt-8">
+          <View className="flex-row justify-around w-full mt-4">
             <TouchableOpacity
-              className="w-[100px] h-[100px] rounded-full bg-status-error items-center justify-center"
+              className="w-[72px] h-[72px] rounded-full bg-status-error items-center justify-center"
               onPress={onReject}
               activeOpacity={0.8}
+              style={{
+                shadowColor: '#FF3B30',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 8,
+                elevation: 6,
+              }}
             >
-              <Typography variant="button" color="#f8fafc">
+              <Typography variant="button" color="#FFFFFF">
                 Decline
               </Typography>
             </TouchableOpacity>
 
             <TouchableOpacity
-              className="w-[100px] h-[100px] rounded-full bg-status-success items-center justify-center"
+              className="w-[72px] h-[72px] rounded-full bg-status-success items-center justify-center"
               onPress={onAccept}
               activeOpacity={0.8}
+              style={{
+                shadowColor: '#34C759',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 8,
+                elevation: 6,
+              }}
             >
-              <Typography variant="button" color="#f8fafc">
+              <Typography variant="button" color="#FFFFFF">
                 Accept
               </Typography>
             </TouchableOpacity>

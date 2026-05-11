@@ -1,5 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useQueryClient } from '@tanstack/react-query'
+import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, FlatList, Image, Text, TouchableOpacity, View } from 'react-native'
@@ -21,6 +22,7 @@ import { MessageInput } from '../../src/components/chat/MessageInput'
 import { queryKeys } from '../../src/constants/queryKeys'
 import { useRecallMessage } from '../../src/hooks/useMessageActions'
 import { useMessages, useSendBotMessage, useSendMessage } from '../../src/hooks/useMessages'
+import { cn } from '../../src/lib/cn'
 import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useCallStore } from '../../src/stores/callStore'
@@ -171,14 +173,14 @@ export default function ChatScreen() {
     prevFirstMessageId.current = currentFirstMessageId
   }, [allMessages, showScrollButton, socket, id, user?.id])
 
-  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const offsetY = event.nativeEvent.contentOffset.y
     setShowScrollButton(offsetY > 200)
-  }
+  }, [])
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     listRef.current?.scrollToOffset({ offset: 0, animated: true })
-  }
+  }, [])
 
   const cachedData = queryClient.getQueryData<unknown>(queryKeys.conversations.all)
   const allConversations: Conversation[] = Array.isArray(cachedData)
@@ -196,7 +198,7 @@ export default function ChatScreen() {
         (p: ChatParticipant) => p.id !== user?.id,
       )
       if (otherUser) {
-        displayName = otherUser.email || 'Unknown'
+        displayName = otherUser.name || otherUser.email || 'Unknown'
         avatarUrl = otherUser.picture
         otherUserId = otherUser.id
       }
@@ -273,17 +275,32 @@ export default function ChatScreen() {
     }, 2000)
   }
 
-  const handleReply = (message: Message) => {
-    setReplyToMessage(message)
-  }
+  const handleReply = useCallback(
+    (message: Message) => {
+      setReplyToMessage(message)
+    },
+    [setReplyToMessage],
+  )
 
-  const handleCancelReply = () => {
+  const handleCancelReply = useCallback(() => {
     setReplyToMessage(null)
-  }
+  }, [setReplyToMessage])
 
-  const handleRecall = (messageId: string) => {
-    recallMessage(messageId)
-  }
+  const handleSendText = useCallback(
+    (text: string, replyToId?: string) => {
+      sendMessage({ content: text, ...(replyToId ? { replyToId } : {}) })
+      socket?.emit('typing_stop', id)
+    },
+    [sendMessage, socket, id],
+  )
+
+  const handleRecall = useCallback(
+    (messageId: string) => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+      recallMessage(messageId)
+    },
+    [recallMessage],
+  )
 
   const handleToggleDetails = useCallback((messageId: string) => {
     setExpandedMessageId((prevId) => (prevId === messageId ? null : messageId))
@@ -298,7 +315,7 @@ export default function ChatScreen() {
         listRef.current?.scrollToIndex({
           index,
           animated: true,
-          viewPosition: 0.5, // Cuộn sao cho tin nhắn nằm giữa màn hình
+          viewPosition: 0.5,
         })
       }
     },
@@ -349,7 +366,7 @@ export default function ChatScreen() {
           {showDateSeparator && (
             <View className="items-center my-4">
               <Text
-                className="text-text-muted text-xs2 font-medium bg-surface-card px-3 py-1 overflow-hidden"
+                className="text-text-muted text-xs2 font-medium px-3 py-1 overflow-hidden"
                 style={{ borderRadius: 12 }}
               >
                 {formatSeparatorDate(item.createdAt)}
@@ -362,8 +379,8 @@ export default function ChatScreen() {
             showAvatar={showAvatar}
             isGroupedTop={isGroupedTop}
             isGroupedBottom={isGroupedBottom}
-            isExpanded={expandedMessageId === item.id} // <-- Thêm
-            onToggleDetails={() => handleToggleDetails(item.id)} // <-- Thêm
+            isExpanded={expandedMessageId === item.id}
+            onToggleDetails={() => handleToggleDetails(item.id)}
             onPressReplyPreview={() => handleScrollToMessage(item.replyToId)}
             onReply={() => handleReply(item)}
             onRecall={() => handleRecall(item.id)}
@@ -378,75 +395,55 @@ export default function ChatScreen() {
   return (
     <SafeAreaView className="flex-1 bg-bg-primary" edges={['top', 'bottom']}>
       <Animated.View className="flex-1 z-10" style={animatedKeyboardStyle}>
-        <View
-          className="flex-row items-center justify-between bg-bg-primary border-b border-surface-card px-2 pt-2 pb-2.5 z-10"
-          style={{
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.3,
-            shadowRadius: 3,
-            elevation: 4,
-          }}
-        >
-          <View className="flex-1 flex-row items-center">
+        <View className="flex-row items-center justify-between bg-bg-primary border-b border-border-default px-2 pt-2 pb-2.5 z-10">
+          <View className="flex-row items-center">
             <TouchableOpacity
               onPress={() => router.back()}
-              className="w-10 h-10 items-center justify-center"
+              className="flex-row items-center px-1"
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <MaterialIcons name="arrow-back-ios" size={20} color="#0A7CFF" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              className="flex-1 flex-row items-center ml-1"
-              onPress={() => router.push(`/conversation/${id}/info` as never)}
-              activeOpacity={0.7}
-            >
-              <View className="relative">
-                {avatarUrl ? (
-                  <Image
-                    source={{ uri: avatarUrl }}
-                    className="w-9 h-9"
-                    style={{ borderRadius: 18 }}
-                  />
-                ) : (
-                  <View className="w-9 h-9 rounded-avatar-sm bg-surface-focus items-center justify-center">
-                    <Text className="text-text-primary font-semibold text-sm2">
-                      {displayName.charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
-                )}
-                {isOnline && (
-                  <View className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-call-green border-2 border-bg-primary" />
-                )}
-              </View>
-
-              <View className="flex-1 justify-center ml-2.5">
-                <Text className="text-text-primary font-semibold text-md" numberOfLines={1}>
-                  {displayName}
-                </Text>
-                {!currentConversation?.isGroup && (
-                  <Text className="text-text-muted text-xs2 mt-0.5">
-                    {isOnline ? 'Active now' : 'Offline'}
-                  </Text>
-                )}
-              </View>
+              <MaterialIcons name="chevron-left" size={28} color="#1C1C1E" />
+              <Text className="text-text-primary font-medium text-md -ml-1">Chat</Text>
             </TouchableOpacity>
           </View>
 
-          <View className="flex-row items-center gap-4 pr-2">
-            <TouchableOpacity className="items-center justify-center" onPress={handleVoiceCall}>
-              <MaterialIcons name="call" size={24} color="#0A7CFF" />
-            </TouchableOpacity>
-            <TouchableOpacity className="items-center justify-center" onPress={handleVideoCall}>
-              <MaterialIcons name="videocam" size={26} color="#0A7CFF" />
-            </TouchableOpacity>
+          <TouchableOpacity
+            className="items-center flex-1"
+            onPress={() => router.push(`/conversation/${id}/info` as never)}
+            activeOpacity={0.7}
+          >
+            <Text className="text-text-primary font-semibold text-md" numberOfLines={1}>
+              {displayName}
+            </Text>
+            {!currentConversation?.isGroup && (
+              <Text
+                className={cn(
+                  'text-xs2 mt-0.5',
+                  isOnline ? 'text-status-online' : 'text-text-muted',
+                )}
+              >
+                {isOnline ? 'Online' : 'Offline'}
+              </Text>
+            )}
+          </TouchableOpacity>
+
+          <View className="flex-row items-center pr-2">
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} className="w-9 h-9 rounded-full" />
+            ) : (
+              <View className="w-9 h-9 rounded-full bg-surface-card items-center justify-center">
+                <Text className="text-text-primary font-semibold text-sm2">
+                  {displayName.charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
 
         <View className="flex-1">
           {isLoading && serverMessages.length === 0 ? (
             <View className="flex-1 items-center justify-center">
-              <ActivityIndicator color="#0A7CFF" size="large" />
+              <ActivityIndicator color="#FF6B2C" size="large" />
             </View>
           ) : (
             <>
@@ -474,7 +471,6 @@ export default function ChatScreen() {
                   isOtherUserTyping ? <TypingIndicator displayName={displayName} /> : null
                 }
                 showsVerticalScrollIndicator={false}
-                // Performance optimizations
                 removeClippedSubviews={true}
                 initialNumToRender={20}
                 maxToRenderPerBatch={10}
@@ -498,18 +494,18 @@ export default function ChatScreen() {
                   className="absolute bottom-5 right-4 z-10"
                 >
                   <TouchableOpacity
-                    className="w-10 h-10 rounded-full bg-surface-focus border border-[#333333] items-center justify-center"
+                    className="w-10 h-10 rounded-full bg-bg-primary border border-border-default items-center justify-center"
                     onPress={scrollToBottom}
                     activeOpacity={0.8}
                     style={{
                       shadowColor: '#000',
-                      shadowOffset: { width: 0, height: 3 },
-                      shadowOpacity: 0.4,
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.1,
                       shadowRadius: 4,
-                      elevation: 5,
+                      elevation: 3,
                     }}
                   >
-                    <MaterialIcons name="keyboard-arrow-down" size={24} color="#f8fafc" />
+                    <MaterialIcons name="keyboard-arrow-down" size={24} color="#1C1C1E" />
                   </TouchableOpacity>
                 </Animated.View>
               )}

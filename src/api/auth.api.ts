@@ -1,6 +1,6 @@
-import type { LoginResponse, MeResponse, MessageResponse } from '../types/auth.types'
-
 import { apiClient } from './client'
+
+import type { LoginResponse, MeResponse, MessageResponse } from '../types/auth.types'
 
 export const authApi = {
   register: async (data: Record<string, unknown>) => {

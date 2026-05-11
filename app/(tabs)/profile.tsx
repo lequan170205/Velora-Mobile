@@ -131,7 +131,7 @@ export default function ProfileScreen() {
             className="flex-row items-center bg-surface-card rounded-xl h-14 px-5"
             activeOpacity={0.7}
           >
-            <MaterialIcons name="edit" size={24} color="#94a3b8" style={{ marginRight: 16 }} />
+            <MaterialIcons name="edit" size={24} color="#8E8E93" style={{ marginRight: 16 }} />
             <Text className="text-text-primary font-medium text-md flex-1">Edit Profile</Text>
           </TouchableOpacity>
 
@@ -139,7 +139,7 @@ export default function ProfileScreen() {
             className="flex-row items-center bg-surface-card rounded-xl h-14 px-5"
             activeOpacity={0.7}
           >
-            <MaterialIcons name="palette" size={24} color="#94a3b8" style={{ marginRight: 16 }} />
+            <MaterialIcons name="palette" size={24} color="#8E8E93" style={{ marginRight: 16 }} />
             <Text className="text-text-primary font-medium text-md flex-1">Theme Settings</Text>
           </TouchableOpacity>
 
