@@ -1,6 +1,11 @@
 import { apiClient } from './client'
 
-import type { LoginResponse, MeResponse, MessageResponse } from '../types/auth.types'
+import type {
+  LoginResponse,
+  MeResponse,
+  MessageResponse,
+  SocketTokenResponse,
+} from '../types/auth.types'
 
 export const authApi = {
   register: async (data: Record<string, unknown>) => {
@@ -21,6 +26,10 @@ export const authApi = {
   },
   me: async () => {
     const response = await apiClient.get<MeResponse>('/auth/me')
+    return response.data
+  },
+  getSocketToken: async () => {
+    const response = await apiClient.get<SocketTokenResponse>('/auth/socket-token')
     return response.data
   },
   confirm: async (token: string) => {

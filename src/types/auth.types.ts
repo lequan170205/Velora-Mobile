@@ -6,6 +6,10 @@ export interface LoginResponse {
 
 export type MeResponse = UserSession
 
+export interface SocketTokenResponse {
+  accessToken: string
+}
+
 export interface MessageResponse {
   message: string
 }

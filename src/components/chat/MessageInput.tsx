@@ -165,9 +165,4 @@ const MessageInputComponent = function MessageInput({
   )
 }
 
-export const MessageInput = memo(MessageInputComponent, (prevProps, nextProps) => {
-  return (
-    prevProps.replyTo?.id === nextProps.replyTo?.id &&
-    prevProps.replyTo?.content === nextProps.replyTo?.content
-  )
-})
+export const MessageInput = memo(MessageInputComponent)

@@ -4,10 +4,10 @@ import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, FlatList, Image, Text, TouchableOpacity, View } from 'react-native'
+import { KeyboardStickyView } from 'react-native-keyboard-controller'
 import Animated, {
   FadeIn,
   FadeOut,
-  useAnimatedKeyboard,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -85,8 +85,15 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
   const { user } = useAuthStore()
-  const { optimisticMessages, typingUsers, replyToMessage, setReplyToMessage, isBotConversation } =
-    useChatStore()
+  const {
+    optimisticMessages,
+    typingUsers,
+    replyToMessage,
+    setReplyToMessage,
+    isBotConversation,
+    confirmMessage,
+    dequeueOfflineMessage,
+  } = useChatStore()
   const isBot = isBotConversation(id as string)
   const queryClient = useQueryClient()
 
@@ -110,40 +117,59 @@ export default function ChatScreen() {
 
   const allMessages = useMemo(() => {
     const serverIds = new Set(serverMessages.map((m: Message) => m?.id))
-
-    // Build a set of "senderId::content" for server messages so we can also
-    // discard optimistic messages whose content has already been persisted
-    // (handles bot conversations where confirmMessage is never called).
-    const serverContentKeys = new Set(
-      serverMessages.map((m: Message) => `${m?.senderId}::${m?.content}`),
+    const serverClientMessageIds = new Set(
+      serverMessages
+        .map((message: Message) => message?.clientMessageId)
+        .filter((clientMessageId): clientMessageId is string => Boolean(clientMessageId)),
     )
 
     const pendingMessages = localOptimistic.filter((m: Message) => {
       if (!m) return false
-      // Already confirmed by ID
       if (serverIds.has(m.id)) return false
-      // Already persisted by content match (same sender + same text)
-      if (m.id.startsWith('temp-') && serverContentKeys.has(`${m.senderId}::${m.content}`)) {
-        return false
-      }
+      if (serverClientMessageIds.has(m.id)) return false
       return true
     })
 
-    return [...pendingMessages, ...serverMessages].sort(
+    const combinedMessages = [...pendingMessages, ...serverMessages].sort(
       (a, b) => new Date(b?.createdAt).getTime() - new Date(a?.createdAt).getTime(),
     )
+
+    const dedupedMessages = new Map<string, Message>()
+
+    combinedMessages.forEach((message) => {
+      if (!message?.id) return
+
+      const existing = dedupedMessages.get(message.id)
+      if (!existing) {
+        dedupedMessages.set(message.id, message)
+        return
+      }
+
+      // Keep a single message instance per id while preserving the richer payload.
+      dedupedMessages.set(message.id, { ...message, ...existing })
+    })
+
+    return Array.from(dedupedMessages.values())
   }, [serverMessages, localOptimistic])
+
+  useEffect(() => {
+    if (serverMessages.length === 0 || localOptimistic.length === 0) {
+      return
+    }
+
+    const optimisticIds = new Set(localOptimistic.map((message) => message.id))
+
+    serverMessages.forEach((message) => {
+      if (message.clientMessageId && optimisticIds.has(message.clientMessageId)) {
+        confirmMessage(message.clientMessageId, message)
+        dequeueOfflineMessage(message.clientMessageId)
+      }
+    })
+  }, [confirmMessage, dequeueOfflineMessage, localOptimistic, serverMessages])
 
   const prevFirstMessageId = useRef(allMessages[0]?.id)
 
-  const keyboard = useAnimatedKeyboard()
   const insets = useSafeAreaInsets()
-
-  const animatedKeyboardStyle = useAnimatedStyle(() => {
-    return {
-      paddingBottom: Math.max(0, keyboard.height.value - insets.bottom),
-    }
-  })
 
   const activeTypers = typingUsers[id as string] || []
   const isOtherUserTyping = activeTypers.some((typerId) => typerId !== user?.id)
@@ -261,19 +287,32 @@ export default function ChatScreen() {
     useChatStore.getState().addOptimisticMessage(id as string, tempMessage)
   }
 
-  const handleTyping = () => {
-    if (!socket?.connected) return
+  const handleTyping = useCallback(
+    (text: string) => {
+      if (!socket?.connected) return
 
-    socket.emit('typing_start', id)
+      if (!text.trim()) {
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current)
+          typingTimeoutRef.current = null
+        }
+        socket.emit('typing_stop', id)
+        return
+      }
 
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current)
-    }
+      socket.emit('typing_start', id)
 
-    typingTimeoutRef.current = setTimeout(() => {
-      socket.emit('typing_stop', id)
-    }, 2000)
-  }
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current)
+      }
+
+      typingTimeoutRef.current = setTimeout(() => {
+        socket.emit('typing_stop', id)
+        typingTimeoutRef.current = null
+      }, 2000)
+    },
+    [socket, id],
+  )
 
   const handleReply = useCallback(
     (message: Message) => {
@@ -289,9 +328,30 @@ export default function ChatScreen() {
   const handleSendText = useCallback(
     (text: string, replyToId?: string) => {
       sendMessage({ content: text, ...(replyToId ? { replyToId } : {}) })
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current)
+        typingTimeoutRef.current = null
+      }
       socket?.emit('typing_stop', id)
     },
     [sendMessage, socket, id],
+  )
+
+  const handleSend = useCallback(
+    (text: string, replyToId?: string) => {
+      if (isBot) {
+        sendBotMessage({ content: text })
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current)
+          typingTimeoutRef.current = null
+        }
+        socket?.emit('typing_stop', id)
+        return
+      }
+
+      handleSendText(text, replyToId)
+    },
+    [handleSendText, id, isBot, sendBotMessage, socket],
   )
 
   const handleRecall = useCallback(
@@ -321,6 +381,19 @@ export default function ChatScreen() {
     },
     [allMessages],
   )
+
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current)
+        typingTimeoutRef.current = null
+      }
+
+      if (socket?.connected) {
+        socket.emit('typing_stop', id)
+      }
+    }
+  }, [socket, id])
 
   const renderItem = useCallback(
     ({ item, index }: { item: Message; index: number }) => {
@@ -394,7 +467,7 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-bg-primary" edges={['top', 'bottom']}>
-      <Animated.View className="flex-1 z-10" style={animatedKeyboardStyle}>
+      <View className="flex-1 z-10">
         <View className="flex-row items-center justify-between bg-bg-primary border-b border-border-default px-2 pt-2 pb-2.5 z-10">
           <View className="flex-row items-center">
             <TouchableOpacity
@@ -513,21 +586,16 @@ export default function ChatScreen() {
           )}
         </View>
 
-        <MessageInput
-          onSend={(text, replyToId) => {
-            if (isBot) {
-              sendBotMessage({ content: text })
-            } else {
-              sendMessage({ content: text, ...(replyToId ? { replyToId } : {}) })
-            }
-            socket?.emit('typing_stop', id)
-          }}
-          onSendMedia={handleSendMedia}
-          onChangeText={handleTyping}
-          replyTo={replyToMessage}
-          onCancelReply={handleCancelReply}
-        />
-      </Animated.View>
+        <KeyboardStickyView offset={{ opened: insets.bottom }}>
+          <MessageInput
+            onSend={handleSend}
+            onSendMedia={handleSendMedia}
+            onChangeText={handleTyping}
+            replyTo={replyToMessage}
+            onCancelReply={handleCancelReply}
+          />
+        </KeyboardStickyView>
+      </View>
     </SafeAreaView>
   )
 }

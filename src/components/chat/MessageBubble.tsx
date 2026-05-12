@@ -93,15 +93,19 @@ const MessageBubbleComponent = function MessageBubble({
     }
   }
 
-  const isSending = (message.id || message._id || '').startsWith('temp-')
+  const isFailed = message.status === 'FAILED'
+  const isSending = (message.id || message._id || '').startsWith('temp-') && !isFailed
+  const hasReadReceipt = Array.isArray(message.readBy) && message.readBy.length > 0
 
   const getStatusText = () => {
+    if (isFailed) return 'Failed'
     if (isSending) return 'Sending...'
     const isSeen =
       message.status === 'READ' ||
+      hasReadReceipt ||
       isMessageSeen(conversationId || message.conversationId, message.id)
     if (isSeen) return 'Read'
-    if (message.status === 'DELIVERED') return 'Delivered'
+    if (!isSending) return 'Delivered'
     return 'Sent'
   }
 
@@ -113,7 +117,11 @@ const MessageBubbleComponent = function MessageBubble({
     if (onToggleDetails) onToggleDetails()
   }
 
+  const isImage = message.type === 'image'
+  const isRecalled = message.isRecalled === true || message.is_recalled === true
+
   const handleLongPress = () => {
+    if (isRecalled) return
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
     bubbleRef.current?.measureInWindow((x, y, width, height) => {
       setAnchor({ x, y, width, height })
@@ -130,9 +138,6 @@ const MessageBubbleComponent = function MessageBubble({
   const picture = senderInfo?.picture
   const fallbackInitial =
     senderInfo?.name?.charAt(0).toUpperCase() || senderInfo?.email?.charAt(0).toUpperCase() || '?'
-
-  const isImage = message.type === 'image'
-  const isRecalled = message.isRecalled === true || message.is_recalled === true
   const reactionsMap = message.reactions || {}
 
   const reactionSummary = useMemo(() => {
@@ -217,8 +222,8 @@ const MessageBubbleComponent = function MessageBubble({
             ref={bubbleRef}
             collapsable={false}
             onPress={toggleDetails}
-            onLongPress={handleLongPress}
-            delayLongPress={250}
+            onLongPress={isRecalled ? undefined : handleLongPress}
+            delayLongPress={isRecalled ? undefined : 250}
             className={cn(
               !isImage && 'px-3.5 py-2.5',
               !isImage && (isOwn ? 'bg-bubble-out' : 'bg-bubble-in'),
@@ -306,6 +311,7 @@ const MessageBubbleComponent = function MessageBubble({
               </Text>
               {isOwn &&
                 (message.status === 'READ' ||
+                  hasReadReceipt ||
                   isMessageSeen(conversationId || message.conversationId, message.id)) &&
                 !isSending && (
                   <MaterialIcons
@@ -349,6 +355,7 @@ export const MessageBubble = memo(MessageBubbleComponent, (prevProps, nextProps)
     prevProps.message.id === nextProps.message.id &&
     prevProps.message.content === nextProps.message.content &&
     prevProps.message.status === nextProps.message.status &&
+    prevProps.message.readBy === nextProps.message.readBy &&
     prevProps.message.reactions === nextProps.message.reactions &&
     prevProps.isOwn === nextProps.isOwn &&
     prevProps.message.isRecalled === nextProps.message.isRecalled &&

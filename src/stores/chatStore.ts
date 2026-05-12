@@ -8,6 +8,7 @@ interface OfflineMessage {
   id: string
   conversationId: string
   content: string
+  replyToId?: string
 }
 
 interface ChatState {
@@ -22,6 +23,7 @@ interface ChatState {
   addOptimisticMessage: (conversationId: string, message: Message) => void
   removeOptimisticMessage: (conversationId: string, tempId: string) => void
   confirmMessage: (tempId: string, message: Message) => void
+  markMessageFailed: (conversationId: string, tempId: string) => void
   setTyping: (conversationId: string, userId: string, isTyping: boolean) => void
   setUserOnline: (userId: string, online: boolean) => void
   enqueueOfflineMessage: (message: OfflineMessage) => void
@@ -98,6 +100,7 @@ export const useChatStore = create<ChatState>()(
                 if (m.id === tempId) {
                   // Keep replyPreview from optimistic message if server doesn't return it
                   const optimisticPreview = m.replyPreview
+                  const optimisticReplyToId = m.replyToId
                   const mergedMessage: Message = {
                     ...currentMessage,
                   }
@@ -107,10 +110,28 @@ export const useChatStore = create<ChatState>()(
                   } else if (optimisticPreview) {
                     mergedMessage.replyPreview = optimisticPreview
                   }
+                  if (currentMessage.replyToId) {
+                    mergedMessage.replyToId = currentMessage.replyToId
+                  } else if (optimisticReplyToId) {
+                    mergedMessage.replyToId = optimisticReplyToId
+                  }
                   return mergedMessage
                 }
                 return m
               }),
+            },
+          }
+        }),
+
+      markMessageFailed: (conversationId, tempId) =>
+        set((state) => {
+          const msgs = state.optimisticMessages[conversationId] || []
+          return {
+            optimisticMessages: {
+              ...state.optimisticMessages,
+              [conversationId]: msgs.map((message) =>
+                message.id === tempId ? { ...message, status: 'FAILED' as const } : message,
+              ),
             },
           }
         }),
@@ -143,7 +164,9 @@ export const useChatStore = create<ChatState>()(
 
       enqueueOfflineMessage: (message) =>
         set((state) => ({
-          offlineQueue: [...state.offlineQueue, message],
+          offlineQueue: state.offlineQueue.some((queued) => queued.id === message.id)
+            ? state.offlineQueue
+            : [...state.offlineQueue, message],
         })),
 
       dequeueOfflineMessage: (id) =>

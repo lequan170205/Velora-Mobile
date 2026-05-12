@@ -1,5 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import React, { useCallback, useMemo, useState } from 'react' // Thêm useState, useMemo
+import React, { useCallback, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -151,7 +151,7 @@ export default function ConversationsScreen() {
 
             {/* Search Bar */}
             <View className="px-5 mb-4">
-              <View className="flex-row items-center bg-surface-card rounded-full px-4 py-2.5">
+              <View className="flex-row items-center bg-surface-card rounded-full px-4 py-4">
                 <TextInput
                   placeholder="Search"
                   placeholderTextColor="#AEAEB2"

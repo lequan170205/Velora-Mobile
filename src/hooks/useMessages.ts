@@ -8,6 +8,29 @@ import { useChatStore } from '../stores/chatStore'
 
 import type { Conversation, Message } from '../types/conversation.types'
 
+const createClientMessageId = () => {
+  const randomPart =
+    typeof globalThis.crypto?.randomUUID === 'function'
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+
+  return `temp-${randomPart}`
+}
+
+const ensureClientMessageId = (variables: { clientMessageId?: string }) => {
+  if (!variables.clientMessageId) {
+    variables.clientMessageId = createClientMessageId()
+  }
+
+  return variables.clientMessageId
+}
+
+interface SendMessageVariables {
+  content: string
+  replyToId?: string
+  clientMessageId?: string
+}
+
 export function useMessages(conversationId: string) {
   return useInfiniteQuery({
     queryKey: queryKeys.conversations.messages(conversationId),
@@ -18,7 +41,13 @@ export function useMessages(conversationId: string) {
         return undefined
       }
 
-      return lastPage[0].id
+      const oldestMessage = lastPage.reduce((oldest, current) => {
+        return new Date(current.createdAt).getTime() < new Date(oldest.createdAt).getTime()
+          ? current
+          : oldest
+      }, lastPage[0])
+
+      return oldestMessage.id
     },
     initialPageParam: undefined as string | undefined,
   })
@@ -26,15 +55,17 @@ export function useMessages(conversationId: string) {
 
 export function useSendMessage(conversationId: string) {
   const { socket } = useSocket()
-  const { addOptimisticMessage, enqueueOfflineMessage, replyToMessage } = useChatStore()
+  const { addOptimisticMessage, enqueueOfflineMessage, markMessageFailed, replyToMessage } =
+    useChatStore()
   const { user } = useAuthStore()
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ content, replyToId }: { content: string; replyToId?: string }) => {
-      if (!socket) throw new Error('Socket is not connected')
+    mutationFn: async (variables: SendMessageVariables) => {
+      const { content, replyToId } = variables
+      const resolvedClientMessageId = ensureClientMessageId(variables)
 
-      if (!socket.connected) {
+      if (!socket || !socket.connected) {
         return Promise.resolve({ pending: true })
       }
 
@@ -43,12 +74,14 @@ export function useSendMessage(conversationId: string) {
         content: string
         type: string
         signalType: number
+        clientMessageId: string
         replyToId?: string
       } = {
         conversationId,
         content,
         type: 'text',
         signalType: 0,
+        clientMessageId: resolvedClientMessageId,
       }
 
       if (replyToId) {
@@ -58,11 +91,12 @@ export function useSendMessage(conversationId: string) {
       socket.emit('send_message', payload)
       return payload
     },
-    onMutate: async ({ content, replyToId }) => {
+    onMutate: async (variables: SendMessageVariables) => {
       if (!user) return
 
+      const { content, replyToId } = variables
       const now = new Date().toISOString()
-      const tempId = `temp-${Date.now()}`
+      const tempId = ensureClientMessageId(variables)
 
       // Build replyPreview from replyToMessage if replying
       let replyPreview: Message['replyPreview'] = undefined
@@ -83,6 +117,7 @@ export function useSendMessage(conversationId: string) {
         id: tempId,
         conversationId,
         senderId: user.id,
+        clientMessageId: tempId,
         sender: user,
         content,
         type: 'text',
@@ -94,10 +129,12 @@ export function useSendMessage(conversationId: string) {
       }
 
       addOptimisticMessage(conversationId, tempMessage)
-
-      if (!socket || !socket.connected) {
-        enqueueOfflineMessage({ id: tempId, conversationId, content })
-      }
+      enqueueOfflineMessage({
+        id: tempId,
+        conversationId,
+        content,
+        ...(replyToId ? { replyToId } : {}),
+      })
 
       queryClient.setQueryData<Conversation[] | undefined>(
         queryKeys.conversations.all,
@@ -135,6 +172,12 @@ export function useSendMessage(conversationId: string) {
       )
 
       return { tempId }
+    },
+    onError: (_error, _variables, context) => {
+      const { tempId } = context || {}
+      if (tempId) {
+        markMessageFailed(conversationId, tempId)
+      }
     },
   })
 }
