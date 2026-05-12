@@ -1,19 +1,20 @@
 import React from 'react'
-import type { TextProps } from 'react-native'
 import { Text } from 'react-native'
 
 import { cn } from '../../lib/cn'
 
+import type { TextProps } from 'react-native'
+
 type TypographyVariant = 'display' | 'h1' | 'h2' | 'body' | 'bodyMedium' | 'caption' | 'button'
 
 const variantClasses: Record<TypographyVariant, string> = {
-  display:    'font-bold text-hero text-text-primary',
-  h1:         'font-bold text-xxl text-text-primary',
-  h2:         'font-heading text-xl text-text-primary',
-  body:       'font-sans text-base text-text-primary',
+  display: 'font-bold text-hero text-text-primary',
+  h1: 'font-bold text-xxl text-text-primary',
+  h2: 'font-heading text-xl text-text-primary',
+  body: 'font-sans text-base text-text-primary',
   bodyMedium: 'font-medium text-md text-text-primary',
-  button:     'font-heading text-md text-text-primary',
-  caption:    'font-sans text-xs2 text-text-secondary',
+  button: 'font-heading text-md text-text-primary',
+  caption: 'font-sans text-xs2 text-text-secondary',
 }
 
 interface TypographyProps extends TextProps {

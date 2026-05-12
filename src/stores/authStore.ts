@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 
 import { authApi } from '../api/auth.api'
+
 import type { UserSession } from '../types/user.types'
 
 interface AuthState {

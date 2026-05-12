@@ -12,11 +12,20 @@ interface ReactionPickerProps {
   canUnsend?: boolean
 }
 
-export function ReactionPicker({ visible, onClose, onSelectReaction, onUnsend, canUnsend }: ReactionPickerProps) {
+export function ReactionPicker({
+  visible,
+  onClose,
+  onSelectReaction,
+  onUnsend,
+  canUnsend,
+}: ReactionPickerProps) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable className="flex-1 bg-black/50 justify-end" onPress={onClose}>
-        <Pressable className="bg-surface-card rounded-t-3xl p-4 pb-8" onPress={(e) => e.stopPropagation()}>
+        <Pressable
+          className="bg-surface-card rounded-t-3xl p-4 pb-8"
+          onPress={(e) => e.stopPropagation()}
+        >
           {/* Reaction emojis */}
           <View className="flex-row justify-around mb-4">
             {REACTION_EMOJIS.map((emoji) => (

@@ -1,8 +1,9 @@
 import React from 'react'
 import { Button as PaperButton } from 'react-native-paper'
-import type { ButtonProps as PaperButtonProps } from 'react-native-paper'
 
 import { cn } from '../../lib/cn'
+
+import type { ButtonProps as PaperButtonProps } from 'react-native-paper'
 
 interface ButtonProps extends Omit<PaperButtonProps, 'children' | 'mode'> {
   title: string
@@ -20,10 +21,13 @@ export function Button({
   ...rest
 }: ButtonProps) {
   const mode =
-    variant === 'primary'   ? 'contained' :
-    variant === 'secondary' ? 'contained-tonal' :
-    variant === 'outline'   ? 'outlined' :
-    'text' // ghost
+    variant === 'primary'
+      ? 'contained'
+      : variant === 'secondary'
+        ? 'contained-tonal'
+        : variant === 'outline'
+          ? 'outlined'
+          : 'text' // ghost
 
   return (
     <PaperButton

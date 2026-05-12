@@ -6,6 +6,7 @@ import { SpaceGrotesk_600SemiBold, SpaceGrotesk_700Bold } from '@expo-google-fon
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet'
 import { Stack, useRouter } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
+import { StatusBar } from 'expo-status-bar'
 import { useEffect } from 'react'
 import { Platform, Text, TouchableOpacity, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
@@ -86,6 +87,7 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView className="flex-1 bg-bg-primary">
+      <StatusBar style="dark" />
       <SafeAreaProvider>
         <PaperProvider theme={paperTheme}>
           <KeyboardProvider>

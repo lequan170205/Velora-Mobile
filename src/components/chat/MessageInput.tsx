@@ -1,7 +1,8 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import * as DocumentPicker from 'expo-document-picker'
+import * as Haptics from 'expo-haptics'
 import * as ImagePicker from 'expo-image-picker'
-import React, { memo, useState } from 'react'
+import React, { memo, useCallback, useState } from 'react'
 import { Alert, Text, TextInput, TouchableOpacity, View } from 'react-native'
 
 import { cn } from '../../lib/cn'
@@ -26,15 +27,16 @@ const MessageInputComponent = function MessageInput({
   const [text, setText] = useState('')
   const [isFocused, setIsFocused] = useState(false)
 
-  const handleSend = () => {
+  const handleSend = useCallback(() => {
     if (text.trim()) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
       onSend(text.trim(), replyTo?.id)
       setText('')
       if (onCancelReply) {
         onCancelReply()
       }
     }
-  }
+  }, [text, replyTo?.id, onSend, onCancelReply])
 
   const handleTextChange = (value: string) => {
     setText(value)
@@ -85,10 +87,9 @@ const MessageInputComponent = function MessageInput({
   const hasText = text.trim().length > 0
 
   return (
-    <View className="bg-bg-primary border-surface-card px-3 pb-3 pt-3">
-      {/* Reply Preview */}
+    <View className="bg-bg-primary border-t border-border-default px-3 pb-3 pt-3">
       {replyTo && (
-        <View className="flex-row items-center bg-surface-focus rounded-lg px-3 py-2 mb-2">
+        <View className="flex-row items-center bg-surface-card rounded-lg px-3 py-2 mb-2">
           <View className="w-1 h-full bg-brand rounded-full mr-3" />
           <View className="flex-1">
             <Text className="text-xs text-text-muted">Replying to</Text>
@@ -100,83 +101,68 @@ const MessageInputComponent = function MessageInput({
                   : replyTo.content}
             </Text>
           </View>
-          <TouchableOpacity onPress={onCancelReply} className="p-1">
-            <MaterialIcons name="close" size={20} color="#64748b" />
+          <TouchableOpacity
+            onPress={onCancelReply}
+            className="p-1"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <MaterialIcons name="close" size={20} color="#8E8E93" />
           </TouchableOpacity>
         </View>
       )}
 
       <View className="flex-row items-end gap-2">
-        {!isFocused && !hasText && (
-          <View className="flex-row gap-0.5">
-            <TouchableOpacity
-              className="w-9 h-10 items-center justify-center mb-1"
-              onPress={handleAttachImage}
-            >
-              <MaterialIcons name="image" size={24} color="#0A7CFF" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              className="w-9 h-10 items-center justify-center mb-1"
-              onPress={handleAttachFile}
-            >
-              <MaterialIcons name="attach-file" size={24} color="#0A7CFF" />
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {(isFocused || hasText) && (
-          <TouchableOpacity
-            className="w-9 h-10 items-center justify-center mb-1"
-            onPress={() => setIsFocused(false)}
-          >
-            <MaterialIcons name="add-circle" size={26} color="#0A7CFF" />
-          </TouchableOpacity>
-        )}
-
         <View
           className={cn(
-            'flex-1 flex-row items-center rounded-3xl pr-1.5 py-0.5',
-            isFocused ? 'bg-surface-focus border border-[#333333]' : 'bg-surface-input',
+            'flex-1 flex-row items-center rounded-full pr-1.5 py-0.5 border',
+            isFocused
+              ? 'bg-bg-primary border-border-default'
+              : 'bg-surface-input border-border-default',
           )}
         >
+          <TouchableOpacity
+            className="w-9 h-10 items-center justify-center ml-1"
+            onPress={() => {
+              /* emoji picker placeholder */
+            }}
+          >
+            <MaterialIcons name="sentiment-satisfied-alt" size={22} color="#8E8E93" />
+          </TouchableOpacity>
+
           <TextInput
-            className="flex-1 text-text-primary font-sans text-md px-4 py-2.5 min-h-[40px] max-h-[120px]"
+            className="flex-1 text-text-primary font-sans text-md py-2.5 min-h-[40px] max-h-[120px]"
             value={text}
             onChangeText={handleTextChange}
-            placeholder="Message..."
-            placeholderTextColor="#64748b"
+            placeholder="Message"
+            placeholderTextColor="#AEAEB2"
             multiline
             maxLength={1000}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
           />
 
-          <TouchableOpacity
-            className={cn(
-              'w-9 h-9 rounded-full items-center justify-center',
-              hasText ? 'bg-brand' : 'bg-transparent',
-            )}
-            onPress={handleSend}
-            disabled={!hasText}
-            activeOpacity={0.7}
-          >
-            <MaterialIcons
-              name="send"
-              size={18}
-              color={hasText ? '#ffffff' : '#64748b'}
-              style={{ marginLeft: 3 }}
-            />
-          </TouchableOpacity>
+          {hasText && (
+            <TouchableOpacity
+              className="w-9 h-9 rounded-full bg-brand items-center justify-center"
+              onPress={handleSend}
+              activeOpacity={0.7}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+              <MaterialIcons name="send" size={18} color="#FFFFFF" style={{ marginLeft: 3 }} />
+            </TouchableOpacity>
+          )}
         </View>
+
+        <TouchableOpacity
+          className="w-10 h-10 items-center justify-center mb-0.5"
+          onPress={handleAttachImage}
+          onLongPress={handleAttachFile}
+        >
+          <MaterialIcons name="attach-file" size={24} color="#8E8E93" />
+        </TouchableOpacity>
       </View>
     </View>
   )
 }
 
-// Memoize to prevent unnecessary re-renders
-export const MessageInput = memo(MessageInputComponent, (prevProps, nextProps) => {
-  return (
-    prevProps.replyTo?.id === nextProps.replyTo?.id &&
-    prevProps.replyTo?.content === nextProps.replyTo?.content
-  )
-})
+export const MessageInput = memo(MessageInputComponent)
