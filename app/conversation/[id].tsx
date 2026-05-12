@@ -4,7 +4,10 @@ import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, FlatList, Image, Text, TouchableOpacity, View } from 'react-native'
-import { KeyboardStickyView } from 'react-native-keyboard-controller'
+import {
+  KeyboardStickyView,
+  useReanimatedKeyboardAnimation,
+} from 'react-native-keyboard-controller'
 import Animated, {
   FadeIn,
   FadeOut,
@@ -79,6 +82,19 @@ const TypingIndicator = ({ displayName }: { displayName: string }) => {
       </View>
     </Animated.View>
   )
+}
+
+const KeyboardListSpacer = ({ gap, openedOffset }: { gap: number; openedOffset: number }) => {
+  const { height, progress } = useReanimatedKeyboardAnimation()
+
+  const style = useAnimatedStyle(
+    () => ({
+      height: Math.max(0, -height.value) - progress.value * openedOffset + gap,
+    }),
+    [gap, openedOffset],
+  )
+
+  return <Animated.View pointerEvents="none" style={style} />
 }
 
 export default function ChatScreen() {
@@ -168,8 +184,8 @@ export default function ChatScreen() {
   }, [confirmMessage, dequeueOfflineMessage, localOptimistic, serverMessages])
 
   const prevFirstMessageId = useRef(allMessages[0]?.id)
-
   const insets = useSafeAreaInsets()
+  const messageInputGap = 12
 
   const activeTypers = typingUsers[id as string] || []
   const isOtherUserTyping = activeTypers.some((typerId) => typerId !== user?.id)
@@ -541,7 +557,10 @@ export default function ChatScreen() {
                   }
                 }}
                 ListHeaderComponent={
-                  isOtherUserTyping ? <TypingIndicator displayName={displayName} /> : null
+                  <View>
+                    {isOtherUserTyping ? <TypingIndicator displayName={displayName} /> : null}
+                    <KeyboardListSpacer gap={messageInputGap} openedOffset={insets.bottom} />
+                  </View>
                 }
                 showsVerticalScrollIndicator={false}
                 removeClippedSubviews={true}
