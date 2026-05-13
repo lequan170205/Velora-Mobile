@@ -1,140 +1,188 @@
-import { format, isToday, isYesterday, differenceInDays } from 'date-fns'
+import { useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'expo-router'
 import React, { memo } from 'react'
 import { Image, Text, View } from 'react-native'
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated'
 
-import { cn } from '../../lib/cn'
+import { prefetchMessages } from '../../hooks/useMessages'
+import { formatConversationPreviewAge } from '../../lib/conversationPreviewTime'
 import { useAuthStore } from '../../stores/authStore'
+import { useChatStore } from '../../stores/chatStore'
 import { SafeTouchableOpacity } from '../common/SafeTouchableOpacity'
 
 import type { Conversation } from '../../types/conversation.types'
 
+const TypingDot = ({ delay }: { delay: number }) => {
+  const opacity = useSharedValue(0.35)
+
+  React.useEffect(() => {
+    opacity.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(withTiming(1, { duration: 260 }), withTiming(0.35, { duration: 260 })),
+        -1,
+        false,
+      ),
+    )
+  }, [delay, opacity])
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }))
+
+  return <Animated.View className="h-1.5 w-1.5 rounded-full bg-brand" style={animatedStyle} />
+}
+
+const ConversationTypingIndicator = memo(function ConversationTypingIndicator() {
+  return (
+    <View className="flex-row items-center gap-1">
+      <TypingDot delay={0} />
+      <TypingDot delay={130} />
+      <TypingDot delay={260} />
+    </View>
+  )
+})
+
 const ConversationItemComponent = function ConversationItem({
   conversation,
+  relativeTimeTick,
 }: {
   conversation: Conversation
+  relativeTimeTick: number
 }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const { user } = useAuthStore()
+  const onlineUsers = useChatStore((state) => state.onlineUsers)
+  const isTyping = useChatStore((state) => {
+    const typers = state.typingUsers[conversation.id] || []
+    return typers.some((typerId) => typerId !== user?.id)
+  })
 
   let displayName = 'Unknown'
   let avatarUrl: string | undefined = undefined
+  let otherUserId: string | undefined = undefined
 
   if (!conversation.isGroup) {
-    const otherUser = conversation.participants?.find((p) => p.id !== user?.id)
+    const otherUser = conversation.participants?.find((participant) => participant.id !== user?.id)
+
     if (otherUser) {
       displayName = otherUser.name || otherUser.email || 'Unknown'
+      otherUserId = otherUser.id
     }
+
     if (otherUser?.picture) {
       avatarUrl = otherUser.picture
     }
   } else {
     displayName = conversation.name || 'Group Chat'
+
     if (conversation.picture) {
       avatarUrl = conversation.picture
     }
   }
 
-  let timeString = ''
-  if (conversation.lastMessageAt) {
-    try {
-      const date = new Date(conversation.lastMessageAt)
-      if (!isNaN(date.getTime())) {
-        if (isToday(date)) {
-          timeString = format(date, 'h:mm a')
-        } else if (isYesterday(date)) {
-          timeString = 'Yesterday'
-        } else if (differenceInDays(new Date(), date) < 7) {
-          timeString = format(date, 'EEEE')
-        } else {
-          timeString = format(date, 'MM/dd/yy')
-        }
-      }
-    } catch {
-      timeString = ''
-    }
-  }
+  const timeString = conversation.lastMessageAt
+    ? formatConversationPreviewAge(conversation.lastMessageAt, relativeTimeTick)
+    : ''
 
-  const isUnread = false
+  const isOnline = otherUserId ? onlineUsers.has(otherUserId) : false
+  const isUnread = (conversation.unreadCount || 0) > 0
   const displayLastMessage =
     LASTMSG_MAP[conversation.lastMessage ?? ''] ?? (conversation.lastMessage || 'No messages yet')
 
   return (
     <SafeTouchableOpacity
-      className="flex-row items-center px-5 py-3.5"
+      className="border-b border-border-light px-5 py-3.5"
       onPress={() => router.push(`/conversation/${conversation.id}`)}
-      activeOpacity={0.6}
+      onPressIn={() => {
+        void prefetchMessages(queryClient, conversation.id)
+      }}
+      activeOpacity={0.75}
     >
-      {/* Avatar */}
-      <View className="mr-3.5">
+      <View className="flex-row items-start">
         {avatarUrl ? (
           <Image
             source={{ uri: avatarUrl }}
-            className="w-12 h-12 rounded-full bg-surface-card"
+            className="h-12 w-12 rounded-full bg-surface-input"
             resizeMode="cover"
           />
         ) : (
-          <View className="w-12 h-12 rounded-full bg-surface-card items-center justify-center">
-            <Text className="text-text-primary font-semibold text-lg">
+          <View className="h-12 w-12 items-center justify-center rounded-full bg-surface-input">
+            <Text className="text-base font-medium text-text-primary">
               {displayName.charAt(0).toUpperCase()}
             </Text>
           </View>
         )}
-      </View>
 
-      {/* Content */}
-      <View className="flex-1 justify-center">
-        {/* Top row: name + time */}
-        <View className="flex-row items-center justify-between">
-          <View className="flex-row items-center flex-1 mr-2">
+        <View className="ml-3 flex-1">
+          <View className="flex-row items-start justify-between gap-3">
+            <View className="flex-1 flex-row items-center">
+              <Text
+                className={
+                  isUnread
+                    ? 'text-md font-semibold text-text-primary'
+                    : 'text-md font-medium text-text-primary'
+                }
+                numberOfLines={1}
+              >
+                {displayName}
+              </Text>
+              {!conversation.isGroup && isOnline ? (
+                <View className="ml-1.5 h-1.5 w-1.5 rounded-full bg-brand" />
+              ) : null}
+            </View>
+
             <Text
-              className={cn(
-                'text-md',
-                isUnread ? 'font-bold text-text-primary' : 'font-semibold text-text-primary',
-              )}
-              numberOfLines={1}
+              className={
+                isUnread ? 'text-sm2 font-medium text-text-secondary' : 'text-sm2 text-text-muted'
+              }
             >
-              {displayName}
+              {timeString}
             </Text>
-            {isUnread && <View className="w-2 h-2 rounded-full bg-brand ml-1.5" />}
           </View>
-          <Text
-            className={cn(
-              'text-xs2',
-              isUnread ? 'text-brand font-semibold' : 'text-text-muted font-medium',
-            )}
-          >
-            {timeString}
-          </Text>
-        </View>
 
-        {/* Bottom row: last message */}
-        <View className="flex-row items-start justify-between mt-1">
-          <Text
-            className={cn(
-              'flex-1 text-sm2 leading-5 mr-4',
-              isUnread ? 'text-text-primary font-semibold' : 'text-text-secondary',
+          <View className="mt-1 min-h-[18px] justify-center">
+            {isTyping ? (
+              <ConversationTypingIndicator />
+            ) : (
+              <Text
+                className={
+                  isUnread ? 'text-sm2 font-medium text-text-primary' : 'text-sm2 text-text-muted'
+                }
+                numberOfLines={1}
+              >
+                {displayLastMessage}
+              </Text>
             )}
-            numberOfLines={1}
-          >
-            {displayLastMessage}
-          </Text>
+          </View>
         </View>
       </View>
     </SafeTouchableOpacity>
   )
 }
 
-// Backend sends English strings — map to Vietnamese display text
 const LASTMSG_MAP: Record<string, string> = {
-  '🚫 Message recalled': '🚫 Tin nhắn đã thu hồi',
+  '🚫 Message recalled': 'Tin nhắn đã thu hồi',
 }
 
-// Memoize to prevent unnecessary re-renders
 export const ConversationItem = memo(ConversationItemComponent, (prevProps, nextProps) => {
   return (
     prevProps.conversation.id === nextProps.conversation.id &&
+    prevProps.relativeTimeTick === nextProps.relativeTimeTick &&
+    prevProps.conversation.name === nextProps.conversation.name &&
+    prevProps.conversation.picture === nextProps.conversation.picture &&
+    prevProps.conversation.participants === nextProps.conversation.participants &&
+    prevProps.conversation.isGroup === nextProps.conversation.isGroup &&
     prevProps.conversation.lastMessage === nextProps.conversation.lastMessage &&
-    prevProps.conversation.lastMessageAt === nextProps.conversation.lastMessageAt
+    prevProps.conversation.lastMessageAt === nextProps.conversation.lastMessageAt &&
+    prevProps.conversation.unreadCount === nextProps.conversation.unreadCount
   )
 })

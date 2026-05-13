@@ -6,6 +6,7 @@ import type { InfiniteData } from '@tanstack/react-query'
 
 import { authApi } from '../api/auth.api'
 import { queryKeys } from '../constants/queryKeys'
+import { isSameMessageIdentity, mergeMessageRecords } from '../lib/messageIdentity'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
 
@@ -64,6 +65,23 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       path: '/socket.io',
     })
 
+    const joinedConversationIds = new Set<string>()
+
+    const joinConversationRooms = (conversationIds: string[]) => {
+      if (!newSocket.connected) {
+        return
+      }
+
+      conversationIds.forEach((conversationId) => {
+        if (!conversationId || joinedConversationIds.has(conversationId)) {
+          return
+        }
+
+        newSocket.emit('join_conversation', conversationId)
+        joinedConversationIds.add(conversationId)
+      })
+    }
+
     newSocket.on('connect', () => {
       setIsConnected(true)
       console.log('🔌 Socket connected!')
@@ -81,11 +99,21 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
         newSocket.emit('send_message', payload)
       })
+
+      const cachedConversations = queryClient.getQueryData<Conversation[] | undefined>(
+        queryKeys.conversations.all,
+      )
+      joinConversationRooms(
+        Array.isArray(cachedConversations)
+          ? cachedConversations.map((conversation) => conversation.id)
+          : [],
+      )
     })
 
     newSocket.on('disconnect', () => {
       setIsConnected(false)
       useChatStore.setState({ typingUsers: {} })
+      joinedConversationIds.clear()
       console.log('🔌 Socket disconnected!')
     })
 
@@ -98,9 +126,25 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       })
     })
 
-    // Debug: Log ALL events to see what's coming through
-    newSocket.onAny((eventName, ...args) => {
-      console.log('📡 Socket event:', eventName, args)
+    const unsubscribeQueryCache = queryClient.getQueryCache().subscribe((event) => {
+      const query = event?.query
+      if (!query) {
+        return
+      }
+
+      if (
+        query.queryKey.length !== queryKeys.conversations.all.length ||
+        query.queryKey[0] !== queryKeys.conversations.all[0]
+      ) {
+        return
+      }
+
+      const data = query.state.data
+      if (!Array.isArray(data)) {
+        return
+      }
+
+      joinConversationRooms(data.map((conversation) => conversation.id))
     })
 
     const upsertMessageQuery = (message: Message) => {
@@ -115,23 +159,31 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           }
 
           const mergePage = (page: Message[]) => {
-            const existingIndex = page.findIndex((item) => item.id === message.id)
+            const existingIndex = page.findIndex((item) => isSameMessageIdentity(item, message))
 
             if (existingIndex === -1) {
               return [message, ...page]
             }
 
-            return page.map((item, index) => (index === existingIndex ? message : item))
+            return page.map((item, index) =>
+              index === existingIndex ? mergeMessageRecords(item, message) : item,
+            )
           }
 
           if ('pages' in oldData) {
-            const exists = oldData.pages.some((page) => page.some((item) => item.id === message.id))
+            const exists = oldData.pages.some((page) =>
+              page.some((item) => isSameMessageIdentity(item, message)),
+            )
 
             if (exists) {
               return {
                 ...oldData,
                 pages: oldData.pages.map((page) =>
-                  page.map((item) => (item.id === message.id ? message : item)),
+                  page.map((item) =>
+                    isSameMessageIdentity(item, message)
+                      ? mergeMessageRecords(item, message)
+                      : item,
+                  ),
                 ),
               }
             }
@@ -148,6 +200,124 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           }
 
           return oldData
+        },
+      )
+    }
+
+    const getConversationActivityAt = (conversation: Partial<Conversation>) => {
+      const value = conversation.lastMessageAt ?? conversation.updatedAt ?? conversation.createdAt
+      return value ? new Date(value).getTime() : 0
+    }
+
+    const sortConversations = (conversations: Conversation[]) => {
+      return [...conversations].sort(
+        (left, right) => getConversationActivityAt(right) - getConversationActivityAt(left),
+      )
+    }
+
+    const upsertConversationSummary = (
+      patch: Partial<Conversation> & Pick<Conversation, 'id'>,
+      options?: { allowPlaceholder?: boolean; incrementUnread?: boolean },
+    ) => {
+      queryClient.setQueryData<Conversation[] | undefined>(
+        queryKeys.conversations.all,
+        (oldData: Conversation[] | undefined) => {
+          if (!Array.isArray(oldData)) {
+            return oldData
+          }
+
+          const existingIndex = oldData.findIndex((conversation) => conversation.id === patch.id)
+          const existingConversation =
+            existingIndex >= 0
+              ? oldData[existingIndex]
+              : options?.allowPlaceholder
+                ? null
+                : undefined
+
+          if (existingConversation === undefined) {
+            return oldData
+          }
+
+          const baseConversation =
+            existingConversation ??
+            ({
+              id: patch.id,
+              creatorId: '',
+              participantIds: patch.participantIds ?? [],
+              createdAt: patch.createdAt ?? new Date().toISOString(),
+              updatedAt: patch.updatedAt ?? patch.createdAt ?? new Date().toISOString(),
+              isGroup: patch.isGroup ?? false,
+              ...(patch.participants !== undefined ? { participants: patch.participants } : {}),
+              ...(patch.name !== undefined ? { name: patch.name } : {}),
+              ...(patch.picture !== undefined ? { picture: patch.picture } : {}),
+              ...(patch.unreadCount !== undefined ? { unreadCount: patch.unreadCount } : {}),
+            } as Conversation)
+
+          const mergedConversation: Conversation = {
+            ...baseConversation,
+            id: patch.id,
+            creatorId: patch.creatorId ?? baseConversation.creatorId,
+            participantIds: patch.participantIds ?? baseConversation.participantIds,
+            createdAt: patch.createdAt ?? baseConversation.createdAt,
+            updatedAt: patch.updatedAt ?? baseConversation.updatedAt,
+            isGroup: patch.isGroup ?? baseConversation.isGroup,
+            lastMessage: patch.lastMessage ?? baseConversation.lastMessage ?? null,
+            lastMessageAt: patch.lastMessageAt ?? baseConversation.lastMessageAt ?? null,
+            ...(baseConversation.participants !== undefined
+              ? { participants: baseConversation.participants }
+              : {}),
+            ...(patch.participants !== undefined ? { participants: patch.participants } : {}),
+            ...(baseConversation.name !== undefined ? { name: baseConversation.name } : {}),
+            ...(patch.name !== undefined ? { name: patch.name } : {}),
+            ...(baseConversation.picture !== undefined
+              ? { picture: baseConversation.picture }
+              : {}),
+            ...(patch.picture !== undefined ? { picture: patch.picture } : {}),
+            ...(baseConversation.unreadCount !== undefined
+              ? { unreadCount: baseConversation.unreadCount }
+              : {}),
+            ...(patch.unreadCount !== undefined ? { unreadCount: patch.unreadCount } : {}),
+          }
+
+          const shouldIncrementUnread =
+            options?.incrementUnread &&
+            patch.unreadCount === undefined &&
+            (!existingConversation ||
+              existingConversation.lastMessage !== mergedConversation.lastMessage ||
+              existingConversation.lastMessageAt !== mergedConversation.lastMessageAt)
+
+          if (shouldIncrementUnread) {
+            mergedConversation.unreadCount = (existingConversation?.unreadCount ?? 0) + 1
+          }
+
+          const hasSummaryChanged =
+            !existingConversation ||
+            existingConversation.lastMessage !== mergedConversation.lastMessage ||
+            existingConversation.lastMessageAt !== mergedConversation.lastMessageAt ||
+            existingConversation.updatedAt !== mergedConversation.updatedAt ||
+            existingConversation.unreadCount !== mergedConversation.unreadCount ||
+            existingConversation.name !== mergedConversation.name ||
+            existingConversation.picture !== mergedConversation.picture
+
+          if (!hasSummaryChanged && existingIndex === 0) {
+            return oldData
+          }
+
+          const nextConversations =
+            existingIndex >= 0
+              ? oldData.map((conversation, index) =>
+                  index === existingIndex ? mergedConversation : conversation,
+                )
+              : [mergedConversation, ...oldData]
+
+          const sortedConversations = sortConversations(nextConversations)
+          const isSameOrder =
+            sortedConversations.length === oldData.length &&
+            sortedConversations.every(
+              (conversation, index) => conversation.id === oldData[index]?.id,
+            )
+
+          return !hasSummaryChanged && isSameOrder ? oldData : sortedConversations
         },
       )
     }
@@ -188,66 +358,17 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         String((message as { status?: string }).status || '').toLowerCase() === 'sending'
 
       console.log('🚨 [DEBUG SOCKET] Nhận tin nhắn mới:', message)
-
-      // 1. CẬP NHẬT UI TẠM THỜI (PURE FUNCTION)
-      queryClient.setQueryData<Conversation[] | undefined>(
-        queryKeys.conversations.all,
-        (oldData: Conversation[] | undefined) => {
-          console.log(
-            '[DEBUG] setQueryData called, oldData:',
-            oldData
-              ? `${Array.isArray(oldData) ? oldData.length + ' items' : 'not array'}`
-              : 'null',
-          )
-
-          let conversations = oldData
-          if (!oldData || !Array.isArray(oldData)) {
-            console.log('[DEBUG] Creating new array, oldData was:', oldData)
-            conversations = []
-          }
-
-          const existingConv = (conversations as Conversation[]).find(
-            (c: Conversation) => c.id === conversationId,
-          )
-          console.log('[DEBUG] Existing conversation:', existingConv ? 'found' : 'not found')
-
-          if (existingConv) {
-            const updatedConversation = {
-              ...existingConv,
-              lastMessage: message.content ?? existingConv.lastMessage ?? null,
-              lastMessageAt: message.createdAt || new Date().toISOString(),
-            }
-
-            const otherConversations = (conversations as Conversation[]).filter(
-              (c: Conversation) => c.id !== conversationId,
-            )
-            console.log('[DEBUG] Returning updated conversation')
-            return [updatedConversation, ...otherConversations]
-          } else {
-            const placeholderConversation = {
-              id: conversationId,
-              lastMessage: message.content ?? null,
-              lastMessageAt: message.createdAt,
-              participants: [],
-              isGroup: false,
-              creatorId: '',
-              participantIds: [message.senderId],
-              createdAt: message.createdAt,
-              updatedAt: message.createdAt,
-            } as Conversation
-
-            console.log('[DEBUG] Returning new placeholder conversation')
-            return [placeholderConversation, ...(conversations as Conversation[])]
-          }
+      upsertConversationSummary(
+        {
+          id: conversationId,
+          lastMessage: message.content ?? null,
+          lastMessageAt: message.createdAt || new Date().toISOString(),
+          updatedAt: message.updatedAt || message.createdAt || new Date().toISOString(),
+          participantIds: [message.senderId],
+          createdAt: message.createdAt,
         },
+        { allowPlaceholder: true, incrementUnread: !isOwnMessage },
       )
-
-      setTimeout(() => {
-        console.log('🔄 [DEBUG SOCKET] Refetching conversation list...')
-        queryClient.refetchQueries({
-          queryKey: queryKeys.conversations.all,
-        })
-      }, 100)
 
       if (!isOwnMessage || !isPendingEcho) {
         upsertMessageQuery(message)
@@ -271,25 +392,21 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       console.log('📬 [DEBUG] conversation_updated received:', conversation)
 
       if (!conversation?.id) return
-
-      queryClient.setQueryData<InfiniteData<Conversation[]> | Conversation[] | undefined>(
-        queryKeys.conversations.all,
-        (oldData: InfiniteData<Conversation[]> | Conversation[] | undefined) => {
-          if (!oldData || !Array.isArray(oldData)) return oldData
-
-          const existingConv = oldData.find((c: Conversation) => c.id === conversation.id)
-
-          if (existingConv) {
-            const otherConversations = oldData.filter((c: Conversation) => c.id !== conversation.id)
-            return [conversation, ...otherConversations]
-          } else {
-            return [conversation, ...oldData]
-          }
-        },
-      )
+      upsertConversationSummary(conversation, { allowPlaceholder: true })
     })
 
     newSocket.on('message_synced', (message: Message) => {
+      upsertConversationSummary(
+        {
+          id: message.conversationId,
+          lastMessage: message.content ?? null,
+          lastMessageAt: message.createdAt || new Date().toISOString(),
+          updatedAt: message.updatedAt || message.createdAt || new Date().toISOString(),
+          participantIds: [message.senderId],
+          createdAt: message.createdAt,
+        },
+        { allowPlaceholder: true },
+      )
       upsertMessageQuery(message)
 
       if (user?.id && message.senderId === user.id) {
@@ -593,6 +710,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     setSocket(newSocket)
 
     return () => {
+      unsubscribeQueryCache()
       newSocket.removeAllListeners()
       newSocket.disconnect()
     }

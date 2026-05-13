@@ -1,5 +1,7 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
+import type { InfiniteData, QueryClient } from '@tanstack/react-query'
+
 import { conversationApi } from '../api/conversation.api'
 import { queryKeys } from '../constants/queryKeys'
 import { useSocket } from '../providers/SocketProvider'
@@ -31,24 +33,43 @@ interface SendMessageVariables {
   clientMessageId?: string
 }
 
+export const MESSAGE_QUERY_STALE_TIME_MS = 60 * 1000
+export const MESSAGE_QUERY_GC_TIME_MS = 15 * 60 * 1000
+
+export const getMessagesInfiniteQueryOptions = (conversationId: string) => ({
+  queryKey: queryKeys.conversations.messages(conversationId),
+  queryFn: ({ pageParam = undefined }: { pageParam?: unknown }) =>
+    conversationApi.getMessages(conversationId, pageParam ? { cursor: pageParam as string } : {}),
+  getNextPageParam: (lastPage: Message[]) => {
+    if (!lastPage || lastPage.length === 0) return undefined
+
+    const oldestMessage = lastPage.reduce((oldest, current) => {
+      return new Date(current.createdAt).getTime() < new Date(oldest.createdAt).getTime()
+        ? current
+        : oldest
+    }, lastPage[0])
+
+    return oldestMessage.id
+  },
+  initialPageParam: undefined as string | undefined,
+  staleTime: MESSAGE_QUERY_STALE_TIME_MS,
+  gcTime: MESSAGE_QUERY_GC_TIME_MS,
+})
+
+export const prefetchMessages = async (queryClient: QueryClient, conversationId: string) => {
+  const existing = queryClient.getQueryData<InfiniteData<Message[]>>(
+    queryKeys.conversations.messages(conversationId),
+  )
+
+  if (existing?.pages?.length) {
+    return
+  }
+
+  await queryClient.prefetchInfiniteQuery(getMessagesInfiniteQueryOptions(conversationId))
+}
+
 export function useMessages(conversationId: string) {
-  return useInfiniteQuery({
-    queryKey: queryKeys.conversations.messages(conversationId),
-    queryFn: ({ pageParam = undefined }) =>
-      conversationApi.getMessages(conversationId, pageParam ? { cursor: pageParam as string } : {}),
-    getNextPageParam: (lastPage) => {
-      if (!lastPage || lastPage.length === 0) return undefined
-
-      const oldestMessage = lastPage.reduce((oldest, current) => {
-        return new Date(current.createdAt).getTime() < new Date(oldest.createdAt).getTime()
-          ? current
-          : oldest
-      }, lastPage[0])
-
-      return oldestMessage.id
-    },
-    initialPageParam: undefined as string | undefined,
-  })
+  return useInfiniteQuery(getMessagesInfiniteQueryOptions(conversationId))
 }
 
 export function useSendMessage(conversationId: string) {
@@ -94,10 +115,6 @@ export function useSendMessage(conversationId: string) {
 
       if (replyToId) payload.replyToId = replyToId
 
-      console.log('[Socket] emitting send_message', {
-        socketId: socket.id,
-        conversationId,
-      })
       socket.emit('send_message', payload)
 
       const refetchDelays = [800, 2500]
@@ -124,7 +141,10 @@ export function useSendMessage(conversationId: string) {
       let replyPreview: Message['replyPreview'] | undefined = undefined
       if (replyToId && replyToMessage) {
         replyPreview = {
-          senderName: replyToMessage.sender?.email?.split('@')[0] ?? 'User',
+          senderName:
+            replyToMessage.senderId === user.id
+              ? 'You'
+              : (replyToMessage.sender?.email?.split('@')[0] ?? 'User'),
           content: replyToMessage.content ?? '',
           type: (replyToMessage.type === 'voice' ? 'text' : replyToMessage.type) as
             | 'text'
