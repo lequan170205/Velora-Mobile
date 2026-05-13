@@ -4,8 +4,15 @@ import * as Haptics from 'expo-haptics'
 import * as ImagePicker from 'expo-image-picker'
 import React, { memo, useCallback, useState } from 'react'
 import { Alert, Text, TextInput, TouchableOpacity, View } from 'react-native'
-
-import { cn } from '../../lib/cn'
+import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
+import Animated, {
+  FadeInDown,
+  FadeOut,
+  LinearTransition,
+  interpolate,
+  useAnimatedStyle,
+} from 'react-native-reanimated'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import type { Message, ReplyPreviewData } from '../../types/conversation.types'
 
@@ -17,6 +24,8 @@ interface MessageInputProps {
   onCancelReply?: () => void
 }
 
+const COMPOSER_LAYOUT = LinearTransition.springify().damping(18).stiffness(180)
+
 const MessageInputComponent = function MessageInput({
   onSend,
   onSendMedia,
@@ -26,20 +35,31 @@ const MessageInputComponent = function MessageInput({
 }: MessageInputProps) {
   const [text, setText] = useState('')
   const [isFocused, setIsFocused] = useState(false)
+  const insets = useSafeAreaInsets()
+  const { progress } = useReanimatedKeyboardAnimation()
+
+  const containerStyle = useAnimatedStyle(
+    () => ({
+      paddingBottom: interpolate(progress.value, [0, 1], [Math.max(insets.bottom, 8), 8]),
+    }),
+    [insets.bottom, progress],
+  )
 
   const handleSend = useCallback(() => {
     if (text.trim()) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
       onSend(text.trim(), replyTo?.id)
       setText('')
+
       if (onCancelReply) {
         onCancelReply()
       }
     }
-  }, [text, replyTo?.id, onSend, onCancelReply])
+  }, [onCancelReply, onSend, replyTo?.id, text])
 
   const handleTextChange = (value: string) => {
     setText(value)
+
     if (onChangeText) {
       onChangeText(value)
     }
@@ -48,6 +68,7 @@ const MessageInputComponent = function MessageInput({
   const handleAttachImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+
       if (status !== 'granted') {
         Alert.alert('Permission denied', 'App needs access to your photos.')
         return
@@ -85,83 +106,82 @@ const MessageInputComponent = function MessageInput({
   }
 
   const hasText = text.trim().length > 0
+  const replyPreviewText =
+    typeof replyTo?.replyPreview === 'string'
+      ? replyTo.replyPreview
+      : replyTo?.replyPreview
+        ? `${(replyTo.replyPreview as ReplyPreviewData).senderName}: ${(replyTo.replyPreview as ReplyPreviewData).content}`
+        : replyTo?.content
 
   return (
-    <View className="bg-bg-primary border-t border-border-default px-3 pb-3 pt-3">
-      {replyTo && (
-        <View className="flex-row items-center bg-surface-card rounded-lg px-3 py-2 mb-2">
-          <View className="w-1 h-full bg-brand rounded-full mr-3" />
+    <Animated.View
+      className="border-t border-border-light bg-bg-primary px-3 pt-2"
+      style={containerStyle}
+    >
+      {replyTo ? (
+        <Animated.View
+          entering={FadeInDown.duration(180)}
+          exiting={FadeOut.duration(120)}
+          layout={COMPOSER_LAYOUT}
+          className="mb-2 flex-row items-center rounded-[14px] bg-surface-input px-3 py-2.5"
+        >
+          <View className="mr-3 h-full w-1 rounded-full bg-brand" />
           <View className="flex-1">
-            <Text className="text-xs text-text-muted">Replying to</Text>
-            <Text className="text-sm text-text-primary" numberOfLines={1}>
-              {typeof replyTo.replyPreview === 'string'
-                ? replyTo.replyPreview
-                : replyTo.replyPreview
-                  ? `${(replyTo.replyPreview as ReplyPreviewData).senderName}: ${(replyTo.replyPreview as ReplyPreviewData).content}`
-                  : replyTo.content}
+            <Text className="text-xs2 text-text-muted">Replying to</Text>
+            <Text className="mt-0.5 text-sm2 text-text-primary" numberOfLines={1}>
+              {replyPreviewText}
             </Text>
           </View>
+
           <TouchableOpacity
             onPress={onCancelReply}
-            className="p-1"
+            className="ml-2 h-8 w-8 items-center justify-center rounded-full"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <MaterialIcons name="close" size={20} color="#8E8E93" />
+            <MaterialIcons name="close" size={18} color="#A6A6A6" />
           </TouchableOpacity>
-        </View>
-      )}
+        </Animated.View>
+      ) : null}
 
       <View className="flex-row items-end gap-2">
-        <View
-          className={cn(
-            'flex-1 flex-row items-center rounded-full pr-1.5 py-0.5 border',
-            isFocused
-              ? 'bg-bg-primary border-border-default'
-              : 'bg-surface-input border-border-default',
-          )}
-        >
-          <TouchableOpacity
-            className="w-9 h-10 items-center justify-center ml-1"
-            onPress={() => {
-              /* emoji picker placeholder */
-            }}
-          >
-            <MaterialIcons name="sentiment-satisfied-alt" size={22} color="#8E8E93" />
-          </TouchableOpacity>
-
+        <View className="flex-1 flex-row items-end rounded-[18px] bg-surface-input px-4 py-1">
           <TextInput
-            className="flex-1 text-text-primary font-sans text-md py-2.5 min-h-[40px] max-h-[120px]"
+            className="min-h-[20px] flex-1 py-2 text-md text-text-primary"
             value={text}
             onChangeText={handleTextChange}
             placeholder="Message"
-            placeholderTextColor="#AEAEB2"
+            placeholderTextColor="#A6A6A6"
             multiline
             maxLength={1000}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
           />
 
-          {hasText && (
-            <TouchableOpacity
-              className="w-9 h-9 rounded-full bg-brand items-center justify-center"
-              onPress={handleSend}
-              activeOpacity={0.7}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            >
-              <MaterialIcons name="send" size={18} color="#FFFFFF" style={{ marginLeft: 3 }} />
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            className="h-10 w-10 items-center justify-center"
+            onPress={() => {
+              /* emoji picker placeholder */
+            }}
+            activeOpacity={0.75}
+          >
+            <MaterialIcons name="sentiment-satisfied-alt" size={20} color="#A6A6A6" />
+          </TouchableOpacity>
         </View>
 
         <TouchableOpacity
-          className="w-10 h-10 items-center justify-center mb-0.5"
-          onPress={handleAttachImage}
-          onLongPress={handleAttachFile}
+          className="h-12 w-12 items-center justify-center rounded-[16px] bg-surface-input"
+          onPress={hasText ? handleSend : handleAttachImage}
+          onLongPress={hasText ? undefined : handleAttachFile}
+          activeOpacity={0.8}
         >
-          <MaterialIcons name="attach-file" size={24} color="#8E8E93" />
+          <MaterialIcons
+            name={hasText ? 'north-east' : 'attach-file'}
+            size={20}
+            color={hasText ? '#FF6B2C' : '#777777'}
+          />
         </TouchableOpacity>
       </View>
-    </View>
+    </Animated.View>
   )
 }
 

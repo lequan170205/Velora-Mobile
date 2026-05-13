@@ -1,32 +1,42 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { Tabs } from 'expo-router'
 import React from 'react'
-import { Platform } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets()
+  const isIos = process.env.EXPO_OS === 'ios'
+  const bottomPadding = isIos ? Math.max(insets.bottom, 8) : 10
+  const tabBarHeight = 54 + bottomPadding
 
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
+        tabBarHideOnKeyboard: true,
         tabBarStyle: {
+          height: tabBarHeight,
+          paddingTop: 8,
+          paddingBottom: bottomPadding,
           backgroundColor: '#FFFFFF',
-          borderTopColor: '#E5E5EA',
           borderTopWidth: 1,
-          paddingBottom: Platform.OS === 'ios' ? insets.bottom + 4 : 12 + insets.bottom,
-          paddingTop: 12,
-          height: Platform.OS === 'ios' ? 49 + insets.bottom : 74 + insets.bottom,
+          borderTopColor: '#ECECEC',
+          elevation: 0,
+          shadowColor: '#000000',
+          shadowOpacity: 0.03,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: -2 },
         },
         tabBarActiveTintColor: '#FF6B2C',
-        tabBarInactiveTintColor: '#8E8E93',
+        tabBarInactiveTintColor: '#8A8A8A',
         tabBarLabelStyle: {
-          fontFamily: 'Inter_500Medium',
-          fontSize: 11,
+          display: 'none',
         },
         tabBarItemStyle: {
           paddingVertical: 4,
+        },
+        tabBarIconStyle: {
+          marginTop: 0,
         },
         tabBarShowLabel: false,
       }}
@@ -34,27 +44,27 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: 'Inbox',
           tabBarIcon: ({ color, size: _size }) => (
-            <MaterialIcons name="home" size={26} color={color} />
+            <MaterialIcons name="chat-bubble-outline" size={26} color={color} />
           ),
         }}
       />
       <Tabs.Screen
         name="contacts"
         options={{
-          title: 'Favorites',
+          title: 'People',
           tabBarIcon: ({ color, size: _size }) => (
-            <MaterialIcons name="favorite-outline" size={26} color={color} />
+            <MaterialIcons name="people-outline" size={28} color={color} />
           ),
         }}
       />
       <Tabs.Screen
         name="calls"
         options={{
-          title: 'Chats',
+          title: 'Calls',
           tabBarIcon: ({ color, size: _size }) => (
-            <MaterialIcons name="chat-bubble" size={26} color={color} />
+            <MaterialIcons name="call" size={24} color={color} />
           ),
         }}
       />

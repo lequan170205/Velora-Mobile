@@ -1,4 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons'
+import { BlurView } from 'expo-blur'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import React, { useState } from 'react'
@@ -15,13 +16,17 @@ import {
 } from 'react-native'
 import { useTheme, type MD3Theme } from 'react-native-paper'
 import Animated, {
-  runOnJS,
+  Easing,
+  interpolate,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withSpring,
   withTiming,
 } from 'react-native-reanimated'
+import { scheduleOnRN } from 'react-native-worklets'
 
+import { typography } from '../../../constants/theme'
 import { useAddReaction, useRemoveReaction } from '../../../hooks/useMessageActions'
 import { useAuthStore } from '../../../stores/authStore'
 
@@ -30,7 +35,6 @@ import {
   EDGE_MARGIN,
   EXTENDED_EMOJIS,
   GAP,
-  IOS_MENU_SPRING,
   MENU_MAX_W,
   MENU_MIN_W,
   PICKER_SPRING,
@@ -56,6 +60,8 @@ interface MessageContextMenuProps {
   visible: boolean
   message: Message | null
   isOwn: boolean
+  isGroupedTop: boolean
+  isGroupedBottom: boolean
   anchor: BubbleAnchor | null
   onClose: () => void
   onReply?: (() => void) | undefined
@@ -69,11 +75,15 @@ interface ActionItem extends MessageContextActionConfig {
 }
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
+const MENU_ENTER_EASING = Easing.bezier(0.22, 1, 0.36, 1)
+const MENU_EXIT_EASING = Easing.bezier(0.4, 0, 1, 1)
 
 export function MessageContextMenu({
   visible,
   message,
   isOwn,
+  isGroupedTop,
+  isGroupedBottom,
   anchor,
   onClose,
   onReply,
@@ -88,12 +98,15 @@ export function MessageContextMenu({
   const theme = useTheme<MD3Theme>()
   const [isPickerExpanded, setIsPickerExpanded] = useState(false)
   const tokens = getMessageContextMenuTokens(theme)
+  const slideDirection = isOwn ? 1 : -1
 
   const backdropOpacity = useSharedValue(0)
   const stackOpacity = useSharedValue(0)
-  const stackTranslateY = useSharedValue(15)
-  const focusScale = useSharedValue(0.85)
-  const menuScale = useSharedValue(0.9)
+  const stackTranslateX = useSharedValue(10 * slideDirection)
+  const stackTranslateY = useSharedValue(8)
+  const focusScale = useSharedValue(0.96)
+  const reactionProgress = useSharedValue(0)
+  const actionProgress = useSharedValue(0)
   const pickerTranslateY = useSharedValue(screenH)
 
   React.useEffect(() => {
@@ -101,26 +114,39 @@ export function MessageContextMenu({
       setIsPickerExpanded(false)
       pickerTranslateY.value = screenH
 
-      backdropOpacity.value = withTiming(1, { duration: 250 })
-      stackOpacity.value = withTiming(1, { duration: 200 })
-      stackTranslateY.value = withSpring(0, IOS_MENU_SPRING)
-      focusScale.value = withSpring(1, IOS_MENU_SPRING)
-      menuScale.value = withSpring(1, IOS_MENU_SPRING)
+      backdropOpacity.value = withTiming(1, { duration: 180, easing: MENU_ENTER_EASING })
+      stackOpacity.value = withTiming(1, { duration: 180, easing: MENU_ENTER_EASING })
+      stackTranslateX.value = withTiming(0, { duration: 220, easing: MENU_ENTER_EASING })
+      stackTranslateY.value = withTiming(0, { duration: 220, easing: MENU_ENTER_EASING })
+      focusScale.value = withTiming(1, { duration: 220, easing: MENU_ENTER_EASING })
+      reactionProgress.value = withTiming(1, { duration: 220, easing: MENU_ENTER_EASING })
+      actionProgress.value = withDelay(
+        28,
+        withTiming(1, { duration: 220, easing: MENU_ENTER_EASING }),
+      )
     } else {
-      backdropOpacity.value = withTiming(0, { duration: 150 })
-      stackOpacity.value = withTiming(0, { duration: 120 })
-      stackTranslateY.value = withTiming(10, { duration: 150 })
-      focusScale.value = withTiming(0.9, { duration: 150 })
-      menuScale.value = withTiming(0.95, { duration: 150 })
-      pickerTranslateY.value = withTiming(screenH, { duration: 150 })
+      backdropOpacity.value = withTiming(0, { duration: 120, easing: MENU_EXIT_EASING })
+      stackOpacity.value = withTiming(0, { duration: 110, easing: MENU_EXIT_EASING })
+      stackTranslateX.value = withTiming(6 * slideDirection, {
+        duration: 120,
+        easing: MENU_EXIT_EASING,
+      })
+      stackTranslateY.value = withTiming(6, { duration: 120, easing: MENU_EXIT_EASING })
+      focusScale.value = withTiming(0.98, { duration: 120, easing: MENU_EXIT_EASING })
+      reactionProgress.value = withTiming(0, { duration: 110, easing: MENU_EXIT_EASING })
+      actionProgress.value = withTiming(0, { duration: 100, easing: MENU_EXIT_EASING })
+      pickerTranslateY.value = withTiming(screenH, { duration: 150, easing: MENU_EXIT_EASING })
     }
   }, [
+    actionProgress,
     backdropOpacity,
     focusScale,
-    menuScale,
     pickerTranslateY,
+    reactionProgress,
     screenH,
+    slideDirection,
     stackOpacity,
+    stackTranslateX,
     stackTranslateY,
     visible,
   ])
@@ -131,26 +157,52 @@ export function MessageContextMenu({
 
   const stackStyle = useAnimatedStyle(() => ({
     opacity: stackOpacity.value,
-    transform: [{ translateY: stackTranslateY.value }],
+    transform: [{ translateX: stackTranslateX.value }, { translateY: stackTranslateY.value }],
   }))
 
   const focusStyle = useAnimatedStyle(() => ({
     transform: [{ scale: focusScale.value }],
   }))
 
-  const menuScaleStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: menuScale.value }],
+  const reactionBarStyle = useAnimatedStyle(() => ({
+    opacity: reactionProgress.value,
+    transform: [
+      { translateX: interpolate(reactionProgress.value, [0, 1], [slideDirection * 12, 0]) },
+      { scale: interpolate(reactionProgress.value, [0, 1], [0.97, 1]) },
+    ],
+  }))
+
+  const actionBarStyle = useAnimatedStyle(() => ({
+    opacity: actionProgress.value,
+    transform: [
+      { translateX: interpolate(actionProgress.value, [0, 1], [slideDirection * 14, 0]) },
+      { scale: interpolate(actionProgress.value, [0, 1], [0.97, 1]) },
+    ],
   }))
 
   const close = () => {
     backdropOpacity.value = withTiming(0, { duration: 140 })
 
     if (isPickerExpanded) {
-      pickerTranslateY.value = withTiming(screenH, { duration: 160 }, () => runOnJS(onClose)())
+      pickerTranslateY.value = withTiming(
+        screenH,
+        { duration: 150, easing: MENU_EXIT_EASING },
+        () => {
+          scheduleOnRN(onClose)
+        },
+      )
     } else {
-      stackOpacity.value = withTiming(0, { duration: 110 })
-      stackTranslateY.value = withTiming(6, { duration: 110 })
-      focusScale.value = withTiming(0.98, { duration: 110 }, () => runOnJS(onClose)())
+      stackOpacity.value = withTiming(0, { duration: 110, easing: MENU_EXIT_EASING })
+      stackTranslateX.value = withTiming(6 * slideDirection, {
+        duration: 120,
+        easing: MENU_EXIT_EASING,
+      })
+      stackTranslateY.value = withTiming(6, { duration: 120, easing: MENU_EXIT_EASING })
+      focusScale.value = withTiming(0.98, { duration: 120, easing: MENU_EXIT_EASING }, () => {
+        scheduleOnRN(onClose)
+      })
+      reactionProgress.value = withTiming(0, { duration: 110, easing: MENU_EXIT_EASING })
+      actionProgress.value = withTiming(0, { duration: 100, easing: MENU_EXIT_EASING })
     }
   }
 
@@ -262,10 +314,16 @@ export function MessageContextMenu({
       statusBarTranslucent
       onRequestClose={close}
     >
-      <Animated.View
-        style={[StyleSheet.absoluteFillObject, backdropStyle, { backgroundColor: tokens.backdrop }]}
-      >
-        <Pressable style={StyleSheet.absoluteFillObject} onPress={close} />
+      <Animated.View style={[StyleSheet.absoluteFillObject, backdropStyle]}>
+        <BlurView
+          intensity={22}
+          tint={theme.dark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFillObject}
+        />
+        <Pressable
+          style={[StyleSheet.absoluteFillObject, { backgroundColor: tokens.backdrop }]}
+          onPress={close}
+        />
       </Animated.View>
 
       <Animated.View
@@ -277,7 +335,7 @@ export function MessageContextMenu({
             style={[
               styles.surface,
               styles.reactionBar,
-              menuScaleStyle,
+              reactionBarStyle,
               {
                 height: REACTION_BAR_H,
                 backgroundColor: tokens.surface,
@@ -312,20 +370,11 @@ export function MessageContextMenu({
           </Animated.View>
         ) : null}
 
-        <Animated.View
-          style={[
-            focusStyle,
-            {
-              width: anchor.width,
-              height: anchor.height,
-              alignSelf: isOwn ? 'flex-end' : 'flex-start',
-            },
-          ]}
-        >
+        <Animated.View style={[focusStyle, getBubblePreviewFrameStyle({ anchor, message, isOwn })]}>
           <View
             style={[
               styles.focusBubble,
-              getBubbleSurfaceStyle({ message, isOwn, tokens }),
+              getBubbleSurfaceStyle({ message, isOwn, isGroupedTop, isGroupedBottom, tokens }),
               shadowStyle(tokens.shadow),
             ]}
           >
@@ -338,7 +387,7 @@ export function MessageContextMenu({
             style={[
               styles.surface,
               styles.actionSheet,
-              menuScaleStyle,
+              actionBarStyle,
               {
                 backgroundColor: tokens.surface,
                 borderColor: tokens.border,
@@ -493,45 +542,6 @@ function renderBubblePreview({
     )
   }
 
-  if (message.type === 'file' || message.type === 'voice') {
-    return (
-      <View style={styles.attachmentPreview}>
-        <View
-          style={[
-            styles.attachmentIconWrap,
-            { backgroundColor: isOwn ? 'rgba(255,255,255,0.14)' : tokens.metaChip },
-          ]}
-        >
-          <MaterialIcons
-            name={message.type === 'voice' ? 'keyboard-voice' : 'attach-file'}
-            size={18}
-            color={isOwn ? tokens.textInverse : tokens.textPrimary}
-          />
-        </View>
-        <View style={styles.attachmentTextWrap}>
-          <Text
-            numberOfLines={1}
-            style={[
-              styles.attachmentTitle,
-              { color: isOwn ? tokens.textInverse : tokens.textPrimary },
-            ]}
-          >
-            {message.type === 'voice' ? 'Tin nhắn thoại' : 'Tệp đính kèm'}
-          </Text>
-          <Text
-            numberOfLines={1}
-            style={[
-              styles.attachmentMeta,
-              { color: isOwn ? 'rgba(255,255,255,0.72)' : tokens.textSecondary },
-            ]}
-          >
-            {message.type === 'voice' ? 'Nhấn để phát lại' : 'Chạm để mở'}
-          </Text>
-        </View>
-      </View>
-    )
-  }
-
   return (
     <Text style={[styles.textPreview, { color: isOwn ? tokens.textInverse : tokens.textPrimary }]}>
       {message.content}
@@ -542,19 +552,24 @@ function renderBubblePreview({
 function getBubbleSurfaceStyle({
   message,
   isOwn,
+  isGroupedTop,
+  isGroupedBottom,
   tokens,
 }: {
   message: Message
   isOwn: boolean
+  isGroupedTop: boolean
+  isGroupedBottom: boolean
   tokens: MessageContextMenuTokens
 }) {
-  const isRecalled = isMessageRecalled(message)
+  const groupedCornerStyle = getGroupedCornerStyle({ isOwn, isGroupedTop, isGroupedBottom })
 
   if (message.type === 'image') {
     return {
       backgroundColor: 'transparent',
       padding: 0,
       borderWidth: 0,
+      ...groupedCornerStyle,
     }
   }
 
@@ -562,6 +577,7 @@ function getBubbleSurfaceStyle({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderWidth: 0,
+    ...groupedCornerStyle,
   }
 
   if (isOwn) {
@@ -573,7 +589,55 @@ function getBubbleSurfaceStyle({
 
   return {
     ...commonStyle,
-    backgroundColor: isRecalled ? tokens.recalledIncomingBubble : tokens.incomingBubble,
+    backgroundColor: tokens.incomingBubble,
+  }
+}
+
+function getBubblePreviewFrameStyle({
+  anchor,
+  message,
+  isOwn,
+}: {
+  anchor: BubbleAnchor
+  message: Message
+  isOwn: boolean
+}) {
+  const height = Math.ceil(anchor.height)
+  const width = Math.ceil(anchor.width)
+
+  const alignment = {
+    alignSelf: isOwn ? 'flex-end' : 'flex-start',
+  } as const
+
+  if (message.type === 'image') {
+    return {
+      ...alignment,
+      height,
+      width,
+    }
+  }
+
+  return {
+    ...alignment,
+    height,
+    minWidth: width,
+  }
+}
+
+function getGroupedCornerStyle({
+  isOwn,
+  isGroupedTop,
+  isGroupedBottom,
+}: {
+  isOwn: boolean
+  isGroupedTop: boolean
+  isGroupedBottom: boolean
+}) {
+  return {
+    borderTopRightRadius: isOwn && isGroupedTop ? 4 : 16,
+    borderBottomRightRadius: isOwn && isGroupedBottom ? 4 : 16,
+    borderTopLeftRadius: !isOwn && isGroupedTop ? 4 : 16,
+    borderBottomLeftRadius: !isOwn && isGroupedBottom ? 4 : 16,
   }
 }
 
@@ -617,30 +681,6 @@ const styles = StyleSheet.create({
   actionSheet: {
     overflow: 'hidden',
   },
-  attachmentIconWrap: {
-    alignItems: 'center',
-    borderRadius: 18,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
-  },
-  attachmentMeta: {
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  attachmentPreview: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 12,
-  },
-  attachmentTextWrap: {
-    flex: 1,
-    gap: 2,
-  },
-  attachmentTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
   divider: {
     height: StyleSheet.hairlineWidth,
     marginLeft: 60,
@@ -673,7 +713,6 @@ const styles = StyleSheet.create({
   focusBubble: {
     borderRadius: 16,
     flex: 1,
-    justifyContent: 'center',
     overflow: 'hidden',
   },
   imagePreview: {
@@ -721,8 +760,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   textPreview: {
-    fontSize: 16,
-    fontWeight: '400',
+    flexShrink: 1,
+    fontFamily: typography.fonts.body,
+    fontSize: typography.sizes.md,
     lineHeight: 22,
   },
 })

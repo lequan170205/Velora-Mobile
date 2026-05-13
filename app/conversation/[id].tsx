@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, FlatList, Image, Text, TouchableOpacity, View } from 'react-native'
+import { FlatList, Image, Keyboard, Text, TouchableOpacity, View } from 'react-native'
 import {
   KeyboardStickyView,
   useReanimatedKeyboardAnimation,
@@ -11,6 +11,7 @@ import {
 import Animated, {
   FadeIn,
   FadeOut,
+  LinearTransition,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -18,14 +19,18 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated'
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
+import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { MessageBubble } from '../../src/components/chat/MessageBubble'
 import { MessageInput } from '../../src/components/chat/MessageInput'
 import { queryKeys } from '../../src/constants/queryKeys'
 import { useRecallMessage } from '../../src/hooks/useMessageActions'
 import { useMessages, useSendMessage } from '../../src/hooks/useMessages'
-import { cn } from '../../src/lib/cn'
+import {
+  getMessageIdentityKey,
+  getMessageIdentityTokens,
+  mergeMessageRecords,
+} from '../../src/lib/messageIdentity'
 import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useChatStore } from '../../src/stores/chatStore'
@@ -43,6 +48,39 @@ const formatSeparatorDate = (dateString: string) => {
   if (date.toDateString() === yesterday.toDateString()) return 'Yesterday'
 
   return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+const MESSAGE_LAYOUT = LinearTransition.springify().damping(18).stiffness(170)
+
+const LoadingBubble = ({
+  align = 'left',
+  widthClassName,
+}: {
+  align?: 'left' | 'right'
+  widthClassName: string
+}) => {
+  const isRight = align === 'right'
+
+  return (
+    <View className={isRight ? 'items-end px-4 py-1.5' : 'flex-row items-end px-4 py-1.5'}>
+      {!isRight ? <View className="mr-2.5 h-8 w-8 rounded-full bg-surface-input" /> : null}
+
+      <View
+        className={`h-11 rounded-[18px] bg-surface-input ${widthClassName} ${isRight ? '' : ''}`}
+      />
+    </View>
+  )
+}
+
+const MessageListLoadingState = () => {
+  return (
+    <View className="pb-5 pt-4">
+      <LoadingBubble widthClassName="w-[58%]" />
+      <LoadingBubble align="right" widthClassName="w-[44%]" />
+      <LoadingBubble widthClassName="w-[66%]" />
+      <LoadingBubble align="right" widthClassName="w-[52%]" />
+    </View>
+  )
 }
 
 const Dot = ({ delay }: { delay: number }) => {
@@ -69,15 +107,17 @@ const Dot = ({ delay }: { delay: number }) => {
 const TypingIndicator = ({ displayName }: { displayName: string }) => {
   return (
     <Animated.View
-      entering={FadeIn}
-      exiting={FadeOut}
-      className="flex-row items-center px-4 py-2 mb-2"
+      entering={FadeIn.duration(180)}
+      exiting={FadeOut.duration(120)}
+      className="mb-3 ml-4 mt-1 self-start"
     >
-      <Text className="text-text-muted text-xs italic mr-1">{displayName} is typing</Text>
-      <View className="flex-row items-end pb-[2px]">
-        <Dot delay={0} />
-        <Dot delay={150} />
-        <Dot delay={300} />
+      <View className="flex-row items-end">
+        <Text className="mr-1 text-xs2 text-text-muted">{displayName} is typing</Text>
+        <View className="flex-row items-end pb-[2px]">
+          <Dot delay={0} />
+          <Dot delay={150} />
+          <Dot delay={300} />
+        </View>
       </View>
     </Animated.View>
   )
@@ -117,26 +157,37 @@ export default function ChatScreen() {
   const { mutate: sendMessage } = useSendMessage(id as string)
   const { mutate: recallMessage } = useRecallMessage(id as string)
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
+  const [highlightedMessage, setHighlightedMessage] = useState<{
+    id: string
+    token: number
+  } | null>(null)
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false)
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
+  const [listViewportHeight, setListViewportHeight] = useState(0)
 
   const listRef = useRef<FlatList>(null)
   const [showScrollButton, setShowScrollButton] = useState(false)
   const typingTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
+  const replyHighlightTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
+  const highlightResetTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
+  const pendingReplyTargetIdRef = useRef<string | null>(null)
 
-  const serverMessages = (data?.pages.flat() as Message[]) || []
-  const localOptimistic = optimisticMessages[id as string] || []
+  const serverMessages = useMemo(() => {
+    return (data?.pages.flat() as Message[]) || []
+  }, [data])
+
+  const localOptimistic = useMemo(() => {
+    return optimisticMessages[id as string] || []
+  }, [id, optimisticMessages])
 
   const allMessages = useMemo(() => {
-    const serverIds = new Set(serverMessages.map((m: Message) => m?.id))
-    const serverClientMessageIds = new Set(
-      serverMessages
-        .map((message: Message) => message?.clientMessageId)
-        .filter((clientMessageId): clientMessageId is string => Boolean(clientMessageId)),
+    const serverIdentityTokens = new Set(
+      serverMessages.flatMap((message: Message) => getMessageIdentityTokens(message)),
     )
 
     const pendingMessages = localOptimistic.filter((m: Message) => {
       if (!m) return false
-      if (serverIds.has(m.id)) return false
-      if (serverClientMessageIds.has(m.id)) return false
+      if (getMessageIdentityTokens(m).some((token) => serverIdentityTokens.has(token))) return false
       return true
     })
 
@@ -147,16 +198,16 @@ export default function ChatScreen() {
     const dedupedMessages = new Map<string, Message>()
 
     combinedMessages.forEach((message) => {
-      if (!message?.id) return
+      const identityKey = getMessageIdentityKey(message)
+      if (!identityKey) return
 
-      const existing = dedupedMessages.get(message.id)
+      const existing = dedupedMessages.get(identityKey)
       if (!existing) {
-        dedupedMessages.set(message.id, message)
+        dedupedMessages.set(identityKey, message)
         return
       }
 
-      // Keep a single message instance per id while preserving the richer payload.
-      dedupedMessages.set(message.id, { ...message, ...existing })
+      dedupedMessages.set(identityKey, mergeMessageRecords(existing, message))
     })
 
     return Array.from(dedupedMessages.values())
@@ -178,20 +229,66 @@ export default function ChatScreen() {
   }, [confirmMessage, dequeueOfflineMessage, localOptimistic, serverMessages])
 
   const prevFirstMessageId = useRef(allMessages[0]?.id)
-  const insets = useSafeAreaInsets()
   const messageInputGap = 12
 
   const activeTypers = typingUsers[id as string] || []
   const isOtherUserTyping = activeTypers.some((typerId) => typerId !== user?.id)
+  const isInitialMessagesLoading = isLoading && allMessages.length === 0
+  const replyScrollViewPosition = useMemo(() => {
+    if (!isKeyboardVisible || !listViewportHeight || !keyboardHeight) {
+      return 0.5
+    }
+
+    const coveredRatio = Math.min((keyboardHeight + 24) / listViewportHeight, 0.8)
+
+    // The list is inverted, so the visual center of the visible area is mirrored.
+    return Math.min(0.9, Math.max(0.68, 0.5 + coveredRatio / 2))
+  }, [isKeyboardVisible, keyboardHeight, listViewportHeight])
+
+  const clearConversationUnread = useCallback(
+    (conversationId: string) => {
+      queryClient.setQueryData<Conversation[] | undefined>(
+        queryKeys.conversations.all,
+        (oldData) => {
+          if (!Array.isArray(oldData)) {
+            return oldData
+          }
+
+          let hasChanges = false
+          const nextConversations = oldData.map((conversation) => {
+            if (conversation.id !== conversationId || !conversation.unreadCount) {
+              return conversation
+            }
+
+            hasChanges = true
+            return { ...conversation, unreadCount: 0 }
+          })
+
+          return hasChanges ? nextConversations : oldData
+        },
+      )
+    },
+    [queryClient],
+  )
 
   useEffect(() => {
     if (socket?.connected) {
       socket.emit('join_conversation', id)
       socket.emit('mark_seen', id)
+      clearConversationUnread(id)
     }
 
     return () => {}
-  }, [socket, socket?.connected, id])
+  }, [clearConversationUnread, id, socket, socket?.connected])
+
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const offsetY = event.nativeEvent.contentOffset.y
+    setShowScrollButton(offsetY > 200)
+  }, [])
+
+  const scrollToBottom = useCallback(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: true })
+  }, [])
 
   useEffect(() => {
     const currentFirstMessageId = allMessages[0]?.id
@@ -203,20 +300,12 @@ export default function ChatScreen() {
 
       if (socket?.connected) {
         socket.emit('mark_seen', id)
+        clearConversationUnread(id)
       }
     }
 
     prevFirstMessageId.current = currentFirstMessageId
-  }, [allMessages, showScrollButton, socket, id, user?.id])
-
-  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetY = event.nativeEvent.contentOffset.y
-    setShowScrollButton(offsetY > 200)
-  }, [])
-
-  const scrollToBottom = useCallback(() => {
-    listRef.current?.scrollToOffset({ offset: 0, animated: true })
-  }, [])
+  }, [allMessages, clearConversationUnread, id, scrollToBottom, showScrollButton, socket, user?.id])
 
   const cachedData = queryClient.getQueryData<unknown>(queryKeys.conversations.all)
   const allConversations: Conversation[] = Array.isArray(cachedData)
@@ -349,21 +438,84 @@ export default function ChatScreen() {
     setExpandedMessageId((prevId) => (prevId === messageId ? null : messageId))
   }, [])
 
+  const scheduleMessageHighlight = useCallback((messageId: string) => {
+    if (replyHighlightTimeoutRef.current) {
+      clearTimeout(replyHighlightTimeoutRef.current)
+      replyHighlightTimeoutRef.current = null
+    }
+
+    replyHighlightTimeoutRef.current = setTimeout(() => {
+      setHighlightedMessage((prev) => ({
+        id: messageId,
+        token: prev?.id === messageId ? prev.token + 1 : (prev?.token ?? 0) + 1,
+      }))
+      pendingReplyTargetIdRef.current = null
+
+      if (highlightResetTimeoutRef.current) {
+        clearTimeout(highlightResetTimeoutRef.current)
+      }
+
+      highlightResetTimeoutRef.current = setTimeout(() => {
+        setHighlightedMessage((prev) => (prev?.id === messageId ? null : prev))
+      }, 1500)
+    }, 320)
+  }, [])
+
+  const scrollToMessageById = useCallback(
+    (messageId: string) => {
+      const index = allMessages.findIndex((message) => message.id === messageId)
+      if (index === -1) {
+        pendingReplyTargetIdRef.current = null
+        return false
+      }
+
+      pendingReplyTargetIdRef.current = messageId
+      listRef.current?.scrollToIndex({
+        index,
+        animated: true,
+        viewPosition: replyScrollViewPosition,
+      })
+      scheduleMessageHighlight(messageId)
+      return true
+    },
+    [allMessages, replyScrollViewPosition, scheduleMessageHighlight],
+  )
+
+  const runReplyScroll = useCallback(
+    (messageId: string) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          scrollToMessageById(messageId)
+        })
+      })
+    },
+    [scrollToMessageById],
+  )
+
   const handleScrollToMessage = useCallback(
     (replyToId?: string) => {
       if (!replyToId) return
 
-      const index = allMessages.findIndex((m) => m.id === replyToId)
-      if (index !== -1) {
-        listRef.current?.scrollToIndex({
-          index,
-          animated: true,
-          viewPosition: 0.5,
-        })
-      }
+      runReplyScroll(replyToId)
     },
-    [allMessages],
+    [runReplyScroll],
   )
+
+  useEffect(() => {
+    const keyboardShowListener = Keyboard.addListener('keyboardDidShow', (event) => {
+      setIsKeyboardVisible(true)
+      setKeyboardHeight(event.endCoordinates.height)
+    })
+    const keyboardHideListener = Keyboard.addListener('keyboardDidHide', () => {
+      setIsKeyboardVisible(false)
+      setKeyboardHeight(0)
+    })
+
+    return () => {
+      keyboardShowListener.remove()
+      keyboardHideListener.remove()
+    }
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -374,6 +526,16 @@ export default function ChatScreen() {
 
       if (socket?.connected) {
         socket.emit('typing_stop', id)
+      }
+
+      if (replyHighlightTimeoutRef.current) {
+        clearTimeout(replyHighlightTimeoutRef.current)
+        replyHighlightTimeoutRef.current = null
+      }
+
+      if (highlightResetTimeoutRef.current) {
+        clearTimeout(highlightResetTimeoutRef.current)
+        highlightResetTimeoutRef.current = null
       }
     }
   }, [socket, id])
@@ -418,13 +580,10 @@ export default function ChatScreen() {
       const showAvatar = nextMessage?.senderId !== item.senderId || isNextDay
 
       return (
-        <View>
+        <Animated.View layout={MESSAGE_LAYOUT}>
           {showDateSeparator && (
-            <View className="items-center my-4">
-              <Text
-                className="text-text-muted text-xs2 font-medium px-3 py-1 overflow-hidden"
-                style={{ borderRadius: 12 }}
-              >
+            <View className="my-4 items-center">
+              <Text className="text-xs2 text-text-muted">
                 {formatSeparatorDate(item.createdAt)}
               </Text>
             </View>
@@ -435,6 +594,7 @@ export default function ChatScreen() {
             showAvatar={showAvatar}
             isGroupedTop={isGroupedTop}
             isGroupedBottom={isGroupedBottom}
+            highlightToken={highlightedMessage?.id === item.id ? highlightedMessage.token : 0}
             isExpanded={expandedMessageId === item.id}
             onToggleDetails={() => handleToggleDetails(item.id)}
             onPressReplyPreview={() => handleScrollToMessage(item.replyToId)}
@@ -442,13 +602,14 @@ export default function ChatScreen() {
             onRecall={() => handleRecall(item.id)}
             conversationId={id}
           />
-        </View>
+        </Animated.View>
       )
     },
     [
       user?.id,
       allMessages,
       expandedMessageId,
+      highlightedMessage,
       id,
       handleToggleDetails,
       handleScrollToMessage,
@@ -458,46 +619,37 @@ export default function ChatScreen() {
   )
 
   return (
-    <SafeAreaView className="flex-1 bg-bg-primary" edges={['top', 'bottom']}>
+    <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
       <View className="flex-1 z-10">
-        <View className="flex-row items-center justify-between bg-bg-primary border-b border-border-default px-2 pt-2 pb-2.5 z-10">
+        <View className="border-b border-border-light bg-bg-primary px-4 pb-3 pt-2 z-10">
           <View className="flex-row items-center">
             <TouchableOpacity
               onPress={() => router.back()}
-              className="flex-row items-center px-1"
+              className="flex-row items-center py-2 pr-3"
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <MaterialIcons name="chevron-left" size={28} color="#1C1C1E" />
-              <Text className="text-text-primary font-medium text-md -ml-1">Chat</Text>
+              <MaterialIcons name="chevron-left" size={24} color="#161616" />
+              <Text className="-ml-1 text-md font-medium text-text-primary">Chat</Text>
             </TouchableOpacity>
-          </View>
 
-          <TouchableOpacity
-            className="items-center flex-1"
-            onPress={() => router.push(`/conversation/${id}/info` as never)}
-            activeOpacity={0.7}
-          >
-            <Text className="text-text-primary font-semibold text-md" numberOfLines={1}>
-              {displayName}
-            </Text>
-            {!currentConversation?.isGroup && (
-              <Text
-                className={cn(
-                  'text-xs2 mt-0.5',
-                  isOnline ? 'text-status-online' : 'text-text-muted',
-                )}
-              >
-                {isOnline ? 'Online' : 'Offline'}
+            <View className="flex-1 items-center px-4">
+              <Text className="font-semibold text-md text-text-primary" numberOfLines={1}>
+                {displayName}
               </Text>
-            )}
-          </TouchableOpacity>
+              {!currentConversation?.isGroup ? (
+                <Text className="mt-0.5 text-xs2 text-text-muted">
+                  {isOnline ? 'Online' : 'Offline'}
+                </Text>
+              ) : (
+                <Text className="mt-0.5 text-xs2 text-text-muted">Team room</Text>
+              )}
+            </View>
 
-          <View className="flex-row items-center pr-2">
             {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} className="w-9 h-9 rounded-full" />
+              <Image source={{ uri: avatarUrl }} className="h-11 w-11 rounded-full" />
             ) : (
-              <View className="w-9 h-9 rounded-full bg-surface-card items-center justify-center">
-                <Text className="text-text-primary font-semibold text-sm2">
+              <View className="h-11 w-11 items-center justify-center rounded-full bg-surface-input">
+                <Text className="text-sm2 font-medium text-text-primary">
                   {displayName.charAt(0).toUpperCase()}
                 </Text>
               </View>
@@ -506,82 +658,84 @@ export default function ChatScreen() {
         </View>
 
         <View className="flex-1">
-          {isLoading && serverMessages.length === 0 ? (
-            <View className="flex-1 items-center justify-center">
-              <ActivityIndicator color="#FF6B2C" size="large" />
-            </View>
-          ) : (
-            <>
-              <FlatList
-                ref={listRef}
-                data={allMessages}
-                extraData={expandedMessageId}
-                renderItem={renderItem}
-                keyExtractor={(item: Message, index: number) =>
-                  item?.id ? item.id.toString() : `fallback-${index}`
+          <FlatList
+            ref={listRef}
+            onLayout={(event) => {
+              setListViewportHeight(event.nativeEvent.layout.height)
+            }}
+            data={allMessages}
+            extraData={`${expandedMessageId ?? ''}:${highlightedMessage?.id ?? ''}:${highlightedMessage?.token ?? 0}`}
+            renderItem={renderItem}
+            keyExtractor={(item: Message, index: number) =>
+              item?.id ? item.id.toString() : `fallback-${index}`
+            }
+            onEndReached={() => {
+              if (hasNextPage && !isInitialMessagesLoading) fetchNextPage()
+            }}
+            onEndReachedThreshold={0.5}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            inverted
+            keyboardShouldPersistTaps="handled"
+            contentInsetAdjustmentBehavior="automatic"
+            onContentSizeChange={() => {
+              if (!showScrollButton && allMessages.length > 0) {
+                scrollToBottom()
+              }
+            }}
+            ListHeaderComponent={
+              <View>
+                {isOtherUserTyping ? <TypingIndicator displayName={displayName} /> : null}
+                <KeyboardListSpacer gap={messageInputGap} openedOffset={0} />
+              </View>
+            }
+            ListEmptyComponent={isInitialMessagesLoading ? <MessageListLoadingState /> : null}
+            showsVerticalScrollIndicator={false}
+            removeClippedSubviews={true}
+            initialNumToRender={20}
+            maxToRenderPerBatch={10}
+            windowSize={10}
+            updateCellsBatchingPeriod={50}
+            onScrollToIndexFailed={(info) => {
+              const wait = new Promise((resolve) => setTimeout(resolve, 500))
+              wait.then(() => {
+                const targetMessageId =
+                  pendingReplyTargetIdRef.current ?? allMessages[info.index]?.id
+
+                listRef.current?.scrollToIndex({
+                  index: info.index,
+                  animated: true,
+                  viewPosition: replyScrollViewPosition,
+                })
+
+                if (targetMessageId) {
+                  scheduleMessageHighlight(targetMessageId)
                 }
-                onEndReached={() => {
-                  if (hasNextPage) fetchNextPage()
+              })
+            }}
+          />
+          {showScrollButton && (
+            <Animated.View
+              entering={FadeIn}
+              exiting={FadeOut}
+              className="absolute bottom-5 right-4 z-10"
+            >
+              <TouchableOpacity
+                className="h-11 w-11 items-center justify-center rounded-full bg-surface-card border border-border-light"
+                onPress={scrollToBottom}
+                activeOpacity={0.8}
+                style={{
+                  borderCurve: 'continuous',
+                  boxShadow: '0 14px 26px rgba(93, 74, 53, 0.12)',
                 }}
-                onEndReachedThreshold={0.5}
-                onScroll={handleScroll}
-                scrollEventThrottle={16}
-                inverted
-                onContentSizeChange={() => {
-                  if (!showScrollButton) {
-                    scrollToBottom()
-                  }
-                }}
-                ListHeaderComponent={
-                  <View>
-                    {isOtherUserTyping ? <TypingIndicator displayName={displayName} /> : null}
-                    <KeyboardListSpacer gap={messageInputGap} openedOffset={insets.bottom} />
-                  </View>
-                }
-                showsVerticalScrollIndicator={false}
-                removeClippedSubviews={true}
-                initialNumToRender={20}
-                maxToRenderPerBatch={10}
-                windowSize={10}
-                updateCellsBatchingPeriod={50}
-                onScrollToIndexFailed={(info) => {
-                  const wait = new Promise((resolve) => setTimeout(resolve, 500))
-                  wait.then(() => {
-                    listRef.current?.scrollToIndex({
-                      index: info.index,
-                      animated: true,
-                      viewPosition: 0.5,
-                    })
-                  })
-                }}
-              />
-              {showScrollButton && (
-                <Animated.View
-                  entering={FadeIn}
-                  exiting={FadeOut}
-                  className="absolute bottom-5 right-4 z-10"
-                >
-                  <TouchableOpacity
-                    className="w-10 h-10 rounded-full bg-bg-primary border border-border-default items-center justify-center"
-                    onPress={scrollToBottom}
-                    activeOpacity={0.8}
-                    style={{
-                      shadowColor: '#000',
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.1,
-                      shadowRadius: 4,
-                      elevation: 3,
-                    }}
-                  >
-                    <MaterialIcons name="keyboard-arrow-down" size={24} color="#1C1C1E" />
-                  </TouchableOpacity>
-                </Animated.View>
-              )}
-            </>
+              >
+                <MaterialIcons name="keyboard-arrow-down" size={24} color="#161514" />
+              </TouchableOpacity>
+            </Animated.View>
           )}
         </View>
 
-        <KeyboardStickyView offset={{ opened: insets.bottom }}>
+        <KeyboardStickyView offset={{ opened: 0 }}>
           <MessageInput
             onSend={handleSendText}
             onSendMedia={handleSendMedia}

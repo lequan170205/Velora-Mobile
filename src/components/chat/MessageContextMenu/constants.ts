@@ -26,7 +26,6 @@ export interface MessageContextMenuTokens {
   danger: string
   dangerSoft: string
   incomingBubble: string
-  recalledIncomingBubble: string
   metaChip: string
   shadow: string
 }
@@ -191,7 +190,6 @@ export function getMessageContextMenuTokens(theme: MD3Theme): MessageContextMenu
     danger: theme.colors.error,
     dangerSoft: 'rgba(255,59,48,0.12)',
     incomingBubble: colors.bubble.incoming,
-    recalledIncomingBubble: colors.bg.primary,
     metaChip: theme.colors.surfaceVariant,
     shadow: '#000000',
   }
