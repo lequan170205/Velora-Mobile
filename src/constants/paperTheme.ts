@@ -1,29 +1,30 @@
-import { MD3DarkTheme } from 'react-native-paper'
+import { MD3LightTheme } from 'react-native-paper'
+
 import type { MD3Theme } from 'react-native-paper'
 
 export const paperTheme: MD3Theme = {
-  ...MD3DarkTheme,
+  ...MD3LightTheme,
   colors: {
-    ...MD3DarkTheme.colors,
-    primary:          '#0A7CFF',
-    secondary:        '#6C63FF',
-    background:       '#121212',
-    surface:          '#1E1E24',
-    surfaceVariant:   '#26262E',
-    error:            '#ef4444',
-    onPrimary:        '#ffffff',
-    onSecondary:      '#ffffff',
-    onBackground:     '#f8fafc',
-    onSurface:        '#f8fafc',
-    onSurfaceVariant: '#94a3b8',
-    outline:          '#1E1E24',
+    ...MD3LightTheme.colors,
+    primary: '#FF6B2C',
+    secondary: '#FF8F5C',
+    background: '#FFFFFF',
+    surface: '#F2F2F7',
+    surfaceVariant: '#EBEBF0',
+    error: '#FF3B30',
+    onPrimary: '#FFFFFF',
+    onSecondary: '#FFFFFF',
+    onBackground: '#1C1C1E',
+    onSurface: '#1C1C1E',
+    onSurfaceVariant: '#8E8E93',
+    outline: '#E5E5EA',
     elevation: {
       level0: 'transparent',
-      level1: '#1A1A24',
-      level2: '#1E1E24',
-      level3: '#26262E',
-      level4: '#2E2E3E',
-      level5: '#333347',
+      level1: '#FFFFFF',
+      level2: '#F2F2F7',
+      level3: '#EBEBF0',
+      level4: '#E5E5EA',
+      level5: '#D1D1D6',
     },
   },
 }

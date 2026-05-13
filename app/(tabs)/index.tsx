@@ -1,12 +1,15 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import React, { useCallback, useEffect, useMemo, useRef } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
   Animated,
   FlatList,
+  Image,
   PanResponder,
+  ScrollView,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
   useWindowDimensions,
@@ -16,12 +19,47 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { ConversationItem } from '../../src/components/chat/ConversationItem'
 import { useBotChat } from '../../src/hooks/useBotChat'
 import { useConversations } from '../../src/hooks/useConversations'
+import { useAuthStore } from '../../src/stores/authStore'
+
+import type { ChatParticipant, Conversation } from '../../src/types/conversation.types'
+
+interface MatchSummary {
+  id: string
+  name: string
+  picture?: string
+}
+
+function useMatches(conversations: Conversation[] | undefined): MatchSummary[] {
+  const { user } = useAuthStore()
+  if (!conversations) return []
+
+  return conversations
+    .filter((conversation) => !conversation.isGroup)
+    .flatMap((conversation) => {
+      const other = conversation.participants?.find(
+        (participant: ChatParticipant) => participant.id !== user?.id,
+      )
+
+      if (!other) return []
+
+      const match: MatchSummary = {
+        id: other.id,
+        name: other.name || other.email?.split('@')[0] || '?',
+        ...(other.picture && { picture: other.picture }),
+      }
+      return [match]
+    })
+    .slice(0, 10)
+}
 
 export default function ConversationsScreen() {
   const insets = useSafeAreaInsets()
   const { width, height } = useWindowDimensions()
   const { data: conversations, isLoading, isError } = useConversations()
   const { mutate: startBotChat, isPending: isBotLoading } = useBotChat()
+  const { user } = useAuthStore()
+  const matches = useMatches(conversations)
+  const [searchQuery, setSearchQuery] = useState('')
 
   const fabSize = 56
   const fabMargin = 20
@@ -84,12 +122,8 @@ export default function ConversationsScreen() {
         onPanResponderMove: Animated.event([null, { dx: fabPosition.x, dy: fabPosition.y }], {
           useNativeDriver: false,
         }),
-        onPanResponderRelease: () => {
-          settleFabPosition()
-        },
-        onPanResponderTerminate: () => {
-          settleFabPosition()
-        },
+        onPanResponderRelease: settleFabPosition,
+        onPanResponderTerminate: settleFabPosition,
       }),
     [fabPosition, settleFabPosition],
   )
@@ -102,10 +136,35 @@ export default function ConversationsScreen() {
     })
   }
 
+  const filteredConversations = useMemo(() => {
+    if (!conversations) return []
+    if (!searchQuery.trim()) return conversations
+
+    const lowerQuery = searchQuery.toLowerCase()
+
+    return conversations.filter((conversation) => {
+      if (conversation.isGroup && conversation.name) {
+        return conversation.name.toLowerCase().includes(lowerQuery)
+      }
+
+      const otherParticipant = conversation.participants?.find(
+        (participant: ChatParticipant) => participant.id !== user?.id,
+      )
+      const otherName = otherParticipant?.name || otherParticipant?.email?.split('@')[0] || ''
+
+      return otherName.toLowerCase().includes(lowerQuery)
+    })
+  }, [conversations, searchQuery, user?.id])
+
+  const renderConversationItem = useCallback(
+    ({ item }: { item: Conversation }) => <ConversationItem conversation={item} />,
+    [],
+  )
+
   if (isLoading) {
     return (
       <View className="flex-1 items-center justify-center bg-bg-primary">
-        <ActivityIndicator color="#0A7CFF" size="large" />
+        <ActivityIndicator color="#FF6B2C" size="large" />
       </View>
     )
   }
@@ -120,38 +179,81 @@ export default function ConversationsScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-bg-primary">
-      {/* Header */}
-      <View className="flex-row items-center justify-between px-5 pt-4 pb-4 z-10">
-        <Text className="text-text-primary font-bold text-display">Messages</Text>
-        <View className="flex-row items-center gap-3">
-          {/* Compose button */}
-          <TouchableOpacity className="w-10 h-10 rounded-full bg-surface-card items-center justify-center">
-            <MaterialIcons name="edit" size={24} color="#f8fafc" />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* List */}
-      <View className="flex-1 z-10">
-        <FlatList
-          data={conversations || []}
-          renderItem={({ item }) => <ConversationItem conversation={item} />}
-          keyExtractor={(item) => item.id}
-          showsVerticalScrollIndicator={false}
-          initialNumToRender={15}
-          maxToRenderPerBatch={10}
-          windowSize={10}
-          updateCellsBatchingPeriod={50}
-          removeClippedSubviews={true}
-          ListEmptyComponent={
-            <View className="items-center p-8">
-              <Text className="text-text-secondary font-sans text-base2">
-                No conversations yet. Start chatting!
+      <FlatList
+        data={filteredConversations}
+        renderItem={renderConversationItem}
+        keyExtractor={(item) => item.id}
+        showsVerticalScrollIndicator={false}
+        initialNumToRender={15}
+        maxToRenderPerBatch={10}
+        windowSize={10}
+        updateCellsBatchingPeriod={50}
+        removeClippedSubviews={true}
+        ListHeaderComponent={
+          <View>
+            <View className="pt-2 pb-3">
+              <Text className="text-text-secondary font-medium text-xs2 tracking-widest uppercase px-5 mb-3">
+                MATCHES
               </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 16, gap: 16 }}
+              >
+                {matches.map((match) => (
+                  <View key={match.id} className="items-center" style={{ width: 64 }}>
+                    {match.picture ? (
+                      <Image
+                        source={{ uri: match.picture }}
+                        className="w-14 h-14 rounded-full bg-surface-card"
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View className="w-14 h-14 rounded-full bg-surface-card items-center justify-center">
+                        <Text className="text-text-primary font-semibold text-xl">
+                          {match.name.charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                    )}
+                    <Text
+                      className="text-text-primary font-medium text-xs2 mt-1.5"
+                      numberOfLines={1}
+                    >
+                      {match.name}
+                    </Text>
+                  </View>
+                ))}
+              </ScrollView>
             </View>
-          }
-        />
-      </View>
+
+            <View className="px-5 mb-4">
+              <View className="flex-row items-center bg-surface-card rounded-full px-4 py-4">
+                <TextInput
+                  placeholder="Search"
+                  placeholderTextColor="#AEAEB2"
+                  className="flex-1 text-text-primary font-sans text-base"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                />
+                <MaterialIcons name="search" size={20} color="#AEAEB2" />
+              </View>
+            </View>
+
+            <Text className="text-text-secondary font-medium text-xs2 tracking-widest uppercase px-5 mb-2">
+              CHAT
+            </Text>
+          </View>
+        }
+        ListEmptyComponent={
+          <View className="items-center p-8">
+            <Text className="text-text-secondary font-sans text-base2">
+              {searchQuery.trim() !== ''
+                ? 'No matches found.'
+                : 'No conversations yet. Start chatting!'}
+            </Text>
+          </View>
+        }
+      />
 
       <Animated.View
         className="absolute z-20"

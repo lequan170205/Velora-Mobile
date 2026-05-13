@@ -45,6 +45,7 @@ export const conversationApi = {
   sendMessage: async (
     id: string,
     data: {
+      clientMessageId?: string
       content: string
       type: 'text' | 'image' | 'file' | 'voice'
       signalType?: number
@@ -71,10 +72,9 @@ export const conversationApi = {
 
   // New methods for Recall, Reply, Reactions
 
-  recallMessage: async (conversationId: string, messageId: string, userId: string) => {
+  recallMessage: async (conversationId: string, messageId: string) => {
     const response = await apiClient.post<Message>(
       `/conversations/${conversationId}/messages/${messageId}/recall`,
-      { userId },
     )
     return response.data
   },

@@ -12,15 +12,15 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: '#121212',
-          borderTopColor: '#1E1E24',
+          backgroundColor: '#FFFFFF',
+          borderTopColor: '#E5E5EA',
           borderTopWidth: 1,
           paddingBottom: Platform.OS === 'ios' ? insets.bottom + 4 : 12 + insets.bottom,
           paddingTop: 12,
           height: Platform.OS === 'ios' ? 49 + insets.bottom : 74 + insets.bottom,
         },
-        tabBarActiveTintColor: '#0A7CFF',
-        tabBarInactiveTintColor: '#94a3b8',
+        tabBarActiveTintColor: '#FF6B2C',
+        tabBarInactiveTintColor: '#8E8E93',
         tabBarLabelStyle: {
           fontFamily: 'Inter_500Medium',
           fontSize: 11,
@@ -28,32 +28,33 @@ export default function TabLayout() {
         tabBarItemStyle: {
           paddingVertical: 4,
         },
+        tabBarShowLabel: false,
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Chats',
+          title: 'Home',
           tabBarIcon: ({ color, size: _size }) => (
-            <MaterialIcons name="chat-bubble" size={24} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="calls"
-        options={{
-          title: 'Calls',
-          tabBarIcon: ({ color, size: _size }) => (
-            <MaterialIcons name="call" size={24} color={color} />
+            <MaterialIcons name="home" size={26} color={color} />
           ),
         }}
       />
       <Tabs.Screen
         name="contacts"
         options={{
-          title: 'Contacts',
+          title: 'Favorites',
           tabBarIcon: ({ color, size: _size }) => (
-            <MaterialIcons name="people" size={24} color={color} />
+            <MaterialIcons name="favorite-outline" size={26} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="calls"
+        options={{
+          title: 'Chats',
+          tabBarIcon: ({ color, size: _size }) => (
+            <MaterialIcons name="chat-bubble" size={26} color={color} />
           ),
         }}
       />
@@ -62,7 +63,7 @@ export default function TabLayout() {
         options={{
           title: 'Profile',
           tabBarIcon: ({ color, size: _size }) => (
-            <MaterialIcons name="person" size={24} color={color} />
+            <MaterialIcons name="person-outline" size={26} color={color} />
           ),
         }}
       />

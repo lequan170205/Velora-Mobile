@@ -80,8 +80,9 @@ export default function VerifyEmailScreen() {
             <TouchableOpacity
               onPress={() => router.back()}
               className="h-12 rounded-full items-center justify-center"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <MaterialIcons name="arrow-back" size={24} color="#f8fafc" />
+              <MaterialIcons name="arrow-back" size={24} color="#1C1C1E" />
             </TouchableOpacity>
           </View>
 
@@ -109,7 +110,7 @@ export default function VerifyEmailScreen() {
                 keyboardType="number-pad"
                 maxLength={6}
                 placeholder="••••••"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor="#AEAEB2"
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
                 textAlign="center"

@@ -4,6 +4,7 @@ import { io } from 'socket.io-client'
 
 import type { InfiniteData } from '@tanstack/react-query'
 
+import { authApi } from '../api/auth.api'
 import { queryKeys } from '../constants/queryKeys'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
@@ -43,7 +44,17 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     const newSocket = io(process.env.EXPO_PUBLIC_WS_URL || 'http://localhost:3000', {
       withCredentials: true,
-      query: { userId: user.id },
+      auth: (cb) => {
+        void authApi
+          .getSocketToken()
+          .then(({ accessToken }) => {
+            cb({ token: accessToken })
+          })
+          .catch((error: unknown) => {
+            console.warn('Unable to fetch socket token', error)
+            cb({})
+          })
+      },
       forceNew: true,
       transports: ['websocket'],
       reconnectionAttempts: 5,
@@ -64,16 +75,17 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           content: msg.content,
           type: 'text',
           signalType: 0,
-          ...(msg.replyToId && { replyToId: msg.replyToId }),
+          clientMessageId: msg.id,
+          ...(msg.replyToId ? { replyToId: msg.replyToId } : {}),
         }
 
         newSocket.emit('send_message', payload)
-        useChatStore.getState().dequeueOfflineMessage(msg.id)
       })
     })
 
     newSocket.on('disconnect', () => {
       setIsConnected(false)
+      useChatStore.setState({ typingUsers: {} })
       console.log('🔌 Socket disconnected!')
     })
 
@@ -281,7 +293,13 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       upsertMessageQuery(message)
 
       if (user?.id && message.senderId === user.id) {
-        reconcileOptimisticMessage(message)
+        const store = useChatStore.getState()
+        if (message.clientMessageId) {
+          store.confirmMessage(message.clientMessageId, message)
+          store.dequeueOfflineMessage(message.clientMessageId)
+        } else {
+          reconcileOptimisticMessage(message)
+        }
       } else {
         queryClient.invalidateQueries({
           queryKey: queryKeys.conversations.messages(message.conversationId),
@@ -289,13 +307,34 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
-    newSocket.on('message_failed', (messageId: string) => {
-      const store = useChatStore.getState()
+    newSocket.on(
+      'message_failed',
+      (
+        payload:
+          | string
+          | {
+              conversationId?: string
+              clientMessageId?: string
+            },
+      ) => {
+        const store = useChatStore.getState()
 
-      Object.keys(store.optimisticMessages).forEach((conversationId) => {
-        store.removeOptimisticMessage(conversationId, messageId)
-      })
-    })
+        if (typeof payload === 'string') {
+          Object.entries(store.optimisticMessages).forEach(([conversationId, messages]) => {
+            if (messages.some((message) => message.id === payload)) {
+              store.markMessageFailed(conversationId, payload)
+              store.dequeueOfflineMessage(payload)
+            }
+          })
+          return
+        }
+
+        if (payload.conversationId && payload.clientMessageId) {
+          store.markMessageFailed(payload.conversationId, payload.clientMessageId)
+          store.dequeueOfflineMessage(payload.clientMessageId)
+        }
+      },
+    )
 
     newSocket.on('user_typing', ({ conversationId, userId, isTyping }) => {
       setTyping(conversationId, userId, isTyping)
@@ -307,66 +346,69 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       })
     })
 
-    newSocket.on('message_recalled', ({ messageId }: { messageId: string }) => {
-      const now = new Date().toISOString()
-      const allQueries = queryClient.getQueriesData<
-        InfiniteData<Message[]> | Message[] | undefined
-      >({ queryKey: ['conversations'] })
+    newSocket.on(
+      'message_recalled',
+      ({ messageId, recalledAt }: { messageId: string; recalledAt?: string }) => {
+        const now = recalledAt || new Date().toISOString()
+        const allQueries = queryClient.getQueriesData<
+          InfiniteData<Message[]> | Message[] | undefined
+        >({ queryKey: ['conversations'] })
 
-      for (const [queryKey] of allQueries) {
-        if (!Array.isArray(queryKey) || queryKey.length !== 3 || queryKey[2] !== 'messages')
-          continue
+        for (const [queryKey] of allQueries) {
+          if (!Array.isArray(queryKey) || queryKey.length !== 3 || queryKey[2] !== 'messages')
+            continue
 
-        queryClient.setQueryData(
-          queryKey,
-          (oldData: InfiniteData<Message[]> | Message[] | undefined) => {
-            if (!oldData) return oldData
+          queryClient.setQueryData(
+            queryKey,
+            (oldData: InfiniteData<Message[]> | Message[] | undefined) => {
+              if (!oldData) return oldData
 
-            let updated = false
-            let newData = oldData
+              let updated = false
+              let newData = oldData
 
-            if ('pages' in oldData) {
-              newData = {
-                ...oldData,
-                pages: (oldData as InfiniteData<Message[]>).pages.map((page: Message[]) =>
-                  page.map((msg: Message) => {
-                    if (msg.id === messageId) {
-                      updated = true
-                      return {
-                        ...msg,
-                        isRecalled: true,
-                        recalledAt: now,
-                        is_recalled: true,
-                        recalled_at: now,
-                        reactions: {}, // Clear reactions on recall
+              if ('pages' in oldData) {
+                newData = {
+                  ...oldData,
+                  pages: (oldData as InfiniteData<Message[]>).pages.map((page: Message[]) =>
+                    page.map((msg: Message) => {
+                      if (msg.id === messageId) {
+                        updated = true
+                        return {
+                          ...msg,
+                          isRecalled: true,
+                          recalledAt: now,
+                          is_recalled: true,
+                          recalled_at: now,
+                          reactions: {}, // Clear reactions on recall
+                        }
                       }
-                    }
-                    return msg
-                  }),
-                ),
-              }
-            } else if (Array.isArray(oldData)) {
-              newData = (oldData as Message[]).map((msg: Message) => {
-                if (msg.id === messageId) {
-                  updated = true
-                  return {
-                    ...msg,
-                    isRecalled: true,
-                    recalledAt: now,
-                    is_recalled: true,
-                    recalled_at: now,
-                    reactions: {}, // Clear reactions on recall
-                  }
+                      return msg
+                    }),
+                  ),
                 }
-                return msg
-              })
-            }
+              } else if (Array.isArray(oldData)) {
+                newData = (oldData as Message[]).map((msg: Message) => {
+                  if (msg.id === messageId) {
+                    updated = true
+                    return {
+                      ...msg,
+                      isRecalled: true,
+                      recalledAt: now,
+                      is_recalled: true,
+                      recalled_at: now,
+                      reactions: {}, // Clear reactions on recall
+                    }
+                  }
+                  return msg
+                })
+              }
 
-            return updated ? newData : oldData
-          },
-        )
-      }
-    })
+              return updated ? newData : oldData
+            },
+          )
+        }
+      },
+    )
 
     newSocket.on(
       'reply_previews_updated',
@@ -475,10 +517,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       })
     })
 
-    newSocket.on('typing', ({ userId, conversationId, isTyping }) => {
-      setTyping(conversationId, userId, isTyping)
-    })
-
     newSocket.on('user:online', ({ userId }) => {
       setUserOnline(userId, true)
     })
@@ -487,8 +525,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       setUserOnline(userId, false)
     })
 
-    newSocket.on('messages_seen', ({ conversationId, readByUserId }) => {
-      console.log('👁️ messages_seen received:', { conversationId, readByUserId })
+    newSocket.on('messages_seen', ({ conversationId, readByUserId, at }) => {
+      console.log('👁️ messages_seen received:', { conversationId, readByUserId, at })
 
       const currentUserId = user?.id
       if (!currentUserId) return
@@ -500,7 +538,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         (oldData: InfiniteData<Message[]> | Message[] | undefined) => {
           if (!oldData) return oldData
 
-          const now = new Date().toISOString()
+          const seenAt = at || new Date().toISOString()
 
           if ('pages' in oldData) {
             return {
@@ -508,8 +546,17 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
               pages: (oldData as InfiniteData<Message[]>).pages.map((page: Message[]) =>
                 page.map((msg: Message) => {
                   if (msg.senderId === currentUserId && msg.status !== 'READ') {
+                    const nextReadBy = Array.isArray(msg.readBy) ? msg.readBy : []
+                    const alreadyMarked = nextReadBy.some((entry) => entry.userId === readByUserId)
                     setMessageAsSeen(conversationId, msg.id)
-                    return { ...msg, status: 'READ', seenAt: now }
+                    return {
+                      ...msg,
+                      status: 'READ',
+                      seenAt,
+                      readBy: alreadyMarked
+                        ? nextReadBy
+                        : [...nextReadBy, { userId: readByUserId, at: seenAt }],
+                    }
                   }
                   return msg
                 }),
@@ -520,8 +567,17 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           if (Array.isArray(oldData)) {
             return (oldData as Message[]).map((msg: Message) => {
               if (msg.senderId === currentUserId && msg.status !== 'READ') {
+                const nextReadBy = Array.isArray(msg.readBy) ? msg.readBy : []
+                const alreadyMarked = nextReadBy.some((entry) => entry.userId === readByUserId)
                 setMessageAsSeen(conversationId, msg.id)
-                return { ...msg, status: 'READ', seenAt: now }
+                return {
+                  ...msg,
+                  status: 'READ',
+                  seenAt,
+                  readBy: alreadyMarked
+                    ? nextReadBy
+                    : [...nextReadBy, { userId: readByUserId, at: seenAt }],
+                }
               }
               return msg
             })

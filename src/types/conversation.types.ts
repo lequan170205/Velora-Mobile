@@ -48,10 +48,12 @@ export interface Message {
   id: string
   conversationId: string
   senderId: string
+  clientMessageId?: string
   sender: UserSummary
   content: string
   type: 'text' | 'image' | 'file' | 'voice'
-  status: 'SENT' | 'DELIVERED' | 'READ'
+  status: 'SENT' | 'DELIVERED' | 'READ' | 'FAILED'
+  readBy?: { userId: string; at: string }[]
   replyTo?: Message
   isDeleted?: boolean
   deletedBy?: string

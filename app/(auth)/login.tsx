@@ -117,8 +117,8 @@ export default function LoginScreen() {
             <View className="flex-1 px-6 pb-12">
               {/* Logo / header */}
               <View className="items-center mb-12 mt-6">
-                <View className="w-24 h-24 rounded-full bg-[rgba(10,124,255,0.15)] items-center justify-center">
-                  <MaterialIcons name="forum" size={48} color="#0A7CFF" />
+                <View className="w-24 h-24 rounded-full bg-[rgba(255,107,44,0.12)] items-center justify-center">
+                  <MaterialIcons name="forum" size={48} color="#FF6B2C" />
                 </View>
                 <Text className="text-text-primary font-bold text-display mt-6">Sign In</Text>
                 <Text className="text-text-secondary font-sans text-md mt-2">
@@ -138,7 +138,7 @@ export default function LoginScreen() {
                   <TextInput
                     className="text-text-primary font-sans text-md flex-1 px-4"
                     placeholder="Email address"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor="#AEAEB2"
                     value={email}
                     onChangeText={setEmail}
                     autoCapitalize="none"
@@ -159,7 +159,7 @@ export default function LoginScreen() {
                     <TextInput
                       className="text-text-primary font-sans text-md flex-1 px-4"
                       placeholder="Password"
-                      placeholderTextColor="#94a3b8"
+                      placeholderTextColor="#AEAEB2"
                       value={password}
                       onChangeText={setPassword}
                       secureTextEntry={!showPassword}
@@ -173,7 +173,7 @@ export default function LoginScreen() {
                       <MaterialIcons
                         name={showPassword ? 'visibility' : 'visibility-off'}
                         size={20}
-                        color="#94a3b8"
+                        color="#AEAEB2"
                       />
                     </TouchableOpacity>
                   </View>

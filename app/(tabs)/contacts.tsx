@@ -9,6 +9,7 @@ import { conversationApi } from '../../src/api/conversation.api'
 import { useContacts } from '../../src/hooks/useContacts'
 import { cn } from '../../src/lib/cn'
 import { useChatStore } from '../../src/stores/chatStore'
+
 import type { UserSession } from '../../src/types/user.types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -74,7 +75,7 @@ export default function ContactsScreen() {
 
           {/* Action icon */}
           <View className="w-10 h-10 items-center justify-center">
-            <MaterialIcons name="chat-bubble" size={24} color="#0A7CFF" />
+            <MaterialIcons name="chat-bubble" size={24} color="#FF6B2C" />
           </View>
         </View>
       </TouchableOpacity>
@@ -89,13 +90,13 @@ export default function ContactsScreen() {
 
         {/* Search bar */}
         <View className="flex-row items-center bg-surface-card rounded-full h-10 mt-4 px-3">
-          <MaterialIcons name="search" size={20} color="#64748b" style={{ marginRight: 8 }} />
+          <MaterialIcons name="search" size={20} color="#AEAEB2" style={{ marginRight: 8 }} />
           <TextInput
             className="flex-1 text-text-primary font-sans text-md h-full"
             value={search}
             onChangeText={setSearch}
             placeholder="Search users..."
-            placeholderTextColor="#64748b"
+            placeholderTextColor="#AEAEB2"
           />
         </View>
       </View>
@@ -103,7 +104,7 @@ export default function ContactsScreen() {
       {/* List */}
       <View className="flex-1 pt-2 z-10">
         {isLoading ? (
-          <ActivityIndicator color="#0A7CFF" size="large" className="flex-1 justify-center" />
+          <ActivityIndicator color="#FF6B2C" size="large" className="flex-1 justify-center" />
         ) : (
           <FlashList
             data={users}

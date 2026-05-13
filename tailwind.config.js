@@ -8,34 +8,38 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Backgrounds
-        'bg-primary':      '#121212',
-        'bg-secondary':    '#111118',
-        'bg-elevated':     '#1A1A24',
-        'bg-glass':        'rgba(255,255,255,0.04)',
-        'bg-glass-border': 'rgba(255,255,255,0.08)',
+        // Backgrounds — Light, clean white
+        'bg-primary':      '#FFFFFF',
+        'bg-secondary':    '#F2F2F7',
+        'bg-elevated':     '#FFFFFF',
+        'bg-glass':        'rgba(0,0,0,0.02)',
+        'bg-glass-border': 'rgba(0,0,0,0.06)',
         // Surfaces
-        'surface-card':  '#1E1E24',
-        'surface-input': '#1E1E24',
-        'surface-modal': '#1E1E2C',
-        'surface-focus': '#26262E',
-        // Brand
-        'brand':        '#0A7CFF',
-        'brand-violet': '#6C63FF',
-        // Text
-        'text-primary':   '#f8fafc',
-        'text-secondary': '#94a3b8',
-        'text-muted':     '#64748b',
+        'surface-card':  '#F2F2F7',
+        'surface-input': '#F8F8F8',
+        'surface-modal': '#FFFFFF',
+        'surface-focus': '#EBEBF0',
+        // Brand — Warm Orange
+        'brand':        '#FF6B2C',
+        'brand-light':  '#FF8F5C',
+        'brand-dark':   '#E55A1B',
+        // Text — Dark on light
+        'text-primary':   '#1C1C1E',
+        'text-secondary': '#8E8E93',
+        'text-muted':     '#AEAEB2',
         // Status
-        'status-online':   '#4ade80',
-        'status-error':    '#ef4444',
-        'status-success':  '#34D399',
-        'call-green':      '#22c55e',
+        'status-online':   '#34C759',
+        'status-error':    '#FF3B30',
+        'status-success':  '#34C759',
+        'call-green':      '#34C759',
+        // Borders
+        'border-default':  '#E5E5EA',
+        'border-light':    '#F2F2F7',
         // Overlays
-        'overlay': 'rgba(10,10,15,0.95)',
+        'overlay': 'rgba(0,0,0,0.4)',
         // Message Bubbles
-        'bubble-out': '#0A7CFF',
-        'bubble-in':  '#1E1E2C',
+        'bubble-out': '#FF6B2C',
+        'bubble-in':  '#F2F2F7',
       },
       fontSize: {
         'xs2':     ['11px', { lineHeight: '16px' }],

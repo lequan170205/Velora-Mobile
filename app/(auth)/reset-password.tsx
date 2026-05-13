@@ -53,8 +53,9 @@ export default function ResetPasswordScreen() {
             <TouchableOpacity
               onPress={() => router.back()}
               className="w-10 h-12 rounded-full items-center justify-center"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <MaterialIcons name="arrow-back" size={24} color="#f8fafc" />
+              <MaterialIcons name="arrow-back" size={24} color="#1C1C1E" />
             </TouchableOpacity>
           </View>
 
@@ -74,7 +75,7 @@ export default function ResetPasswordScreen() {
                 <TextInput
                   className="text-text-primary font-sans text-md flex-1 h-14 px-4"
                   placeholder="Enter 6-digit code"
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor="#AEAEB2"
                   value={token}
                   onChangeText={setToken}
                   keyboardType="number-pad"
@@ -91,7 +92,7 @@ export default function ResetPasswordScreen() {
                   <TextInput
                     className="text-text-primary font-sans text-md flex-1 h-14 pl-4 pr-12"
                     placeholder="New password"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor="#AEAEB2"
                     value={newPassword}
                     onChangeText={setNewPassword}
                     secureTextEntry={!showPassword}
@@ -105,7 +106,7 @@ export default function ResetPasswordScreen() {
                     <MaterialIcons
                       name={showPassword ? 'visibility' : 'visibility-off'}
                       size={20}
-                      color="#94a3b8"
+                      color="#AEAEB2"
                     />
                   </TouchableOpacity>
                 </View>

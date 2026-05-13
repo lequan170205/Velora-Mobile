@@ -74,8 +74,9 @@ export default function RegisterScreen() {
           <TouchableOpacity
             onPress={() => router.back()}
             className="h-12 rounded-full items-center justify-center"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <MaterialIcons name="arrow-back" size={24} color="#f8fafc" />
+            <MaterialIcons name="arrow-back" size={24} color="#1C1C1E" />
           </TouchableOpacity>
         </View>
 
@@ -94,7 +95,7 @@ export default function RegisterScreen() {
             <TextInput
               className="text-text-primary font-sans text-md flex-1 px-4 py-4"
               placeholder="Email address"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor="#AEAEB2"
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
@@ -110,7 +111,7 @@ export default function RegisterScreen() {
               <TextInput
                 className="text-text-primary font-sans text-md flex-1 pl-4 pr-12 py-4"
                 placeholder="Password"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor="#AEAEB2"
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
@@ -124,7 +125,7 @@ export default function RegisterScreen() {
                 <MaterialIcons
                   name={showPassword ? 'visibility' : 'visibility-off'}
                   size={20}
-                  color="#94a3b8"
+                  color="#AEAEB2"
                 />
               </TouchableOpacity>
             </View>
@@ -135,7 +136,7 @@ export default function RegisterScreen() {
             <TextInput
               className="text-text-primary font-sans text-md flex-1 px-4 py-4"
               placeholder="Confirm password"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor="#AEAEB2"
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               secureTextEntry={!showPassword}

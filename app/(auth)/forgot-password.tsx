@@ -60,8 +60,9 @@ export default function ForgotPasswordScreen() {
                 <TouchableOpacity
                   onPress={() => router.back()}
                   className="h-12 rounded-full items-center justify-center"
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <MaterialIcons name="chevron-left" size={32} color="#f8fafc" />
+                  <MaterialIcons name="chevron-left" size={32} color="#1C1C1E" />
                 </TouchableOpacity>
               </View>
 
@@ -84,7 +85,7 @@ export default function ForgotPasswordScreen() {
                   <TextInput
                     className="text-text-primary font-sans text-md flex-1 h-14 px-4"
                     placeholder="Email address"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor="#AEAEB2"
                     value={email}
                     onChangeText={setEmail}
                     autoCapitalize="none"

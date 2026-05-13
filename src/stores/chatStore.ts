@@ -17,13 +17,13 @@ interface ChatState {
   onlineUsers: Set<string>
   offlineQueue: OfflineMessage[]
   replyToMessage: Message | null // Currently replying to message
-  seenMessages: Record<string, Set<string>> // conversationId -> Set<messageId> đã được read
+  seenMessages: Record<string, Set<string>> // conversationId -> Set<messageId> da duoc read
   botConversationIds: Set<string> // Conversation IDs that belong to bot chats
 
   addOptimisticMessage: (conversationId: string, message: Message) => void
   removeOptimisticMessage: (conversationId: string, tempId: string) => void
   confirmMessage: (tempId: string, message: Message) => void
-  pruneOptimisticMessages: (conversationId: string, persistedMessages: Message[]) => void
+  markMessageFailed: (conversationId: string, tempId: string) => void
   setTyping: (conversationId: string, userId: string, isTyping: boolean) => void
   setUserOnline: (userId: string, online: boolean) => void
   enqueueOfflineMessage: (message: OfflineMessage) => void
@@ -69,6 +69,10 @@ export const useChatStore = create<ChatState>()(
       addOptimisticMessage: (conversationId, message) =>
         set((state) => {
           const msgs = state.optimisticMessages[conversationId] || []
+          if (msgs.some((existing) => existing.id === message.id)) {
+            return state
+          }
+
           return {
             optimisticMessages: {
               ...state.optimisticMessages,
@@ -98,16 +102,20 @@ export const useChatStore = create<ChatState>()(
               ...state.optimisticMessages,
               [conversationId]: msgs.map((m) => {
                 if (m.id === tempId) {
-                  // Keep replyPreview from optimistic message if server doesn't return it
                   const optimisticPreview = m.replyPreview
+                  const optimisticReplyToId = m.replyToId
                   const mergedMessage: Message = {
                     ...currentMessage,
                   }
-                  // Only set replyPreview if either currentMessage or optimistic has it
                   if (currentMessage.replyPreview) {
                     mergedMessage.replyPreview = currentMessage.replyPreview
                   } else if (optimisticPreview) {
                     mergedMessage.replyPreview = optimisticPreview
+                  }
+                  if (currentMessage.replyToId) {
+                    mergedMessage.replyToId = currentMessage.replyToId
+                  } else if (optimisticReplyToId) {
+                    mergedMessage.replyToId = optimisticReplyToId
                   }
                   return mergedMessage
                 }
@@ -117,41 +125,15 @@ export const useChatStore = create<ChatState>()(
           }
         }),
 
-      pruneOptimisticMessages: (conversationId, persistedMessages) =>
+      markMessageFailed: (conversationId, tempId) =>
         set((state) => {
           const msgs = state.optimisticMessages[conversationId] || []
-
-          if (msgs.length === 0 || persistedMessages.length === 0) {
-            return state
-          }
-
-          const nextMsgs = msgs.filter((msg) => {
-            if (!msg.id.startsWith('temp-')) {
-              return true
-            }
-
-            const replyToId = msg.replyToId ?? null
-
-            return !persistedMessages.some((persisted) => {
-              const persistedReplyToId = persisted.replyToId ?? persisted.reply_to_id ?? null
-
-              return (
-                persisted.senderId === msg.senderId &&
-                persisted.content === msg.content &&
-                persisted.type === msg.type &&
-                persistedReplyToId === replyToId
-              )
-            })
-          })
-
-          if (nextMsgs.length === msgs.length) {
-            return state
-          }
-
           return {
             optimisticMessages: {
               ...state.optimisticMessages,
-              [conversationId]: nextMsgs,
+              [conversationId]: msgs.map((message) =>
+                message.id === tempId ? { ...message, status: 'FAILED' as const } : message,
+              ),
             },
           }
         }),
@@ -184,7 +166,9 @@ export const useChatStore = create<ChatState>()(
 
       enqueueOfflineMessage: (message) =>
         set((state) => ({
-          offlineQueue: [...state.offlineQueue, message],
+          offlineQueue: state.offlineQueue.some((queued) => queued.id === message.id)
+            ? state.offlineQueue
+            : [...state.offlineQueue, message],
         })),
 
       dequeueOfflineMessage: (id) =>
@@ -224,15 +208,13 @@ export const useChatStore = create<ChatState>()(
       },
 
       clearCache: async () => {
-        // Clear Zustand state
         set(() => ({
           optimisticMessages: {},
           offlineQueue: [],
           replyToMessage: null,
           seenMessages: {},
-          // Keep botConversationIds — they are stable
+          // Keep botConversationIds because they are stable.
         }))
-        // Clear AsyncStorage persisted data
         await AsyncStorage.removeItem('chat-storage')
       },
     }),
@@ -249,9 +231,7 @@ export const useChatStore = create<ChatState>()(
         return {
           ...currentState,
           ...persisted,
-          // Rehydrate botConversationIds from array → Set
           botConversationIds: new Set<string>((persisted.botConversationIds as string[]) || []),
-          // Ensure onlineUsers stays a Set
           onlineUsers: currentState.onlineUsers,
         }
       },
