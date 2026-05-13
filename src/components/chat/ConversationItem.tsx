@@ -1,8 +1,9 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'expo-router'
-import React, { memo } from 'react'
+import React, { memo, useCallback } from 'react'
 import { Image, Text, View } from 'react-native'
 import Animated, {
+  FadeInDown,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -61,10 +62,16 @@ const ConversationItemComponent = function ConversationItem({
   const queryClient = useQueryClient()
   const { user } = useAuthStore()
   const onlineUsers = useChatStore((state) => state.onlineUsers)
-  const isTyping = useChatStore((state) => {
-    const typers = state.typingUsers[conversation.id] || []
-    return typers.some((typerId) => typerId !== user?.id)
-  })
+  const userId = user?.id
+  const isTyping = useChatStore(
+    useCallback(
+      (state) => {
+        const typers = state.typingUsers[conversation.id] || []
+        return typers.some((typerId) => typerId !== userId)
+      },
+      [conversation.id, userId],
+    ),
+  )
 
   let displayName = 'Unknown'
   let avatarUrl: string | undefined = undefined
@@ -89,6 +96,7 @@ const ConversationItemComponent = function ConversationItem({
     }
   }
 
+  const SECTION_ENTERING = FadeInDown.springify().damping(18).stiffness(170)
   const timeString = conversation.lastMessageAt
     ? formatConversationPreviewAge(conversation.lastMessageAt, relativeTimeTick)
     : ''
@@ -99,73 +107,75 @@ const ConversationItemComponent = function ConversationItem({
     LASTMSG_MAP[conversation.lastMessage ?? ''] ?? (conversation.lastMessage || 'No messages yet')
 
   return (
-    <SafeTouchableOpacity
-      className="border-b border-border-light px-5 py-3.5"
-      onPress={() => router.push(`/conversation/${conversation.id}`)}
-      onPressIn={() => {
-        void prefetchMessages(queryClient, conversation.id)
-      }}
-      activeOpacity={0.75}
-    >
-      <View className="flex-row items-start">
-        {avatarUrl ? (
-          <Image
-            source={{ uri: avatarUrl }}
-            className="h-12 w-12 rounded-full bg-surface-input"
-            resizeMode="cover"
-          />
-        ) : (
-          <View className="h-12 w-12 items-center justify-center rounded-full bg-surface-input">
-            <Text className="text-base font-medium text-text-primary">
-              {displayName.charAt(0).toUpperCase()}
-            </Text>
-          </View>
-        )}
+    <Animated.View entering={SECTION_ENTERING}>
+      <SafeTouchableOpacity
+        className="border-b border-border-light px-5 py-3.5"
+        onPress={() => router.push(`/conversation/${conversation.id}`)}
+        onPressIn={() => {
+          void prefetchMessages(queryClient, conversation.id)
+        }}
+        activeOpacity={0.75}
+      >
+        <View className="flex-row items-start">
+          {avatarUrl ? (
+            <Image
+              source={{ uri: avatarUrl }}
+              className="h-12 w-12 rounded-full bg-surface-input"
+              resizeMode="cover"
+            />
+          ) : (
+            <View className="h-12 w-12 items-center justify-center rounded-full bg-surface-input">
+              <Text className="text-base font-medium text-text-primary">
+                {displayName.charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
 
-        <View className="ml-3 flex-1">
-          <View className="flex-row items-start justify-between gap-3">
-            <View className="flex-1 flex-row items-center">
+          <View className="ml-3 flex-1">
+            <View className="flex-row items-start justify-between gap-3">
+              <View className="flex-1 flex-row items-center">
+                <Text
+                  className={
+                    isUnread
+                      ? 'text-md font-semibold text-text-primary'
+                      : 'text-md font-medium text-text-primary'
+                  }
+                  numberOfLines={1}
+                >
+                  {displayName}
+                </Text>
+                {!conversation.isGroup && isOnline ? (
+                  <View className="ml-1.5 h-1.5 w-1.5 rounded-full bg-brand" />
+                ) : null}
+              </View>
+
               <Text
                 className={
-                  isUnread
-                    ? 'text-md font-semibold text-text-primary'
-                    : 'text-md font-medium text-text-primary'
+                  isUnread ? 'text-sm2 font-medium text-text-secondary' : 'text-sm2 text-text-muted'
                 }
-                numberOfLines={1}
               >
-                {displayName}
+                {timeString}
               </Text>
-              {!conversation.isGroup && isOnline ? (
-                <View className="ml-1.5 h-1.5 w-1.5 rounded-full bg-brand" />
-              ) : null}
             </View>
 
-            <Text
-              className={
-                isUnread ? 'text-sm2 font-medium text-text-secondary' : 'text-sm2 text-text-muted'
-              }
-            >
-              {timeString}
-            </Text>
-          </View>
-
-          <View className="mt-1 min-h-[18px] justify-center">
-            {isTyping ? (
-              <ConversationTypingIndicator />
-            ) : (
-              <Text
-                className={
-                  isUnread ? 'text-sm2 font-medium text-text-primary' : 'text-sm2 text-text-muted'
-                }
-                numberOfLines={1}
-              >
-                {displayLastMessage}
-              </Text>
-            )}
+            <View className="mt-1 min-h-[18px] justify-center">
+              {isTyping ? (
+                <ConversationTypingIndicator />
+              ) : (
+                <Text
+                  className={
+                    isUnread ? 'text-sm2 font-medium text-text-primary' : 'text-sm2 text-text-muted'
+                  }
+                  numberOfLines={1}
+                >
+                  {displayLastMessage}
+                </Text>
+              )}
+            </View>
           </View>
         </View>
-      </View>
-    </SafeTouchableOpacity>
+      </SafeTouchableOpacity>
+    </Animated.View>
   )
 }
 

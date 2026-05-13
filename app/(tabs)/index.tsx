@@ -14,7 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native'
-import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated'
+import Animated, { FadeInDown } from 'react-native-reanimated'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { ConversationItem } from '../../src/components/chat/ConversationItem'
@@ -27,7 +27,6 @@ import { useAuthStore } from '../../src/stores/authStore'
 import type { ChatParticipant, Conversation } from '../../src/types/conversation.types'
 
 const SECTION_ENTERING = FadeInDown.springify().damping(18).stiffness(170)
-const LIST_LAYOUT = LinearTransition.springify().damping(20).stiffness(180)
 const MAX_RELATIVE_TIME_DELAY_MS = 24 * 60 * 60 * 1000
 
 interface MatchSummary {
@@ -155,13 +154,9 @@ export default function ConversationsScreen() {
   }, [filteredConversations, isFocused])
 
   const renderConversationItem = useCallback(
-    ({ item }: { item: Conversation }) => {
-      return (
-        <Animated.View layout={LIST_LAYOUT} entering={SECTION_ENTERING}>
-          <ConversationItem conversation={item} relativeTimeTick={relativeTimeTick} />
-        </Animated.View>
-      )
-    },
+    ({ item }: { item: Conversation }) => (
+      <ConversationItem conversation={item} relativeTimeTick={relativeTimeTick} />
+    ),
     [relativeTimeTick],
   )
 

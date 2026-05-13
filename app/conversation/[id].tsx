@@ -171,10 +171,20 @@ export default function ChatScreen() {
   const replyHighlightTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const highlightResetTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const pendingReplyTargetIdRef = useRef<string | null>(null)
+  const keyboardHeightRef = useRef(0)
+  const listViewportHeightRef = useRef(0)
+  const [isTransitioning, setIsTransitioning] = useState(true)
+
+  useEffect(() => {
+    const timer = setTimeout(() => setIsTransitioning(false), 350)
+    return () => clearTimeout(timer)
+  }, [])
 
   const serverMessages = useMemo(() => {
-    return (data?.pages.flat() as Message[]) || []
-  }, [data])
+    const flat = (data?.pages.flat() as Message[]) || []
+
+    return isTransitioning ? flat.slice(0, 20) : flat
+  }, [data, isTransitioning])
 
   const localOptimistic = useMemo(() => {
     return optimisticMessages[id as string] || []
@@ -191,9 +201,11 @@ export default function ChatScreen() {
       return true
     })
 
-    const combinedMessages = [...pendingMessages, ...serverMessages].sort(
-      (a, b) => new Date(b?.createdAt).getTime() - new Date(a?.createdAt).getTime(),
-    )
+    const combinedMessages = [...pendingMessages, ...serverMessages].sort((a, b) => {
+      const timeA = a?.createdAt || ''
+      const timeB = b?.createdAt || ''
+      return timeB > timeA ? 1 : timeB < timeA ? -1 : 0
+    })
 
     const dedupedMessages = new Map<string, Message>()
 
@@ -206,7 +218,6 @@ export default function ChatScreen() {
         dedupedMessages.set(identityKey, message)
         return
       }
-
       dedupedMessages.set(identityKey, mergeMessageRecords(existing, message))
     })
 
@@ -214,18 +225,27 @@ export default function ChatScreen() {
   }, [serverMessages, localOptimistic])
 
   useEffect(() => {
-    if (serverMessages.length === 0 || localOptimistic.length === 0) {
-      return
-    }
+    if (serverMessages.length === 0 || localOptimistic.length === 0) return
 
-    const optimisticIds = new Set(localOptimistic.map((message) => message.id))
+    const timeoutId = setTimeout(() => {
+      const optimisticIds = new Set(localOptimistic.map((message) => message.id))
 
-    serverMessages.forEach((message) => {
-      if (message.clientMessageId && optimisticIds.has(message.clientMessageId)) {
-        confirmMessage(message.clientMessageId, message)
-        dequeueOfflineMessage(message.clientMessageId)
+      const messagesToConfirm: Message[] = []
+
+      serverMessages.forEach((message) => {
+        if (message.clientMessageId && optimisticIds.has(message.clientMessageId)) {
+          messagesToConfirm.push(message)
+        }
+      })
+
+      if (messagesToConfirm.length > 0) {
+        messagesToConfirm.forEach((msg) => {
+          confirmMessage(msg.clientMessageId, msg)
+          dequeueOfflineMessage(msg.clientMessageId)
+        })
       }
-    })
+    }, 500)
+    return () => clearTimeout(timeoutId)
   }, [confirmMessage, dequeueOfflineMessage, localOptimistic, serverMessages])
 
   const prevFirstMessageId = useRef(allMessages[0]?.id)
@@ -272,13 +292,15 @@ export default function ChatScreen() {
   )
 
   useEffect(() => {
-    if (socket?.connected) {
-      socket.emit('join_conversation', id)
-      socket.emit('mark_seen', id)
-      clearConversationUnread(id)
-    }
+    const timer = setTimeout(() => {
+      if (socket?.connected) {
+        socket.emit('join_conversation', id)
+        socket.emit('mark_seen', id)
+        clearConversationUnread(id)
+      }
+    }, 400)
 
-    return () => {}
+    return () => clearTimeout(timer)
   }, [clearConversationUnread, id, socket, socket?.connected])
 
   const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -503,10 +525,26 @@ export default function ChatScreen() {
 
   useEffect(() => {
     const keyboardShowListener = Keyboard.addListener('keyboardDidShow', (event) => {
+      const height = event.endCoordinates.height
+      keyboardHeightRef.current = height
       setIsKeyboardVisible(true)
-      setKeyboardHeight(event.endCoordinates.height)
+      setKeyboardHeight(height)
+
+      const pendingId = pendingReplyTargetIdRef.current
+      if (pendingId) {
+        requestAnimationFrame(() => {
+          const index = allMessages.findIndex((m) => m.id === pendingId)
+          if (index === -1) return
+          const vpHeight = listViewportHeightRef.current
+          const coveredRatio = Math.min((height + 24) / vpHeight, 0.8)
+          const viewPosition = Math.min(0.9, Math.max(0.68, 0.5 + coveredRatio / 2))
+          listRef.current?.scrollToIndex({ index, animated: true, viewPosition })
+        })
+      }
     })
+
     const keyboardHideListener = Keyboard.addListener('keyboardDidHide', () => {
+      keyboardHeightRef.current = 0
       setIsKeyboardVisible(false)
       setKeyboardHeight(0)
     })
@@ -515,7 +553,7 @@ export default function ChatScreen() {
       keyboardShowListener.remove()
       keyboardHideListener.remove()
     }
-  }, [])
+  }, [allMessages])
 
   useEffect(() => {
     return () => {
@@ -661,7 +699,9 @@ export default function ChatScreen() {
           <FlatList
             ref={listRef}
             onLayout={(event) => {
-              setListViewportHeight(event.nativeEvent.layout.height)
+              const h = event.nativeEvent.layout.height
+              listViewportHeightRef.current = h
+              setListViewportHeight(h)
             }}
             data={allMessages}
             extraData={`${expandedMessageId ?? ''}:${highlightedMessage?.id ?? ''}:${highlightedMessage?.token ?? 0}`}
@@ -701,13 +741,11 @@ export default function ChatScreen() {
               wait.then(() => {
                 const targetMessageId =
                   pendingReplyTargetIdRef.current ?? allMessages[info.index]?.id
-
                 listRef.current?.scrollToIndex({
                   index: info.index,
                   animated: true,
-                  viewPosition: replyScrollViewPosition,
+                  viewPosition: computeViewPosition(),
                 })
-
                 if (targetMessageId) {
                   scheduleMessageHighlight(targetMessageId)
                 }
