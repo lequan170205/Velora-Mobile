@@ -1,51 +1,54 @@
 export const colors = {
-  // Backgrounds — Light, clean white
+  // Backgrounds — Minimal neutral canvas
   bg: {
     primary: '#FFFFFF',
-    secondary: '#F2F2F7',
+    secondary: '#F7F7F7',
     elevated: '#FFFFFF',
-    glass: 'rgba(0,0,0,0.02)',
-    glassBorder: 'rgba(0,0,0,0.06)',
+    glass: 'rgba(255,255,255,0.88)',
+    glassBorder: 'rgba(17,17,17,0.05)',
   },
-  // Brand — Warm Orange
+  // Brand — Clean orange accent
   brand: {
     primary: '#FF6B2C',
-    secondary: '#FF8F5C',
-    tertiary: '#E55A1B',
-    gradient: ['#FF6B2C', '#FF8F5C'],
+    secondary: '#FF935B',
+    tertiary: '#D85A21',
+    gradient: ['#FF6B2C', '#FF935B'],
   },
-  // Text — Dark on light
+  // Text — Crisp neutral hierarchy
   text: {
-    primary: '#1C1C1E',
-    secondary: '#8E8E93',
-    tertiary: '#AEAEB2',
+    primary: '#161616',
+    secondary: '#777777',
+    tertiary: '#A6A6A6',
     inverse: '#FFFFFF',
   },
   // Status
   status: {
     online: '#34C759',
     away: '#FF9500',
-    offline: '#8E8E93',
+    offline: '#B1B1B1',
     error: '#FF3B30',
     success: '#34C759',
   },
   // Semantic
   surface: {
-    card: '#F2F2F7',
-    input: '#F8F8F8',
+    card: '#FFFFFF',
+    input: '#F5F5F5',
     modal: '#FFFFFF',
+    accent: '#FFF4EC',
+    muted: '#F5F5F5',
   },
   // Messages
   bubble: {
     outgoing: '#FF6B2C',
-    incoming: '#F2F2F7',
+    incoming: '#F4F4F4',
     outgoingText: '#FFFFFF',
-    incomingText: '#1C1C1E',
+    incomingText: '#161616',
   },
   // Borders
   border: {
-    default: '#E5E5EA',
-    light: '#F2F2F7',
+    default: '#ECECEC',
+    light: '#F4F4F4',
+    strong: '#D9D9D9',
   },
 }
 
@@ -93,22 +96,22 @@ export const shadows = {
   sm: {
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
     elevation: 2,
   },
   md: {
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.05,
     shadowRadius: 8,
     elevation: 4,
   },
   glow: {
     shadowColor: '#FF6B2C',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
     elevation: 6,
   },
 }
