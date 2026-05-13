@@ -173,10 +173,4 @@ const MessageInputComponent = function MessageInput({
   )
 }
 
-// Memoize to prevent unnecessary re-renders
-export const MessageInput = memo(MessageInputComponent, (prevProps, nextProps) => {
-  return (
-    prevProps.replyTo?.id === nextProps.replyTo?.id &&
-    prevProps.replyTo?.content === nextProps.replyTo?.content
-  )
-})
+export const MessageInput = memo(MessageInputComponent)

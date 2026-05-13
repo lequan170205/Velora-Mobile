@@ -50,6 +50,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       randomizationFactor: 0.5,
+      path: '/socket.io',
     })
 
     newSocket.on('connect', () => {
@@ -58,12 +59,15 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
       const queue = useChatStore.getState().offlineQueue
       queue.forEach((msg) => {
-        newSocket.emit('send_message', {
+        const payload = {
           conversationId: msg.conversationId,
           content: msg.content,
           type: 'text',
           signalType: 0,
-        })
+          ...(msg.replyToId && { replyToId: msg.replyToId }),
+        }
+
+        newSocket.emit('send_message', payload)
         useChatStore.getState().dequeueOfflineMessage(msg.id)
       })
     })
@@ -73,14 +77,103 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       console.log('🔌 Socket disconnected!')
     })
 
+    newSocket.on('connect_error', (error) => {
+      setIsConnected(false)
+      console.error('🔌 Socket connection error:', {
+        message: error.message,
+        url: process.env.EXPO_PUBLIC_WS_URL || 'http://localhost:3000',
+        path: '/socket.io',
+      })
+    })
+
     // Debug: Log ALL events to see what's coming through
     newSocket.onAny((eventName, ...args) => {
       console.log('📡 Socket event:', eventName, args)
     })
 
+    const upsertMessageQuery = (message: Message) => {
+      queryClient.setQueryData<InfiniteData<Message[]> | Message[] | undefined>(
+        queryKeys.conversations.messages(message.conversationId),
+        (oldData) => {
+          if (!oldData) {
+            return {
+              pages: [[message]],
+              pageParams: [undefined],
+            } as InfiniteData<Message[]>
+          }
+
+          const mergePage = (page: Message[]) => {
+            const existingIndex = page.findIndex((item) => item.id === message.id)
+
+            if (existingIndex === -1) {
+              return [message, ...page]
+            }
+
+            return page.map((item, index) => (index === existingIndex ? message : item))
+          }
+
+          if ('pages' in oldData) {
+            const exists = oldData.pages.some((page) => page.some((item) => item.id === message.id))
+
+            if (exists) {
+              return {
+                ...oldData,
+                pages: oldData.pages.map((page) =>
+                  page.map((item) => (item.id === message.id ? message : item)),
+                ),
+              }
+            }
+
+            const [firstPage = [], ...restPages] = oldData.pages
+            return {
+              ...oldData,
+              pages: [mergePage(firstPage), ...restPages],
+            }
+          }
+
+          if (Array.isArray(oldData)) {
+            return mergePage(oldData)
+          }
+
+          return oldData
+        },
+      )
+    }
+
+    const reconcileOptimisticMessage = (message: Message) => {
+      const currentUser = useAuthStore.getState().user
+
+      if (!currentUser?.id || message.senderId !== currentUser.id) {
+        return
+      }
+
+      const store = useChatStore.getState()
+      const pendingMsgs = store.optimisticMessages[message.conversationId] || []
+      const tempMessages = pendingMsgs.filter((pending) => pending.id.startsWith('temp-'))
+      const replyToId = message.replyToId ?? message.reply_to_id ?? null
+
+      const exactMatch = tempMessages.find(
+        (pending) =>
+          pending.senderId === message.senderId &&
+          pending.content === message.content &&
+          pending.type === message.type &&
+          (pending.replyToId ?? null) === replyToId,
+      )
+
+      const fallbackMatch = tempMessages.length === 1 ? tempMessages[0] : undefined
+      const match = exactMatch ?? fallbackMatch
+
+      if (match) {
+        store.confirmMessage(match.id, message)
+      }
+    }
+
     newSocket.on('new_message', (message: Message) => {
       const currentUser = useAuthStore.getState().user
       const conversationId = message.conversationId
+      const isOwnMessage = currentUser?.id === message.senderId
+      const isPendingEcho =
+        String((message as { status?: string }).status || '').toLowerCase() === 'sending'
 
       console.log('🚨 [DEBUG SOCKET] Nhận tin nhắn mới:', message)
 
@@ -144,21 +237,22 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         })
       }, 100)
 
-      if (currentUser?.id && message.senderId !== currentUser.id) {
+      if (!isOwnMessage || !isPendingEcho) {
+        upsertMessageQuery(message)
+      }
+
+      if (!isOwnMessage) {
         queryClient.refetchQueries({
           queryKey: queryKeys.conversations.messages(conversationId),
         })
+        return
       }
 
-      if (currentUser?.id && message.senderId === currentUser.id) {
-        const store = useChatStore.getState()
-        const pendingMsgs = store.optimisticMessages[conversationId] || []
-        const match = pendingMsgs.find((m) => m.content === message.content)
-
-        if (match) {
-          store.confirmMessage(match.id, message)
-        }
+      if (isPendingEcho) {
+        return
       }
+
+      reconcileOptimisticMessage(message)
     })
 
     newSocket.on('conversation_updated', (conversation: Conversation) => {
@@ -184,20 +278,23 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     })
 
     newSocket.on('message_synced', (message: Message) => {
-      if (user?.id && message.senderId === user.id) {
-        const store = useChatStore.getState()
-        const pendingMsgs = store.optimisticMessages[message.conversationId] || []
-        const match = pendingMsgs.find((m) => m.content === message.content)
+      upsertMessageQuery(message)
 
-        if (match) {
-          store.confirmMessage(match.id, message)
-        }
-        // Don't invalidate - message is confirmed locally
+      if (user?.id && message.senderId === user.id) {
+        reconcileOptimisticMessage(message)
       } else {
         queryClient.invalidateQueries({
           queryKey: queryKeys.conversations.messages(message.conversationId),
         })
       }
+    })
+
+    newSocket.on('message_failed', (messageId: string) => {
+      const store = useChatStore.getState()
+
+      Object.keys(store.optimisticMessages).forEach((conversationId) => {
+        store.removeOptimisticMessage(conversationId, messageId)
+      })
     })
 
     newSocket.on('user_typing', ({ conversationId, userId, isTyping }) => {

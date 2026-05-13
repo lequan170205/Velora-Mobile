@@ -8,6 +8,7 @@ interface OfflineMessage {
   id: string
   conversationId: string
   content: string
+  replyToId?: string
 }
 
 interface ChatState {
@@ -22,6 +23,7 @@ interface ChatState {
   addOptimisticMessage: (conversationId: string, message: Message) => void
   removeOptimisticMessage: (conversationId: string, tempId: string) => void
   confirmMessage: (tempId: string, message: Message) => void
+  pruneOptimisticMessages: (conversationId: string, persistedMessages: Message[]) => void
   setTyping: (conversationId: string, userId: string, isTyping: boolean) => void
   setUserOnline: (userId: string, online: boolean) => void
   enqueueOfflineMessage: (message: OfflineMessage) => void
@@ -111,6 +113,45 @@ export const useChatStore = create<ChatState>()(
                 }
                 return m
               }),
+            },
+          }
+        }),
+
+      pruneOptimisticMessages: (conversationId, persistedMessages) =>
+        set((state) => {
+          const msgs = state.optimisticMessages[conversationId] || []
+
+          if (msgs.length === 0 || persistedMessages.length === 0) {
+            return state
+          }
+
+          const nextMsgs = msgs.filter((msg) => {
+            if (!msg.id.startsWith('temp-')) {
+              return true
+            }
+
+            const replyToId = msg.replyToId ?? null
+
+            return !persistedMessages.some((persisted) => {
+              const persistedReplyToId = persisted.replyToId ?? persisted.reply_to_id ?? null
+
+              return (
+                persisted.senderId === msg.senderId &&
+                persisted.content === msg.content &&
+                persisted.type === msg.type &&
+                persistedReplyToId === replyToId
+              )
+            })
+          })
+
+          if (nextMsgs.length === msgs.length) {
+            return state
+          }
+
+          return {
+            optimisticMessages: {
+              ...state.optimisticMessages,
+              [conversationId]: nextMsgs,
             },
           }
         }),

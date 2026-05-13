@@ -7,11 +7,8 @@ import { useSocket } from '../providers/SocketProvider'
 import { useChatStore } from '../stores/chatStore'
 
 /**
- * Mutation hook for the bot-chat endpoint.
- * Calls POST /conversations/chat — backend auto-creates the bot conversation
- * if one doesn't exist, then sends the user's message.
- * On success: marks the conversation as a bot chat (persisted), joins the
- * conversation room, invalidates the conversation list, and navigates.
+ * Creates or retrieves the direct conversation with the bot.
+ * The first user message should be sent from the chat screen via WebSocket.
  */
 export function useBotChat() {
   const queryClient = useQueryClient()
@@ -20,33 +17,24 @@ export function useBotChat() {
   const { markAsBotConversation } = useChatStore()
 
   return useMutation({
-    mutationFn: (content: string) => conversationApi.chatWithBot({ content }),
-    onSuccess: (data) => {
-      const conversationId = data.conversationId
+    mutationFn: async () => {
+      const conversation = await conversationApi.createBotConversation()
+      const conversationId = conversation.id
 
-      // Persist this conversation as a bot conversation so that
-      // ChatScreen always uses REST for sending, regardless of entry point.
-      markAsBotConversation(conversationId)
-
-      // Join the conversation room BEFORE navigating so we receive
-      // the bot's WebSocket reply (which may arrive almost instantly).
+      // Join early when possible so we can receive the bot reply over WebSocket.
       if (socket?.connected) {
         socket.emit('join_conversation', conversationId)
       }
 
+      return { conversationId }
+    },
+    onSuccess: (data) => {
+      const { conversationId } = data
+
+      markAsBotConversation(conversationId)
+
       queryClient.invalidateQueries({ queryKey: queryKeys.conversations.all })
       router.push(`/conversation/${conversationId}`)
-
-      // The bot reply may take a few seconds. Poll at increasing intervals.
-      const delays = [500, 1500, 3000, 5000, 8000]
-      delays.forEach((ms) => {
-        setTimeout(() => {
-          queryClient.refetchQueries({
-            queryKey: queryKeys.conversations.messages(conversationId),
-          })
-          queryClient.refetchQueries({ queryKey: queryKeys.conversations.all })
-        }, ms)
-      })
     },
   })
 }

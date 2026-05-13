@@ -16,6 +16,20 @@ export const conversationApi = {
     const response = await apiClient.post<Conversation>('/conversations', data)
     return response.data
   },
+  createBotConversation: async () => {
+    const botUserId = process.env.EXPO_PUBLIC_BOT_USER_ID
+
+    if (!botUserId) {
+      throw new Error('EXPO_PUBLIC_BOT_USER_ID is not configured')
+    }
+
+    const response = await apiClient.post<Conversation>('/conversations', {
+      participantIds: [botUserId],
+      type: 'DIRECT',
+    })
+
+    return response.data
+  },
   getById: async (id: string) => {
     const response = await apiClient.get<Conversation>(`/conversations/${id}`)
     return response.data

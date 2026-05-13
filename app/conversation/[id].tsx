@@ -20,7 +20,7 @@ import { MessageBubble } from '../../src/components/chat/MessageBubble'
 import { MessageInput } from '../../src/components/chat/MessageInput'
 import { queryKeys } from '../../src/constants/queryKeys'
 import { useRecallMessage } from '../../src/hooks/useMessageActions'
-import { useMessages, useSendBotMessage, useSendMessage } from '../../src/hooks/useMessages'
+import { useMessages, useSendMessage } from '../../src/hooks/useMessages'
 import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useCallStore } from '../../src/stores/callStore'
@@ -83,8 +83,14 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
   const { user } = useAuthStore()
-  const { optimisticMessages, typingUsers, replyToMessage, setReplyToMessage, isBotConversation } =
-    useChatStore()
+  const {
+    optimisticMessages,
+    typingUsers,
+    replyToMessage,
+    setReplyToMessage,
+    isBotConversation,
+    pruneOptimisticMessages,
+  } = useChatStore()
   const isBot = isBotConversation(id as string)
   const queryClient = useQueryClient()
 
@@ -93,7 +99,7 @@ export default function ChatScreen() {
 
   const { data, isLoading, fetchNextPage, hasNextPage } = useMessages(id as string)
   const { mutate: sendMessage } = useSendMessage(id as string)
-  const { mutate: sendBotMessage } = useSendBotMessage(id as string)
+  // Bot messages are sent via the same WebSocket sendMessage hook
   const { mutate: recallMessage } = useRecallMessage(id as string)
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
 
@@ -131,6 +137,12 @@ export default function ChatScreen() {
       (a, b) => new Date(b?.createdAt).getTime() - new Date(a?.createdAt).getTime(),
     )
   }, [serverMessages, localOptimistic])
+
+  useEffect(() => {
+    if (!id || serverMessages.length === 0) return
+
+    pruneOptimisticMessages(id as string, serverMessages)
+  }, [id, pruneOptimisticMessages, serverMessages])
 
   const prevFirstMessageId = useRef(allMessages[0]?.id)
 
@@ -372,7 +384,16 @@ export default function ChatScreen() {
         </View>
       )
     },
-    [user?.id, allMessages, expandedMessageId, handleToggleDetails, handleScrollToMessage],
+    [
+      user?.id,
+      allMessages,
+      expandedMessageId,
+      id,
+      handleToggleDetails,
+      handleScrollToMessage,
+      handleReply,
+      handleRecall,
+    ],
   )
 
   return (
@@ -433,14 +454,16 @@ export default function ChatScreen() {
             </TouchableOpacity>
           </View>
 
-          <View className="flex-row items-center gap-4 pr-2">
-            <TouchableOpacity className="items-center justify-center" onPress={handleVoiceCall}>
-              <MaterialIcons name="call" size={24} color="#0A7CFF" />
-            </TouchableOpacity>
-            <TouchableOpacity className="items-center justify-center" onPress={handleVideoCall}>
-              <MaterialIcons name="videocam" size={26} color="#0A7CFF" />
-            </TouchableOpacity>
-          </View>
+          {!isBot && (
+            <View className="flex-row items-center gap-4 pr-2">
+              <TouchableOpacity className="items-center justify-center" onPress={handleVoiceCall}>
+                <MaterialIcons name="call" size={24} color="#0A7CFF" />
+              </TouchableOpacity>
+              <TouchableOpacity className="items-center justify-center" onPress={handleVideoCall}>
+                <MaterialIcons name="videocam" size={26} color="#0A7CFF" />
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         <View className="flex-1">
@@ -519,11 +542,8 @@ export default function ChatScreen() {
 
         <MessageInput
           onSend={(text, replyToId) => {
-            if (isBot) {
-              sendBotMessage({ content: text })
-            } else {
-              sendMessage({ content: text, ...(replyToId ? { replyToId } : {}) })
-            }
+            // Unified send path for both bot and user conversations
+            sendMessage({ content: text, ...(replyToId ? { replyToId } : {}) })
             socket?.emit('typing_stop', id)
           }}
           onSendMedia={handleSendMedia}
