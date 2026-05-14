@@ -1,13 +1,13 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { FlashList as OriginalFlashList } from '@shopify/flash-list'
-import { useRouter } from 'expo-router'
-import React, { useDeferredValue, useMemo, useState } from 'react'
+import React, { useCallback, useDeferredValue, useMemo, useState } from 'react'
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native'
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { conversationApi } from '../../src/api/conversation.api'
 import { useContacts } from '../../src/hooks/useContacts'
+import { useConversationNavigation } from '../../src/hooks/useConversationNavigation'
 import { cn } from '../../src/lib/cn'
 import { useChatStore } from '../../src/stores/chatStore'
 
@@ -21,10 +21,11 @@ const ROW_LAYOUT = LinearTransition.springify().damping(18).stiffness(170)
 export default function ContactsScreen() {
   const [search, setSearch] = useState('')
   const deferredSearch = useDeferredValue(search)
+  const [pendingUserId, setPendingUserId] = useState<string | null>(null)
 
   const { data, isLoading, fetchNextPage, hasNextPage } = useContacts(deferredSearch)
   const { onlineUsers } = useChatStore()
-  const router = useRouter()
+  const { openConversation, runConversationEntry } = useConversationNavigation()
 
   const users = useMemo(() => {
     return (data?.pages.flatMap((page) => page?.users || []) || []) as UserSession[]
@@ -34,26 +35,42 @@ export default function ContactsScreen() {
     return users.filter((user) => onlineUsers.has(user.id)).length
   }, [onlineUsers, users])
 
-  const handleUserPress = async (user: UserSession) => {
-    try {
-      const conversation = await conversationApi.create({
-        participantIds: [user.id],
-        type: 'DIRECT',
+  const handleUserPress = useCallback(
+    async (user: UserSession) => {
+      await runConversationEntry(`direct:${user.id}`, async () => {
+        setPendingUserId(user.id)
+
+        try {
+          const conversation = await conversationApi.create({
+            participantIds: [user.id],
+            type: 'DIRECT',
+          })
+          openConversation(conversation.id)
+        } catch (error) {
+          console.error(error)
+        } finally {
+          setPendingUserId((currentUserId) => (currentUserId === user.id ? null : currentUserId))
+        }
       })
-      router.push(`/conversation/${conversation.id}`)
-    } catch (error) {
-      console.error(error)
-    }
-  }
+    },
+    [openConversation, runConversationEntry],
+  )
 
   const renderItem = ({ item }: { item: UserSession }) => {
     if (!item) return null
 
     const isOnline = onlineUsers.has(item.id)
+    const isPending = pendingUserId === item.id
 
     return (
       <Animated.View layout={ROW_LAYOUT} entering={CARD_ENTERING}>
-        <Pressable className="mx-4 mb-3" onPress={() => handleUserPress(item)}>
+        <Pressable
+          className="mx-4 mb-3"
+          onPress={() => {
+            void handleUserPress(item)
+          }}
+          disabled={pendingUserId !== null}
+        >
           <View
             className="flex-row items-center rounded-[28px] border border-border-light bg-surface-card px-4 py-4"
             style={{
@@ -94,7 +111,11 @@ export default function ContactsScreen() {
             </View>
 
             <View className="ml-3 rounded-full bg-brand-soft px-3 py-2">
-              <MaterialIcons name="chat" size={18} color="#D85A21" />
+              {isPending ? (
+                <ActivityIndicator color="#D85A21" size="small" />
+              ) : (
+                <MaterialIcons name="chat" size={18} color="#D85A21" />
+              )}
             </View>
           </View>
         </Pressable>

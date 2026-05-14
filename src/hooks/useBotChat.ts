@@ -1,10 +1,11 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useRouter } from 'expo-router'
 
 import { conversationApi } from '../api/conversation.api'
 import { queryKeys } from '../constants/queryKeys'
 import { useSocket } from '../providers/SocketProvider'
 import { useChatStore } from '../stores/chatStore'
+
+import { useConversationNavigation } from './useConversationNavigation'
 
 /**
  * Creates or retrieves the direct conversation with the bot.
@@ -12,9 +13,9 @@ import { useChatStore } from '../stores/chatStore'
  */
 export function useBotChat() {
   const queryClient = useQueryClient()
-  const router = useRouter()
   const { socket } = useSocket()
   const { markAsBotConversation } = useChatStore()
+  const { openConversation } = useConversationNavigation()
 
   return useMutation({
     mutationFn: async () => {
@@ -34,7 +35,7 @@ export function useBotChat() {
       markAsBotConversation(conversationId)
 
       queryClient.invalidateQueries({ queryKey: queryKeys.conversations.all })
-      router.push(`/conversation/${conversationId}`)
+      openConversation(conversationId)
     },
   })
 }
