@@ -14,6 +14,7 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarHideOnKeyboard: true,
+        freezeOnBlur: true,
         tabBarStyle: {
           height: tabBarHeight,
           paddingTop: 8,

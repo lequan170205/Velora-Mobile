@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons'
 import { BlurView } from 'expo-blur'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import {
   Image,
   Modal,
@@ -20,7 +20,6 @@ import Animated, {
   interpolate,
   useAnimatedStyle,
   useSharedValue,
-  withDelay,
   withSpring,
   withTiming,
 } from 'react-native-reanimated'
@@ -74,11 +73,47 @@ interface ActionItem extends MessageContextActionConfig {
   onPress: () => void
 }
 
+type MessageContextMenuInnerProps = Omit<MessageContextMenuProps, 'message' | 'anchor'> & {
+  message: Message
+  anchor: BubbleAnchor
+}
+
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 const MENU_ENTER_EASING = Easing.bezier(0.22, 1, 0.36, 1)
 const MENU_EXIT_EASING = Easing.bezier(0.4, 0, 1, 1)
 
 export function MessageContextMenu({
+  visible,
+  message,
+  anchor,
+  ...props
+}: MessageContextMenuProps) {
+  const lastMessageRef = useRef<Message | null>(message)
+  const lastAnchorRef = useRef<BubbleAnchor | null>(anchor)
+
+  if (!visible || !message || !anchor) {
+    return null
+  }
+
+  if (message) lastMessageRef.current = message
+  if (anchor) lastAnchorRef.current = anchor
+
+  const renderedMessage = lastMessageRef.current
+  const renderedAnchor = lastAnchorRef.current
+
+  if (!renderedMessage || !renderedAnchor) return null
+
+  return (
+    <MessageContextMenuInner
+      visible={visible}
+      message={renderedMessage}
+      anchor={renderedAnchor}
+      {...props}
+    />
+  )
+}
+
+function MessageContextMenuInner({
   visible,
   message,
   isOwn,
@@ -90,7 +125,7 @@ export function MessageContextMenu({
   onForward,
   onRecall,
   conversationId,
-}: MessageContextMenuProps) {
+}: MessageContextMenuInnerProps) {
   const { user } = useAuthStore()
   const addReaction = useAddReaction()
   const removeReaction = useRemoveReaction()
@@ -99,90 +134,58 @@ export function MessageContextMenu({
   const [isPickerExpanded, setIsPickerExpanded] = useState(false)
   const tokens = getMessageContextMenuTokens(theme)
   const slideDirection = isOwn ? 1 : -1
+  const androidBlurProps =
+    Platform.OS === 'android'
+      ? { blurReductionFactor: 6, experimentalBlurMethod: 'dimezisBlurView' as const }
+      : {}
 
-  const backdropOpacity = useSharedValue(0)
-  const stackOpacity = useSharedValue(0)
-  const stackTranslateX = useSharedValue(10 * slideDirection)
-  const stackTranslateY = useSharedValue(8)
-  const focusScale = useSharedValue(0.96)
-  const reactionProgress = useSharedValue(0)
-  const actionProgress = useSharedValue(0)
+  const menuProgress = useSharedValue(0)
   const pickerTranslateY = useSharedValue(screenH)
 
   React.useEffect(() => {
     if (visible) {
       setIsPickerExpanded(false)
       pickerTranslateY.value = screenH
-
-      backdropOpacity.value = withTiming(1, { duration: 180, easing: MENU_ENTER_EASING })
-      stackOpacity.value = withTiming(1, { duration: 180, easing: MENU_ENTER_EASING })
-      stackTranslateX.value = withTiming(0, { duration: 220, easing: MENU_ENTER_EASING })
-      stackTranslateY.value = withTiming(0, { duration: 220, easing: MENU_ENTER_EASING })
-      focusScale.value = withTiming(1, { duration: 220, easing: MENU_ENTER_EASING })
-      reactionProgress.value = withTiming(1, { duration: 220, easing: MENU_ENTER_EASING })
-      actionProgress.value = withDelay(
-        28,
-        withTiming(1, { duration: 220, easing: MENU_ENTER_EASING }),
-      )
+      menuProgress.value = withTiming(1, { duration: 220, easing: MENU_ENTER_EASING })
     } else {
-      backdropOpacity.value = withTiming(0, { duration: 120, easing: MENU_EXIT_EASING })
-      stackOpacity.value = withTiming(0, { duration: 110, easing: MENU_EXIT_EASING })
-      stackTranslateX.value = withTiming(6 * slideDirection, {
-        duration: 120,
-        easing: MENU_EXIT_EASING,
-      })
-      stackTranslateY.value = withTiming(6, { duration: 120, easing: MENU_EXIT_EASING })
-      focusScale.value = withTiming(0.98, { duration: 120, easing: MENU_EXIT_EASING })
-      reactionProgress.value = withTiming(0, { duration: 110, easing: MENU_EXIT_EASING })
-      actionProgress.value = withTiming(0, { duration: 100, easing: MENU_EXIT_EASING })
+      menuProgress.value = withTiming(0, { duration: 120, easing: MENU_EXIT_EASING })
       pickerTranslateY.value = withTiming(screenH, { duration: 150, easing: MENU_EXIT_EASING })
     }
-  }, [
-    actionProgress,
-    backdropOpacity,
-    focusScale,
-    pickerTranslateY,
-    reactionProgress,
-    screenH,
-    slideDirection,
-    stackOpacity,
-    stackTranslateX,
-    stackTranslateY,
-    visible,
-  ])
+  }, [menuProgress, pickerTranslateY, screenH, visible])
 
   const backdropStyle = useAnimatedStyle(() => ({
-    opacity: backdropOpacity.value,
+    opacity: interpolate(menuProgress.value, [0, 1], [0, 1]),
   }))
 
   const stackStyle = useAnimatedStyle(() => ({
-    opacity: stackOpacity.value,
-    transform: [{ translateX: stackTranslateX.value }, { translateY: stackTranslateY.value }],
+    opacity: menuProgress.value,
+    transform: [
+      { translateX: interpolate(menuProgress.value, [0, 1], [slideDirection * 10, 0]) },
+      { translateY: interpolate(menuProgress.value, [0, 1], [8, 0]) },
+    ],
   }))
 
   const focusStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: focusScale.value }],
+    transform: [{ scale: interpolate(menuProgress.value, [0, 1], [0.96, 1]) }],
   }))
 
   const reactionBarStyle = useAnimatedStyle(() => ({
-    opacity: reactionProgress.value,
+    opacity: menuProgress.value,
     transform: [
-      { translateX: interpolate(reactionProgress.value, [0, 1], [slideDirection * 12, 0]) },
-      { scale: interpolate(reactionProgress.value, [0, 1], [0.97, 1]) },
+      { translateX: interpolate(menuProgress.value, [0, 1], [slideDirection * 12, 0]) },
+      { scale: interpolate(menuProgress.value, [0, 1], [0.97, 1]) },
     ],
   }))
 
   const actionBarStyle = useAnimatedStyle(() => ({
-    opacity: actionProgress.value,
+    opacity: interpolate(menuProgress.value, [0, 0.12, 1], [0, 0, 1]),
     transform: [
-      { translateX: interpolate(actionProgress.value, [0, 1], [slideDirection * 14, 0]) },
-      { scale: interpolate(actionProgress.value, [0, 1], [0.97, 1]) },
+      { translateX: interpolate(menuProgress.value, [0, 1], [slideDirection * 14, 0]) },
+      { scale: interpolate(menuProgress.value, [0, 1], [0.97, 1]) },
     ],
   }))
 
   const close = () => {
-    backdropOpacity.value = withTiming(0, { duration: 140 })
-
     if (isPickerExpanded) {
       pickerTranslateY.value = withTiming(
         screenH,
@@ -192,23 +195,15 @@ export function MessageContextMenu({
         },
       )
     } else {
-      stackOpacity.value = withTiming(0, { duration: 110, easing: MENU_EXIT_EASING })
-      stackTranslateX.value = withTiming(6 * slideDirection, {
-        duration: 120,
-        easing: MENU_EXIT_EASING,
-      })
-      stackTranslateY.value = withTiming(6, { duration: 120, easing: MENU_EXIT_EASING })
-      focusScale.value = withTiming(0.98, { duration: 120, easing: MENU_EXIT_EASING }, () => {
+      menuProgress.value = withTiming(0, { duration: 120, easing: MENU_EXIT_EASING }, () => {
         scheduleOnRN(onClose)
       })
-      reactionProgress.value = withTiming(0, { duration: 110, easing: MENU_EXIT_EASING })
-      actionProgress.value = withTiming(0, { duration: 100, easing: MENU_EXIT_EASING })
     }
   }
 
   const openFullPicker = () => {
     setIsPickerExpanded(true)
-    stackOpacity.value = withTiming(0, { duration: 150 })
+    menuProgress.value = withTiming(0, { duration: 150, easing: MENU_EXIT_EASING })
     pickerTranslateY.value = withSpring(0, PICKER_SPRING)
   }
 
@@ -249,8 +244,6 @@ export function MessageContextMenu({
 
     close()
   }
-
-  if (!message || !anchor) return null
 
   const isRecalled = isMessageRecalled(message)
   const activeEmoji = getCurrentUserReaction(message, user?.id)

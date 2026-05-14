@@ -99,11 +99,18 @@ export default function RootLayout() {
                       screenOptions={{
                         headerShown: false,
                         contentStyle: { backgroundColor: colors.bg.primary },
+                        freezeOnBlur: true,
                       }}
                     >
                       <Stack.Screen name="(tabs)" />
                       <Stack.Screen name="(auth)" />
-                      <Stack.Screen name="conversation/[id]" />
+                      <Stack.Screen
+                        name="conversation/[id]"
+                        options={{
+                          animation: 'slide_from_right',
+                          animationDuration: 250,
+                        }}
+                      />
                       <Stack.Screen
                         name="call/[id]"
                         options={{ presentation: 'fullScreenModal' }}

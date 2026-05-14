@@ -3,29 +3,39 @@ import { useQueryClient } from '@tanstack/react-query'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FlatList, Image, Keyboard, Text, TouchableOpacity, View } from 'react-native'
 import {
+  ActivityIndicator,
+  FlatList,
+  Image,
+  InteractionManager,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native'
+import {
+  KeyboardController,
   KeyboardStickyView,
+  useKeyboardState,
   useReanimatedKeyboardAnimation,
 } from 'react-native-keyboard-controller'
 import Animated, {
   FadeIn,
   FadeOut,
-  LinearTransition,
   useAnimatedStyle,
   useSharedValue,
+  type SharedValue,
   withDelay,
   withRepeat,
   withSequence,
   withTiming,
 } from 'react-native-reanimated'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { MessageBubble } from '../../src/components/chat/MessageBubble'
-import { MessageInput } from '../../src/components/chat/MessageInput'
+import { MessageInput, type MessageInputHandle } from '../../src/components/chat/MessageInput'
 import { queryKeys } from '../../src/constants/queryKeys'
 import { useRecallMessage } from '../../src/hooks/useMessageActions'
-import { useMessages, useSendMessage } from '../../src/hooks/useMessages'
+import { trimMessagesCache, useMessages, useSendMessage } from '../../src/hooks/useMessages'
 import {
   getMessageIdentityKey,
   getMessageIdentityTokens,
@@ -50,7 +60,29 @@ const formatSeparatorDate = (dateString: string) => {
   return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-const MESSAGE_LAYOUT = LinearTransition.springify().damping(18).stiffness(170)
+const EMPTY_MESSAGES: Message[] = []
+const EMPTY_TYPERS: string[] = []
+const renderableOptimisticMessagesCache = new WeakMap<Message[], Message[]>()
+const getRenderableOptimisticMessages = (messages?: Message[]) => {
+  if (!messages?.length) {
+    return EMPTY_MESSAGES
+  }
+
+  const cachedMessages = renderableOptimisticMessagesCache.get(messages)
+  if (cachedMessages) {
+    return cachedMessages
+  }
+
+  const hasConfirmedMessages = messages.some(
+    (message) => message.status !== 'FAILED' && !message.id.startsWith('temp-'),
+  )
+  const nextMessages = hasConfirmedMessages
+    ? messages.filter((message) => message.status === 'FAILED' || message.id.startsWith('temp-'))
+    : messages
+
+  renderableOptimisticMessagesCache.set(messages, nextMessages)
+  return nextMessages
+}
 
 const LoadingBubble = ({
   align = 'left',
@@ -79,6 +111,14 @@ const MessageListLoadingState = () => {
       <LoadingBubble align="right" widthClassName="w-[44%]" />
       <LoadingBubble widthClassName="w-[66%]" />
       <LoadingBubble align="right" widthClassName="w-[52%]" />
+    </View>
+  )
+}
+
+const OlderMessagesLoadingIndicator = () => {
+  return (
+    <View className="items-center px-4 py-4">
+      <ActivityIndicator size="small" color="#FF6B2C" />
     </View>
   )
 }
@@ -123,14 +163,27 @@ const TypingIndicator = ({ displayName }: { displayName: string }) => {
   )
 }
 
-const KeyboardListSpacer = ({ gap, openedOffset }: { gap: number; openedOffset: number }) => {
-  const { height, progress } = useReanimatedKeyboardAnimation()
+const KeyboardListSpacer = ({
+  baseHeight,
+  isKeyboardSpaceEnabled,
+  preservedKeyboardHeight,
+}: {
+  baseHeight: number
+  isKeyboardSpaceEnabled: boolean
+  preservedKeyboardHeight: SharedValue<number>
+}) => {
+  const { height } = useReanimatedKeyboardAnimation()
 
   const style = useAnimatedStyle(
     () => ({
-      height: Math.max(0, -height.value) - progress.value * openedOffset + gap,
+      height:
+        baseHeight +
+        Math.max(
+          preservedKeyboardHeight.value,
+          isKeyboardSpaceEnabled ? Math.max(0, -height.value) : 0,
+        ),
     }),
-    [gap, openedOffset],
+    [baseHeight, height, isKeyboardSpaceEnabled, preservedKeyboardHeight],
   )
 
   return <Animated.View pointerEvents="none" style={style} />
@@ -138,35 +191,45 @@ const KeyboardListSpacer = ({ gap, openedOffset }: { gap: number; openedOffset: 
 
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
+  const conversationId = id as string
   const router = useRouter()
+  const insets = useSafeAreaInsets()
   const { user } = useAuthStore()
-  const {
-    optimisticMessages,
-    typingUsers,
-    replyToMessage,
-    setReplyToMessage,
-    confirmMessage,
-    dequeueOfflineMessage,
-  } = useChatStore()
+  const localOptimistic = useChatStore(
+    useCallback(
+      (state) => getRenderableOptimisticMessages(state.optimisticMessages[conversationId]),
+      [conversationId],
+    ),
+  )
+  const activeTypers = useChatStore(
+    useCallback((state) => state.typingUsers[conversationId] ?? EMPTY_TYPERS, [conversationId]),
+  )
+  const replyToMessage = useChatStore((state) => state.replyToMessage)
+  const setReplyToMessage = useChatStore((state) => state.setReplyToMessage)
+  const confirmMessage = useChatStore((state) => state.confirmMessage)
+  const dequeueOfflineMessage = useChatStore((state) => state.dequeueOfflineMessage)
   const queryClient = useQueryClient()
 
   const { socket } = useSocket()
   const [isOnline, setIsOnline] = useState(false)
 
-  const { data, isLoading, fetchNextPage, hasNextPage } = useMessages(id as string)
-  const { mutate: sendMessage } = useSendMessage(id as string)
-  const { mutate: recallMessage } = useRecallMessage(id as string)
+  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
+    useMessages(conversationId)
+  const { mutate: sendMessage } = useSendMessage(conversationId)
+  const { mutate: recallMessage } = useRecallMessage(conversationId)
+  const keyboardVisible = useKeyboardState((state) => state.isVisible)
+  const keyboardHeight = useKeyboardState((state) => state.height)
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
   const [highlightedMessage, setHighlightedMessage] = useState<{
     id: string
     token: number
   } | null>(null)
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false)
-  const [keyboardHeight, setKeyboardHeight] = useState(0)
-  const [listViewportHeight, setListViewportHeight] = useState(0)
 
   const listRef = useRef<FlatList>(null)
+  const messageInputRef = useRef<MessageInputHandle>(null)
+  const [isComposerFocused, setIsComposerFocused] = useState(false)
   const [showScrollButton, setShowScrollButton] = useState(false)
+  const showScrollButtonRef = useRef(false)
   const [isScrollLocked, setIsScrollLocked] = useState(false)
   const typingTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const replyHighlightTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
@@ -174,24 +237,22 @@ export default function ChatScreen() {
   const scrollUnlockTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const pendingReplyTargetIdRef = useRef<string | null>(null)
   const hasCompletedInitialScrollRef = useRef(false)
-  const keyboardHeightRef = useRef(0)
-  const listViewportHeightRef = useRef(0)
-  const [isTransitioning, setIsTransitioning] = useState(true)
-
-  useEffect(() => {
-    const timer = setTimeout(() => setIsTransitioning(false), 350)
-    return () => clearTimeout(timer)
-  }, [])
+  const isComposerFocusedRef = useRef(false)
+  const shouldRestoreComposerFocusRef = useRef(false)
+  const preservedKeyboardHeight = useSharedValue(0)
 
   const serverMessages = useMemo(() => {
-    const flat = (data?.pages.flat() as Message[]) || []
+    return (data?.pages.flat() as Message[]) || EMPTY_MESSAGES
+  }, [data])
 
-    return isTransitioning ? flat.slice(0, 20) : flat
-  }, [data, isTransitioning])
+  const [transitionDone, setTransitionDone] = useState(false)
 
-  const localOptimistic = useMemo(() => {
-    return optimisticMessages[id as string] || []
-  }, [id, optimisticMessages])
+  useEffect(() => {
+    const handle = InteractionManager.runAfterInteractions(() => {
+      setTransitionDone(true)
+    })
+    return () => handle.cancel()
+  }, [])
 
   const allMessages = useMemo(() => {
     const serverIdentityTokens = new Set(
@@ -226,7 +287,6 @@ export default function ChatScreen() {
 
     return Array.from(dedupedMessages.values())
   }, [serverMessages, localOptimistic])
-
   useEffect(() => {
     if (serverMessages.length === 0 || localOptimistic.length === 0) return
 
@@ -256,7 +316,6 @@ export default function ChatScreen() {
   }, [confirmMessage, dequeueOfflineMessage, localOptimistic, serverMessages])
 
   const prevFirstMessageId = useRef(allMessages[0]?.id)
-  const messageInputGap = 12
 
   const lockScrollTemporarily = useCallback((durationMs = 550) => {
     if (scrollUnlockTimeoutRef.current) {
@@ -270,19 +329,43 @@ export default function ChatScreen() {
     }, durationMs)
   }, [])
 
-  const activeTypers = typingUsers[id as string] || []
   const isOtherUserTyping = activeTypers.some((typerId) => typerId !== user?.id)
   const isInitialMessagesLoading = isLoading && allMessages.length === 0
-  const replyScrollViewPosition = useMemo(() => {
-    if (!isKeyboardVisible || !listViewportHeight || !keyboardHeight) {
-      return 0.5
+  const getReplyScrollViewPosition = useCallback(() => 0.72, [])
+
+  const handleComposerFocusChange = useCallback((focused: boolean) => {
+    isComposerFocusedRef.current = focused
+    setIsComposerFocused(focused)
+  }, [])
+
+  const prepareContextMenuKeyboardPreservation = useCallback(() => {
+    const activeKeyboardHeight = keyboardHeight || KeyboardController.state().height || 0
+    const shouldPreserveKeyboardSpace =
+      isComposerFocusedRef.current && (keyboardVisible || activeKeyboardHeight > 0)
+
+    if (!shouldPreserveKeyboardSpace || activeKeyboardHeight <= 0) {
+      shouldRestoreComposerFocusRef.current = false
+      preservedKeyboardHeight.value = 0
+      return false
     }
 
-    const coveredRatio = Math.min((keyboardHeight + 24) / listViewportHeight, 0.8)
+    shouldRestoreComposerFocusRef.current = true
+    preservedKeyboardHeight.value = activeKeyboardHeight
+    messageInputRef.current?.blur()
+    void KeyboardController.dismiss()
+    return true
+  }, [keyboardHeight, keyboardVisible, preservedKeyboardHeight])
 
-    // The list is inverted, so the visual center of the visible area is mirrored.
-    return Math.min(0.9, Math.max(0.68, 0.5 + coveredRatio / 2))
-  }, [isKeyboardVisible, keyboardHeight, listViewportHeight])
+  const handleContextMenuClose = useCallback(() => {
+    if (!shouldRestoreComposerFocusRef.current) {
+      preservedKeyboardHeight.value = 0
+      return
+    }
+
+    requestAnimationFrame(() => {
+      messageInputRef.current?.focus()
+    })
+  }, [preservedKeyboardHeight])
 
   const clearConversationUnread = useCallback(
     (conversationId: string) => {
@@ -311,25 +394,47 @@ export default function ChatScreen() {
   )
 
   useEffect(() => {
+    if (!transitionDone) return
+
     const timer = setTimeout(() => {
       if (socket?.connected) {
-        socket.emit('join_conversation', id)
-        socket.emit('mark_seen', id)
-        clearConversationUnread(id)
+        socket.emit('join_conversation', conversationId)
+        socket.emit('mark_seen', conversationId)
+        clearConversationUnread(conversationId)
       }
-    }, 400)
+    }, 100)
 
     return () => clearTimeout(timer)
-  }, [clearConversationUnread, id, socket, socket?.connected])
+  }, [clearConversationUnread, conversationId, socket, socket?.connected, transitionDone])
 
   const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const offsetY = event.nativeEvent.contentOffset.y
-    setShowScrollButton(offsetY > 200)
+    const shouldShowScrollButton = offsetY > 200
+
+    if (shouldShowScrollButton !== showScrollButtonRef.current) {
+      showScrollButtonRef.current = shouldShowScrollButton
+      setShowScrollButton(shouldShowScrollButton)
+    }
   }, [])
 
   const scrollToBottom = useCallback(() => {
     listRef.current?.scrollToOffset({ offset: 0, animated: true })
   }, [])
+
+  const dismissComposer = useCallback(() => {
+    shouldRestoreComposerFocusRef.current = false
+    preservedKeyboardHeight.value = 0
+    messageInputRef.current?.blur()
+    void KeyboardController.dismiss()
+  }, [preservedKeyboardHeight])
+
+  const loadOlderMessages = useCallback(() => {
+    if (!hasNextPage || isInitialMessagesLoading || isFetchingNextPage) {
+      return
+    }
+
+    void fetchNextPage()
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage, isInitialMessagesLoading])
 
   const syncInitialScrollToBottom = useCallback(() => {
     if (hasCompletedInitialScrollRef.current || allMessages.length === 0) {
@@ -354,24 +459,32 @@ export default function ChatScreen() {
     const currentFirstMessageId = allMessages[0]?.id
 
     if (currentFirstMessageId && currentFirstMessageId !== prevFirstMessageId.current) {
-      if (!showScrollButton || allMessages[0]?.senderId === user?.id) {
+      if (!showScrollButtonRef.current || allMessages[0]?.senderId === user?.id) {
         scrollToBottom()
       }
 
       if (socket?.connected) {
-        socket.emit('mark_seen', id)
-        clearConversationUnread(id)
+        socket.emit('mark_seen', conversationId)
+        clearConversationUnread(conversationId)
       }
     }
 
     prevFirstMessageId.current = currentFirstMessageId
-  }, [allMessages, clearConversationUnread, id, scrollToBottom, showScrollButton, socket, user?.id])
+  }, [allMessages, clearConversationUnread, conversationId, scrollToBottom, socket, user?.id])
 
   const cachedData = queryClient.getQueryData<unknown>(queryKeys.conversations.all)
   const allConversations: Conversation[] = Array.isArray(cachedData)
     ? (cachedData as Conversation[])
     : (cachedData as { pages?: Conversation[][] })?.pages?.flat() || []
-  const currentConversation = allConversations.find((c: Conversation) => c?.id === id)
+  const currentConversation = allConversations.find((c: Conversation) => c?.id === conversationId)
+
+  const participantsMap = useMemo(() => {
+    const map = new Map<string, ChatParticipant>()
+    currentConversation?.participants?.forEach((p: ChatParticipant) => {
+      map.set(p.id, p)
+    })
+    return map
+  }, [currentConversation?.participants])
 
   let displayName = 'Unknown'
   let avatarUrl: string | undefined = undefined
@@ -394,6 +507,7 @@ export default function ChatScreen() {
   }
 
   useEffect(() => {
+    if (!transitionDone) return
     if (!socket || !otherUserId || currentConversation?.isGroup) return
 
     socket.emit('check_presence', { userId: otherUserId })
@@ -409,7 +523,7 @@ export default function ChatScreen() {
     return () => {
       socket.off('presence_update', handlePresence)
     }
-  }, [socket, otherUserId, currentConversation?.isGroup])
+  }, [socket, otherUserId, currentConversation?.isGroup, transitionDone])
 
   const handleSendMedia = async (
     uri: string,
@@ -423,7 +537,7 @@ export default function ChatScreen() {
 
     const tempMessage: Message = {
       id: tempId,
-      conversationId: id as string,
+      conversationId,
       senderId: user.id,
       sender: user,
       content: uri,
@@ -433,7 +547,7 @@ export default function ChatScreen() {
       updatedAt: now,
     }
 
-    useChatStore.getState().addOptimisticMessage(id as string, tempMessage)
+    useChatStore.getState().addOptimisticMessage(conversationId, tempMessage)
   }
 
   const handleTyping = useCallback(
@@ -445,22 +559,22 @@ export default function ChatScreen() {
           clearTimeout(typingTimeoutRef.current)
           typingTimeoutRef.current = null
         }
-        socket.emit('typing_stop', id)
+        socket.emit('typing_stop', conversationId)
         return
       }
 
-      socket.emit('typing_start', id)
+      socket.emit('typing_start', conversationId)
 
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current)
       }
 
       typingTimeoutRef.current = setTimeout(() => {
-        socket.emit('typing_stop', id)
+        socket.emit('typing_stop', conversationId)
         typingTimeoutRef.current = null
       }, 2000)
     },
-    [socket, id],
+    [socket, conversationId],
   )
 
   const handleReply = useCallback(
@@ -481,9 +595,9 @@ export default function ChatScreen() {
         clearTimeout(typingTimeoutRef.current)
         typingTimeoutRef.current = null
       }
-      socket?.emit('typing_stop', id)
+      socket?.emit('typing_stop', conversationId)
     },
-    [sendMessage, socket, id],
+    [sendMessage, socket, conversationId],
   )
 
   const handleRecall = useCallback(
@@ -533,12 +647,12 @@ export default function ChatScreen() {
       listRef.current?.scrollToIndex({
         index,
         animated: true,
-        viewPosition: replyScrollViewPosition,
+        viewPosition: getReplyScrollViewPosition(),
       })
       scheduleMessageHighlight(messageId)
       return true
     },
-    [allMessages, replyScrollViewPosition, scheduleMessageHighlight],
+    [allMessages, getReplyScrollViewPosition, scheduleMessageHighlight],
   )
 
   const runReplyScroll = useCallback(
@@ -562,72 +676,44 @@ export default function ChatScreen() {
   )
 
   useEffect(() => {
-    const keyboardShowListener = Keyboard.addListener('keyboardDidShow', (event) => {
-      const height = event.endCoordinates.height
-      keyboardHeightRef.current = height
-      setIsKeyboardVisible(true)
-      setKeyboardHeight(height)
-
-      const pendingId = pendingReplyTargetIdRef.current
-      if (pendingId) {
-        requestAnimationFrame(() => {
-          const index = allMessages.findIndex((m) => m.id === pendingId)
-          if (index === -1) return
-          const vpHeight = listViewportHeightRef.current
-          const coveredRatio = Math.min((height + 24) / vpHeight, 0.8)
-          const viewPosition = Math.min(0.9, Math.max(0.68, 0.5 + coveredRatio / 2))
-          listRef.current?.scrollToIndex({ index, animated: true, viewPosition })
-        })
-      }
-    })
-
-    const keyboardHideListener = Keyboard.addListener('keyboardDidHide', () => {
-      keyboardHeightRef.current = 0
-      setIsKeyboardVisible(false)
-      setKeyboardHeight(0)
-    })
-
-    return () => {
-      keyboardShowListener.remove()
-      keyboardHideListener.remove()
+    if (isComposerFocused && keyboardVisible && keyboardHeight > 0) {
+      shouldRestoreComposerFocusRef.current = false
+      preservedKeyboardHeight.value = 0
+      return
     }
-  }, [allMessages])
+
+    if (!keyboardVisible && !shouldRestoreComposerFocusRef.current) {
+      preservedKeyboardHeight.value = 0
+    }
+  }, [isComposerFocused, keyboardHeight, keyboardVisible, preservedKeyboardHeight])
 
   useEffect(() => {
     return () => {
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current)
-        typingTimeoutRef.current = null
-      }
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+      if (socket?.connected) socket.emit('typing_stop', conversationId)
+      if (replyHighlightTimeoutRef.current) clearTimeout(replyHighlightTimeoutRef.current)
+      if (highlightResetTimeoutRef.current) clearTimeout(highlightResetTimeoutRef.current)
+      if (scrollUnlockTimeoutRef.current) clearTimeout(scrollUnlockTimeoutRef.current)
 
-      if (socket?.connected) {
-        socket.emit('typing_stop', id)
-      }
-
-      if (replyHighlightTimeoutRef.current) {
-        clearTimeout(replyHighlightTimeoutRef.current)
-        replyHighlightTimeoutRef.current = null
-      }
-
-      if (highlightResetTimeoutRef.current) {
-        clearTimeout(highlightResetTimeoutRef.current)
-        highlightResetTimeoutRef.current = null
-      }
-
-      if (scrollUnlockTimeoutRef.current) {
-        clearTimeout(scrollUnlockTimeoutRef.current)
-        scrollUnlockTimeoutRef.current = null
-      }
+      setTimeout(() => {
+        const messagesQueryKey = queryKeys.conversations.messages(conversationId)
+        void queryClient.cancelQueries({ queryKey: messagesQueryKey, exact: true })
+        trimMessagesCache(queryClient, conversationId)
+      }, 300)
     }
-  }, [socket, id])
+  }, [queryClient, socket, conversationId])
+
+  const allMessagesRef = useRef(allMessages)
+  allMessagesRef.current = allMessages
 
   const renderItem = useCallback(
     ({ item, index }: { item: Message; index: number }) => {
       if (!item) return null
 
+      const messages = allMessagesRef.current
       const isOwn = item?.senderId === user?.id
-      const previousMessage = allMessages[index + 1]
-      const nextMessage = allMessages[index - 1]
+      const previousMessage = messages[index + 1]
+      const nextMessage = messages[index - 1]
 
       let showDateSeparator = false
       if (!previousMessage) {
@@ -659,9 +745,10 @@ export default function ChatScreen() {
         nextMessage?.senderId === item.senderId && timeGapNext < FIVE_MINS && !isNextDay
 
       const showAvatar = nextMessage?.senderId !== item.senderId || isNextDay
+      const sender = item.sender ?? participantsMap.get(item.senderId)
 
       return (
-        <Animated.View layout={MESSAGE_LAYOUT}>
+        <View>
           {showDateSeparator && (
             <View className="my-4 items-center">
               <Text className="text-xs2 text-text-muted">
@@ -673,6 +760,7 @@ export default function ChatScreen() {
             message={item}
             isOwn={isOwn}
             showAvatar={showAvatar}
+            senderInfo={sender}
             isGroupedTop={isGroupedTop}
             isGroupedBottom={isGroupedBottom}
             highlightToken={highlightedMessage?.id === item.id ? highlightedMessage.token : 0}
@@ -681,31 +769,41 @@ export default function ChatScreen() {
             onPressReplyPreview={() => handleScrollToMessage(item.replyToId)}
             onReply={() => handleReply(item)}
             onRecall={() => handleRecall(item.id)}
-            conversationId={id}
+            onRequestKeyboardPreservation={prepareContextMenuKeyboardPreservation}
+            onContextMenuClose={handleContextMenuClose}
+            conversationId={conversationId}
           />
-        </Animated.View>
+        </View>
       )
     },
     [
       user?.id,
-      allMessages,
+      participantsMap,
       expandedMessageId,
       highlightedMessage,
-      id,
+      conversationId,
       handleToggleDetails,
       handleScrollToMessage,
       handleReply,
       handleRecall,
+      prepareContextMenuKeyboardPreservation,
+      handleContextMenuClose,
     ],
   )
 
   return (
-    <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
+    <View className="flex-1 bg-bg-primary" style={{ paddingTop: insets.top }}>
       <View className="flex-1 z-10">
         <View className="border-b border-border-light bg-bg-primary px-4 pb-3 pt-2 z-10">
           <View className="flex-row items-center">
             <TouchableOpacity
-              onPress={() => router.back()}
+              onPress={() => {
+                dismissComposer()
+
+                requestAnimationFrame(() => {
+                  router.back()
+                })
+              }}
               className="flex-row items-center py-2 pr-3"
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
@@ -741,25 +839,19 @@ export default function ChatScreen() {
         <View className="flex-1">
           <FlatList
             ref={listRef}
-            onLayout={(event) => {
-              const h = event.nativeEvent.layout.height
-              listViewportHeightRef.current = h
-              setListViewportHeight(h)
-            }}
             data={allMessages}
             extraData={`${expandedMessageId ?? ''}:${highlightedMessage?.id ?? ''}:${highlightedMessage?.token ?? 0}`}
             renderItem={renderItem}
             keyExtractor={(item: Message, index: number) =>
               item?.id ? item.id.toString() : `fallback-${index}`
             }
-            onEndReached={() => {
-              if (hasNextPage && !isInitialMessagesLoading) fetchNextPage()
-            }}
-            onEndReachedThreshold={0.5}
+            onEndReached={loadOlderMessages}
+            onEndReachedThreshold={0.2}
             onScroll={handleScroll}
-            scrollEventThrottle={16}
+            scrollEventThrottle={32}
             scrollEnabled={!isScrollLocked}
             inverted
+            keyboardDismissMode="none"
             keyboardShouldPersistTaps="handled"
             contentInsetAdjustmentBehavior="automatic"
             onContentSizeChange={() => {
@@ -774,26 +866,30 @@ export default function ChatScreen() {
 
               if (isScrollLocked) {
                 listRef.current?.scrollToOffset({ offset: 0, animated: false })
-                return
-              }
-
-              if (!showScrollButton) {
-                scrollToBottom()
               }
             }}
             ListHeaderComponent={
               <View>
                 {isOtherUserTyping ? <TypingIndicator displayName={displayName} /> : null}
-                <KeyboardListSpacer gap={messageInputGap} openedOffset={0} />
+                <KeyboardListSpacer
+                  baseHeight={0}
+                  isKeyboardSpaceEnabled={isComposerFocused}
+                  preservedKeyboardHeight={preservedKeyboardHeight}
+                />
               </View>
+            }
+            ListFooterComponent={
+              isFetchingNextPage && !isInitialMessagesLoading ? (
+                <OlderMessagesLoadingIndicator />
+              ) : null
             }
             ListEmptyComponent={isInitialMessagesLoading ? <MessageListLoadingState /> : null}
             showsVerticalScrollIndicator={false}
             removeClippedSubviews={true}
-            initialNumToRender={20}
-            maxToRenderPerBatch={10}
-            windowSize={10}
-            updateCellsBatchingPeriod={50}
+            initialNumToRender={12}
+            maxToRenderPerBatch={6}
+            windowSize={7}
+            updateCellsBatchingPeriod={80}
             onScrollToIndexFailed={(info) => {
               const wait = new Promise((resolve) => setTimeout(resolve, 500))
               wait.then(() => {
@@ -802,7 +898,7 @@ export default function ChatScreen() {
                 listRef.current?.scrollToIndex({
                   index: info.index,
                   animated: true,
-                  viewPosition: replyScrollViewPosition,
+                  viewPosition: getReplyScrollViewPosition(),
                 })
                 if (targetMessageId) {
                   scheduleMessageHighlight(targetMessageId)
@@ -831,16 +927,20 @@ export default function ChatScreen() {
           )}
         </View>
 
-        <KeyboardStickyView offset={{ opened: 0 }}>
-          <MessageInput
-            onSend={handleSendText}
-            onSendMedia={handleSendMedia}
-            onChangeText={handleTyping}
-            replyTo={replyToMessage}
-            onCancelReply={handleCancelReply}
-          />
-        </KeyboardStickyView>
+        <View>
+          <KeyboardStickyView offset={{ closed: 0, opened: 0 }}>
+            <MessageInput
+              ref={messageInputRef}
+              onSend={handleSendText}
+              onSendMedia={handleSendMedia}
+              onChangeText={handleTyping}
+              onFocusChange={handleComposerFocusChange}
+              replyTo={replyToMessage}
+              onCancelReply={handleCancelReply}
+            />
+          </KeyboardStickyView>
+        </View>
       </View>
-    </SafeAreaView>
+    </View>
   )
 }

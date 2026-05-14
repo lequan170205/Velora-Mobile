@@ -1,9 +1,8 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import { useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import * as Haptics from 'expo-haptics'
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Image, Pressable, Text, View } from 'react-native'
+import { Image, Text, View, Pressable } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
   interpolate,
@@ -13,21 +12,15 @@ import Animated, {
   withSpring,
   withSequence,
   withTiming,
+  runOnJS,
 } from 'react-native-reanimated'
-import { scheduleOnRN } from 'react-native-worklets'
 
-import { queryKeys } from '../../constants/queryKeys'
 import { cn } from '../../lib/cn'
 import { useChatStore } from '../../stores/chatStore'
 
 import { MessageContextMenu, type BubbleAnchor } from './MessageContextMenu'
 
-import type {
-  ChatParticipant,
-  Conversation,
-  Message,
-  ReplyPreviewData,
-} from '../../types/conversation.types'
+import type { ChatParticipant, Message, ReplyPreviewData } from '../../types/conversation.types'
 
 // Valid emojis for reactions (matching backend)
 export const VALID_EMOJIS = ['👍', '❤️', '😂', '😢', '😮', '😡', '👏', '🎉']
@@ -111,6 +104,7 @@ interface MessageBubbleProps {
   isGroupedTop?: boolean
   isGroupedBottom?: boolean
   showAvatar?: boolean
+  senderInfo?: ChatParticipant | Message['sender'] | null
   onReactionPress?: (emoji: string) => void
   onReply?: () => void
   onRecall?: () => void
@@ -119,6 +113,8 @@ interface MessageBubbleProps {
   isExpanded?: boolean
   onToggleDetails?: () => void
   onPressReplyPreview?: () => void
+  onContextMenuClose?: () => void
+  onRequestKeyboardPreservation?: () => boolean
 }
 
 const MessageBubbleComponent = function MessageBubble({
@@ -127,6 +123,7 @@ const MessageBubbleComponent = function MessageBubble({
   isGroupedTop,
   isGroupedBottom,
   showAvatar,
+  senderInfo: senderInfoProp,
   onReactionPress,
   onReply,
   onRecall,
@@ -135,31 +132,20 @@ const MessageBubbleComponent = function MessageBubble({
   isExpanded,
   onToggleDetails,
   onPressReplyPreview,
+  onContextMenuClose,
+  onRequestKeyboardPreservation,
 }: MessageBubbleProps) {
-  const queryClient = useQueryClient()
-  const { isMessageSeen } = useChatStore()
+  const isMessageSeen = useChatStore((state) => state.isMessageSeen)
   const progress = useSharedValue(0)
   const highlightProgress = useSharedValue(0)
   const swipeOffsetX = useSharedValue(0)
-  const swipeProgress = useSharedValue(0)
+  const menuOpeningProgress = useSharedValue(0)
+  // const swipeProgress = useSharedValue(0)
   const [menuVisible, setMenuVisible] = useState(false)
   const [anchor, setAnchor] = useState<BubbleAnchor | null>(null)
   const bubbleRef = useRef<View>(null)
 
-  const senderInfo = useMemo(() => {
-    if (message.sender) return message.sender
-
-    const cachedData = queryClient.getQueryData<unknown>(queryKeys.conversations.all)
-    const allConversations = Array.isArray(cachedData)
-      ? cachedData
-      : (cachedData as { pages?: Conversation[][] })?.pages?.flat() || []
-
-    const conversation = allConversations.find((c: Conversation) => c.id === message.conversationId)
-    if (conversation?.participants) {
-      return conversation.participants.find((p: ChatParticipant) => p.id === message.senderId)
-    }
-    return null
-  }, [message.sender, message.conversationId, message.senderId, queryClient])
+  const senderInfo = senderInfoProp ?? message.sender ?? null
 
   let timeString = ''
   if (message.createdAt) {
@@ -174,14 +160,13 @@ const MessageBubbleComponent = function MessageBubble({
   const isFailed = message.status === 'FAILED'
   const isSending = (message.id || message._id || '').startsWith('temp-') && !isFailed
   const hasReadReceipt = Array.isArray(message.readBy) && message.readBy.length > 0
+  const resolvedConversationId = conversationId || message.conversationId
+  const isSeen =
+    message.status === 'READ' || hasReadReceipt || isMessageSeen(resolvedConversationId, message.id)
 
   const getStatusText = () => {
     if (isFailed) return 'Failed'
     if (isSending) return 'Sending...'
-    const isSeen =
-      message.status === 'READ' ||
-      hasReadReceipt ||
-      isMessageSeen(conversationId || message.conversationId, message.id)
     if (isSeen) return 'Read'
     if (!isSending) return 'Delivered'
     return 'Sent'
@@ -209,62 +194,117 @@ const MessageBubbleComponent = function MessageBubble({
   const isRecalled = message.isRecalled === true || message.is_recalled === true
   const swipeDirection = isOwn ? -1 : 1
 
-  const openContextMenu = () => {
+  const openContextMenu = useCallback((nextAnchor?: BubbleAnchor) => {
+    if (nextAnchor) {
+      setAnchor(nextAnchor)
+      setMenuVisible(true)
+      return
+    }
+
     bubbleRef.current?.measureInWindow((x, y, width, height) => {
       setAnchor({ x, y, width, height })
       setMenuVisible(true)
     })
-  }
+  }, [])
+  const queueContextMenuOpen = useCallback(
+    (nextAnchor?: BubbleAnchor) => {
+      if (nextAnchor) {
+        openContextMenu(nextAnchor)
+        return
+      }
 
-  const queueContextMenuOpen = () => {
-    requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        openContextMenu()
+        requestAnimationFrame(() => {
+          openContextMenu(nextAnchor)
+        })
       })
+    },
+    [openContextMenu],
+  )
+
+  const measureAnchor = useCallback((onMeasured: (nextAnchor: BubbleAnchor) => void) => {
+    bubbleRef.current?.measureInWindow((x, y, width, height) => {
+      onMeasured({ x, y, width, height })
     })
-  }
+  }, [])
+
+  const handleContextMenuClose = useCallback(() => {
+    setMenuVisible(false)
+    menuOpeningProgress.value = withTiming(0, { duration: 200 })
+    onContextMenuClose?.()
+  }, [onContextMenuClose, menuOpeningProgress])
+
+  const cachedAnchorRef = useRef<BubbleAnchor | null>(null)
+
+  const handlePressIn = useCallback(() => {
+    bubbleRef.current?.measureInWindow((x, y, width, height) => {
+      cachedAnchorRef.current = { x, y, width, height }
+    })
+  }, [])
 
   const handleLongPress = () => {
     if (isRecalled) return
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    queueContextMenuOpen()
+
+    measureAnchor((nextAnchor) => {
+      queueContextMenuOpen(nextAnchor)
+
+      requestAnimationFrame(() => {
+        onRequestKeyboardPreservation?.()
+      })
+    })
   }
 
   const handleSwipeReply = useCallback(() => {
     if (isRecalled) return
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    onReply?.()
+    requestAnimationFrame(() => {
+      onReply?.()
+    })
   }, [isRecalled, onReply])
 
   const animatedStyle = useAnimatedStyle(() => ({
-    height: interpolate(progress.value, [0, 1], [0, 20]),
     opacity: progress.value,
-    marginTop: interpolate(progress.value, [0, 1], [0, 4]),
+    transform: [{ translateY: interpolate(progress.value, [0, 1], [-8, 0]) }],
   }))
 
-  const bubbleHighlightWrapStyle = useAnimatedStyle(() => ({
-    transform: [
-      { scale: interpolate(highlightProgress.value, [0, 1], [1, 1.048]) },
-      { translateY: interpolate(highlightProgress.value, [0, 1], [0, -2]) },
-    ],
-    zIndex: highlightProgress.value > 0 ? 2 : 0,
-  }))
+  const bubbleHighlightWrapStyle = useAnimatedStyle(() => {
+    const menuScale = interpolate(menuOpeningProgress.value, [0, 1], [1, 1.05])
+    const menuTranslateY = interpolate(menuOpeningProgress.value, [0, 1], [0, -4])
+
+    const highlightScale = interpolate(highlightProgress.value, [0, 1], [1, 1.048])
+    const highlightTranslateY = interpolate(highlightProgress.value, [0, 1], [0, -2])
+
+    return {
+      transform: [
+        { scale: Math.max(menuScale, highlightScale) },
+        { translateY: menuTranslateY + highlightTranslateY },
+      ],
+      zIndex: highlightProgress.value > 0 || menuOpeningProgress.value > 0 ? 2 : 0,
+    }
+  })
 
   const swipeBubbleStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: swipeOffsetX.value }],
   }))
 
-  const swipeIndicatorStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(swipeProgress.value, [0, 0.3, 1], [0, 0.45, 1]),
-    transform: [
-      { scale: interpolate(swipeProgress.value, [0, 1], [0.92, 1]) },
-      { translateX: interpolate(swipeProgress.value, [0, 1], [swipeDirection * -8, 0]) },
-    ],
-  }))
+  const swipeIndicatorStyle = useAnimatedStyle(() => {
+    const currentTranslation = Math.abs(swipeOffsetX.value)
+    const progress = Math.min(currentTranslation / SWIPE_REPLY_TRIGGER_DISTANCE, 1)
+
+    return {
+      opacity: interpolate(progress, [0, 0.3, 1], [0, 0.45, 1]),
+      transform: [
+        { scale: interpolate(progress, [0, 1], [0.8, 1]) },
+        { translateX: interpolate(progress, [0, 1], [swipeDirection * -8, 0]) },
+      ],
+    }
+  })
 
   const picture = senderInfo?.picture
+  const senderName = senderInfo && 'name' in senderInfo ? senderInfo.name : undefined
   const fallbackInitial =
-    senderInfo?.name?.charAt(0).toUpperCase() || senderInfo?.email?.charAt(0).toUpperCase() || '?'
+    senderName?.charAt(0).toUpperCase() || senderInfo?.email?.charAt(0).toUpperCase() || '?'
 
   const reactionSummary = useMemo(() => {
     const summary: Record<string, number> = {}
@@ -303,33 +343,33 @@ const MessageBubbleComponent = function MessageBubble({
     () =>
       Gesture.Pan()
         .enabled(!isRecalled && Boolean(onReply))
-        .averageTouches(true)
-        .activeOffsetX([-14, 14])
-        .failOffsetY([-10, 10])
+        .activeOffsetX([-10, 10])
+        .failOffsetY([-5, 5])
         .maxPointers(1)
         .onUpdate((event) => {
-          const directedTranslation = Math.max(0, event.translationX * swipeDirection)
-          const clampedDistance = Math.min(directedTranslation, SWIPE_REPLY_MAX_DISTANCE)
+          'worklet'
+          const translation = event.translationX * swipeDirection
 
-          swipeOffsetX.value = swipeDirection * clampedDistance
-          swipeProgress.value = Math.min(directedTranslation / SWIPE_REPLY_TRIGGER_DISTANCE, 1)
-        })
-        .onEnd((event) => {
-          const directedTranslation = Math.max(0, event.translationX * swipeDirection)
-          const shouldReply = directedTranslation >= SWIPE_REPLY_TRIGGER_DISTANCE
-
-          swipeOffsetX.value = withSpring(0, { damping: 18, stiffness: 240 })
-          swipeProgress.value = withTiming(0, { duration: 180 })
-
-          if (shouldReply) {
-            scheduleOnRN(handleSwipeReply)
+          if (translation > 0) {
+            swipeOffsetX.value = swipeDirection * Math.min(translation, SWIPE_REPLY_MAX_DISTANCE)
           }
         })
-        .onFinalize(() => {
-          swipeOffsetX.value = withSpring(0, { damping: 18, stiffness: 240 })
-          swipeProgress.value = withTiming(0, { duration: 180 })
+        .onEnd((event) => {
+          'worklet'
+          const translation = event.translationX * swipeDirection
+
+          if (translation >= SWIPE_REPLY_TRIGGER_DISTANCE) {
+            runOnJS(handleSwipeReply)()
+          }
+
+          swipeOffsetX.value = withSpring(0, {
+            mass: 0.8,
+            damping: 18,
+            stiffness: 220,
+            overshootClamping: false,
+          })
         }),
-    [handleSwipeReply, isRecalled, onReply, swipeDirection, swipeOffsetX, swipeProgress],
+    [handleSwipeReply, isRecalled, onReply, swipeDirection, swipeOffsetX],
   )
 
   return (
@@ -367,7 +407,7 @@ const MessageBubbleComponent = function MessageBubble({
               </View>
 
               <Pressable
-                onPress={onPressReplyPreview}
+                onPress={onPressReplyPreview ?? null}
                 disabled={!onPressReplyPreview}
                 className="max-w-full rounded-[22px] bg-surface-input px-4 py-3"
               >
@@ -415,8 +455,13 @@ const MessageBubbleComponent = function MessageBubble({
                 <View ref={bubbleRef} collapsable={false}>
                   <Pressable
                     onPress={toggleDetails}
-                    onLongPress={isRecalled ? undefined : handleLongPress}
-                    delayLongPress={isRecalled ? undefined : 180}
+                    onPressIn={handlePressIn}
+                    {...(!isRecalled
+                      ? {
+                          onLongPress: handleLongPress,
+                          delayLongPress: 180,
+                        }
+                      : null)}
                     className={bubbleClassName}
                   >
                     {isRecalled ? (
@@ -482,17 +527,22 @@ const MessageBubbleComponent = function MessageBubble({
             </View>
           )}
 
-          <Animated.View style={[animatedStyle, { overflow: 'hidden' }]}>
-            <View className={cn('flex-row items-center', isOwn ? 'justify-end' : 'justify-start')}>
-              <Text className="px-1 text-[11px] text-text-muted">
-                {timeString}
-                {isOwn && ` • ${getStatusText()}`}
-              </Text>
-              {isOwn &&
-                (message.status === 'READ' ||
-                  hasReadReceipt ||
-                  isMessageSeen(conversationId || message.conversationId, message.id)) &&
-                !isSending && (
+          <View
+            style={{
+              height: isExpanded ? 20 : 0,
+              marginTop: isExpanded ? 4 : 0,
+              overflow: 'hidden',
+            }}
+          >
+            <Animated.View style={animatedStyle}>
+              <View
+                className={cn('flex-row items-center', isOwn ? 'justify-end' : 'justify-start')}
+              >
+                <Text className="px-1 text-[11px] text-text-muted">
+                  {timeString}
+                  {isOwn && ` • ${getStatusText()}`}
+                </Text>
+                {isOwn && isSeen && !isSending && (
                   <MaterialIcons
                     name="done-all"
                     size={12}
@@ -500,8 +550,9 @@ const MessageBubbleComponent = function MessageBubble({
                     style={{ marginLeft: 2 }}
                   />
                 )}
-            </View>
-          </Animated.View>
+              </View>
+            </Animated.View>
+          </View>
         </View>
       </View>
 
@@ -512,10 +563,10 @@ const MessageBubbleComponent = function MessageBubble({
         isGroupedTop={isGroupedTop ?? false}
         isGroupedBottom={isGroupedBottom ?? false}
         anchor={anchor}
-        onClose={() => setMenuVisible(false)}
+        onClose={handleContextMenuClose}
         onReply={onReply}
         onRecall={onRecall}
-        conversationId={conversationId || message.conversationId}
+        conversationId={resolvedConversationId}
       />
     </>
   )

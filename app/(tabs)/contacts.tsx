@@ -1,66 +1,161 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { FlashList as OriginalFlashList } from '@shopify/flash-list'
+import { useQueryClient } from '@tanstack/react-query'
 import React, { useCallback, useDeferredValue, useMemo, useState } from 'react'
-import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Alert, Pressable, Text, TextInput, View } from 'react-native'
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { conversationApi } from '../../src/api/conversation.api'
+import { userApi } from '../../src/api/user.api'
 import { useContacts } from '../../src/hooks/useContacts'
 import { useConversationNavigation } from '../../src/hooks/useConversationNavigation'
+import { getConversationsQueryOptions } from '../../src/hooks/useConversations'
 import { cn } from '../../src/lib/cn'
+import { useAuthStore } from '../../src/stores/authStore'
 import { useChatStore } from '../../src/stores/chatStore'
 
-import type { UserSession } from '../../src/types/user.types'
+import type { DirectoryUser } from '../../src/types/user.types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const FlashList = OriginalFlashList as any
 const CARD_ENTERING = FadeInDown.springify().damping(16).stiffness(160)
 const ROW_LAYOUT = LinearTransition.springify().damping(18).stiffness(170)
+const normalizeEmail = (value: string) => value.trim().toLowerCase()
+const getEmailDisplayName = (email: string) => {
+  const [localPart] = normalizeEmail(email).split('@')
+  return localPart || email
+}
+
+const getErrorMessage = (error: unknown, fallback: string) => {
+  const responseMessage = (error as { response?: { data?: { message?: string | string[] } } })
+    ?.response?.data?.message
+
+  if (Array.isArray(responseMessage) && responseMessage.length > 0) {
+    return responseMessage[0]
+  }
+
+  if (typeof responseMessage === 'string' && responseMessage.trim().length > 0) {
+    return responseMessage
+  }
+
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message
+  }
+
+  return fallback
+}
 
 export default function ContactsScreen() {
   const [search, setSearch] = useState('')
   const deferredSearch = useDeferredValue(search)
-  const [pendingUserId, setPendingUserId] = useState<string | null>(null)
+  const [emailInput, setEmailInput] = useState('')
+  const [pendingConversationKey, setPendingConversationKey] = useState<string | null>(null)
 
+  const queryClient = useQueryClient()
   const { data, isLoading, fetchNextPage, hasNextPage } = useContacts(deferredSearch)
+  const { user: currentUser } = useAuthStore()
   const { onlineUsers } = useChatStore()
   const { openConversation, runConversationEntry } = useConversationNavigation()
 
   const users = useMemo(() => {
-    return (data?.pages.flatMap((page) => page?.users || []) || []) as UserSession[]
-  }, [data])
+    return ((data?.pages.flatMap((page) => page?.users || []) || []) as DirectoryUser[]).filter(
+      (user) => user.id !== currentUser?.id,
+    )
+  }, [currentUser?.id, data])
 
   const liveCount = useMemo(() => {
     return users.filter((user) => onlineUsers.has(user.id)).length
   }, [onlineUsers, users])
 
+  const normalizedEmailInput = normalizeEmail(emailInput)
+  const isAnyConversationPending = pendingConversationKey !== null
+  const isEmailConversationPending = pendingConversationKey?.startsWith('email:') ?? false
+
+  const createAndOpenConversation = useCallback(
+    async (targetUserId: string) => {
+      const conversation = await conversationApi.create({
+        participantIds: [targetUserId],
+        type: 'DIRECT',
+      })
+      const conversationsQueryOptions = getConversationsQueryOptions()
+
+      try {
+        await queryClient.fetchQuery({
+          ...conversationsQueryOptions,
+          staleTime: 0,
+        })
+      } catch (error) {
+        console.warn('[Contacts] Failed to refresh conversations cache', error)
+        void queryClient.invalidateQueries({
+          queryKey: conversationsQueryOptions.queryKey,
+        })
+      }
+
+      openConversation(conversation.id)
+    },
+    [openConversation, queryClient],
+  )
+
   const handleUserPress = useCallback(
-    async (user: UserSession) => {
-      await runConversationEntry(`direct:${user.id}`, async () => {
-        setPendingUserId(user.id)
+    (user: DirectoryUser) => {
+      const entryKey = `direct:${user.id}`
+
+      void runConversationEntry(entryKey, async () => {
+        setPendingConversationKey(entryKey)
 
         try {
-          const conversation = await conversationApi.create({
-            participantIds: [user.id],
-            type: 'DIRECT',
-          })
-          openConversation(conversation.id)
+          await createAndOpenConversation(user.id)
         } catch (error) {
-          console.error(error)
+          Alert.alert('Error', getErrorMessage(error, 'Could not start the conversation.'))
         } finally {
-          setPendingUserId((currentUserId) => (currentUserId === user.id ? null : currentUserId))
+          setPendingConversationKey((currentKey) => (currentKey === entryKey ? null : currentKey))
         }
       })
     },
-    [openConversation, runConversationEntry],
+    [createAndOpenConversation, runConversationEntry],
   )
 
-  const renderItem = ({ item }: { item: UserSession }) => {
+  const handleCreateByEmail = useCallback(() => {
+    if (!normalizedEmailInput) {
+      Alert.alert('Missing email', 'Enter an email address to start a conversation.')
+      return
+    }
+
+    const entryKey = `email:${normalizedEmailInput}`
+
+    void runConversationEntry(entryKey, async () => {
+      setPendingConversationKey(entryKey)
+
+      try {
+        const matchedUser = await userApi.findByEmail(normalizedEmailInput)
+
+        if (!matchedUser) {
+          Alert.alert('No user found', `We couldn't find an account for ${normalizedEmailInput}.`)
+          return
+        }
+
+        if (matchedUser.id === currentUser?.id) {
+          Alert.alert('Unavailable', 'You cannot start a conversation with your own email.')
+          return
+        }
+
+        await createAndOpenConversation(matchedUser.id)
+        setEmailInput('')
+      } catch (error) {
+        Alert.alert('Error', getErrorMessage(error, 'Could not start the conversation.'))
+      } finally {
+        setPendingConversationKey((currentKey) => (currentKey === entryKey ? null : currentKey))
+      }
+    })
+  }, [createAndOpenConversation, currentUser?.id, normalizedEmailInput, runConversationEntry])
+
+  const renderItem = ({ item }: { item: DirectoryUser }) => {
     if (!item) return null
 
+    const displayName = getEmailDisplayName(item.email)
     const isOnline = onlineUsers.has(item.id)
-    const isPending = pendingUserId === item.id
+    const isPending = pendingConversationKey === `direct:${item.id}`
 
     return (
       <Animated.View layout={ROW_LAYOUT} entering={CARD_ENTERING}>
@@ -69,7 +164,7 @@ export default function ContactsScreen() {
           onPress={() => {
             void handleUserPress(item)
           }}
-          disabled={pendingUserId !== null}
+          disabled={isAnyConversationPending}
         >
           <View
             className="flex-row items-center rounded-[28px] border border-border-light bg-surface-card px-4 py-4"
@@ -81,7 +176,7 @@ export default function ContactsScreen() {
             <View className="relative mr-4">
               <View className="h-14 w-14 items-center justify-center rounded-full bg-surface-muted">
                 <Text className="font-heading text-lg text-text-primary">
-                  {item.firstName.charAt(0).toUpperCase()}
+                  {displayName.charAt(0).toUpperCase()}
                 </Text>
               </View>
 
@@ -95,7 +190,7 @@ export default function ContactsScreen() {
 
             <View className="flex-1">
               <Text className="font-heading text-md text-text-primary" numberOfLines={1}>
-                {item.firstName} {item.lastName}
+                {displayName}
               </Text>
               <Text className="mt-1 text-sm2 text-text-secondary" numberOfLines={1}>
                 {item.email}
@@ -106,7 +201,7 @@ export default function ContactsScreen() {
                   isOnline ? 'text-status-online' : 'text-text-muted',
                 )}
               >
-                {isOnline ? 'Available now' : 'Offline'}
+                {isOnline ? 'Available now' : 'Direct message ready'}
               </Text>
             </View>
 
@@ -128,7 +223,7 @@ export default function ContactsScreen() {
       <FlashList
         data={users}
         renderItem={renderItem}
-        keyExtractor={(item: UserSession, index: number) => item?.id || index.toString()}
+        keyExtractor={(item: DirectoryUser, index: number) => item?.id || index.toString()}
         estimatedItemSize={106}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -183,6 +278,58 @@ export default function ContactsScreen() {
 
             <Animated.View entering={CARD_ENTERING.delay(40)} className="px-4 pt-4">
               <View
+                className="rounded-[28px] border border-border-light bg-surface-card px-5 py-5"
+                style={{
+                  borderCurve: 'continuous',
+                  boxShadow: '0 12px 24px rgba(93, 74, 53, 0.06)',
+                }}
+              >
+                <Text className="text-xs2 uppercase tracking-[1.2px] text-text-muted">
+                  Start by email
+                </Text>
+                <Text className="mt-2 font-heading text-xl text-text-primary">
+                  Create a direct conversation instantly
+                </Text>
+                <Text className="mt-2 text-base2 leading-6 text-text-secondary">
+                  Enter a teammate&apos;s email and we&apos;ll open the existing chat or create a
+                  new one for you.
+                </Text>
+
+                <View className="mt-5 flex-row items-center rounded-full border border-border-light bg-surface-input px-4 py-3">
+                  <MaterialIcons name="alternate-email" size={20} color="#9B958C" />
+                  <TextInput
+                    className="ml-3 flex-1 text-base text-text-primary"
+                    value={emailInput}
+                    onChangeText={setEmailInput}
+                    placeholder="teammate@company.com"
+                    placeholderTextColor="#9B958C"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="email-address"
+                    onSubmitEditing={handleCreateByEmail}
+                  />
+                </View>
+
+                <Pressable
+                  className="mt-4 items-center justify-center rounded-full bg-brand px-4 py-3.5"
+                  onPress={handleCreateByEmail}
+                  disabled={isAnyConversationPending || normalizedEmailInput.length === 0}
+                  style={{
+                    opacity:
+                      isAnyConversationPending || normalizedEmailInput.length === 0 ? 0.6 : 1,
+                  }}
+                >
+                  {isEmailConversationPending ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Text className="font-medium text-white">Start conversation</Text>
+                  )}
+                </Pressable>
+              </View>
+            </Animated.View>
+
+            <Animated.View entering={CARD_ENTERING.delay(80)} className="px-4 pt-4">
+              <View
                 className="rounded-[28px] border border-border-light bg-surface-card px-4 py-4"
                 style={{
                   borderCurve: 'continuous',
@@ -195,18 +342,20 @@ export default function ContactsScreen() {
                     className="ml-3 flex-1 text-base text-text-primary"
                     value={search}
                     onChangeText={setSearch}
-                    placeholder="Search teammates"
+                    placeholder="Search directory by email"
                     placeholderTextColor="#9B958C"
+                    autoCapitalize="none"
+                    autoCorrect={false}
                   />
                 </View>
               </View>
             </Animated.View>
 
             <Animated.View
-              entering={CARD_ENTERING.delay(80)}
+              entering={CARD_ENTERING.delay(120)}
               className="flex-row items-center justify-between px-4 pt-6 pb-3"
             >
-              <Text className="font-heading text-lg text-text-primary">All people</Text>
+              <Text className="font-heading text-lg text-text-primary">Workspace directory</Text>
               <Text className="text-xs2 uppercase tracking-[1.3px] text-text-muted">
                 {users.length} results
               </Text>

@@ -37,6 +37,20 @@ interface ChatState {
   clearCache: () => void
 }
 
+const isActiveOptimisticMessage = (message: Message) => {
+  return message.status === 'FAILED' || message.id.startsWith('temp-')
+}
+
+const pruneOptimisticMessages = (optimisticMessages: Record<string, Message[]>) => {
+  return Object.fromEntries(
+    Object.entries(optimisticMessages).flatMap(([conversationId, messages]) => {
+      const activeMessages = messages.filter(isActiveOptimisticMessage)
+
+      return activeMessages.length > 0 ? [[conversationId, activeMessages] as const] : []
+    }),
+  )
+}
+
 export const useChatStore = create<ChatState>()(
   persist(
     (set, get) => ({
@@ -96,31 +110,25 @@ export const useChatStore = create<ChatState>()(
         set((state) => {
           const conversationId = currentMessage.conversationId
           const msgs = state.optimisticMessages[conversationId] || []
+          const nextMessages = msgs.filter((message) => message.id !== tempId)
+
+          if (nextMessages.length === msgs.length) {
+            return state
+          }
+
+          if (nextMessages.length === 0) {
+            const nextOptimisticMessages = { ...state.optimisticMessages }
+            delete nextOptimisticMessages[conversationId]
+
+            return {
+              optimisticMessages: nextOptimisticMessages,
+            }
+          }
 
           return {
             optimisticMessages: {
               ...state.optimisticMessages,
-              [conversationId]: msgs.map((m) => {
-                if (m.id === tempId) {
-                  const optimisticPreview = m.replyPreview
-                  const optimisticReplyToId = m.replyToId
-                  const mergedMessage: Message = {
-                    ...currentMessage,
-                  }
-                  if (currentMessage.replyPreview) {
-                    mergedMessage.replyPreview = currentMessage.replyPreview
-                  } else if (optimisticPreview) {
-                    mergedMessage.replyPreview = optimisticPreview
-                  }
-                  if (currentMessage.replyToId) {
-                    mergedMessage.replyToId = currentMessage.replyToId
-                  } else if (optimisticReplyToId) {
-                    mergedMessage.replyToId = optimisticReplyToId
-                  }
-                  return mergedMessage
-                }
-                return m
-              }),
+              [conversationId]: nextMessages,
             },
           }
         }),
@@ -223,7 +231,7 @@ export const useChatStore = create<ChatState>()(
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
         offlineQueue: state.offlineQueue,
-        optimisticMessages: state.optimisticMessages,
+        optimisticMessages: pruneOptimisticMessages(state.optimisticMessages),
         botConversationIds: Array.from(state.botConversationIds),
       }),
       merge: (persistedState, currentState) => {
@@ -231,6 +239,9 @@ export const useChatStore = create<ChatState>()(
         return {
           ...currentState,
           ...persisted,
+          optimisticMessages: pruneOptimisticMessages(
+            (persisted.optimisticMessages as Record<string, Message[]>) || {},
+          ),
           botConversationIds: new Set<string>((persisted.botConversationIds as string[]) || []),
           onlineUsers: currentState.onlineUsers,
         }

@@ -2,16 +2,9 @@ import { MaterialIcons } from '@expo/vector-icons'
 import * as DocumentPicker from 'expo-document-picker'
 import * as Haptics from 'expo-haptics'
 import * as ImagePicker from 'expo-image-picker'
-import React, { memo, useCallback, useState } from 'react'
+import React, { memo, useCallback, useImperativeHandle, useRef, useState } from 'react'
 import { Alert, Text, TextInput, TouchableOpacity, View } from 'react-native'
-import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
-import Animated, {
-  FadeInDown,
-  FadeOut,
-  LinearTransition,
-  interpolate,
-  useAnimatedStyle,
-} from 'react-native-reanimated'
+import Animated, { FadeInDown, FadeOut } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import type { Message, ReplyPreviewData } from '../../types/conversation.types'
@@ -20,42 +13,60 @@ interface MessageInputProps {
   onSend: (text: string, replyToId?: string) => void
   onSendMedia?: (uri: string, type: 'image' | 'file', fileInfo: unknown) => void
   onChangeText?: (text: string) => void
+  onFocusChange?: (focused: boolean) => void
   replyTo?: Message | null
   onCancelReply?: () => void
 }
 
-const COMPOSER_LAYOUT = LinearTransition.springify().damping(18).stiffness(180)
+export interface MessageInputHandle {
+  blur: () => void
+  focus: () => void
+}
 
-const MessageInputComponent = function MessageInput({
-  onSend,
-  onSendMedia,
-  onChangeText,
-  replyTo,
-  onCancelReply,
-}: MessageInputProps) {
+const MessageInputComponent = function MessageInput(
+  { onSend, onSendMedia, onChangeText, onFocusChange, replyTo, onCancelReply }: MessageInputProps,
+  ref: React.ForwardedRef<MessageInputHandle>,
+) {
   const [text, setText] = useState('')
-  const [isFocused, setIsFocused] = useState(false)
   const insets = useSafeAreaInsets()
-  const { progress } = useReanimatedKeyboardAnimation()
+  const inputRef = useRef<TextInput>(null)
+  const pressActionRef = useRef<'send' | 'attach' | null>(null)
+  const sendLockRef = useRef(false)
 
-  const containerStyle = useAnimatedStyle(
+  useImperativeHandle(
+    ref,
     () => ({
-      paddingBottom: interpolate(progress.value, [0, 1], [Math.max(insets.bottom, 8), 8]),
+      blur: () => inputRef.current?.blur(),
+      focus: () => inputRef.current?.focus(),
     }),
-    [insets.bottom, progress],
+    [],
   )
 
   const handleSend = useCallback(() => {
-    if (text.trim()) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-      onSend(text.trim(), replyTo?.id)
-      setText('')
+    const message = text.trim()
 
-      if (onCancelReply) {
-        onCancelReply()
-      }
+    if (!message || sendLockRef.current) return
+
+    sendLockRef.current = true
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    onSend(message, replyTo?.id)
+    setText('')
+
+    onChangeText?.('')
+
+    if (onCancelReply) {
+      onCancelReply()
     }
-  }, [onCancelReply, onSend, replyTo?.id, text])
+
+    requestAnimationFrame(() => {
+      inputRef.current?.focus()
+    })
+
+    setTimeout(() => {
+      sendLockRef.current = false
+    }, 300)
+  }, [onCancelReply, onChangeText, onSend, replyTo?.id, text])
 
   const handleTextChange = (value: string) => {
     setText(value)
@@ -114,15 +125,14 @@ const MessageInputComponent = function MessageInput({
         : replyTo?.content
 
   return (
-    <Animated.View
+    <View
       className="border-t border-border-light bg-bg-primary px-3 pt-2"
-      style={containerStyle}
+      style={{ paddingBottom: Math.max(insets.bottom, 8) }}
     >
       {replyTo ? (
         <Animated.View
           entering={FadeInDown.duration(180)}
           exiting={FadeOut.duration(120)}
-          layout={COMPOSER_LAYOUT}
           className="mb-2 flex-row items-center rounded-[14px] bg-surface-input px-3 py-2.5"
         >
           <View className="mr-3 h-full w-1 rounded-full bg-brand" />
@@ -146,6 +156,7 @@ const MessageInputComponent = function MessageInput({
       <View className="flex-row items-end gap-2">
         <View className="flex-1 flex-row items-end rounded-[18px] bg-surface-input px-4 py-1">
           <TextInput
+            ref={inputRef}
             className="min-h-[20px] flex-1 py-2 text-md text-text-primary"
             value={text}
             onChangeText={handleTextChange}
@@ -153,8 +164,8 @@ const MessageInputComponent = function MessageInput({
             placeholderTextColor="#A6A6A6"
             multiline
             maxLength={1000}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
+            onBlur={() => onFocusChange?.(false)}
+            onFocus={() => onFocusChange?.(true)}
           />
 
           <TouchableOpacity
@@ -170,8 +181,26 @@ const MessageInputComponent = function MessageInput({
 
         <TouchableOpacity
           className="h-12 w-12 items-center justify-center rounded-[16px] bg-surface-input"
-          onPress={hasText ? handleSend : handleAttachImage}
-          onLongPress={hasText ? undefined : handleAttachFile}
+          onPressIn={() => {
+            pressActionRef.current = hasText ? 'send' : 'attach'
+
+            if (hasText) {
+              handleSend()
+            }
+          }}
+          onPress={() => {
+            if (pressActionRef.current === 'attach') {
+              handleAttachImage()
+            }
+
+            pressActionRef.current = null
+          }}
+          onLongPress={() => {
+            if (!hasText) {
+              pressActionRef.current = null
+              handleAttachFile()
+            }
+          }}
           activeOpacity={0.8}
         >
           <MaterialIcons
@@ -181,8 +210,8 @@ const MessageInputComponent = function MessageInput({
           />
         </TouchableOpacity>
       </View>
-    </Animated.View>
+    </View>
   )
 }
 
-export const MessageInput = memo(MessageInputComponent)
+export const MessageInput = memo(React.forwardRef(MessageInputComponent))
