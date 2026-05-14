@@ -886,8 +886,8 @@ export default function ChatScreen() {
             ListEmptyComponent={isInitialMessagesLoading ? <MessageListLoadingState /> : null}
             showsVerticalScrollIndicator={false}
             removeClippedSubviews={true}
-            initialNumToRender={12}
-            maxToRenderPerBatch={6}
+            initialNumToRender={8}
+            maxToRenderPerBatch={5}
             windowSize={7}
             updateCellsBatchingPeriod={80}
             onScrollToIndexFailed={(info) => {
