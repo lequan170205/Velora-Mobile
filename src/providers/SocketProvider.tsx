@@ -148,10 +148,17 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     })
 
     const upsertMessageQuery = (message: Message) => {
+      const queryKey = queryKeys.conversations.messages(message.conversationId)
+      const hasExistingMessageQuery = queryClient.getQueryState(queryKey) !== undefined
+
       queryClient.setQueryData<InfiniteData<Message[]> | Message[] | undefined>(
-        queryKeys.conversations.messages(message.conversationId),
+        queryKey,
         (oldData) => {
           if (!oldData) {
+            if (!hasExistingMessageQuery) {
+              return oldData
+            }
+
             return {
               pages: [[message]],
               pageParams: [undefined],
