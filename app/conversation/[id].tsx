@@ -167,10 +167,13 @@ export default function ChatScreen() {
 
   const listRef = useRef<FlatList>(null)
   const [showScrollButton, setShowScrollButton] = useState(false)
+  const [isScrollLocked, setIsScrollLocked] = useState(false)
   const typingTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const replyHighlightTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const highlightResetTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
+  const scrollUnlockTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const pendingReplyTargetIdRef = useRef<string | null>(null)
+  const hasCompletedInitialScrollRef = useRef(false)
   const keyboardHeightRef = useRef(0)
   const listViewportHeightRef = useRef(0)
   const [isTransitioning, setIsTransitioning] = useState(true)
@@ -240,6 +243,10 @@ export default function ChatScreen() {
 
       if (messagesToConfirm.length > 0) {
         messagesToConfirm.forEach((msg) => {
+          if (!msg.clientMessageId) {
+            return
+          }
+
           confirmMessage(msg.clientMessageId, msg)
           dequeueOfflineMessage(msg.clientMessageId)
         })
@@ -250,6 +257,18 @@ export default function ChatScreen() {
 
   const prevFirstMessageId = useRef(allMessages[0]?.id)
   const messageInputGap = 12
+
+  const lockScrollTemporarily = useCallback((durationMs = 550) => {
+    if (scrollUnlockTimeoutRef.current) {
+      clearTimeout(scrollUnlockTimeoutRef.current)
+    }
+
+    setIsScrollLocked(true)
+    scrollUnlockTimeoutRef.current = setTimeout(() => {
+      scrollUnlockTimeoutRef.current = null
+      setIsScrollLocked(false)
+    }, durationMs)
+  }, [])
 
   const activeTypers = typingUsers[id as string] || []
   const isOtherUserTyping = activeTypers.some((typerId) => typerId !== user?.id)
@@ -311,6 +330,25 @@ export default function ChatScreen() {
   const scrollToBottom = useCallback(() => {
     listRef.current?.scrollToOffset({ offset: 0, animated: true })
   }, [])
+
+  const syncInitialScrollToBottom = useCallback(() => {
+    if (hasCompletedInitialScrollRef.current || allMessages.length === 0) {
+      return
+    }
+
+    hasCompletedInitialScrollRef.current = true
+    lockScrollTemporarily()
+
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToOffset({ offset: 0, animated: false })
+    })
+  }, [allMessages.length, lockScrollTemporarily])
+
+  useEffect(() => {
+    if (!isInitialMessagesLoading && allMessages.length > 0) {
+      syncInitialScrollToBottom()
+    }
+  }, [allMessages.length, isInitialMessagesLoading, syncInitialScrollToBottom])
 
   useEffect(() => {
     const currentFirstMessageId = allMessages[0]?.id
@@ -575,6 +613,11 @@ export default function ChatScreen() {
         clearTimeout(highlightResetTimeoutRef.current)
         highlightResetTimeoutRef.current = null
       }
+
+      if (scrollUnlockTimeoutRef.current) {
+        clearTimeout(scrollUnlockTimeoutRef.current)
+        scrollUnlockTimeoutRef.current = null
+      }
     }
   }, [socket, id])
 
@@ -715,11 +758,26 @@ export default function ChatScreen() {
             onEndReachedThreshold={0.5}
             onScroll={handleScroll}
             scrollEventThrottle={16}
+            scrollEnabled={!isScrollLocked}
             inverted
             keyboardShouldPersistTaps="handled"
             contentInsetAdjustmentBehavior="automatic"
             onContentSizeChange={() => {
-              if (!showScrollButton && allMessages.length > 0) {
+              if (allMessages.length === 0) {
+                return
+              }
+
+              if (!hasCompletedInitialScrollRef.current) {
+                syncInitialScrollToBottom()
+                return
+              }
+
+              if (isScrollLocked) {
+                listRef.current?.scrollToOffset({ offset: 0, animated: false })
+                return
+              }
+
+              if (!showScrollButton) {
                 scrollToBottom()
               }
             }}
@@ -744,7 +802,7 @@ export default function ChatScreen() {
                 listRef.current?.scrollToIndex({
                   index: info.index,
                   animated: true,
-                  viewPosition: computeViewPosition(),
+                  viewPosition: replyScrollViewPosition,
                 })
                 if (targetMessageId) {
                   scheduleMessageHighlight(targetMessageId)

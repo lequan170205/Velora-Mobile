@@ -1,8 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useIsFocused } from '@react-navigation/native'
 import { useQueryClient } from '@tanstack/react-query'
-import { useRouter } from 'expo-router'
-import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -18,9 +17,14 @@ import Animated, { FadeInDown } from 'react-native-reanimated'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { ConversationItem } from '../../src/components/chat/ConversationItem'
+import { SafeTouchableOpacity } from '../../src/components/common/SafeTouchableOpacity'
 import { useBotChat } from '../../src/hooks/useBotChat'
+import { useConversationNavigation } from '../../src/hooks/useConversationNavigation'
 import { useConversations } from '../../src/hooks/useConversations'
-import { prefetchMessages } from '../../src/hooks/useMessages'
+import {
+  MESSAGE_CACHE_WARMUP_LIMIT,
+  prefetchMessagesForConversations,
+} from '../../src/hooks/useMessages'
 import { getNextConversationPreviewRefreshAt } from '../../src/lib/conversationPreviewTime'
 import { useAuthStore } from '../../src/stores/authStore'
 
@@ -62,25 +66,29 @@ function useMatches(conversations: Conversation[] | undefined): MatchSummary[] {
 }
 
 export default function ConversationsScreen() {
-  const router = useRouter()
   const queryClient = useQueryClient()
   const isFocused = useIsFocused()
   const { data: conversations, isLoading, isError, refetch } = useConversations()
-  const { mutate: startBotChat, isPending: isBotLoading } = useBotChat()
+  const { mutateAsync: startBotChat, isPending: isBotLoading } = useBotChat()
+  const { openConversation, prefetchConversation, runConversationEntry } =
+    useConversationNavigation()
 
   const matches = useMatches(conversations)
 
   const [searchQuery, setSearchQuery] = useState('')
   const deferredSearchQuery = useDeferredValue(searchQuery)
   const [relativeTimeTick, setRelativeTimeTick] = useState(() => Date.now())
+  const warmedConversationSignatureRef = useRef('')
 
-  const handleBotChat = () => {
-    startBotChat(undefined, {
-      onError: () => {
+  const handleBotChat = useCallback(() => {
+    void runConversationEntry('bot-conversation', async () => {
+      try {
+        await startBotChat()
+      } catch {
         Alert.alert('Error', 'Could not open bot conversation. Please try again.')
-      },
+      }
     })
-  }
+  }, [runConversationEntry, startBotChat])
 
   const filteredConversations = useMemo(() => {
     if (!conversations) return []
@@ -101,6 +109,29 @@ export default function ConversationsScreen() {
       return otherName.toLowerCase().includes(normalizedQuery)
     })
   }, [conversations, deferredSearchQuery])
+
+  const warmConversationIds = useMemo(() => {
+    if (!conversations?.length) {
+      return []
+    }
+
+    return conversations.slice(0, MESSAGE_CACHE_WARMUP_LIMIT).map((conversation) => conversation.id)
+  }, [conversations])
+
+  useEffect(() => {
+    if (!warmConversationIds.length) {
+      warmedConversationSignatureRef.current = ''
+      return
+    }
+
+    const signature = warmConversationIds.join(':')
+    if (warmedConversationSignatureRef.current === signature) {
+      return
+    }
+
+    warmedConversationSignatureRef.current = signature
+    void prefetchMessagesForConversations(queryClient, warmConversationIds)
+  }, [queryClient, warmConversationIds])
 
   useEffect(() => {
     if (!isFocused) {
@@ -236,13 +267,13 @@ export default function ConversationsScreen() {
                   contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 14, gap: 16 }}
                 >
                   {matches.map((match) => (
-                    <TouchableOpacity
+                    <SafeTouchableOpacity
                       key={match.id}
                       className="items-center"
                       style={{ width: 68 }}
-                      onPress={() => router.push(`/conversation/${match.conversationId}`)}
+                      onPress={() => openConversation(match.conversationId)}
                       onPressIn={() => {
-                        void prefetchMessages(queryClient, match.conversationId)
+                        prefetchConversation(match.conversationId)
                       }}
                       activeOpacity={0.8}
                     >
@@ -265,7 +296,7 @@ export default function ConversationsScreen() {
                       >
                         {match.name}
                       </Text>
-                    </TouchableOpacity>
+                    </SafeTouchableOpacity>
                   ))}
                 </ScrollView>
               </Animated.View>

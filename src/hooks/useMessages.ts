@@ -35,6 +35,7 @@ interface SendMessageVariables {
 
 export const MESSAGE_QUERY_STALE_TIME_MS = 60 * 1000
 export const MESSAGE_QUERY_GC_TIME_MS = 15 * 60 * 1000
+export const MESSAGE_CACHE_WARMUP_LIMIT = 4
 
 export const getMessagesInfiniteQueryOptions = (conversationId: string) => ({
   queryKey: queryKeys.conversations.messages(conversationId),
@@ -66,6 +67,17 @@ export const prefetchMessages = async (queryClient: QueryClient, conversationId:
   }
 
   await queryClient.prefetchInfiniteQuery(getMessagesInfiniteQueryOptions(conversationId))
+}
+
+export const prefetchMessagesForConversations = async (
+  queryClient: QueryClient,
+  conversationIds: string[],
+) => {
+  const uniqueConversationIds = Array.from(new Set(conversationIds.filter(Boolean)))
+
+  await Promise.allSettled(
+    uniqueConversationIds.map((conversationId) => prefetchMessages(queryClient, conversationId)),
+  )
 }
 
 export function useMessages(conversationId: string) {

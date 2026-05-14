@@ -1,5 +1,3 @@
-import { useQueryClient } from '@tanstack/react-query'
-import { useRouter } from 'expo-router'
 import React, { memo, useCallback } from 'react'
 import { Image, Text, View } from 'react-native'
 import Animated, {
@@ -12,7 +10,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 
-import { prefetchMessages } from '../../hooks/useMessages'
+import { useConversationNavigation } from '../../hooks/useConversationNavigation'
 import { formatConversationPreviewAge } from '../../lib/conversationPreviewTime'
 import { useAuthStore } from '../../stores/authStore'
 import { useChatStore } from '../../stores/chatStore'
@@ -58,8 +56,7 @@ const ConversationItemComponent = function ConversationItem({
   conversation: Conversation
   relativeTimeTick: number
 }) {
-  const router = useRouter()
-  const queryClient = useQueryClient()
+  const { openConversation, prefetchConversation } = useConversationNavigation()
   const { user } = useAuthStore()
   const onlineUsers = useChatStore((state) => state.onlineUsers)
   const userId = user?.id
@@ -110,9 +107,9 @@ const ConversationItemComponent = function ConversationItem({
     <Animated.View entering={SECTION_ENTERING}>
       <SafeTouchableOpacity
         className="border-b border-border-light px-5 py-3.5"
-        onPress={() => router.push(`/conversation/${conversation.id}`)}
+        onPress={() => openConversation(conversation.id)}
         onPressIn={() => {
-          void prefetchMessages(queryClient, conversation.id)
+          prefetchConversation(conversation.id)
         }}
         activeOpacity={0.75}
       >
