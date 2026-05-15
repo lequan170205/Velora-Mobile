@@ -20,6 +20,61 @@ import { useReelDetail, useReelsFeed } from '../../src/hooks/useReels'
 
 import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent } from 'react-native'
 
+function ReelsLoadingSkeleton({
+  headerTop,
+  viewportHeight,
+}: {
+  headerTop: number
+  viewportHeight: number
+}) {
+  return (
+    <View className="flex-1 bg-[#050505]">
+      <StatusBar style="light" />
+
+      <View
+        pointerEvents="none"
+        className="absolute inset-x-0 top-0 z-10 px-5"
+        style={{ paddingTop: headerTop }}
+      >
+        <View className="flex-row items-center justify-between">
+          <View>
+            <Text className="text-xs2 uppercase tracking-[1.4px] text-white">Velora</Text>
+            <Text className="mt-2 font-heading text-[30px] text-white">Reels</Text>
+          </View>
+
+          <View className="h-14 w-14 items-center justify-center">
+            <MaterialIcons name="add" size={30} color="rgba(255,255,255,0.34)" />
+          </View>
+        </View>
+      </View>
+
+      <View className="flex-1 bg-[#090909]" style={{ height: viewportHeight }}>
+        <View className="absolute inset-0 bg-white/[0.02]" />
+
+        <View pointerEvents="none" className="absolute right-4" style={{ bottom: 124 }}>
+          <View className="items-center">
+            <View className="mb-4 h-11 w-11 rounded-full bg-white/16" />
+            <View className="mb-4 h-11 w-11 rounded-full bg-white/12" />
+            <View className="mb-4 h-11 w-11 rounded-full bg-white/10" />
+          </View>
+        </View>
+
+        <View pointerEvents="none" className="absolute inset-x-0 px-4" style={{ bottom: 56 }}>
+          <View className="max-w-[82%]">
+            <View className="h-6 w-44 rounded-full bg-white/18" />
+            <View className="mt-3 h-4 w-full rounded-full bg-white/12" />
+            <View className="mt-2 h-4 w-[86%] rounded-full bg-white/10" />
+            <View className="mt-2 h-4 w-[62%] rounded-full bg-white/10" />
+            <View className="mt-3 h-3 w-16 rounded-full bg-white/12" />
+          </View>
+        </View>
+
+        <View pointerEvents="none" className="absolute inset-x-0 bottom-0 h-[2px] bg-white/18" />
+      </View>
+    </View>
+  )
+}
+
 export default function ReelsScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
@@ -94,45 +149,7 @@ export default function ReelsScreen() {
   }
 
   if (isPending) {
-    return (
-      <View className="flex-1 bg-[#050505]">
-        <StatusBar style="light" />
-
-        <View
-          pointerEvents="box-none"
-          className="absolute inset-x-0 top-0 z-10 px-5"
-          style={{ paddingTop: insets.top + 18 }}
-        >
-          <View className="flex-row items-center justify-between">
-            <View>
-              <Text className="text-xs2 uppercase tracking-[1.4px] text-white">Velora</Text>
-              <Text className="mt-2 font-heading text-[30px] text-white">Reels</Text>
-            </View>
-
-            <View className="h-14 w-14 items-center justify-center">
-              <MaterialIcons name="add" size={30} color="rgba(255,255,255,0.34)" />
-            </View>
-          </View>
-        </View>
-
-        <View className="flex-1">
-          <View className="flex-1 bg-[#0B0B0B]" />
-
-          <View
-            pointerEvents="none"
-            className="absolute inset-x-0 px-4"
-            style={{ bottom: Math.max(tabBarHeight, 44) }}
-          >
-            <View className="max-w-[78%]">
-              <View className="h-5 w-40 rounded-full bg-white/18" />
-              <View className="mt-3 h-4 w-full rounded-full bg-white/12" />
-              <View className="mt-2 h-4 w-[84%] rounded-full bg-white/10" />
-              <View className="mt-3 h-3 w-16 rounded-full bg-white/12" />
-            </View>
-          </View>
-        </View>
-      </View>
-    )
+    return <ReelsLoadingSkeleton headerTop={insets.top + 18} viewportHeight={viewportHeight} />
   }
 
   if (isError) {
