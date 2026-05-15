@@ -26,6 +26,7 @@ import {
   prefetchMessagesForConversations,
 } from '../../src/hooks/useMessages'
 import { getNextConversationPreviewRefreshAt } from '../../src/lib/conversationPreviewTime'
+import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
 
 import type { ChatParticipant, Conversation } from '../../src/types/conversation.types'
@@ -70,6 +71,7 @@ export default function ConversationsScreen() {
   const isFocused = useIsFocused()
   const { data: conversations, isLoading, isError, refetch } = useConversations()
   const { mutateAsync: startBotChat, isPending: isBotLoading } = useBotChat()
+  const { isConnected, requestPresence } = useSocket()
   const { openConversation, prefetchConversation, runConversationEntry } =
     useConversationNavigation()
 
@@ -118,6 +120,24 @@ export default function ConversationsScreen() {
     return conversations.slice(0, MESSAGE_CACHE_WARMUP_LIMIT).map((conversation) => conversation.id)
   }, [conversations])
 
+  const presenceUserIds = useMemo(() => {
+    if (!conversations?.length) {
+      return []
+    }
+
+    return conversations.flatMap((conversation) => {
+      if (conversation.isGroup) {
+        return []
+      }
+
+      const otherParticipant = conversation.participants?.find(
+        (participant: ChatParticipant) => participant.id !== useAuthStore.getState().user?.id,
+      )
+
+      return otherParticipant?.id ? [otherParticipant.id] : []
+    })
+  }, [conversations])
+
   useEffect(() => {
     if (!warmConversationIds.length) {
       warmedConversationSignatureRef.current = ''
@@ -132,6 +152,14 @@ export default function ConversationsScreen() {
     warmedConversationSignatureRef.current = signature
     void prefetchMessagesForConversations(queryClient, warmConversationIds)
   }, [queryClient, warmConversationIds])
+
+  useEffect(() => {
+    if (!isConnected || presenceUserIds.length === 0) {
+      return
+    }
+
+    requestPresence(presenceUserIds)
+  }, [isConnected, presenceUserIds, requestPresence])
 
   useEffect(() => {
     if (!isFocused) {
