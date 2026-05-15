@@ -19,9 +19,13 @@ export default function ActiveCallScreen() {
 
   useEffect(() => {
     if (!isActive) {
-      router.canGoBack() ? router.back() : router.replace('/')
+      if (router.canGoBack()) {
+        router.back()
+      } else {
+        router.replace('/')
+      }
     }
-  }, [isActive])
+  }, [isActive, router])
 
   const handleEndCall = () => {
     endCall()

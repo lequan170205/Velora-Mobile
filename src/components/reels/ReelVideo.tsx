@@ -27,10 +27,10 @@ export interface ReelVideoHandle {
 }
 
 export interface ReelVideoProgress {
-  bufferedPosition?: number
+  bufferedPosition?: number | undefined
   currentTime: number
   duration: number
-  isBuffering?: boolean
+  isBuffering?: boolean | undefined
 }
 
 interface ExpoVideoModule {
@@ -111,8 +111,8 @@ interface ExpoAvModule {
     posterSource?: { uri: string }
     useNativeControls?: boolean
     onPlaybackStatusUpdate?: (status: PlaybackStatus) => void
-    onReadyForDisplay?: () => void
-    onError?: () => void
+    onReadyForDisplay?: (() => void) | undefined
+    onError?: (() => void) | undefined
     style?: StyleProp<ViewStyle>
   }>
   ResizeMode: {

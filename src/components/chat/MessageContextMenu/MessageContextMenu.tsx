@@ -133,10 +133,6 @@ function MessageContextMenuInner({
   const [isPickerExpanded, setIsPickerExpanded] = useState(false)
   const tokens = getMessageContextMenuTokens(theme)
   const slideDirection = isOwn ? 1 : -1
-  const androidBlurProps =
-    Platform.OS === 'android'
-      ? { blurReductionFactor: 6, experimentalBlurMethod: 'dimezisBlurView' as const }
-      : {}
 
   const menuProgress = useSharedValue(0)
   const pickerTranslateY = useSharedValue(screenH)

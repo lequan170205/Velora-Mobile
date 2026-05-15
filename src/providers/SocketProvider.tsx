@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 
 import type { InfiniteData } from '@tanstack/react-query'
@@ -26,18 +26,21 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user, isLoading } = useAuthStore()
   const { setTyping, setUserOnline, markMessagesAsSeen, setMessageAsSeen } = useChatStore()
   const queryClient = useQueryClient()
+  const userId = user?.id ?? null
 
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
+  const socketRef = useRef<Socket | null>(null)
 
   useEffect(() => {
     if (isLoading) {
       return
     }
 
-    if (!isAuthenticated || !user) {
-      if (socket) {
-        socket.disconnect()
+    if (!isAuthenticated || !userId) {
+      if (socketRef.current) {
+        socketRef.current.disconnect()
+        socketRef.current = null
         setSocket(null)
       }
       return
@@ -51,8 +54,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           .then(({ accessToken }) => {
             cb({ token: accessToken })
           })
-          .catch((error: unknown) => {
-            console.warn('Unable to fetch socket token', error)
+          .catch(() => {
             cb({})
           })
       },
@@ -84,7 +86,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     newSocket.on('connect', () => {
       setIsConnected(true)
-      console.log('🔌 Socket connected!')
 
       const queue = useChatStore.getState().offlineQueue
       queue.forEach((msg) => {
@@ -114,16 +115,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       setIsConnected(false)
       useChatStore.setState({ typingUsers: {} })
       joinedConversationIds.clear()
-      console.log('🔌 Socket disconnected!')
     })
 
-    newSocket.on('connect_error', (error) => {
+    newSocket.on('connect_error', () => {
       setIsConnected(false)
-      console.error('🔌 Socket connection error:', {
-        message: error.message,
-        url: process.env.EXPO_PUBLIC_WS_URL || 'http://localhost:3000',
-        path: '/socket.io',
-      })
     })
 
     const unsubscribeQueryCache = queryClient.getQueryCache().subscribe((event) => {
@@ -364,7 +359,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       const isPendingEcho =
         String((message as { status?: string }).status || '').toLowerCase() === 'sending'
 
-      console.log('🚨 [DEBUG SOCKET] Nhận tin nhắn mới:', message)
       upsertConversationSummary(
         {
           id: conversationId,
@@ -396,8 +390,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     })
 
     newSocket.on('conversation_updated', (conversation: Conversation) => {
-      console.log('📬 [DEBUG] conversation_updated received:', conversation)
-
       if (!conversation?.id) return
       upsertConversationSummary(conversation, { allowPlaceholder: true })
     })
@@ -416,7 +408,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       )
       upsertMessageQuery(message)
 
-      if (user?.id && message.senderId === user.id) {
+      if (userId && message.senderId === userId) {
         const store = useChatStore.getState()
         if (message.clientMessageId) {
           store.confirmMessage(message.clientMessageId, message)
@@ -545,8 +537,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
         if (!messageIds.length) return
 
-        console.log('📝 reply_previews_updated received:', messageIds)
-
         const store = useChatStore.getState()
         if (store.optimisticMessages) {
           let hasChanges = false
@@ -650,9 +640,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     })
 
     newSocket.on('messages_seen', ({ conversationId, readByUserId, at }) => {
-      console.log('👁️ messages_seen received:', { conversationId, readByUserId, at })
-
-      const currentUserId = user?.id
+      const currentUserId = userId
       if (!currentUserId) return
 
       markMessagesAsSeen(conversationId, readByUserId)
@@ -714,14 +702,28 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     newSocket.on('call:incoming', (_payload) => {})
 
+    socketRef.current = newSocket
     setSocket(newSocket)
 
     return () => {
       unsubscribeQueryCache()
       newSocket.removeAllListeners()
       newSocket.disconnect()
+
+      if (socketRef.current === newSocket) {
+        socketRef.current = null
+      }
     }
-  }, [isAuthenticated, user?.id, isLoading])
+  }, [
+    isAuthenticated,
+    isLoading,
+    markMessagesAsSeen,
+    queryClient,
+    setMessageAsSeen,
+    setTyping,
+    setUserOnline,
+    userId,
+  ])
 
   return <SocketContext.Provider value={{ socket, isConnected }}>{children}</SocketContext.Provider>
 }

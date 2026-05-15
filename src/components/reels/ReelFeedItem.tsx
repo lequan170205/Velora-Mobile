@@ -9,11 +9,11 @@ import { scheduleOnRN } from 'react-native-worklets'
 
 import { ReelVideo } from './ReelVideo'
 
-import type { ReelVideoHandle } from './ReelVideo'
+import type { ReelVideoHandle, ReelVideoProgress } from './ReelVideo'
 import type { Reel } from '../../types/reel.types'
 
 interface ReelFeedItemProps {
-  description?: string
+  description?: string | undefined
   reel: Reel
   height: number
   isActive: boolean
@@ -130,11 +130,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
     bufferedPosition: nextBufferedPosition,
     currentTime,
     duration,
-  }: {
-    bufferedPosition?: number
-    currentTime: number
-    duration: number
-  }) => {
+  }: ReelVideoProgress) => {
     setPlaybackPosition(currentTime)
 
     if (duration > 0) {

@@ -293,7 +293,7 @@ export function useRemoveReaction() {
             return (oldData as Message[]).map((msg: Message) => {
               if (msg.id === messageId) {
                 const reactionsMap = msg.reactions || {}
-                const { [user.id]: removed, ...remainingReactions } = reactionsMap
+                const { [user.id]: _removed, ...remainingReactions } = reactionsMap
                 return {
                   ...msg,
                   reactions: remainingReactions,

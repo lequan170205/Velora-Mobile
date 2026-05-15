@@ -75,7 +75,6 @@ export function HashtagCaptionInput({
         multiline
         scrollEnabled
         selectionColor="#FF6B2C"
-        caretColor="#161616"
         textAlignVertical="top"
         value={value}
         onChangeText={onChangeText}

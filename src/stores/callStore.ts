@@ -24,7 +24,8 @@ export const useCallStore = create<CallState>((set, get) => ({
   timerInterval: null,
 
   startCall: (id, name, isVideo, avatar) => {
-    if (get().timerInterval) clearInterval(get().timerInterval!)
+    const currentInterval = get().timerInterval
+    if (currentInterval) clearInterval(currentInterval)
 
     const interval = setInterval(() => {
       get().tick()
@@ -42,7 +43,8 @@ export const useCallStore = create<CallState>((set, get) => ({
   },
 
   endCall: () => {
-    if (get().timerInterval) clearInterval(get().timerInterval!)
+    const currentInterval = get().timerInterval
+    if (currentInterval) clearInterval(currentInterval)
     set({ isActive: false, callId: null, duration: 0, timerInterval: null })
   },
 
