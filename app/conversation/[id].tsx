@@ -19,16 +19,12 @@ import {
 } from 'react-native'
 import {
   KeyboardController,
-  KeyboardStickyView,
-  useKeyboardState,
   useReanimatedKeyboardAnimation,
 } from 'react-native-keyboard-controller'
 import Animated, {
   FadeIn,
   FadeOut,
-  useAnimatedReaction,
   useAnimatedStyle,
-  type SharedValue,
   useSharedValue,
   withDelay,
   withRepeat,
@@ -37,7 +33,6 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { scheduleOnRN } from 'react-native-worklets'
 
 import {
   MessageBubble,
@@ -178,32 +173,6 @@ const TypingIndicator = ({ displayName }: { displayName: string }) => {
   )
 }
 
-const KeyboardListSpacer = ({
-  baseHeight,
-  isKeyboardSpaceEnabled,
-  preservedKeyboardHeight,
-}: {
-  baseHeight: number
-  isKeyboardSpaceEnabled: boolean
-  preservedKeyboardHeight: SharedValue<number>
-}) => {
-  const { height } = useReanimatedKeyboardAnimation()
-
-  const style = useAnimatedStyle(
-    () => ({
-      height:
-        baseHeight +
-        Math.max(
-          preservedKeyboardHeight.value,
-          isKeyboardSpaceEnabled ? Math.max(0, -height.value) : 0,
-        ),
-    }),
-    [baseHeight, height, isKeyboardSpaceEnabled, preservedKeyboardHeight],
-  )
-
-  return <Animated.View pointerEvents="none" style={style} />
-}
-
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const conversationId = id as string
@@ -246,19 +215,24 @@ export default function ChatScreen() {
     token: number
   } | null>(null)
   const [activeContextMenu, setActiveContextMenu] = useState<ActiveContextMenuState | null>(null)
-  const keyboardVisible = useKeyboardState((state) => state.isVisible)
-  const keyboardHeight = useKeyboardState((state) => state.height)
 
   const listRef = useRef<FlashListRef<RenderableMessage>>(null)
   const messageInputRef = useRef<MessageInputHandle>(null)
   const [isComposerFocused, setIsComposerFocused] = useState(false)
   const isScrollButtonVisible = useSharedValue(false)
   const isNearBottomRef = useRef(true)
-  const shouldPinLatestMessagesRef = useRef(false)
-  const isComposerFocusedShared = useSharedValue(false)
-  const shouldPinLatestMessagesShared = useSharedValue(false)
-  const lastKeyboardPinnedHeight = useSharedValue(0)
+  const preservedKeyboardOffset = useSharedValue(0)
 
+  const { height: keyboardHeight } = useReanimatedKeyboardAnimation()
+
+  const keyboardWrapperStyle = useAnimatedStyle(() => {
+    const liveKeyboardOffset = Math.abs(keyboardHeight.value)
+    const frozenOffset = preservedKeyboardOffset.value
+
+    return {
+      transform: [{ translateY: -Math.max(liveKeyboardOffset, frozenOffset) }],
+    }
+  })
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const offsetY = Math.max(0, event.nativeEvent.contentOffset.y)
@@ -266,35 +240,24 @@ export default function ChatScreen() {
       const isNearBottom = !shouldShowScrollButton
       isNearBottomRef.current = isNearBottom
 
-      if (isComposerFocusedRef.current) {
-        shouldPinLatestMessagesRef.current = isNearBottom
-        shouldPinLatestMessagesShared.value = isNearBottom
-      }
-
       if (shouldShowScrollButton !== isScrollButtonVisible.value) {
         isScrollButtonVisible.value = shouldShowScrollButton
       }
     },
-    [isScrollButtonVisible, shouldPinLatestMessagesShared],
+    [isScrollButtonVisible],
   )
 
   const scrollButtonStyle = useAnimatedStyle(() => {
     return {
       opacity: withTiming(isScrollButtonVisible.value ? 1 : 0, { duration: 200 }),
       transform: [{ scale: withTiming(isScrollButtonVisible.value ? 1 : 0.8, { duration: 200 }) }],
-      // Tắt pointerEvents khi ẩn để không chặn thao tác chạm
-      pointerEvents: isScrollButtonVisible.value ? 'auto' : 'none',
     }
   })
   const typingTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const replyHighlightTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const highlightResetTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
-  const focusPinTimeoutRefs = useRef<(NodeJS.Timeout | number)[]>([])
-  const focusPinRunIdRef = useRef(0)
   const isComposerFocusedRef = useRef(false)
   const shouldRestoreComposerFocusRef = useRef(false)
-  const preservedKeyboardHeight = useSharedValue(0)
-  const { height: keyboardAnimatedHeight } = useReanimatedKeyboardAnimation()
 
   const serverMessages = useMemo(() => {
     return (data?.pages.flat() as Message[]) || EMPTY_MESSAGES
@@ -420,51 +383,16 @@ export default function ChatScreen() {
 
   useEffect(() => {
     isNearBottomRef.current = true
-    shouldPinLatestMessagesRef.current = false
-    shouldPinLatestMessagesShared.value = false
-    lastKeyboardPinnedHeight.value = 0
     isScrollButtonVisible.value = false
-  }, [
-    conversationId,
-    isScrollButtonVisible,
-    lastKeyboardPinnedHeight,
-    shouldPinLatestMessagesShared,
-  ])
+  }, [conversationId, isScrollButtonVisible])
 
   const isOtherUserTyping = activeTypers.some((typerId) => typerId !== user?.id)
   const isInitialMessagesLoading = isLoading && allMessages.length === 0
   const getReplyScrollViewPosition = useCallback(() => 0.72, [])
 
-  useEffect(() => {
-    if (isComposerFocused && keyboardVisible && keyboardHeight > 0) {
-      shouldRestoreComposerFocusRef.current = false
-      preservedKeyboardHeight.value = 0
-      return
-    }
-
-    if (!keyboardVisible) {
-      if (!shouldRestoreComposerFocusRef.current) {
-        preservedKeyboardHeight.value = 0
-      }
-
-      if (!isComposerFocused) {
-        shouldPinLatestMessagesRef.current = false
-        shouldPinLatestMessagesShared.value = false
-        isComposerFocusedShared.value = false
-      }
-    }
-  }, [
-    isComposerFocused,
-    isComposerFocusedShared,
-    keyboardHeight,
-    keyboardVisible,
-    preservedKeyboardHeight,
-    shouldPinLatestMessagesShared,
-  ])
-
   const prepareContextMenuKeyboardPreservation = useCallback(() => {
     const state = KeyboardController.state()
-    const activeKeyboardHeight = state.height || 0
+    const activeKeyboardHeight = Math.abs(state.height || 0)
     const isVisible = KeyboardController.isVisible()
 
     const shouldPreserveKeyboardSpace =
@@ -472,35 +400,48 @@ export default function ChatScreen() {
 
     if (!shouldPreserveKeyboardSpace || activeKeyboardHeight <= 0) {
       shouldRestoreComposerFocusRef.current = false
-      preservedKeyboardHeight.value = 0
+      preservedKeyboardOffset.value = 0
       return false
     }
 
     shouldRestoreComposerFocusRef.current = true
-    preservedKeyboardHeight.value = activeKeyboardHeight
-    messageInputRef.current?.blur()
-    void KeyboardController.dismiss()
+    preservedKeyboardOffset.value = activeKeyboardHeight
+
     return true
-  }, [preservedKeyboardHeight])
+  }, [preservedKeyboardOffset])
+
+  const releasePreservedKeyboardOffset = useCallback(() => {
+    preservedKeyboardOffset.value = withTiming(0, { duration: 160 })
+  }, [preservedKeyboardOffset])
 
   const handleContextMenuClose = useCallback(() => {
     if (!shouldRestoreComposerFocusRef.current) {
-      preservedKeyboardHeight.value = 0
+      releasePreservedKeyboardOffset()
       return
     }
 
     requestAnimationFrame(() => {
       messageInputRef.current?.focus()
+
+      setTimeout(() => {
+        shouldRestoreComposerFocusRef.current = false
+        releasePreservedKeyboardOffset()
+      }, 280)
     })
-  }, [preservedKeyboardHeight])
+  }, [releasePreservedKeyboardOffset])
 
   const handleOpenContextMenu = useCallback(
     (payload: MessageBubbleContextMenuPayload) => {
+      const shouldDismissKeyboard = prepareContextMenuKeyboardPreservation()
+
       setActiveContextMenu(payload)
 
-      requestAnimationFrame(() => {
-        prepareContextMenuKeyboardPreservation()
-      })
+      if (shouldDismissKeyboard) {
+        requestAnimationFrame(() => {
+          messageInputRef.current?.blur()
+          void KeyboardController.dismiss()
+        })
+      }
     },
     [prepareContextMenuKeyboardPreservation],
   )
@@ -558,113 +499,31 @@ export default function ChatScreen() {
     listRef.current?.scrollToOffset({ offset: 0, animated: false })
   }, [])
 
-  const clearPendingFocusPins = useCallback(() => {
-    focusPinTimeoutRefs.current.forEach((timeoutId) => {
-      clearTimeout(timeoutId)
-    })
-    focusPinTimeoutRefs.current = []
-  }, [])
-
-  const scheduleFocusPin = useCallback(() => {
-    clearPendingFocusPins()
-    const runId = ++focusPinRunIdRef.current
-
-    const pinIfStillRelevant = () => {
-      if (
-        focusPinRunIdRef.current !== runId ||
-        !isComposerFocusedRef.current ||
-        !shouldPinLatestMessagesRef.current
-      ) {
-        return
-      }
-
-      scrollToBottomImmediate()
-    }
-
-    pinIfStillRelevant()
-
-    requestAnimationFrame(() => {
-      pinIfStillRelevant()
-
-      requestAnimationFrame(() => {
-        pinIfStillRelevant()
-      })
-    })
-    ;[48, 120, 220].forEach((delay) => {
-      const timeoutId = setTimeout(() => {
-        pinIfStillRelevant()
-      }, delay)
-      focusPinTimeoutRefs.current.push(timeoutId)
-    })
-  }, [clearPendingFocusPins, scrollToBottomImmediate])
-
   const handleComposerFocusChange = useCallback(
     (focused: boolean) => {
-      const shouldPinLatestMessages = focused ? isNearBottomRef.current : false
-
-      if (!focused) {
-        focusPinRunIdRef.current += 1
-        clearPendingFocusPins()
-      }
-
-      shouldPinLatestMessagesRef.current = shouldPinLatestMessages
-      shouldPinLatestMessagesShared.value = shouldPinLatestMessages
       isComposerFocusedRef.current = focused
-      isComposerFocusedShared.value = focused
       setIsComposerFocused(focused)
 
-      if (focused && shouldPinLatestMessages) {
-        scheduleFocusPin()
-      }
-    },
-    [
-      clearPendingFocusPins,
-      isComposerFocusedShared,
-      scheduleFocusPin,
-      shouldPinLatestMessagesShared,
-    ],
-  )
-
-  useAnimatedReaction(
-    () => ({
-      keyboardHeight: Math.round(Math.max(0, -keyboardAnimatedHeight.value)),
-      isComposerFocused: isComposerFocusedShared.value,
-      shouldPinLatestMessages: shouldPinLatestMessagesShared.value,
-    }),
-    (current) => {
-      if (!current.isComposerFocused || !current.shouldPinLatestMessages) {
-        lastKeyboardPinnedHeight.value = 0
+      if (focused) {
+        if (!shouldRestoreComposerFocusRef.current) {
+          preservedKeyboardOffset.value = 0
+        }
         return
       }
 
-      if (current.keyboardHeight <= 0) {
-        lastKeyboardPinnedHeight.value = 0
-        return
-      }
-
-      if (
-        lastKeyboardPinnedHeight.value === 0 ||
-        Math.abs(current.keyboardHeight - lastKeyboardPinnedHeight.value) >= 32
-      ) {
-        lastKeyboardPinnedHeight.value = current.keyboardHeight
-        scheduleOnRN(scrollToBottomImmediate)
+      if (!shouldRestoreComposerFocusRef.current) {
+        preservedKeyboardOffset.value = withTiming(0, { duration: 120 })
       }
     },
-    [
-      isComposerFocusedShared,
-      keyboardAnimatedHeight,
-      lastKeyboardPinnedHeight,
-      scrollToBottomImmediate,
-      shouldPinLatestMessagesShared,
-    ],
+    [preservedKeyboardOffset],
   )
 
   const dismissComposer = useCallback(() => {
     shouldRestoreComposerFocusRef.current = false
-    preservedKeyboardHeight.value = 0
+    preservedKeyboardOffset.value = withTiming(0, { duration: 120 })
     messageInputRef.current?.blur()
     void KeyboardController.dismiss()
-  }, [preservedKeyboardHeight])
+  }, [preservedKeyboardOffset])
 
   const loadOlderMessages = useCallback(() => {
     if (!hasNextPage || isInitialMessagesLoading || isFetchingNextPage) {
@@ -677,8 +536,8 @@ export default function ChatScreen() {
   useEffect(() => {
     setActiveContextMenu(null)
     shouldRestoreComposerFocusRef.current = false
-    preservedKeyboardHeight.value = 0
-  }, [conversationId, preservedKeyboardHeight])
+    preservedKeyboardOffset.value = 0
+  }, [conversationId, preservedKeyboardOffset])
 
   useEffect(() => {
     if (newestMessageId && newestMessageId !== prevNewestMessageId.current) {
@@ -961,7 +820,6 @@ export default function ChatScreen() {
 
   useEffect(() => {
     return () => {
-      clearPendingFocusPins()
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
       if (socket?.connected) socket.emit('typing_stop', conversationId)
       if (replyHighlightTimeoutRef.current) clearTimeout(replyHighlightTimeoutRef.current)
@@ -973,7 +831,7 @@ export default function ChatScreen() {
         trimMessagesCache(queryClient, conversationId)
       }, 300)
     }
-  }, [clearPendingFocusPins, queryClient, socket, conversationId])
+  }, [queryClient, socket, conversationId])
 
   const renderItem = useCallback(
     ({ item }: ListRenderItemInfo<RenderableMessage>) => {
@@ -1001,7 +859,7 @@ export default function ChatScreen() {
             isGroupedBottom={isGroupedBottom}
             highlightToken={highlightedMessage?.id === item.id ? highlightedMessage.token : 0}
             isExpanded={expandedMessageId === item.id}
-            isContextMenuActive={activeContextMenuMessageId === item.id}
+            isContextMenuActive={false}
             onToggleDetails={() => handleToggleDetails(item.id)}
             onPressReplyPreview={() => handleScrollToMessage(item.replyToId)}
             onReply={() => handleReply(item)}
@@ -1121,118 +979,116 @@ export default function ChatScreen() {
           ) : null}
         </View>
 
-        <View className="flex-1">
-          {isFetchingNextPage && !isInitialMessagesLoading ? (
-            <Animated.View
-              style={[
-                loadingIndicatorStyle,
-                {
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  zIndex: 20,
-                  alignItems: 'center',
-                },
-              ]}
-              pointerEvents="none"
-            >
-              {Platform.OS === 'android' ? (
-                <View
-                  className="flex-row items-center justify-center rounded-full bg-surface-card px-3.5 py-2 border border-border-light"
-                  style={{ elevation: 4 }}
+        <View style={{ flex: 1, overflow: 'hidden', backgroundColor: 'transparent' }}>
+          <Animated.View style={[{ flex: 1 }, keyboardWrapperStyle]}>
+            <View className="flex-1">
+              {isFetchingNextPage && !isInitialMessagesLoading ? (
+                <Animated.View
+                  style={[
+                    loadingIndicatorStyle,
+                    {
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      zIndex: 20,
+                      alignItems: 'center',
+                    },
+                  ]}
+                  pointerEvents="none"
                 >
-                  <ActivityIndicator size="small" color="#FF6B2C" />
-                </View>
-              ) : (
-                <View
-                  style={{
-                    borderRadius: 24,
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.12,
-                    shadowRadius: 12,
-                  }}
-                >
-                  <View style={{ borderRadius: 24, overflow: 'hidden' }}>
-                    <BlurView
-                      intensity={65}
-                      tint={isDark ? 'dark' : 'light'}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        paddingHorizontal: 14,
-                        paddingVertical: 8,
-                        backgroundColor: isDark
-                          ? 'rgba(30, 30, 30, 0.4)'
-                          : 'rgba(255, 255, 255, 0.4)',
-                      }}
+                  {Platform.OS === 'android' ? (
+                    <View
+                      className="flex-row items-center justify-center rounded-full bg-surface-card px-3.5 py-2 border border-border-light"
+                      style={{ elevation: 4 }}
                     >
                       <ActivityIndicator size="small" color="#FF6B2C" />
-                    </BlurView>
-                  </View>
-                </View>
-              )}
-            </Animated.View>
-          ) : null}
-          <FlashList
-            ref={listRef}
-            inverted
-            data={allMessages}
-            extraData={`${expandedMessageId ?? ''}:${highlightedMessage?.id ?? ''}:${highlightedMessage?.token ?? 0}:${activeContextMenuMessageId ?? ''}`}
-            renderItem={renderItem}
-            keyExtractor={(item: RenderableMessage, index: number) =>
-              item?.id ? item.id.toString() : `fallback-${index}`
-            }
-            getItemType={getItemType}
-            onEndReached={loadOlderMessages}
-            onEndReachedThreshold={0.2}
-            onScroll={handleScroll}
-            scrollEventThrottle={16}
-            keyboardDismissMode="none"
-            keyboardShouldPersistTaps="handled"
-            contentInsetAdjustmentBehavior="automatic"
-            ListHeaderComponent={
-              <View>
-                {isOtherUserTyping ? <TypingIndicator displayName={displayName} /> : null}
-                <KeyboardListSpacer
-                  baseHeight={0}
-                  isKeyboardSpaceEnabled={isComposerFocused}
-                  preservedKeyboardHeight={preservedKeyboardHeight}
-                />
-              </View>
-            }
-            ListEmptyComponent={isInitialMessagesLoading ? <MessageListLoadingState /> : null}
-            showsVerticalScrollIndicator={false}
-            removeClippedSubviews={false}
-          />
-          <Animated.View className="absolute bottom-5 right-4 z-10" style={scrollButtonStyle}>
-            <TouchableOpacity
-              className="h-11 w-11 items-center justify-center rounded-full bg-surface-card border border-border-light"
-              onPress={scrollToBottom}
-              activeOpacity={0.8}
-              style={{
-                borderCurve: 'continuous',
-                boxShadow: '0 14px 26px rgba(93, 74, 53, 0.12)',
-              }}
-            >
-              <MaterialIcons name="keyboard-arrow-down" size={24} color="#161514" />
-            </TouchableOpacity>
-          </Animated.View>
-        </View>
+                    </View>
+                  ) : (
+                    <View
+                      style={{
+                        borderRadius: 24,
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 4 },
+                        shadowOpacity: 0.12,
+                        shadowRadius: 12,
+                      }}
+                    >
+                      <View style={{ borderRadius: 24, overflow: 'hidden' }}>
+                        <BlurView
+                          intensity={65}
+                          tint={isDark ? 'dark' : 'light'}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            paddingHorizontal: 14,
+                            paddingVertical: 8,
+                            backgroundColor: isDark
+                              ? 'rgba(30, 30, 30, 0.4)'
+                              : 'rgba(255, 255, 255, 0.4)',
+                          }}
+                        >
+                          <ActivityIndicator size="small" color="#FF6B2C" />
+                        </BlurView>
+                      </View>
+                    </View>
+                  )}
+                </Animated.View>
+              ) : null}
+              <FlashList
+                ref={listRef}
+                inverted
+                data={allMessages}
+                extraData={`${expandedMessageId ?? ''}:${highlightedMessage?.id ?? ''}:${highlightedMessage?.token ?? 0}`}
+                renderItem={renderItem}
+                keyExtractor={(item: RenderableMessage, index: number) =>
+                  item?.id ? item.id.toString() : `fallback-${index}`
+                }
+                getItemType={getItemType}
+                onEndReached={loadOlderMessages}
+                onEndReachedThreshold={0.2}
+                onScroll={handleScroll}
+                scrollEventThrottle={16}
+                keyboardDismissMode="none"
+                keyboardShouldPersistTaps="handled"
+                ListHeaderComponent={
+                  isOtherUserTyping ? <TypingIndicator displayName={displayName} /> : null
+                }
+                ListEmptyComponent={isInitialMessagesLoading ? <MessageListLoadingState /> : null}
+                showsVerticalScrollIndicator={false}
+                removeClippedSubviews={false}
+              />
+              <Animated.View
+                className="absolute bottom-5 right-4 z-10"
+                style={scrollButtonStyle}
+                pointerEvents="box-none"
+              >
+                <TouchableOpacity
+                  className="h-11 w-11 items-center justify-center rounded-full bg-surface-card border border-border-light"
+                  onPress={scrollToBottom}
+                  activeOpacity={0.8}
+                  style={{
+                    borderCurve: 'continuous',
+                    boxShadow: '0 14px 26px rgba(93, 74, 53, 0.12)',
+                  }}
+                >
+                  <MaterialIcons name="keyboard-arrow-down" size={24} color="#161514" />
+                </TouchableOpacity>
+              </Animated.View>
+            </View>
 
-        <View>
-          <KeyboardStickyView offset={{ closed: 0, opened: 0 }}>
-            <MessageInput
-              ref={messageInputRef}
-              onSend={handleSendText}
-              onSendMedia={handleSendMedia}
-              onChangeText={handleTyping}
-              onFocusChange={handleComposerFocusChange}
-              replyTo={replyToMessage}
-              onCancelReply={handleCancelReply}
-            />
-          </KeyboardStickyView>
+            <View>
+              <MessageInput
+                ref={messageInputRef}
+                onSend={handleSendText}
+                onSendMedia={handleSendMedia}
+                onChangeText={handleTyping}
+                onFocusChange={handleComposerFocusChange}
+                replyTo={replyToMessage}
+                onCancelReply={handleCancelReply}
+              />
+            </View>
+          </Animated.View>
         </View>
 
         <MessageContextMenu

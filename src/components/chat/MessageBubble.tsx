@@ -246,8 +246,8 @@ const MessageBubbleComponent = function MessageBubble({
   }))
 
   const bubbleHighlightWrapStyle = useAnimatedStyle(() => {
-    const menuScale = interpolate(menuOpeningProgress.value, [0, 1], [1, 1.05])
-    const menuTranslateY = interpolate(menuOpeningProgress.value, [0, 1], [0, -4])
+    const menuScale = interpolate(menuOpeningProgress.value, [0, 1], [1, 1.015])
+    const menuTranslateY = interpolate(menuOpeningProgress.value, [0, 1], [0, -1])
 
     const highlightScale = interpolate(highlightProgress.value, [0, 1], [1, 1.048])
     const highlightTranslateY = interpolate(highlightProgress.value, [0, 1], [0, -2])
