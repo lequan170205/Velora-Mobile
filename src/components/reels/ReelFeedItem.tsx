@@ -108,6 +108,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const [isScrubberVisible, setIsScrubberVisible] = useState(false)
   const [isScrubbing, setIsScrubbing] = useState(false)
   const [isSeekFeedbackPending, setIsSeekFeedbackPending] = useState(false)
+  const [isSettlingAfterScrub, setIsSettlingAfterScrub] = useState(false)
   const [hasPlaybackError, setHasPlaybackError] = useState(false)
   const [playbackPosition, setPlaybackPosition] = useState(0)
   const [scrubPosition, setScrubPosition] = useState(0)
@@ -117,8 +118,12 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const metaLine = format(new Date(reel.createdAt), 'MMM d')
   const showPausedControls =
     isPausedByUser && !isScrubbing && isActive && playbackState.isPlayable && !hasPlaybackError
-  const showScrubber =
-    (isScrubberVisible || isSeekFeedbackPending) && durationSeconds > 0 && isActive
+  const showScrubber = isScrubberVisible && durationSeconds > 0 && isActive
+  const showLoadingRail =
+    (isSettlingAfterScrub || isSeekFeedbackPending) &&
+    !isScrubbing &&
+    durationSeconds > 0 &&
+    isActive
   const shouldRenderVideo = playbackState.isPlayable && (isActive || shouldPreload)
   const effectivePosition = isScrubbing ? scrubPosition : playbackPosition
   const bufferedRatio = durationSeconds > 0 ? clamp(bufferedPosition / durationSeconds, 0, 1) : 0
@@ -141,16 +146,19 @@ const ReelFeedItemComponent = function ReelFeedItem({
       setBufferedPosition(nextBufferedPosition)
     }
 
+    const isTargetBuffered =
+      pendingSeekTargetRef.current === null ||
+      typeof nextBufferedPosition !== 'number' ||
+      nextBufferedPosition >= pendingSeekTargetRef.current - 0.2
+
     if (
       pendingSeekTargetRef.current !== null &&
-      Math.abs(currentTime - pendingSeekTargetRef.current) < 0.45
+      Math.abs(currentTime - pendingSeekTargetRef.current) < 0.45 &&
+      isTargetBuffered
     ) {
       pendingSeekTargetRef.current = null
       setIsSeekFeedbackPending(false)
-
-      if (!isScrubbing) {
-        setIsScrubberVisible(false)
-      }
+      setIsSettlingAfterScrub(false)
     }
   }
 
@@ -176,6 +184,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
       }
 
       resumeAfterScrubRef.current = !isPausedByUser
+      setIsSettlingAfterScrub(false)
       setIsPausedByUser(true)
       setIsScrubberVisible(true)
       setIsScrubbing(true)
@@ -197,13 +206,11 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
   const finishScrub = useCallback(() => {
     setIsScrubbing(false)
+    setIsScrubberVisible(false)
+    setIsSettlingAfterScrub(pendingSeekTargetRef.current !== null)
 
     if (resumeAfterScrubRef.current) {
       setIsPausedByUser(false)
-    }
-
-    if (pendingSeekTargetRef.current === null) {
-      setIsScrubberVisible(false)
     }
   }, [])
 
@@ -241,6 +248,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
     setIsScrubberVisible(false)
     setIsScrubbing(false)
     setIsSeekFeedbackPending(false)
+    setIsSettlingAfterScrub(false)
     setPlaybackPosition(0)
     setScrubPosition(0)
   }, [reel.id])
@@ -254,6 +262,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
       setIsScrubberVisible(false)
       setIsScrubbing(false)
       setIsSeekFeedbackPending(false)
+      setIsSettlingAfterScrub(false)
       return
     }
 
@@ -277,7 +286,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
             loop
             muted={isMuted}
             contentFit="cover"
-            resetOnPause
+            resetOnPause={!isActive}
             onReady={() => {
               setIsReady(true)
             }}
@@ -347,6 +356,31 @@ const ReelFeedItemComponent = function ReelFeedItem({
                     style={{ width: `${progressRatio * 100}%` }}
                   />
                 </View>
+
+                {showLoadingRail ? (
+                  <View className="absolute inset-x-0 bottom-0 rounded-full bg-black/62 px-3 py-2.5">
+                    <View className="h-[3px] overflow-hidden rounded-full bg-white/28">
+                      <View
+                        className="absolute inset-y-0 left-0 bg-white/45"
+                        style={{ width: `${bufferedRatio * 100}%` }}
+                      />
+                      <View
+                        className="absolute inset-y-0 left-0 bg-white"
+                        style={{ width: `${progressRatio * 100}%` }}
+                      />
+                    </View>
+
+                    <View className="mt-2 flex-row items-center justify-between">
+                      <Text className="text-xs2 text-white">
+                        {formatPlaybackTime(playbackPosition)}
+                      </Text>
+                      <View className="flex-row items-center">
+                        <View className="mr-2 h-2 w-2 rounded-full bg-white/72" />
+                        <Text className="text-xs2 text-white">Loading</Text>
+                      </View>
+                    </View>
+                  </View>
+                ) : null}
 
                 {showScrubber ? (
                   <View className="absolute inset-x-0 bottom-0 rounded-full bg-black/58 px-3 py-3">
