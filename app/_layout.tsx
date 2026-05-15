@@ -104,6 +104,7 @@ export default function RootLayout() {
                       <Stack.Screen name="(tabs)" />
                       <Stack.Screen name="(auth)" />
                       <Stack.Screen name="conversation/[id]" />
+                      <Stack.Screen name="reels/create" options={{ presentation: 'modal' }} />
                       <Stack.Screen
                         name="call/[id]"
                         options={{ presentation: 'fullScreenModal' }}

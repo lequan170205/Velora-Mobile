@@ -34,7 +34,6 @@ const MessageInputComponent = function MessageInput({
   onCancelReply,
 }: MessageInputProps) {
   const [text, setText] = useState('')
-  const [isFocused, setIsFocused] = useState(false)
   const insets = useSafeAreaInsets()
   const { progress } = useReanimatedKeyboardAnimation()
 
@@ -75,7 +74,7 @@ const MessageInputComponent = function MessageInput({
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: false,
         quality: 0.8,
       })
@@ -153,8 +152,6 @@ const MessageInputComponent = function MessageInput({
             placeholderTextColor="#A6A6A6"
             multiline
             maxLength={1000}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
           />
 
           <TouchableOpacity

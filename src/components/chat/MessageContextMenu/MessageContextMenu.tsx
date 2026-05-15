@@ -1,5 +1,4 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import { BlurView } from 'expo-blur'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import React, { useState } from 'react'
@@ -315,10 +314,13 @@ export function MessageContextMenu({
       onRequestClose={close}
     >
       <Animated.View style={[StyleSheet.absoluteFillObject, backdropStyle]}>
-        <BlurView
-          intensity={22}
-          tint={theme.dark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
+        <View
+          style={[
+            StyleSheet.absoluteFillObject,
+            {
+              backgroundColor: theme.dark ? 'rgba(12, 12, 12, 0.28)' : 'rgba(255, 255, 255, 0.32)',
+            },
+          ]}
         />
         <Pressable
           style={[StyleSheet.absoluteFillObject, { backgroundColor: tokens.backdrop }]}
