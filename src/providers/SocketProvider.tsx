@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { io } from 'socket.io-client'
 
 import type { InfiniteData } from '@tanstack/react-query'
@@ -16,30 +16,62 @@ import type { Socket } from 'socket.io-client'
 interface SocketContextType {
   socket: Socket | null
   isConnected: boolean
+  requestPresence: (userIds: string[], options?: { conversationId?: string }) => void
 }
 
-const SocketContext = createContext<SocketContextType>({ socket: null, isConnected: false })
+const SocketContext = createContext<SocketContextType>({
+  socket: null,
+  isConnected: false,
+  requestPresence: () => {},
+})
 
 export const useSocket = () => useContext(SocketContext)
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user, isLoading } = useAuthStore()
-  const { setTyping, setUserOnline, markMessagesAsSeen, setMessageAsSeen } = useChatStore()
   const queryClient = useQueryClient()
 
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
+
+  const requestPresence = useCallback(
+    (userIds: string[], options?: { conversationId?: string }) => {
+      if (!socket?.connected) {
+        return
+      }
+
+      const normalizedUserIds = Array.from(
+        new Set(
+          userIds
+            .filter((userId) => typeof userId === 'string' && userId.trim().length > 0)
+            .map((userId) => userId.trim())
+            .filter((userId) => userId !== user?.id),
+        ),
+      )
+
+      if (!normalizedUserIds.length) {
+        return
+      }
+
+      socket.emit('check_presence', {
+        userIds: normalizedUserIds,
+        ...(options?.conversationId ? { conversationId: options.conversationId } : {}),
+      })
+    },
+    [socket, user?.id],
+  )
 
   useEffect(() => {
     if (isLoading) {
       return
     }
 
-    if (!isAuthenticated || !user) {
-      if (socket) {
-        socket.disconnect()
-        setSocket(null)
-      }
+    if (!isAuthenticated || !user?.id) {
+      setSocket((currentSocket) => {
+        currentSocket?.disconnect()
+        return null
+      })
+      useChatStore.getState().clearOnlineUsers()
       return
     }
 
@@ -112,6 +144,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     newSocket.on('disconnect', () => {
       setIsConnected(false)
+      useChatStore.getState().clearOnlineUsers()
       useChatStore.setState({ typingUsers: {} })
       joinedConversationIds.clear()
       console.log('🔌 Socket disconnected!')
@@ -119,6 +152,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     newSocket.on('connect_error', (error) => {
       setIsConnected(false)
+      useChatStore.getState().clearOnlineUsers()
       console.error('🔌 Socket connection error:', {
         message: error.message,
         url: process.env.EXPO_PUBLIC_WS_URL || 'http://localhost:3000',
@@ -461,7 +495,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     )
 
     newSocket.on('user_typing', ({ conversationId, userId, isTyping }) => {
-      setTyping(conversationId, userId, isTyping)
+      useChatStore.getState().setTyping(conversationId, userId, isTyping)
     })
 
     newSocket.on('message:deleted', ({ conversationId }) => {
@@ -641,12 +675,20 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       })
     })
 
-    newSocket.on('user:online', ({ userId }) => {
-      setUserOnline(userId, true)
+    newSocket.on('user:online', ({ userId, lastSeenAt }) => {
+      useChatStore.getState().setUserOnline(userId, true, lastSeenAt)
     })
 
-    newSocket.on('user:offline', ({ userId }) => {
-      setUserOnline(userId, false)
+    newSocket.on('user:offline', ({ userId, lastSeenAt }) => {
+      useChatStore.getState().setUserOnline(userId, false, lastSeenAt)
+    })
+
+    newSocket.on('presence_update', ({ userId, isOnline, lastSeenAt }) => {
+      if (!userId) {
+        return
+      }
+
+      useChatStore.getState().setUserOnline(userId, Boolean(isOnline), lastSeenAt)
     })
 
     newSocket.on('messages_seen', ({ conversationId, readByUserId, at }) => {
@@ -655,7 +697,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       const currentUserId = user?.id
       if (!currentUserId) return
 
-      markMessagesAsSeen(conversationId, readByUserId)
+      useChatStore.getState().markMessagesAsSeen(conversationId, readByUserId)
 
       queryClient.setQueryData(
         queryKeys.conversations.messages(conversationId),
@@ -672,7 +714,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
                   if (msg.senderId === currentUserId && msg.status !== 'READ') {
                     const nextReadBy = Array.isArray(msg.readBy) ? msg.readBy : []
                     const alreadyMarked = nextReadBy.some((entry) => entry.userId === readByUserId)
-                    setMessageAsSeen(conversationId, msg.id)
+                    useChatStore.getState().setMessageAsSeen(conversationId, msg.id)
                     return {
                       ...msg,
                       status: 'READ',
@@ -693,7 +735,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
               if (msg.senderId === currentUserId && msg.status !== 'READ') {
                 const nextReadBy = Array.isArray(msg.readBy) ? msg.readBy : []
                 const alreadyMarked = nextReadBy.some((entry) => entry.userId === readByUserId)
-                setMessageAsSeen(conversationId, msg.id)
+                useChatStore.getState().setMessageAsSeen(conversationId, msg.id)
                 return {
                   ...msg,
                   status: 'READ',
@@ -721,7 +763,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       newSocket.removeAllListeners()
       newSocket.disconnect()
     }
-  }, [isAuthenticated, user?.id, isLoading])
+  }, [isAuthenticated, user?.id, isLoading, queryClient])
 
-  return <SocketContext.Provider value={{ socket, isConnected }}>{children}</SocketContext.Provider>
+  return (
+    <SocketContext.Provider value={{ socket, isConnected, requestPresence }}>
+      {children}
+    </SocketContext.Provider>
+  )
 }

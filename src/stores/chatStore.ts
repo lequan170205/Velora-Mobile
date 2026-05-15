@@ -15,6 +15,7 @@ interface ChatState {
   optimisticMessages: Record<string, Message[]>
   typingUsers: Record<string, string[]>
   onlineUsers: Set<string>
+  lastSeenByUserId: Record<string, string | null | undefined>
   offlineQueue: OfflineMessage[]
   replyToMessage: Message | null // Currently replying to message
   seenMessages: Record<string, Set<string>> // conversationId -> Set<messageId> da duoc read
@@ -25,7 +26,8 @@ interface ChatState {
   confirmMessage: (tempId: string, message: Message) => void
   markMessageFailed: (conversationId: string, tempId: string) => void
   setTyping: (conversationId: string, userId: string, isTyping: boolean) => void
-  setUserOnline: (userId: string, online: boolean) => void
+  setUserOnline: (userId: string, online: boolean, lastSeenAt?: string | null) => void
+  clearOnlineUsers: () => void
   enqueueOfflineMessage: (message: OfflineMessage) => void
   dequeueOfflineMessage: (id: string) => void
   markMessagesAsSeen: (conversationId: string, userId: string) => void
@@ -57,6 +59,7 @@ export const useChatStore = create<ChatState>()(
       optimisticMessages: {},
       typingUsers: {},
       onlineUsers: new Set(),
+      lastSeenByUserId: {},
       offlineQueue: [],
       replyToMessage: null,
       seenMessages: {},
@@ -161,16 +164,30 @@ export const useChatStore = create<ChatState>()(
           }
         }),
 
-      setUserOnline: (userId, online) =>
+      setUserOnline: (userId, online, lastSeenAt) =>
         set((state) => {
           const newOnline = new Set(state.onlineUsers)
+          const nextLastSeenByUserId = { ...state.lastSeenByUserId }
+
           if (online) {
             newOnline.add(userId)
+            delete nextLastSeenByUserId[userId]
           } else {
             newOnline.delete(userId)
+            if (lastSeenAt !== undefined) {
+              nextLastSeenByUserId[userId] = lastSeenAt
+            }
           }
-          return { onlineUsers: newOnline }
+          return {
+            onlineUsers: newOnline,
+            lastSeenByUserId: nextLastSeenByUserId,
+          }
         }),
+
+      clearOnlineUsers: () =>
+        set(() => ({
+          onlineUsers: new Set(),
+        })),
 
       enqueueOfflineMessage: (message) =>
         set((state) => ({

@@ -41,6 +41,7 @@ import {
   getMessageIdentityTokens,
   mergeMessageRecords,
 } from '../../src/lib/messageIdentity'
+import { formatLastSeenLabel } from '../../src/lib/presence'
 import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useChatStore } from '../../src/stores/chatStore'
@@ -208,10 +209,18 @@ export default function ChatScreen() {
   const setReplyToMessage = useChatStore((state) => state.setReplyToMessage)
   const confirmMessage = useChatStore((state) => state.confirmMessage)
   const dequeueOfflineMessage = useChatStore((state) => state.dequeueOfflineMessage)
+  const onlineUsers = useChatStore((state) => state.onlineUsers)
+  const lastSeenByUserId = useChatStore((state) => state.lastSeenByUserId)
+  const queuedMessageCount = useChatStore(
+    useCallback(
+      (state) =>
+        state.offlineQueue.filter((message) => message.conversationId === conversationId).length,
+      [conversationId],
+    ),
+  )
   const queryClient = useQueryClient()
 
-  const { socket } = useSocket()
-  const [isOnline, setIsOnline] = useState(false)
+  const { socket, isConnected, requestPresence } = useSocket()
 
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useMessages(conversationId)
@@ -246,6 +255,7 @@ export default function ChatScreen() {
   }, [data])
 
   const [transitionDone, setTransitionDone] = useState(false)
+  const [presenceTick, setPresenceTick] = useState(() => Date.now())
 
   useEffect(() => {
     const handle = InteractionManager.runAfterInteractions(() => {
@@ -506,24 +516,39 @@ export default function ChatScreen() {
     }
   }
 
+  const isOnline = otherUserId ? onlineUsers.has(otherUserId) : false
+  const lastSeenAt = otherUserId ? (lastSeenByUserId[otherUserId] ?? null) : null
+  const presenceLabel = !isConnected
+    ? 'Reconnecting…'
+    : isOnline
+      ? 'Online'
+      : formatLastSeenLabel(lastSeenAt, presenceTick)
+
   useEffect(() => {
     if (!transitionDone) return
-    if (!socket || !otherUserId || currentConversation?.isGroup) return
+    if (!isConnected || !otherUserId || currentConversation?.isGroup) return
 
-    socket.emit('check_presence', { userId: otherUserId })
+    requestPresence([otherUserId], { conversationId })
+  }, [
+    conversationId,
+    currentConversation?.isGroup,
+    isConnected,
+    otherUserId,
+    requestPresence,
+    transitionDone,
+  ])
 
-    const handlePresence = (data: { userId: string; isOnline: boolean }) => {
-      if (data.userId === otherUserId) {
-        setIsOnline(data.isOnline)
-      }
+  useEffect(() => {
+    if (isOnline || !lastSeenAt) {
+      return
     }
 
-    socket.on('presence_update', handlePresence)
+    const intervalId = setInterval(() => {
+      setPresenceTick(Date.now())
+    }, 60 * 1000)
 
-    return () => {
-      socket.off('presence_update', handlePresence)
-    }
-  }, [socket, otherUserId, currentConversation?.isGroup, transitionDone])
+    return () => clearInterval(intervalId)
+  }, [isOnline, lastSeenAt])
 
   const handleSendMedia = async (
     uri: string,
@@ -804,36 +829,54 @@ export default function ChatScreen() {
                   router.back()
                 })
               }}
-              className="flex-row items-center py-2 pr-3"
+              className="h-11 w-11 items-center justify-center"
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <MaterialIcons name="chevron-left" size={24} color="#161616" />
-              <Text className="-ml-1 text-md font-medium text-text-primary">Chat</Text>
             </TouchableOpacity>
 
-            <View className="flex-1 items-center px-4">
+            <View className="ml-1.5 relative">
+              {avatarUrl ? (
+                <Image source={{ uri: avatarUrl }} className="h-11 w-11 rounded-full" />
+              ) : (
+                <View className="h-11 w-11 items-center justify-center rounded-full bg-surface-input">
+                  <Text className="text-sm2 font-medium text-text-primary">
+                    {displayName.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+
+              {!currentConversation?.isGroup && isOnline ? (
+                <View className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-bg-primary bg-status-online" />
+              ) : null}
+            </View>
+
+            <View className="ml-3 flex-1 pr-4">
               <Text className="font-semibold text-md text-text-primary" numberOfLines={1}>
                 {displayName}
               </Text>
               {!currentConversation?.isGroup ? (
-                <Text className="mt-0.5 text-xs2 text-text-muted">
-                  {isOnline ? 'Online' : 'Offline'}
+                <Text className="mt-0.5 text-xs2 text-text-muted" numberOfLines={1}>
+                  {presenceLabel}
                 </Text>
               ) : (
                 <Text className="mt-0.5 text-xs2 text-text-muted">Team room</Text>
               )}
             </View>
-
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} className="h-11 w-11 rounded-full" />
-            ) : (
-              <View className="h-11 w-11 items-center justify-center rounded-full bg-surface-input">
-                <Text className="text-sm2 font-medium text-text-primary">
-                  {displayName.charAt(0).toUpperCase()}
-                </Text>
-              </View>
-            )}
           </View>
+
+          {!isConnected ? (
+            <View className="mt-3 rounded-[20px] border border-border-light bg-surface-accent px-4 py-3">
+              <Text className="text-xs2 uppercase tracking-[1.1px] text-brand">
+                Connection status
+              </Text>
+              <Text className="mt-1 text-sm2 leading-5 text-text-primary">
+                {queuedMessageCount > 0
+                  ? `${queuedMessageCount} message${queuedMessageCount > 1 ? 's are' : ' is'} waiting to send when chat reconnects.`
+                  : 'Chat is reconnecting. New messages will wait and send automatically.'}
+              </Text>
+            </View>
+          ) : null}
         </View>
 
         <View className="flex-1">
