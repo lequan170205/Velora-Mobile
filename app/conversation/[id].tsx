@@ -1,15 +1,20 @@
 import { MaterialIcons } from '@expo/vector-icons'
+import { FlashList, type FlashListRef, type ListRenderItemInfo } from '@shopify/flash-list'
 import { useQueryClient } from '@tanstack/react-query'
+import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
-  FlatList,
   Image,
   InteractionManager,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  Platform,
   Text,
   TouchableOpacity,
+  useColorScheme,
   View,
 } from 'react-native'
 import {
@@ -21,17 +26,24 @@ import {
 import Animated, {
   FadeIn,
   FadeOut,
+  useAnimatedReaction,
   useAnimatedStyle,
-  useSharedValue,
   type SharedValue,
+  useSharedValue,
   withDelay,
   withRepeat,
   withSequence,
   withTiming,
+  withSpring,
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { scheduleOnRN } from 'react-native-worklets'
 
-import { MessageBubble } from '../../src/components/chat/MessageBubble'
+import {
+  MessageBubble,
+  type MessageBubbleContextMenuPayload,
+} from '../../src/components/chat/MessageBubble'
+import { MessageContextMenu } from '../../src/components/chat/MessageContextMenu'
 import { MessageInput, type MessageInputHandle } from '../../src/components/chat/MessageInput'
 import { queryKeys } from '../../src/constants/queryKeys'
 import { useRecallMessage } from '../../src/hooks/useMessageActions'
@@ -47,7 +59,17 @@ import { useAuthStore } from '../../src/stores/authStore'
 import { useChatStore } from '../../src/stores/chatStore'
 
 import type { ChatParticipant, Conversation, Message } from '../../src/types/conversation.types'
-import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native'
+
+type RenderableMessage = Message & {
+  _layout: {
+    showDateSeparator: boolean
+    isGroupedTop: boolean
+    isGroupedBottom: boolean
+    showAvatar: boolean
+  }
+}
+
+type ActiveContextMenuState = MessageBubbleContextMenuPayload
 
 const formatSeparatorDate = (dateString: string) => {
   const date = new Date(dateString)
@@ -112,14 +134,6 @@ const MessageListLoadingState = () => {
       <LoadingBubble align="right" widthClassName="w-[44%]" />
       <LoadingBubble widthClassName="w-[66%]" />
       <LoadingBubble align="right" widthClassName="w-[52%]" />
-    </View>
-  )
-}
-
-const OlderMessagesLoadingIndicator = () => {
-  return (
-    <View className="items-center px-4 py-4">
-      <ActivityIndicator size="small" color="#FF6B2C" />
     </View>
   )
 }
@@ -226,29 +240,61 @@ export default function ChatScreen() {
     useMessages(conversationId)
   const { mutate: sendMessage } = useSendMessage(conversationId)
   const { mutate: recallMessage } = useRecallMessage(conversationId)
-  const keyboardVisible = useKeyboardState((state) => state.isVisible)
-  const keyboardHeight = useKeyboardState((state) => state.height)
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
   const [highlightedMessage, setHighlightedMessage] = useState<{
     id: string
     token: number
   } | null>(null)
+  const [activeContextMenu, setActiveContextMenu] = useState<ActiveContextMenuState | null>(null)
+  const keyboardVisible = useKeyboardState((state) => state.isVisible)
+  const keyboardHeight = useKeyboardState((state) => state.height)
 
-  const listRef = useRef<FlatList>(null)
+  const listRef = useRef<FlashListRef<RenderableMessage>>(null)
   const messageInputRef = useRef<MessageInputHandle>(null)
   const [isComposerFocused, setIsComposerFocused] = useState(false)
-  const [showScrollButton, setShowScrollButton] = useState(false)
-  const showScrollButtonRef = useRef(false)
-  const [isScrollLocked, setIsScrollLocked] = useState(false)
+  const isScrollButtonVisible = useSharedValue(false)
+  const isNearBottomRef = useRef(true)
+  const shouldPinLatestMessagesRef = useRef(false)
+  const isComposerFocusedShared = useSharedValue(false)
+  const shouldPinLatestMessagesShared = useSharedValue(false)
+  const lastKeyboardPinnedHeight = useSharedValue(0)
+
+  const handleScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const offsetY = Math.max(0, event.nativeEvent.contentOffset.y)
+      const shouldShowScrollButton = offsetY > 200
+      const isNearBottom = !shouldShowScrollButton
+      isNearBottomRef.current = isNearBottom
+
+      if (isComposerFocusedRef.current) {
+        shouldPinLatestMessagesRef.current = isNearBottom
+        shouldPinLatestMessagesShared.value = isNearBottom
+      }
+
+      if (shouldShowScrollButton !== isScrollButtonVisible.value) {
+        isScrollButtonVisible.value = shouldShowScrollButton
+      }
+    },
+    [isScrollButtonVisible, shouldPinLatestMessagesShared],
+  )
+
+  const scrollButtonStyle = useAnimatedStyle(() => {
+    return {
+      opacity: withTiming(isScrollButtonVisible.value ? 1 : 0, { duration: 200 }),
+      transform: [{ scale: withTiming(isScrollButtonVisible.value ? 1 : 0.8, { duration: 200 }) }],
+      // Tắt pointerEvents khi ẩn để không chặn thao tác chạm
+      pointerEvents: isScrollButtonVisible.value ? 'auto' : 'none',
+    }
+  })
   const typingTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const replyHighlightTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const highlightResetTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
-  const scrollUnlockTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
-  const pendingReplyTargetIdRef = useRef<string | null>(null)
-  const hasCompletedInitialScrollRef = useRef(false)
+  const focusPinTimeoutRefs = useRef<(NodeJS.Timeout | number)[]>([])
+  const focusPinRunIdRef = useRef(0)
   const isComposerFocusedRef = useRef(false)
   const shouldRestoreComposerFocusRef = useRef(false)
   const preservedKeyboardHeight = useSharedValue(0)
+  const { height: keyboardAnimatedHeight } = useReanimatedKeyboardAnimation()
 
   const serverMessages = useMemo(() => {
     return (data?.pages.flat() as Message[]) || EMPTY_MESSAGES
@@ -264,15 +310,14 @@ export default function ChatScreen() {
     return () => handle.cancel()
   }, [])
 
-  const allMessages = useMemo(() => {
+  const allMessages = useMemo<RenderableMessage[]>(() => {
     const serverIdentityTokens = new Set(
-      serverMessages.flatMap((message: Message) => getMessageIdentityTokens(message)),
+      serverMessages.flatMap((message) => getMessageIdentityTokens(message)),
     )
 
-    const pendingMessages = localOptimistic.filter((m: Message) => {
+    const pendingMessages = localOptimistic.filter((m) => {
       if (!m) return false
-      if (getMessageIdentityTokens(m).some((token) => serverIdentityTokens.has(token))) return false
-      return true
+      return !getMessageIdentityTokens(m).some((token) => serverIdentityTokens.has(token))
     })
 
     const combinedMessages = [...pendingMessages, ...serverMessages].sort((a, b) => {
@@ -281,22 +326,65 @@ export default function ChatScreen() {
       return timeB > timeA ? 1 : timeB < timeA ? -1 : 0
     })
 
-    const dedupedMessages = new Map<string, Message>()
+    const dedupedIndexByIdentity = new Map<string, number>()
+    const dedupedArray: Message[] = []
 
-    combinedMessages.forEach((message) => {
+    for (const message of combinedMessages) {
       const identityKey = getMessageIdentityKey(message)
-      if (!identityKey) return
+      if (!identityKey) continue
 
-      const existing = dedupedMessages.get(identityKey)
-      if (!existing) {
-        dedupedMessages.set(identityKey, message)
-        return
+      const existingIndex = dedupedIndexByIdentity.get(identityKey)
+      if (existingIndex === undefined) {
+        dedupedIndexByIdentity.set(identityKey, dedupedArray.length)
+        dedupedArray.push(message)
+      } else {
+        const existingMessage = dedupedArray[existingIndex]
+        if (!existingMessage) continue
+
+        dedupedArray[existingIndex] = mergeMessageRecords(existingMessage, message)
       }
-      dedupedMessages.set(identityKey, mergeMessageRecords(existing, message))
-    })
+    }
 
-    return Array.from(dedupedMessages.values())
+    const FIVE_MINS = 5 * 60 * 1000
+
+    return dedupedArray.map((item, index, array) => {
+      const previousMessage = array[index + 1]
+      const nextMessage = array[index - 1]
+
+      const itemTime = new Date(item.createdAt).getTime()
+      const itemDay = new Date(item.createdAt).setHours(0, 0, 0, 0)
+
+      const prevTime = previousMessage ? new Date(previousMessage.createdAt).getTime() : 0
+      const prevDay = previousMessage ? new Date(previousMessage.createdAt).setHours(0, 0, 0, 0) : 0
+
+      const nextTime = nextMessage ? new Date(nextMessage.createdAt).getTime() : 0
+      const nextDay = nextMessage ? new Date(nextMessage.createdAt).setHours(0, 0, 0, 0) : 0
+
+      const showDateSeparator = !previousMessage || itemDay !== prevDay
+      const isNextDay = !!nextMessage && itemDay !== nextDay
+
+      const isGroupedTop =
+        previousMessage?.senderId === item.senderId &&
+        itemTime - prevTime < FIVE_MINS &&
+        !showDateSeparator
+
+      const isGroupedBottom =
+        nextMessage?.senderId === item.senderId && nextTime - itemTime < FIVE_MINS && !isNextDay
+
+      const showAvatar = nextMessage?.senderId !== item.senderId || isNextDay
+
+      return {
+        ...item,
+        _layout: {
+          showDateSeparator,
+          isGroupedTop,
+          isGroupedBottom,
+          showAvatar,
+        },
+      }
+    })
   }, [serverMessages, localOptimistic])
+
   useEffect(() => {
     if (serverMessages.length === 0 || localOptimistic.length === 0) return
 
@@ -325,33 +413,62 @@ export default function ChatScreen() {
     return () => clearTimeout(timeoutId)
   }, [confirmMessage, dequeueOfflineMessage, localOptimistic, serverMessages])
 
-  const prevFirstMessageId = useRef(allMessages[0]?.id)
+  const newestMessage = allMessages[0]
+  const newestMessageId = newestMessage?.id
+  const newestSenderId = newestMessage?.senderId
+  const prevNewestMessageId = useRef(newestMessageId)
 
-  const lockScrollTemporarily = useCallback((durationMs = 550) => {
-    if (scrollUnlockTimeoutRef.current) {
-      clearTimeout(scrollUnlockTimeoutRef.current)
-    }
-
-    setIsScrollLocked(true)
-    scrollUnlockTimeoutRef.current = setTimeout(() => {
-      scrollUnlockTimeoutRef.current = null
-      setIsScrollLocked(false)
-    }, durationMs)
-  }, [])
+  useEffect(() => {
+    isNearBottomRef.current = true
+    shouldPinLatestMessagesRef.current = false
+    shouldPinLatestMessagesShared.value = false
+    lastKeyboardPinnedHeight.value = 0
+    isScrollButtonVisible.value = false
+  }, [
+    conversationId,
+    isScrollButtonVisible,
+    lastKeyboardPinnedHeight,
+    shouldPinLatestMessagesShared,
+  ])
 
   const isOtherUserTyping = activeTypers.some((typerId) => typerId !== user?.id)
   const isInitialMessagesLoading = isLoading && allMessages.length === 0
   const getReplyScrollViewPosition = useCallback(() => 0.72, [])
 
-  const handleComposerFocusChange = useCallback((focused: boolean) => {
-    isComposerFocusedRef.current = focused
-    setIsComposerFocused(focused)
-  }, [])
+  useEffect(() => {
+    if (isComposerFocused && keyboardVisible && keyboardHeight > 0) {
+      shouldRestoreComposerFocusRef.current = false
+      preservedKeyboardHeight.value = 0
+      return
+    }
+
+    if (!keyboardVisible) {
+      if (!shouldRestoreComposerFocusRef.current) {
+        preservedKeyboardHeight.value = 0
+      }
+
+      if (!isComposerFocused) {
+        shouldPinLatestMessagesRef.current = false
+        shouldPinLatestMessagesShared.value = false
+        isComposerFocusedShared.value = false
+      }
+    }
+  }, [
+    isComposerFocused,
+    isComposerFocusedShared,
+    keyboardHeight,
+    keyboardVisible,
+    preservedKeyboardHeight,
+    shouldPinLatestMessagesShared,
+  ])
 
   const prepareContextMenuKeyboardPreservation = useCallback(() => {
-    const activeKeyboardHeight = keyboardHeight || KeyboardController.state().height || 0
+    const state = KeyboardController.state()
+    const activeKeyboardHeight = state.height || 0
+    const isVisible = KeyboardController.isVisible()
+
     const shouldPreserveKeyboardSpace =
-      isComposerFocusedRef.current && (keyboardVisible || activeKeyboardHeight > 0)
+      isComposerFocusedRef.current && (isVisible || activeKeyboardHeight > 0)
 
     if (!shouldPreserveKeyboardSpace || activeKeyboardHeight <= 0) {
       shouldRestoreComposerFocusRef.current = false
@@ -364,7 +481,7 @@ export default function ChatScreen() {
     messageInputRef.current?.blur()
     void KeyboardController.dismiss()
     return true
-  }, [keyboardHeight, keyboardVisible, preservedKeyboardHeight])
+  }, [preservedKeyboardHeight])
 
   const handleContextMenuClose = useCallback(() => {
     if (!shouldRestoreComposerFocusRef.current) {
@@ -376,6 +493,22 @@ export default function ChatScreen() {
       messageInputRef.current?.focus()
     })
   }, [preservedKeyboardHeight])
+
+  const handleOpenContextMenu = useCallback(
+    (payload: MessageBubbleContextMenuPayload) => {
+      setActiveContextMenu(payload)
+
+      requestAnimationFrame(() => {
+        prepareContextMenuKeyboardPreservation()
+      })
+    },
+    [prepareContextMenuKeyboardPreservation],
+  )
+
+  const closeActiveContextMenu = useCallback(() => {
+    setActiveContextMenu(null)
+    handleContextMenuClose()
+  }, [handleContextMenuClose])
 
   const clearConversationUnread = useCallback(
     (conversationId: string) => {
@@ -417,19 +550,114 @@ export default function ChatScreen() {
     return () => clearTimeout(timer)
   }, [clearConversationUnread, conversationId, socket, socket?.connected, transitionDone])
 
-  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetY = event.nativeEvent.contentOffset.y
-    const shouldShowScrollButton = offsetY > 200
-
-    if (shouldShowScrollButton !== showScrollButtonRef.current) {
-      showScrollButtonRef.current = shouldShowScrollButton
-      setShowScrollButton(shouldShowScrollButton)
-    }
-  }, [])
-
   const scrollToBottom = useCallback(() => {
     listRef.current?.scrollToOffset({ offset: 0, animated: true })
   }, [])
+
+  const scrollToBottomImmediate = useCallback(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: false })
+  }, [])
+
+  const clearPendingFocusPins = useCallback(() => {
+    focusPinTimeoutRefs.current.forEach((timeoutId) => {
+      clearTimeout(timeoutId)
+    })
+    focusPinTimeoutRefs.current = []
+  }, [])
+
+  const scheduleFocusPin = useCallback(() => {
+    clearPendingFocusPins()
+    const runId = ++focusPinRunIdRef.current
+
+    const pinIfStillRelevant = () => {
+      if (
+        focusPinRunIdRef.current !== runId ||
+        !isComposerFocusedRef.current ||
+        !shouldPinLatestMessagesRef.current
+      ) {
+        return
+      }
+
+      scrollToBottomImmediate()
+    }
+
+    pinIfStillRelevant()
+
+    requestAnimationFrame(() => {
+      pinIfStillRelevant()
+
+      requestAnimationFrame(() => {
+        pinIfStillRelevant()
+      })
+    })
+    ;[48, 120, 220].forEach((delay) => {
+      const timeoutId = setTimeout(() => {
+        pinIfStillRelevant()
+      }, delay)
+      focusPinTimeoutRefs.current.push(timeoutId)
+    })
+  }, [clearPendingFocusPins, scrollToBottomImmediate])
+
+  const handleComposerFocusChange = useCallback(
+    (focused: boolean) => {
+      const shouldPinLatestMessages = focused ? isNearBottomRef.current : false
+
+      if (!focused) {
+        focusPinRunIdRef.current += 1
+        clearPendingFocusPins()
+      }
+
+      shouldPinLatestMessagesRef.current = shouldPinLatestMessages
+      shouldPinLatestMessagesShared.value = shouldPinLatestMessages
+      isComposerFocusedRef.current = focused
+      isComposerFocusedShared.value = focused
+      setIsComposerFocused(focused)
+
+      if (focused && shouldPinLatestMessages) {
+        scheduleFocusPin()
+      }
+    },
+    [
+      clearPendingFocusPins,
+      isComposerFocusedShared,
+      scheduleFocusPin,
+      shouldPinLatestMessagesShared,
+    ],
+  )
+
+  useAnimatedReaction(
+    () => ({
+      keyboardHeight: Math.round(Math.max(0, -keyboardAnimatedHeight.value)),
+      isComposerFocused: isComposerFocusedShared.value,
+      shouldPinLatestMessages: shouldPinLatestMessagesShared.value,
+    }),
+    (current) => {
+      if (!current.isComposerFocused || !current.shouldPinLatestMessages) {
+        lastKeyboardPinnedHeight.value = 0
+        return
+      }
+
+      if (current.keyboardHeight <= 0) {
+        lastKeyboardPinnedHeight.value = 0
+        return
+      }
+
+      if (
+        lastKeyboardPinnedHeight.value === 0 ||
+        Math.abs(current.keyboardHeight - lastKeyboardPinnedHeight.value) >= 32
+      ) {
+        lastKeyboardPinnedHeight.value = current.keyboardHeight
+        scheduleOnRN(scrollToBottomImmediate)
+      }
+    },
+    [
+      isComposerFocusedShared,
+      keyboardAnimatedHeight,
+      lastKeyboardPinnedHeight,
+      scrollToBottomImmediate,
+      shouldPinLatestMessagesShared,
+    ],
+  )
 
   const dismissComposer = useCallback(() => {
     shouldRestoreComposerFocusRef.current = false
@@ -446,30 +674,15 @@ export default function ChatScreen() {
     void fetchNextPage()
   }, [fetchNextPage, hasNextPage, isFetchingNextPage, isInitialMessagesLoading])
 
-  const syncInitialScrollToBottom = useCallback(() => {
-    if (hasCompletedInitialScrollRef.current || allMessages.length === 0) {
-      return
-    }
-
-    hasCompletedInitialScrollRef.current = true
-    lockScrollTemporarily()
-
-    requestAnimationFrame(() => {
-      listRef.current?.scrollToOffset({ offset: 0, animated: false })
-    })
-  }, [allMessages.length, lockScrollTemporarily])
+  useEffect(() => {
+    setActiveContextMenu(null)
+    shouldRestoreComposerFocusRef.current = false
+    preservedKeyboardHeight.value = 0
+  }, [conversationId, preservedKeyboardHeight])
 
   useEffect(() => {
-    if (!isInitialMessagesLoading && allMessages.length > 0) {
-      syncInitialScrollToBottom()
-    }
-  }, [allMessages.length, isInitialMessagesLoading, syncInitialScrollToBottom])
-
-  useEffect(() => {
-    const currentFirstMessageId = allMessages[0]?.id
-
-    if (currentFirstMessageId && currentFirstMessageId !== prevFirstMessageId.current) {
-      if (!showScrollButtonRef.current || allMessages[0]?.senderId === user?.id) {
+    if (newestMessageId && newestMessageId !== prevNewestMessageId.current) {
+      if (isNearBottomRef.current || newestSenderId === user?.id) {
         scrollToBottom()
       }
 
@@ -479,8 +692,16 @@ export default function ChatScreen() {
       }
     }
 
-    prevFirstMessageId.current = currentFirstMessageId
-  }, [allMessages, clearConversationUnread, conversationId, scrollToBottom, socket, user?.id])
+    prevNewestMessageId.current = newestMessageId
+  }, [
+    clearConversationUnread,
+    conversationId,
+    newestMessageId,
+    newestSenderId,
+    scrollToBottom,
+    socket,
+    user?.id,
+  ])
 
   const cachedData = queryClient.getQueryData<unknown>(queryKeys.conversations.all)
   const allConversations: Conversation[] = Array.isArray(cachedData)
@@ -648,7 +869,6 @@ export default function ChatScreen() {
         id: messageId,
         token: prev?.id === messageId ? prev.token + 1 : (prev?.token ?? 0) + 1,
       }))
-      pendingReplyTargetIdRef.current = null
 
       if (highlightResetTimeoutRef.current) {
         clearTimeout(highlightResetTimeoutRef.current)
@@ -664,12 +884,10 @@ export default function ChatScreen() {
     (messageId: string) => {
       const index = allMessages.findIndex((message) => message.id === messageId)
       if (index === -1) {
-        pendingReplyTargetIdRef.current = null
         return false
       }
 
-      pendingReplyTargetIdRef.current = messageId
-      listRef.current?.scrollToIndex({
+      void listRef.current?.scrollToIndex({
         index,
         animated: true,
         viewPosition: getReplyScrollViewPosition(),
@@ -700,25 +918,54 @@ export default function ChatScreen() {
     [runReplyScroll],
   )
 
-  useEffect(() => {
-    if (isComposerFocused && keyboardVisible && keyboardHeight > 0) {
-      shouldRestoreComposerFocusRef.current = false
-      preservedKeyboardHeight.value = 0
-      return
+  const activeContextMenuMessageId = activeContextMenu?.message.id ?? null
+  const activeContextMenuMessage = activeContextMenu?.message ?? null
+  const activeContextMenuAnchor = activeContextMenu?.anchor ?? null
+  const activeContextMenuConversationId = activeContextMenu?.conversationId
+  const activeContextMenuFallbackGroupedTop = activeContextMenu?.isGroupedTop ?? false
+  const activeContextMenuFallbackGroupedBottom = activeContextMenu?.isGroupedBottom ?? false
+
+  const activeContextMenuData = useMemo(() => {
+    if (!activeContextMenuMessageId || !activeContextMenuMessage || !activeContextMenuAnchor) {
+      return null
     }
 
-    if (!keyboardVisible && !shouldRestoreComposerFocusRef.current) {
-      preservedKeyboardHeight.value = 0
+    const currentMessage =
+      allMessages.find((message) => message.id === activeContextMenuMessageId) ??
+      activeContextMenuMessage
+
+    return {
+      message: currentMessage,
+      anchor: activeContextMenuAnchor,
+      conversationId: activeContextMenuConversationId,
+      isOwn: currentMessage.senderId === user?.id,
+      isGroupedTop:
+        '_layout' in currentMessage
+          ? Boolean((currentMessage as RenderableMessage)._layout?.isGroupedTop)
+          : activeContextMenuFallbackGroupedTop,
+      isGroupedBottom:
+        '_layout' in currentMessage
+          ? Boolean((currentMessage as RenderableMessage)._layout?.isGroupedBottom)
+          : activeContextMenuFallbackGroupedBottom,
     }
-  }, [isComposerFocused, keyboardHeight, keyboardVisible, preservedKeyboardHeight])
+  }, [
+    activeContextMenuAnchor,
+    activeContextMenuConversationId,
+    activeContextMenuFallbackGroupedBottom,
+    activeContextMenuFallbackGroupedTop,
+    activeContextMenuMessage,
+    activeContextMenuMessageId,
+    allMessages,
+    user?.id,
+  ])
 
   useEffect(() => {
     return () => {
+      clearPendingFocusPins()
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
       if (socket?.connected) socket.emit('typing_stop', conversationId)
       if (replyHighlightTimeoutRef.current) clearTimeout(replyHighlightTimeoutRef.current)
       if (highlightResetTimeoutRef.current) clearTimeout(highlightResetTimeoutRef.current)
-      if (scrollUnlockTimeoutRef.current) clearTimeout(scrollUnlockTimeoutRef.current)
 
       setTimeout(() => {
         const messagesQueryKey = queryKeys.conversations.messages(conversationId)
@@ -726,50 +973,14 @@ export default function ChatScreen() {
         trimMessagesCache(queryClient, conversationId)
       }, 300)
     }
-  }, [queryClient, socket, conversationId])
-
-  const allMessagesRef = useRef(allMessages)
-  allMessagesRef.current = allMessages
+  }, [clearPendingFocusPins, queryClient, socket, conversationId])
 
   const renderItem = useCallback(
-    ({ item, index }: { item: Message; index: number }) => {
+    ({ item }: ListRenderItemInfo<RenderableMessage>) => {
       if (!item) return null
 
-      const messages = allMessagesRef.current
+      const { showDateSeparator, isGroupedTop, isGroupedBottom, showAvatar } = item._layout
       const isOwn = item?.senderId === user?.id
-      const previousMessage = messages[index + 1]
-      const nextMessage = messages[index - 1]
-
-      let showDateSeparator = false
-      if (!previousMessage) {
-        showDateSeparator = true
-      } else {
-        const currentDay = new Date(item.createdAt).setHours(0, 0, 0, 0)
-        const prevDay = new Date(previousMessage.createdAt).setHours(0, 0, 0, 0)
-        if (currentDay !== prevDay) showDateSeparator = true
-      }
-
-      let isNextDay = false
-      if (nextMessage) {
-        const currentDay = new Date(item.createdAt).setHours(0, 0, 0, 0)
-        const nextDay = new Date(nextMessage.createdAt).setHours(0, 0, 0, 0)
-        if (currentDay !== nextDay) isNextDay = true
-      }
-
-      const FIVE_MINS = 5 * 60 * 1000
-      const timeGapPrev = previousMessage
-        ? new Date(item.createdAt).getTime() - new Date(previousMessage.createdAt).getTime()
-        : 0
-      const timeGapNext = nextMessage
-        ? new Date(nextMessage.createdAt).getTime() - new Date(item.createdAt).getTime()
-        : 0
-
-      const isGroupedTop =
-        previousMessage?.senderId === item.senderId && timeGapPrev < FIVE_MINS && !showDateSeparator
-      const isGroupedBottom =
-        nextMessage?.senderId === item.senderId && timeGapNext < FIVE_MINS && !isNextDay
-
-      const showAvatar = nextMessage?.senderId !== item.senderId || isNextDay
       const sender = item.sender ?? participantsMap.get(item.senderId)
 
       return (
@@ -790,12 +1001,11 @@ export default function ChatScreen() {
             isGroupedBottom={isGroupedBottom}
             highlightToken={highlightedMessage?.id === item.id ? highlightedMessage.token : 0}
             isExpanded={expandedMessageId === item.id}
+            isContextMenuActive={activeContextMenuMessageId === item.id}
             onToggleDetails={() => handleToggleDetails(item.id)}
             onPressReplyPreview={() => handleScrollToMessage(item.replyToId)}
             onReply={() => handleReply(item)}
-            onRecall={() => handleRecall(item.id)}
-            onRequestKeyboardPreservation={prepareContextMenuKeyboardPreservation}
-            onContextMenuClose={handleContextMenuClose}
+            onOpenContextMenu={handleOpenContextMenu}
             conversationId={conversationId}
           />
         </View>
@@ -806,15 +1016,47 @@ export default function ChatScreen() {
       participantsMap,
       expandedMessageId,
       highlightedMessage,
+      activeContextMenuMessageId,
       conversationId,
       handleToggleDetails,
       handleScrollToMessage,
       handleReply,
-      handleRecall,
-      prepareContextMenuKeyboardPreservation,
-      handleContextMenuClose,
+      handleOpenContextMenu,
     ],
   )
+
+  const getItemType = useCallback((item: RenderableMessage) => {
+    if (item.isRecalled === true || item.is_recalled === true) {
+      return 'recalled'
+    }
+
+    return item.type || 'text'
+  }, [])
+
+  const colorScheme = useColorScheme()
+  const isDark = colorScheme === 'dark'
+
+  const loadingIndicatorStyle = useAnimatedStyle(() => {
+    const isVisible = isFetchingNextPage && !isInitialMessagesLoading
+    return {
+      transform: [
+        {
+          translateY: withSpring(isVisible ? 24 : -40, {
+            damping: 22,
+            stiffness: 260,
+            mass: 0.8,
+          }),
+        },
+        {
+          scale: withSpring(isVisible ? 1 : 0.8, {
+            damping: 22,
+            stiffness: 260,
+          }),
+        },
+      ],
+      opacity: withTiming(isVisible ? 1 : 0, { duration: 150 }),
+    }
+  })
 
   return (
     <View className="flex-1 bg-bg-primary" style={{ paddingTop: insets.top }}>
@@ -880,37 +1122,76 @@ export default function ChatScreen() {
         </View>
 
         <View className="flex-1">
-          <FlatList
+          {isFetchingNextPage && !isInitialMessagesLoading ? (
+            <Animated.View
+              style={[
+                loadingIndicatorStyle,
+                {
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  zIndex: 20,
+                  alignItems: 'center',
+                },
+              ]}
+              pointerEvents="none"
+            >
+              {Platform.OS === 'android' ? (
+                <View
+                  className="flex-row items-center justify-center rounded-full bg-surface-card px-3.5 py-2 border border-border-light"
+                  style={{ elevation: 4 }}
+                >
+                  <ActivityIndicator size="small" color="#FF6B2C" />
+                </View>
+              ) : (
+                <View
+                  style={{
+                    borderRadius: 24,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.12,
+                    shadowRadius: 12,
+                  }}
+                >
+                  <View style={{ borderRadius: 24, overflow: 'hidden' }}>
+                    <BlurView
+                      intensity={65}
+                      tint={isDark ? 'dark' : 'light'}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingHorizontal: 14,
+                        paddingVertical: 8,
+                        backgroundColor: isDark
+                          ? 'rgba(30, 30, 30, 0.4)'
+                          : 'rgba(255, 255, 255, 0.4)',
+                      }}
+                    >
+                      <ActivityIndicator size="small" color="#FF6B2C" />
+                    </BlurView>
+                  </View>
+                </View>
+              )}
+            </Animated.View>
+          ) : null}
+          <FlashList
             ref={listRef}
+            inverted
             data={allMessages}
-            extraData={`${expandedMessageId ?? ''}:${highlightedMessage?.id ?? ''}:${highlightedMessage?.token ?? 0}`}
+            extraData={`${expandedMessageId ?? ''}:${highlightedMessage?.id ?? ''}:${highlightedMessage?.token ?? 0}:${activeContextMenuMessageId ?? ''}`}
             renderItem={renderItem}
-            keyExtractor={(item: Message, index: number) =>
+            keyExtractor={(item: RenderableMessage, index: number) =>
               item?.id ? item.id.toString() : `fallback-${index}`
             }
+            getItemType={getItemType}
             onEndReached={loadOlderMessages}
             onEndReachedThreshold={0.2}
             onScroll={handleScroll}
-            scrollEventThrottle={32}
-            scrollEnabled={!isScrollLocked}
-            inverted
+            scrollEventThrottle={16}
             keyboardDismissMode="none"
             keyboardShouldPersistTaps="handled"
             contentInsetAdjustmentBehavior="automatic"
-            onContentSizeChange={() => {
-              if (allMessages.length === 0) {
-                return
-              }
-
-              if (!hasCompletedInitialScrollRef.current) {
-                syncInitialScrollToBottom()
-                return
-              }
-
-              if (isScrollLocked) {
-                listRef.current?.scrollToOffset({ offset: 0, animated: false })
-              }
-            }}
             ListHeaderComponent={
               <View>
                 {isOtherUserTyping ? <TypingIndicator displayName={displayName} /> : null}
@@ -921,53 +1202,23 @@ export default function ChatScreen() {
                 />
               </View>
             }
-            ListFooterComponent={
-              isFetchingNextPage && !isInitialMessagesLoading ? (
-                <OlderMessagesLoadingIndicator />
-              ) : null
-            }
             ListEmptyComponent={isInitialMessagesLoading ? <MessageListLoadingState /> : null}
             showsVerticalScrollIndicator={false}
-            removeClippedSubviews={true}
-            initialNumToRender={8}
-            maxToRenderPerBatch={5}
-            windowSize={7}
-            updateCellsBatchingPeriod={80}
-            onScrollToIndexFailed={(info) => {
-              const wait = new Promise((resolve) => setTimeout(resolve, 500))
-              wait.then(() => {
-                const targetMessageId =
-                  pendingReplyTargetIdRef.current ?? allMessages[info.index]?.id
-                listRef.current?.scrollToIndex({
-                  index: info.index,
-                  animated: true,
-                  viewPosition: getReplyScrollViewPosition(),
-                })
-                if (targetMessageId) {
-                  scheduleMessageHighlight(targetMessageId)
-                }
-              })
-            }}
+            removeClippedSubviews={false}
           />
-          {showScrollButton && (
-            <Animated.View
-              entering={FadeIn}
-              exiting={FadeOut}
-              className="absolute bottom-5 right-4 z-10"
+          <Animated.View className="absolute bottom-5 right-4 z-10" style={scrollButtonStyle}>
+            <TouchableOpacity
+              className="h-11 w-11 items-center justify-center rounded-full bg-surface-card border border-border-light"
+              onPress={scrollToBottom}
+              activeOpacity={0.8}
+              style={{
+                borderCurve: 'continuous',
+                boxShadow: '0 14px 26px rgba(93, 74, 53, 0.12)',
+              }}
             >
-              <TouchableOpacity
-                className="h-11 w-11 items-center justify-center rounded-full bg-surface-card border border-border-light"
-                onPress={scrollToBottom}
-                activeOpacity={0.8}
-                style={{
-                  borderCurve: 'continuous',
-                  boxShadow: '0 14px 26px rgba(93, 74, 53, 0.12)',
-                }}
-              >
-                <MaterialIcons name="keyboard-arrow-down" size={24} color="#161514" />
-              </TouchableOpacity>
-            </Animated.View>
-          )}
+              <MaterialIcons name="keyboard-arrow-down" size={24} color="#161514" />
+            </TouchableOpacity>
+          </Animated.View>
         </View>
 
         <View>
@@ -983,6 +1234,23 @@ export default function ChatScreen() {
             />
           </KeyboardStickyView>
         </View>
+
+        <MessageContextMenu
+          visible={Boolean(activeContextMenuData)}
+          message={activeContextMenuData?.message ?? null}
+          isOwn={activeContextMenuData?.isOwn ?? false}
+          isGroupedTop={activeContextMenuData?.isGroupedTop ?? false}
+          isGroupedBottom={activeContextMenuData?.isGroupedBottom ?? false}
+          anchor={activeContextMenuData?.anchor ?? null}
+          onClose={closeActiveContextMenu}
+          onReply={
+            activeContextMenuData ? () => handleReply(activeContextMenuData.message) : undefined
+          }
+          onRecall={
+            activeContextMenuData ? () => handleRecall(activeContextMenuData.message.id) : undefined
+          }
+          conversationId={activeContextMenuData?.conversationId}
+        />
       </View>
     </View>
   )
