@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { FlashList as OriginalFlashList } from '@shopify/flash-list'
 import { useQueryClient } from '@tanstack/react-query'
-import React, { useCallback, useDeferredValue, useMemo, useState } from 'react'
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Alert, Pressable, Text, TextInput, View } from 'react-native'
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -10,11 +10,14 @@ import { conversationApi } from '../../src/api/conversation.api'
 import { userApi } from '../../src/api/user.api'
 import { useContacts } from '../../src/hooks/useContacts'
 import { useConversationNavigation } from '../../src/hooks/useConversationNavigation'
-import { getConversationsQueryOptions } from '../../src/hooks/useConversations'
+import { getConversationsQueryOptions, useConversations } from '../../src/hooks/useConversations'
 import { cn } from '../../src/lib/cn'
+import { formatLastSeenLabel } from '../../src/lib/presence'
+import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useChatStore } from '../../src/stores/chatStore'
 
+import type { ChatParticipant, Conversation } from '../../src/types/conversation.types'
 import type { DirectoryUser } from '../../src/types/user.types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -54,8 +57,10 @@ export default function ContactsScreen() {
 
   const queryClient = useQueryClient()
   const { data, isLoading, fetchNextPage, hasNextPage } = useContacts(deferredSearch)
+  const { data: conversations } = useConversations()
   const { user: currentUser } = useAuthStore()
-  const { onlineUsers } = useChatStore()
+  const { onlineUsers, lastSeenByUserId } = useChatStore()
+  const { isConnected, requestPresence } = useSocket()
   const { openConversation, runConversationEntry } = useConversationNavigation()
 
   const users = useMemo(() => {
@@ -64,13 +69,33 @@ export default function ContactsScreen() {
     )
   }, [currentUser?.id, data])
 
+  const presenceEligibleUserIds = useMemo(() => {
+    return new Set(
+      (conversations || []).flatMap((conversation: Conversation) =>
+        (conversation.participants || [])
+          .map((participant: ChatParticipant) => participant.id)
+          .filter((participantId) => participantId && participantId !== currentUser?.id),
+      ),
+    )
+  }, [conversations, currentUser?.id])
+
   const liveCount = useMemo(() => {
-    return users.filter((user) => onlineUsers.has(user.id)).length
-  }, [onlineUsers, users])
+    return users.filter((user) => presenceEligibleUserIds.has(user.id) && onlineUsers.has(user.id))
+      .length
+  }, [onlineUsers, presenceEligibleUserIds, users])
 
   const normalizedEmailInput = normalizeEmail(emailInput)
   const isAnyConversationPending = pendingConversationKey !== null
   const isEmailConversationPending = pendingConversationKey?.startsWith('email:') ?? false
+  const liveCountDisplay = isConnected ? String(liveCount) : '...'
+
+  useEffect(() => {
+    if (!isConnected || presenceEligibleUserIds.size === 0) {
+      return
+    }
+
+    requestPresence(Array.from(presenceEligibleUserIds))
+  }, [isConnected, presenceEligibleUserIds, requestPresence])
 
   const createAndOpenConversation = useCallback(
     async (targetUserId: string) => {
@@ -154,8 +179,23 @@ export default function ContactsScreen() {
     if (!item) return null
 
     const displayName = getEmailDisplayName(item.email)
+    const hasPresenceAccess = presenceEligibleUserIds.has(item.id)
     const isOnline = onlineUsers.has(item.id)
     const isPending = pendingConversationKey === `direct:${item.id}`
+    const lastSeenAt = lastSeenByUserId[item.id] ?? null
+    const presenceLabel = !hasPresenceAccess
+      ? 'Direct message ready'
+      : !isConnected
+        ? 'Presence syncing'
+        : isOnline
+          ? 'Available now'
+          : lastSeenAt
+            ? formatLastSeenLabel(lastSeenAt).replace('Last seen ', 'Seen ')
+            : 'Status unavailable'
+    const presenceClassName =
+      hasPresenceAccess && isOnline
+        ? 'mt-2 text-xs2 uppercase tracking-[1.1px] text-status-online'
+        : 'mt-2 text-xs2 text-text-muted'
 
     return (
       <Animated.View layout={ROW_LAYOUT} entering={CARD_ENTERING}>
@@ -180,12 +220,14 @@ export default function ContactsScreen() {
                 </Text>
               </View>
 
-              <View
-                className={cn(
-                  'absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-surface-card',
-                  isOnline ? 'bg-status-online' : 'bg-border-strong',
-                )}
-              />
+              {hasPresenceAccess ? (
+                <View
+                  className={cn(
+                    'absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-surface-card',
+                    isOnline ? 'bg-status-online' : 'bg-border-strong',
+                  )}
+                />
+              ) : null}
             </View>
 
             <View className="flex-1">
@@ -195,14 +237,7 @@ export default function ContactsScreen() {
               <Text className="mt-1 text-sm2 text-text-secondary" numberOfLines={1}>
                 {item.email}
               </Text>
-              <Text
-                className={cn(
-                  'mt-2 text-xs2 uppercase tracking-[1.1px]',
-                  isOnline ? 'text-status-online' : 'text-text-muted',
-                )}
-              >
-                {isOnline ? 'Available now' : 'Direct message ready'}
-              </Text>
+              <Text className={cn(presenceClassName)}>{presenceLabel}</Text>
             </View>
 
             <View className="ml-3 rounded-full bg-brand-soft px-3 py-2">
@@ -266,10 +301,10 @@ export default function ContactsScreen() {
 
                   <View className="flex-1 rounded-[24px] bg-surface-accent px-4 py-4">
                     <Text className="text-xs2 uppercase tracking-[1.1px] text-text-muted">
-                      Live now
+                      {isConnected ? 'Live now' : 'Live sync'}
                     </Text>
                     <Text className="mt-2 font-heading text-xxl text-text-primary">
-                      {liveCount}
+                      {liveCountDisplay}
                     </Text>
                   </View>
                 </View>

@@ -119,23 +119,29 @@ const ConversationItemComponent = function ConversationItem({
         activeOpacity={0.75}
       >
         <View className="flex-row items-start">
-          {avatarUrl ? (
-            <Image
-              source={{ uri: avatarUrl }}
-              className="h-12 w-12 rounded-full bg-surface-input"
-              resizeMode="cover"
-            />
-          ) : (
-            <View className="h-12 w-12 items-center justify-center rounded-full bg-surface-input">
-              <Text className="text-base font-medium text-text-primary">
-                {displayName.charAt(0).toUpperCase()}
-              </Text>
-            </View>
-          )}
+          <View className="relative">
+            {avatarUrl ? (
+              <Image
+                source={{ uri: avatarUrl }}
+                className="h-12 w-12 rounded-full bg-surface-input"
+                resizeMode="cover"
+              />
+            ) : (
+              <View className="h-12 w-12 items-center justify-center rounded-full bg-surface-input">
+                <Text className="text-base font-medium text-text-primary">
+                  {displayName.charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )}
+
+            {!conversation.isGroup && isOnline ? (
+              <View className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-bg-primary bg-status-online" />
+            ) : null}
+          </View>
 
           <View className="ml-3 flex-1">
             <View className="flex-row items-start justify-between gap-3">
-              <View className="flex-1 flex-row items-center">
+              <View className="flex-1">
                 <Text
                   className={
                     isUnread
@@ -146,9 +152,6 @@ const ConversationItemComponent = function ConversationItem({
                 >
                   {displayName}
                 </Text>
-                {!conversation.isGroup && isOnline ? (
-                  <View className="ml-1.5 h-1.5 w-1.5 rounded-full bg-brand" />
-                ) : null}
               </View>
 
               <Text
