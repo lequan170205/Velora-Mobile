@@ -99,9 +99,14 @@ const ConversationItemComponent = function ConversationItem({
     : ''
 
   const isOnline = otherUserId ? onlineUsers.has(otherUserId) : false
-  const isUnread = (conversation.unreadCount || 0) > 0
+  const unreadCount = conversation.unreadCount || 0
+  const isUnread = unreadCount > 0
+
   const displayLastMessage =
-    LASTMSG_MAP[conversation.lastMessage ?? ''] ?? (conversation.lastMessage || 'No messages yet')
+    unreadCount >= 2
+      ? `${unreadCount} new messages`
+      : (LASTMSG_MAP[conversation.lastMessage ?? ''] ??
+        (conversation.lastMessage || 'No messages yet'))
 
   return (
     <Animated.View entering={SECTION_ENTERING}>

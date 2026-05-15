@@ -34,13 +34,18 @@ interface SendMessageVariables {
 }
 
 export const MESSAGE_QUERY_STALE_TIME_MS = 60 * 1000
-export const MESSAGE_QUERY_GC_TIME_MS = 15 * 60 * 1000
-export const MESSAGE_CACHE_WARMUP_LIMIT = 4
+export const MESSAGE_QUERY_GC_TIME_MS = 3 * 60 * 1000
+export const MESSAGE_CACHE_WARMUP_LIMIT = 0
+export const MESSAGE_PAGE_LIMIT = 15
+export const MESSAGE_PREFETCH_ENABLED = true
 
 export const getMessagesInfiniteQueryOptions = (conversationId: string) => ({
   queryKey: queryKeys.conversations.messages(conversationId),
   queryFn: ({ pageParam = undefined }: { pageParam?: unknown }) =>
-    conversationApi.getMessages(conversationId, pageParam ? { cursor: pageParam as string } : {}),
+    conversationApi.getMessages(conversationId, {
+      limit: MESSAGE_PAGE_LIMIT,
+      ...(pageParam ? { cursor: pageParam as string } : {}),
+    }),
   getNextPageParam: (lastPage: Message[]) => {
     if (!lastPage || lastPage.length === 0) return undefined
 
@@ -58,6 +63,10 @@ export const getMessagesInfiniteQueryOptions = (conversationId: string) => ({
 })
 
 export const prefetchMessages = async (queryClient: QueryClient, conversationId: string) => {
+  if (!MESSAGE_PREFETCH_ENABLED) {
+    return
+  }
+
   const existing = queryClient.getQueryData<InfiniteData<Message[]>>(
     queryKeys.conversations.messages(conversationId),
   )
@@ -77,6 +86,30 @@ export const prefetchMessagesForConversations = async (
 
   await Promise.allSettled(
     uniqueConversationIds.map((conversationId) => prefetchMessages(queryClient, conversationId)),
+  )
+}
+
+export const trimMessagesCache = (queryClient: QueryClient, conversationId: string) => {
+  queryClient.setQueryData<InfiniteData<Message[]> | undefined>(
+    queryKeys.conversations.messages(conversationId),
+    (oldData) => {
+      if (!oldData?.pages?.length) {
+        return oldData
+      }
+
+      const [latestPage = []] = oldData.pages
+      const [latestPageParam] = oldData.pageParams
+
+      if (oldData.pages.length === 1 && latestPage.length <= MESSAGE_PAGE_LIMIT) {
+        return oldData
+      }
+
+      return {
+        ...oldData,
+        pages: [latestPage.slice(0, MESSAGE_PAGE_LIMIT)],
+        pageParams: [latestPageParam],
+      }
+    },
   )
 }
 

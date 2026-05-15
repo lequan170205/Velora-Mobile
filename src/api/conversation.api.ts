@@ -7,13 +7,17 @@ import type {
   Message,
 } from '../types/conversation.types'
 
+interface CreateConversationResponse {
+  id: string
+}
+
 export const conversationApi = {
   getAll: async () => {
     const response = await apiClient.get<Conversation[]>('/conversations')
     return response.data
   },
   create: async (data: { participantIds: string[]; type: 'DIRECT' | 'GROUP'; name?: string }) => {
-    const response = await apiClient.post<Conversation>('/conversations', data)
+    const response = await apiClient.post<CreateConversationResponse>('/conversations', data)
     return response.data
   },
   createBotConversation: async () => {
@@ -23,7 +27,7 @@ export const conversationApi = {
       throw new Error('EXPO_PUBLIC_BOT_USER_ID is not configured')
     }
 
-    const response = await apiClient.post<Conversation>('/conversations', {
+    const response = await apiClient.post<CreateConversationResponse>('/conversations', {
       participantIds: [botUserId],
       type: 'DIRECT',
     })

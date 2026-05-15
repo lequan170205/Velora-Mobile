@@ -4,7 +4,7 @@ import { useCallback } from 'react'
 
 import { prefetchMessages } from './useMessages'
 
-const CONVERSATION_NAVIGATION_LOCK_MS = 900
+const CONVERSATION_NAVIGATION_LOCK_MS = 500
 
 let activeConversationEntryKey: string | null = null
 let conversationNavigationLockedUntil = 0
