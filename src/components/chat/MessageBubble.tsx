@@ -204,7 +204,19 @@ const MessageBubbleComponent = function MessageBubble({
   onPressReplyPreview,
   onOpenContextMenu,
 }: MessageBubbleProps) {
-  const isMessageSeen = useChatStore((state) => state.isMessageSeen)
+  const resolvedConversationId = conversationId || message.conversationId
+  const isMarkedSeen = useChatStore(
+    useCallback(
+      (state) => {
+        if (!resolvedConversationId || !message.id) {
+          return false
+        }
+
+        return state.seenMessages[resolvedConversationId]?.has(message.id) ?? false
+      },
+      [message.id, resolvedConversationId],
+    ),
+  )
   const progress = useSharedValue(0)
   const highlightProgress = useSharedValue(0)
   const swipeOffsetX = useSharedValue(0)
@@ -219,9 +231,7 @@ const MessageBubbleComponent = function MessageBubble({
   const isFailed = message.status === 'FAILED'
   const isSending = (message.id || message._id || '').startsWith('temp-') && !isFailed
   const hasReadReceipt = Array.isArray(message.readBy) && message.readBy.length > 0
-  const resolvedConversationId = conversationId || message.conversationId
-  const isSeen =
-    message.status === 'READ' || hasReadReceipt || isMessageSeen(resolvedConversationId, message.id)
+  const isSeen = message.status === 'READ' || hasReadReceipt || isMarkedSeen
 
   const getStatusText = () => {
     if (isFailed) return 'Failed'

@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Image,
@@ -52,30 +52,128 @@ import { formatLastSeenLabel } from '../../src/lib/presence'
 import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useChatStore } from '../../src/stores/chatStore'
+import { useMessageListUiStore } from '../../src/stores/messageListUiStore'
 
 import type { ChatParticipant, Conversation, Message } from '../../src/types/conversation.types'
 
-type RenderableMessage = Message & {
-  _layout: {
-    showDateSeparator: boolean
-    isGroupedTop: boolean
-    isGroupedBottom: boolean
-    showAvatar: boolean
-  }
+type MessageLayout = {
+  showDateSeparator: boolean
+  separatorLabel: string
+  isGroupedTop: boolean
+  isGroupedBottom: boolean
+  showAvatar: boolean
+  timeLabel: string
 }
 
 type ActiveContextMenuState = MessageBubbleContextMenuPayload
 
-const formatSeparatorDate = (dateString: string) => {
-  const date = new Date(dateString)
+const DEFAULT_MESSAGE_LAYOUT: MessageLayout = {
+  showDateSeparator: false,
+  separatorLabel: '',
+  isGroupedTop: false,
+  isGroupedBottom: false,
+  showAvatar: false,
+  timeLabel: '',
+}
+
+const createdAtTimestampCache = new Map<string, number>()
+const createdAtDayStartCache = new Map<string, number>()
+const createdAtTimeLabelCache = new Map<string, string>()
+
+const getMessageCreatedAtMs = (dateString?: string) => {
+  if (!dateString) return 0
+
+  const cachedTimestamp = createdAtTimestampCache.get(dateString)
+  if (cachedTimestamp !== undefined) {
+    return cachedTimestamp
+  }
+
+  const nextTimestamp = new Date(dateString).getTime()
+  const normalizedTimestamp = Number.isFinite(nextTimestamp) ? nextTimestamp : 0
+  createdAtTimestampCache.set(dateString, normalizedTimestamp)
+
+  return normalizedTimestamp
+}
+
+const getMessageDayStartMs = (dateString?: string) => {
+  if (!dateString) return 0
+
+  const cachedDayStart = createdAtDayStartCache.get(dateString)
+  if (cachedDayStart !== undefined) {
+    return cachedDayStart
+  }
+
+  const createdAtMs = getMessageCreatedAtMs(dateString)
+  if (!createdAtMs) {
+    createdAtDayStartCache.set(dateString, 0)
+    return 0
+  }
+
+  const nextDayStart = new Date(createdAtMs)
+  nextDayStart.setHours(0, 0, 0, 0)
+
+  const normalizedDayStart = nextDayStart.getTime()
+  createdAtDayStartCache.set(dateString, normalizedDayStart)
+
+  return normalizedDayStart
+}
+
+const getMessageTimeLabel = (dateString?: string) => {
+  if (!dateString) return ''
+
+  const cachedTimeLabel = createdAtTimeLabelCache.get(dateString)
+  if (cachedTimeLabel !== undefined) {
+    return cachedTimeLabel
+  }
+
+  const createdAtMs = getMessageCreatedAtMs(dateString)
+  if (!createdAtMs) {
+    createdAtTimeLabelCache.set(dateString, '')
+    return ''
+  }
+
+  const nextTimeLabel = new Date(createdAtMs).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+
+  createdAtTimeLabelCache.set(dateString, nextTimeLabel)
+  return nextTimeLabel
+}
+
+const buildSeparatorLabel = (dayStartMs: number) => {
+  if (!dayStartMs) return ''
+
   const today = new Date()
-  const yesterday = new Date(today)
-  yesterday.setDate(yesterday.getDate() - 1)
+  today.setHours(0, 0, 0, 0)
 
-  if (date.toDateString() === today.toDateString()) return 'Today'
-  if (date.toDateString() === yesterday.toDateString()) return 'Yesterday'
+  const todayDayStartMs = today.getTime()
+  const yesterdayDayStartMs = todayDayStartMs - 24 * 60 * 60 * 1000
 
-  return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  if (dayStartMs === todayDayStartMs) return 'Today'
+  if (dayStartMs === yesterdayDayStartMs) return 'Yesterday'
+
+  return new Date(dayStartMs).toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+const getStableLayout = (previousLayout: MessageLayout | undefined, nextLayout: MessageLayout) => {
+  if (
+    previousLayout &&
+    previousLayout.showDateSeparator === nextLayout.showDateSeparator &&
+    previousLayout.separatorLabel === nextLayout.separatorLabel &&
+    previousLayout.isGroupedTop === nextLayout.isGroupedTop &&
+    previousLayout.isGroupedBottom === nextLayout.isGroupedBottom &&
+    previousLayout.showAvatar === nextLayout.showAvatar &&
+    previousLayout.timeLabel === nextLayout.timeLabel
+  ) {
+    return previousLayout
+  }
+
+  return nextLayout
 }
 
 const EMPTY_MESSAGES: Message[] = []
@@ -173,6 +271,94 @@ const TypingIndicator = ({ displayName }: { displayName: string }) => {
   )
 }
 
+interface MessageRowProps {
+  message: Message
+  layout: MessageLayout
+  isOwn: boolean
+  senderInfo?: ChatParticipant | Message['sender'] | null
+  conversationId: string
+  onToggleDetails: (messageId: string) => void
+  onPressReplyPreview: (replyToId?: string) => void
+  onReply: (message: Message) => void
+  onOpenContextMenu: (payload: MessageBubbleContextMenuPayload) => void
+}
+
+const MessageRow = memo(
+  function MessageRow({
+    message,
+    layout,
+    isOwn,
+    senderInfo,
+    conversationId,
+    onToggleDetails,
+    onPressReplyPreview,
+    onReply,
+    onOpenContextMenu,
+  }: MessageRowProps) {
+    const isExpanded = useMessageListUiStore(
+      useCallback(
+        (state) => state.conversations[conversationId]?.expandedMessageId === message.id,
+        [conversationId, message.id],
+      ),
+    )
+    const highlightToken = useMessageListUiStore(
+      useCallback(
+        (state) => state.conversations[conversationId]?.highlightTokens[message.id] ?? 0,
+        [conversationId, message.id],
+      ),
+    )
+
+    const handleToggleDetails = useCallback(() => {
+      onToggleDetails(message.id)
+    }, [message.id, onToggleDetails])
+
+    const handleReply = useCallback(() => {
+      onReply(message)
+    }, [message, onReply])
+
+    const handlePressReplyPreview = useCallback(() => {
+      onPressReplyPreview(message.replyToId)
+    }, [message.replyToId, onPressReplyPreview])
+
+    return (
+      <View>
+        {layout.showDateSeparator ? (
+          <View className="my-4 items-center">
+            <Text className="text-xs2 text-text-muted">{layout.separatorLabel}</Text>
+          </View>
+        ) : null}
+        <MessageBubble
+          message={message}
+          timeLabel={layout.timeLabel}
+          isOwn={isOwn}
+          showAvatar={layout.showAvatar}
+          senderInfo={senderInfo ?? null}
+          isGroupedTop={layout.isGroupedTop}
+          isGroupedBottom={layout.isGroupedBottom}
+          highlightToken={highlightToken}
+          isExpanded={isExpanded}
+          isContextMenuActive={false}
+          onToggleDetails={handleToggleDetails}
+          onPressReplyPreview={handlePressReplyPreview}
+          onReply={handleReply}
+          onOpenContextMenu={onOpenContextMenu}
+          conversationId={conversationId}
+        />
+      </View>
+    )
+  },
+  (prevProps, nextProps) =>
+    prevProps.message === nextProps.message &&
+    prevProps.layout === nextProps.layout &&
+    prevProps.isOwn === nextProps.isOwn &&
+    prevProps.senderInfo === nextProps.senderInfo &&
+    prevProps.conversationId === nextProps.conversationId &&
+    prevProps.onToggleDetails === nextProps.onToggleDetails &&
+    prevProps.onPressReplyPreview === nextProps.onPressReplyPreview &&
+    prevProps.onReply === nextProps.onReply &&
+    prevProps.onOpenContextMenu === nextProps.onOpenContextMenu,
+)
+
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const conversationId = id as string
@@ -209,16 +395,15 @@ export default function ChatScreen() {
     useMessages(conversationId)
   const { mutate: sendMessage } = useSendMessage(conversationId)
   const { mutate: recallMessage } = useRecallMessage(conversationId)
-  const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
-  const [highlightedMessage, setHighlightedMessage] = useState<{
-    id: string
-    token: number
-  } | null>(null)
+  const toggleExpandedMessage = useMessageListUiStore((state) => state.toggleExpandedMessage)
+  const bumpHighlightToken = useMessageListUiStore((state) => state.bumpHighlightToken)
+  const resetConversationUi = useMessageListUiStore((state) => state.resetConversationUi)
   const [activeContextMenu, setActiveContextMenu] = useState<ActiveContextMenuState | null>(null)
 
-  const listRef = useRef<FlashListRef<RenderableMessage>>(null)
+  const listRef = useRef<FlashListRef<Message>>(null)
+  const layoutByIdRef = useRef<Map<string, MessageLayout>>(new Map())
+  const indexByIdRef = useRef<Map<string, number>>(new Map())
   const messageInputRef = useRef<MessageInputHandle>(null)
-  const [isComposerFocused, setIsComposerFocused] = useState(false)
   const isScrollButtonVisible = useSharedValue(false)
   const isNearBottomRef = useRef(true)
   const preservedKeyboardOffset = useSharedValue(0)
@@ -255,7 +440,6 @@ export default function ChatScreen() {
   })
   const typingTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const replyHighlightTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
-  const highlightResetTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const isComposerFocusedRef = useRef(false)
   const shouldRestoreComposerFocusRef = useRef(false)
 
@@ -273,24 +457,34 @@ export default function ChatScreen() {
     return () => handle.cancel()
   }, [])
 
-  const allMessages = useMemo<RenderableMessage[]>(() => {
-    const serverIdentityTokens = new Set(
-      serverMessages.flatMap((message) => getMessageIdentityTokens(message)),
+  const { orderedMessages, layoutById, messageById, indexById } = useMemo(() => {
+    const serverIdentityTokens = new Set<string>()
+    for (const message of serverMessages) {
+      for (const token of getMessageIdentityTokens(message)) {
+        serverIdentityTokens.add(token)
+      }
+    }
+
+    const pendingMessages: Message[] = []
+    for (const message of localOptimistic) {
+      if (!message) continue
+
+      const hasServerMatch = getMessageIdentityTokens(message).some((token) =>
+        serverIdentityTokens.has(token),
+      )
+      if (!hasServerMatch) {
+        pendingMessages.push(message)
+      }
+    }
+
+    const combinedMessages = [...pendingMessages, ...serverMessages]
+    combinedMessages.sort(
+      (left, right) =>
+        getMessageCreatedAtMs(right.createdAt) - getMessageCreatedAtMs(left.createdAt),
     )
 
-    const pendingMessages = localOptimistic.filter((m) => {
-      if (!m) return false
-      return !getMessageIdentityTokens(m).some((token) => serverIdentityTokens.has(token))
-    })
-
-    const combinedMessages = [...pendingMessages, ...serverMessages].sort((a, b) => {
-      const timeA = a?.createdAt || ''
-      const timeB = b?.createdAt || ''
-      return timeB > timeA ? 1 : timeB < timeA ? -1 : 0
-    })
-
     const dedupedIndexByIdentity = new Map<string, number>()
-    const dedupedArray: Message[] = []
+    const dedupedMessages: Message[] = []
 
     for (const message of combinedMessages) {
       const identityKey = getMessageIdentityKey(message)
@@ -298,55 +492,67 @@ export default function ChatScreen() {
 
       const existingIndex = dedupedIndexByIdentity.get(identityKey)
       if (existingIndex === undefined) {
-        dedupedIndexByIdentity.set(identityKey, dedupedArray.length)
-        dedupedArray.push(message)
+        dedupedIndexByIdentity.set(identityKey, dedupedMessages.length)
+        dedupedMessages.push(message)
       } else {
-        const existingMessage = dedupedArray[existingIndex]
+        const existingMessage = dedupedMessages[existingIndex]
         if (!existingMessage) continue
 
-        dedupedArray[existingIndex] = mergeMessageRecords(existingMessage, message)
+        dedupedMessages[existingIndex] = mergeMessageRecords(existingMessage, message)
       }
     }
 
     const FIVE_MINS = 5 * 60 * 1000
+    const previousLayoutById = layoutByIdRef.current
+    const nextLayoutById = new Map<string, MessageLayout>()
+    const nextMessageById = new Map<string, Message>()
+    const nextIndexById = new Map<string, number>()
 
-    return dedupedArray.map((item, index, array) => {
-      const previousMessage = array[index + 1]
-      const nextMessage = array[index - 1]
+    for (let index = 0; index < dedupedMessages.length; index += 1) {
+      const item = dedupedMessages[index]
+      if (!item) continue
 
-      const itemTime = new Date(item.createdAt).getTime()
-      const itemDay = new Date(item.createdAt).setHours(0, 0, 0, 0)
+      const previousMessage = dedupedMessages[index + 1]
+      const nextMessage = dedupedMessages[index - 1]
 
-      const prevTime = previousMessage ? new Date(previousMessage.createdAt).getTime() : 0
-      const prevDay = previousMessage ? new Date(previousMessage.createdAt).setHours(0, 0, 0, 0) : 0
-
-      const nextTime = nextMessage ? new Date(nextMessage.createdAt).getTime() : 0
-      const nextDay = nextMessage ? new Date(nextMessage.createdAt).setHours(0, 0, 0, 0) : 0
+      const itemTime = getMessageCreatedAtMs(item.createdAt)
+      const itemDay = getMessageDayStartMs(item.createdAt)
+      const prevTime = previousMessage ? getMessageCreatedAtMs(previousMessage.createdAt) : 0
+      const prevDay = previousMessage ? getMessageDayStartMs(previousMessage.createdAt) : 0
+      const nextTime = nextMessage ? getMessageCreatedAtMs(nextMessage.createdAt) : 0
+      const nextDay = nextMessage ? getMessageDayStartMs(nextMessage.createdAt) : 0
 
       const showDateSeparator = !previousMessage || itemDay !== prevDay
       const isNextDay = !!nextMessage && itemDay !== nextDay
 
-      const isGroupedTop =
-        previousMessage?.senderId === item.senderId &&
-        itemTime - prevTime < FIVE_MINS &&
-        !showDateSeparator
+      const nextLayout = getStableLayout(previousLayoutById.get(item.id), {
+        showDateSeparator,
+        separatorLabel: showDateSeparator ? buildSeparatorLabel(itemDay) : '',
+        isGroupedTop:
+          previousMessage?.senderId === item.senderId &&
+          itemTime - prevTime < FIVE_MINS &&
+          !showDateSeparator,
+        isGroupedBottom:
+          nextMessage?.senderId === item.senderId && nextTime - itemTime < FIVE_MINS && !isNextDay,
+        showAvatar: nextMessage?.senderId !== item.senderId || isNextDay,
+        timeLabel: getMessageTimeLabel(item.createdAt),
+      })
 
-      const isGroupedBottom =
-        nextMessage?.senderId === item.senderId && nextTime - itemTime < FIVE_MINS && !isNextDay
+      nextLayoutById.set(item.id, nextLayout)
+      nextMessageById.set(item.id, item)
+      nextIndexById.set(item.id, index)
+    }
 
-      const showAvatar = nextMessage?.senderId !== item.senderId || isNextDay
+    return {
+      orderedMessages: dedupedMessages,
+      layoutById: nextLayoutById,
+      messageById: nextMessageById,
+      indexById: nextIndexById,
+    }
+  }, [localOptimistic, serverMessages])
 
-      return {
-        ...item,
-        _layout: {
-          showDateSeparator,
-          isGroupedTop,
-          isGroupedBottom,
-          showAvatar,
-        },
-      }
-    })
-  }, [serverMessages, localOptimistic])
+  layoutByIdRef.current = layoutById
+  indexByIdRef.current = indexById
 
   useEffect(() => {
     if (serverMessages.length === 0 || localOptimistic.length === 0) return
@@ -376,7 +582,7 @@ export default function ChatScreen() {
     return () => clearTimeout(timeoutId)
   }, [confirmMessage, dequeueOfflineMessage, localOptimistic, serverMessages])
 
-  const newestMessage = allMessages[0]
+  const newestMessage = orderedMessages[0]
   const newestMessageId = newestMessage?.id
   const newestSenderId = newestMessage?.senderId
   const prevNewestMessageId = useRef(newestMessageId)
@@ -387,7 +593,7 @@ export default function ChatScreen() {
   }, [conversationId, isScrollButtonVisible])
 
   const isOtherUserTyping = activeTypers.some((typerId) => typerId !== user?.id)
-  const isInitialMessagesLoading = isLoading && allMessages.length === 0
+  const isInitialMessagesLoading = isLoading && orderedMessages.length === 0
   const getReplyScrollViewPosition = useCallback(() => 0.72, [])
 
   const prepareContextMenuKeyboardPreservation = useCallback(() => {
@@ -495,14 +701,9 @@ export default function ChatScreen() {
     listRef.current?.scrollToOffset({ offset: 0, animated: true })
   }, [])
 
-  const scrollToBottomImmediate = useCallback(() => {
-    listRef.current?.scrollToOffset({ offset: 0, animated: false })
-  }, [])
-
   const handleComposerFocusChange = useCallback(
     (focused: boolean) => {
       isComposerFocusedRef.current = focused
-      setIsComposerFocused(focused)
 
       if (focused) {
         if (!shouldRestoreComposerFocusRef.current) {
@@ -537,7 +738,11 @@ export default function ChatScreen() {
     setActiveContextMenu(null)
     shouldRestoreComposerFocusRef.current = false
     preservedKeyboardOffset.value = 0
-  }, [conversationId, preservedKeyboardOffset])
+
+    return () => {
+      resetConversationUi(conversationId)
+    }
+  }, [conversationId, preservedKeyboardOffset, resetConversationUi])
 
   useEffect(() => {
     if (newestMessageId && newestMessageId !== prevNewestMessageId.current) {
@@ -685,6 +890,10 @@ export default function ChatScreen() {
   const handleReply = useCallback(
     (message: Message) => {
       setReplyToMessage(message)
+
+      requestAnimationFrame(() => {
+        messageInputRef.current?.focus()
+      })
     },
     [setReplyToMessage],
   )
@@ -713,36 +922,31 @@ export default function ChatScreen() {
     [recallMessage],
   )
 
-  const handleToggleDetails = useCallback((messageId: string) => {
-    setExpandedMessageId((prevId) => (prevId === messageId ? null : messageId))
-  }, [])
+  const handleToggleDetails = useCallback(
+    (messageId: string) => {
+      toggleExpandedMessage(conversationId, messageId)
+    },
+    [conversationId, toggleExpandedMessage],
+  )
 
-  const scheduleMessageHighlight = useCallback((messageId: string) => {
-    if (replyHighlightTimeoutRef.current) {
-      clearTimeout(replyHighlightTimeoutRef.current)
-      replyHighlightTimeoutRef.current = null
-    }
-
-    replyHighlightTimeoutRef.current = setTimeout(() => {
-      setHighlightedMessage((prev) => ({
-        id: messageId,
-        token: prev?.id === messageId ? prev.token + 1 : (prev?.token ?? 0) + 1,
-      }))
-
-      if (highlightResetTimeoutRef.current) {
-        clearTimeout(highlightResetTimeoutRef.current)
+  const scheduleMessageHighlight = useCallback(
+    (messageId: string) => {
+      if (replyHighlightTimeoutRef.current) {
+        clearTimeout(replyHighlightTimeoutRef.current)
+        replyHighlightTimeoutRef.current = null
       }
 
-      highlightResetTimeoutRef.current = setTimeout(() => {
-        setHighlightedMessage((prev) => (prev?.id === messageId ? null : prev))
-      }, 1500)
-    }, 320)
-  }, [])
+      replyHighlightTimeoutRef.current = setTimeout(() => {
+        bumpHighlightToken(conversationId, messageId)
+      }, 320)
+    },
+    [bumpHighlightToken, conversationId],
+  )
 
   const scrollToMessageById = useCallback(
     (messageId: string) => {
-      const index = allMessages.findIndex((message) => message.id === messageId)
-      if (index === -1) {
+      const index = indexByIdRef.current.get(messageId)
+      if (index === undefined) {
         return false
       }
 
@@ -754,7 +958,7 @@ export default function ChatScreen() {
       scheduleMessageHighlight(messageId)
       return true
     },
-    [allMessages, getReplyScrollViewPosition, scheduleMessageHighlight],
+    [getReplyScrollViewPosition, scheduleMessageHighlight],
   )
 
   const runReplyScroll = useCallback(
@@ -789,23 +993,16 @@ export default function ChatScreen() {
       return null
     }
 
-    const currentMessage =
-      allMessages.find((message) => message.id === activeContextMenuMessageId) ??
-      activeContextMenuMessage
+    const currentMessage = messageById.get(activeContextMenuMessageId) ?? activeContextMenuMessage
+    const currentLayout = layoutById.get(currentMessage.id)
 
     return {
       message: currentMessage,
       anchor: activeContextMenuAnchor,
       conversationId: activeContextMenuConversationId,
       isOwn: currentMessage.senderId === user?.id,
-      isGroupedTop:
-        '_layout' in currentMessage
-          ? Boolean((currentMessage as RenderableMessage)._layout?.isGroupedTop)
-          : activeContextMenuFallbackGroupedTop,
-      isGroupedBottom:
-        '_layout' in currentMessage
-          ? Boolean((currentMessage as RenderableMessage)._layout?.isGroupedBottom)
-          : activeContextMenuFallbackGroupedBottom,
+      isGroupedTop: currentLayout?.isGroupedTop ?? activeContextMenuFallbackGroupedTop,
+      isGroupedBottom: currentLayout?.isGroupedBottom ?? activeContextMenuFallbackGroupedBottom,
     }
   }, [
     activeContextMenuAnchor,
@@ -814,7 +1011,8 @@ export default function ChatScreen() {
     activeContextMenuFallbackGroupedTop,
     activeContextMenuMessage,
     activeContextMenuMessageId,
-    allMessages,
+    layoutById,
+    messageById,
     user?.id,
   ])
 
@@ -823,7 +1021,6 @@ export default function ChatScreen() {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
       if (socket?.connected) socket.emit('typing_stop', conversationId)
       if (replyHighlightTimeoutRef.current) clearTimeout(replyHighlightTimeoutRef.current)
-      if (highlightResetTimeoutRef.current) clearTimeout(highlightResetTimeoutRef.current)
 
       setTimeout(() => {
         const messagesQueryKey = queryKeys.conversations.messages(conversationId)
@@ -834,56 +1031,39 @@ export default function ChatScreen() {
   }, [queryClient, socket, conversationId])
 
   const renderItem = useCallback(
-    ({ item }: ListRenderItemInfo<RenderableMessage>) => {
+    ({ item }: ListRenderItemInfo<Message>) => {
       if (!item) return null
 
-      const { showDateSeparator, isGroupedTop, isGroupedBottom, showAvatar } = item._layout
-      const isOwn = item?.senderId === user?.id
+      const layout = layoutByIdRef.current.get(item.id) ?? DEFAULT_MESSAGE_LAYOUT
+      const isOwn = item.senderId === user?.id
       const sender = item.sender ?? participantsMap.get(item.senderId)
 
       return (
-        <View>
-          {showDateSeparator && (
-            <View className="my-4 items-center">
-              <Text className="text-xs2 text-text-muted">
-                {formatSeparatorDate(item.createdAt)}
-              </Text>
-            </View>
-          )}
-          <MessageBubble
-            message={item}
-            isOwn={isOwn}
-            showAvatar={showAvatar}
-            senderInfo={sender}
-            isGroupedTop={isGroupedTop}
-            isGroupedBottom={isGroupedBottom}
-            highlightToken={highlightedMessage?.id === item.id ? highlightedMessage.token : 0}
-            isExpanded={expandedMessageId === item.id}
-            isContextMenuActive={false}
-            onToggleDetails={() => handleToggleDetails(item.id)}
-            onPressReplyPreview={() => handleScrollToMessage(item.replyToId)}
-            onReply={() => handleReply(item)}
-            onOpenContextMenu={handleOpenContextMenu}
-            conversationId={conversationId}
-          />
-        </View>
+        <MessageRow
+          message={item}
+          layout={layout}
+          isOwn={isOwn}
+          senderInfo={sender ?? null}
+          conversationId={conversationId}
+          onToggleDetails={handleToggleDetails}
+          onPressReplyPreview={handleScrollToMessage}
+          onReply={handleReply}
+          onOpenContextMenu={handleOpenContextMenu}
+        />
       )
     },
     [
-      user?.id,
-      participantsMap,
-      expandedMessageId,
-      highlightedMessage,
-      activeContextMenuMessageId,
       conversationId,
-      handleToggleDetails,
-      handleScrollToMessage,
       handleReply,
+      handleScrollToMessage,
+      handleToggleDetails,
       handleOpenContextMenu,
+      participantsMap,
+      user?.id,
     ],
   )
 
-  const getItemType = useCallback((item: RenderableMessage) => {
+  const getItemType = useCallback((item: Message) => {
     if (item.isRecalled === true || item.is_recalled === true) {
       return 'recalled'
     }
@@ -1038,10 +1218,9 @@ export default function ChatScreen() {
               <FlashList
                 ref={listRef}
                 inverted
-                data={allMessages}
-                extraData={`${expandedMessageId ?? ''}:${highlightedMessage?.id ?? ''}:${highlightedMessage?.token ?? 0}`}
+                data={orderedMessages}
                 renderItem={renderItem}
-                keyExtractor={(item: RenderableMessage, index: number) =>
+                keyExtractor={(item: Message, index: number) =>
                   item?.id ? item.id.toString() : `fallback-${index}`
                 }
                 getItemType={getItemType}
