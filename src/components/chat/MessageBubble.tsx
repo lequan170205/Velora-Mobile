@@ -1,5 +1,4 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import { format } from 'date-fns'
 import * as Haptics from 'expo-haptics'
 import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Image, Text, View, Pressable } from 'react-native'
@@ -19,7 +18,12 @@ import { cn } from '../../lib/cn'
 import { useChatStore } from '../../stores/chatStore'
 
 import type { BubbleAnchor } from './MessageContextMenu'
-import type { ChatParticipant, Message, ReplyPreviewData } from '../../types/conversation.types'
+import type {
+  ChatParticipant,
+  Message,
+  ReactionMap,
+  ReplyPreviewData,
+} from '../../types/conversation.types'
 
 // Valid emojis for reactions (matching backend)
 export const VALID_EMOJIS = ['👍', '❤️', '😂', '😢', '😮', '😡', '👏', '🎉']
@@ -96,8 +100,67 @@ const getSenderDisplayName = ({
   return namedSender || senderInfo?.email?.split('@')[0] || 'Someone'
 }
 
+const areReadReceiptsEqual = (left?: Message['readBy'], right?: Message['readBy']) => {
+  if (left === right) return true
+  if (!left || !right) return !left && !right
+  if (left.length !== right.length) return false
+
+  for (let index = 0; index < left.length; index += 1) {
+    const leftReceipt = left[index]
+    const rightReceipt = right[index]
+
+    if (leftReceipt?.userId !== rightReceipt?.userId || leftReceipt?.at !== rightReceipt?.at) {
+      return false
+    }
+  }
+
+  return true
+}
+
+const areReactionsEqual = (left?: ReactionMap, right?: ReactionMap) => {
+  if (left === right) return true
+  if (!left || !right) return !left && !right
+
+  const leftKeys = Object.keys(left)
+  const rightKeys = Object.keys(right)
+
+  if (leftKeys.length !== rightKeys.length) {
+    return false
+  }
+
+  for (const key of leftKeys) {
+    const leftReaction = left[key]
+    const rightReaction = right[key]
+
+    if (
+      !rightReaction ||
+      leftReaction?.emoji !== rightReaction.emoji ||
+      leftReaction?.createdAt !== rightReaction.createdAt
+    ) {
+      return false
+    }
+  }
+
+  return true
+}
+
+const areSenderInfosEqual = (
+  left?: ChatParticipant | Message['sender'] | null,
+  right?: ChatParticipant | Message['sender'] | null,
+) => {
+  if (left === right) return true
+  if (!left || !right) return !left && !right
+
+  return (
+    left.email === right.email &&
+    left.picture === right.picture &&
+    ('name' in left ? left.name : undefined) === ('name' in right ? right.name : undefined)
+  )
+}
+
 interface MessageBubbleProps {
   message: Message
+  timeLabel?: string
   isOwn: boolean
   isGroupedTop?: boolean
   isGroupedBottom?: boolean
@@ -125,6 +188,7 @@ export interface MessageBubbleContextMenuPayload {
 
 const MessageBubbleComponent = function MessageBubble({
   message,
+  timeLabel = '',
   isOwn,
   isGroupedTop,
   isGroupedBottom,
@@ -147,18 +211,10 @@ const MessageBubbleComponent = function MessageBubble({
   const menuOpeningProgress = useSharedValue(0)
   // const swipeProgress = useSharedValue(0)
   const bubbleRef = useRef<View>(null)
+  const isExpandedRef = useRef(isExpanded)
 
   const senderInfo = senderInfoProp ?? message.sender ?? null
-
-  let timeString = ''
-  if (message.createdAt) {
-    try {
-      const date = new Date(message.createdAt)
-      if (!isNaN(date.getTime())) timeString = format(date, 'h:mm a')
-    } catch {
-      timeString = ''
-    }
-  }
+  isExpandedRef.current = isExpanded
 
   const isFailed = message.status === 'FAILED'
   const isSending = (message.id || message._id || '').startsWith('temp-') && !isFailed
@@ -204,14 +260,30 @@ const MessageBubbleComponent = function MessageBubble({
   }, [])
 
   useEffect(() => {
-    progress.value = isExpanded ? 1 : 0
-    highlightProgress.value = 0
-    swipeOffsetX.value = 0
-    menuOpeningProgress.value = 0
-  }, [highlightProgress, isExpanded, menuOpeningProgress, message.id, progress, swipeOffsetX])
+    const nextProgress = isExpandedRef.current ? 1 : 0
+
+    if (progress.value !== nextProgress) {
+      progress.value = nextProgress
+    }
+    if (highlightProgress.value !== 0) {
+      highlightProgress.value = 0
+    }
+    if (swipeOffsetX.value !== 0) {
+      swipeOffsetX.value = 0
+    }
+    if (menuOpeningProgress.value !== 0) {
+      menuOpeningProgress.value = 0
+    }
+  }, [highlightProgress, menuOpeningProgress, message.id, progress, swipeOffsetX])
 
   useEffect(() => {
-    menuOpeningProgress.value = withTiming(isContextMenuActive ? 1 : 0, {
+    const nextValue = isContextMenuActive ? 1 : 0
+
+    if (menuOpeningProgress.value === nextValue) {
+      return
+    }
+
+    menuOpeningProgress.value = withTiming(nextValue, {
       duration: isContextMenuActive ? 220 : 180,
     })
   }, [isContextMenuActive, menuOpeningProgress])
@@ -245,7 +317,7 @@ const MessageBubbleComponent = function MessageBubble({
     transform: [{ translateY: interpolate(progress.value, [0, 1], [-8, 0]) }],
   }))
 
-  const bubbleHighlightWrapStyle = useAnimatedStyle(() => {
+  const bubbleWrapStyle = useAnimatedStyle(() => {
     const menuScale = interpolate(menuOpeningProgress.value, [0, 1], [1, 1.015])
     const menuTranslateY = interpolate(menuOpeningProgress.value, [0, 1], [0, -1])
 
@@ -254,16 +326,13 @@ const MessageBubbleComponent = function MessageBubble({
 
     return {
       transform: [
+        { translateX: swipeOffsetX.value },
         { scale: Math.max(menuScale, highlightScale) },
         { translateY: menuTranslateY + highlightTranslateY },
       ],
       zIndex: highlightProgress.value > 0 || menuOpeningProgress.value > 0 ? 2 : 0,
     }
   })
-
-  const swipeBubbleStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: swipeOffsetX.value }],
-  }))
 
   const swipeIndicatorStyle = useAnimatedStyle(() => {
     const currentTranslation = Math.abs(swipeOffsetX.value)
@@ -302,24 +371,25 @@ const MessageBubbleComponent = function MessageBubble({
     [isOwn, senderInfo],
   )
   const hasReactions = Object.keys(reactionSummary).length > 0
-  const bubbleCornerClassName = cn(
-    'rounded-[18px]',
-    isOwn && isGroupedTop && 'rounded-tr-[4px]',
-    isOwn && isGroupedBottom && 'rounded-br-[4px]',
-    !isOwn && isGroupedTop && 'rounded-tl-[4px]',
-    !isOwn && isGroupedBottom && 'rounded-bl-[4px]',
+  const bubbleClassName = useMemo(
+    () =>
+      cn(
+        !isImage && 'px-4 py-3',
+        !isImage && (isOwn ? 'bg-bubble-out' : 'bg-bubble-in'),
+        'overflow-hidden rounded-[18px]',
+        isOwn && isGroupedTop && 'rounded-tr-[4px]',
+        isOwn && isGroupedBottom && 'rounded-br-[4px]',
+        !isOwn && isGroupedTop && 'rounded-tl-[4px]',
+        !isOwn && isGroupedBottom && 'rounded-bl-[4px]',
+      ),
+    [isGroupedBottom, isGroupedTop, isImage, isOwn],
   )
-  const bubbleClassName = cn(
-    !isImage && 'px-4 py-3',
-    !isImage && (isOwn ? 'bg-bubble-out' : 'bg-bubble-in'),
-    'overflow-hidden',
-    bubbleCornerClassName,
-  )
+  const isSwipeReplyEnabled = !isRecalled && Boolean(onReply)
 
   const swipeGesture = useMemo(
     () =>
       Gesture.Pan()
-        .enabled(!isRecalled && Boolean(onReply))
+        .enabled(isSwipeReplyEnabled)
         .activeOffsetX([-10, 10])
         .failOffsetY([-5, 5])
         .maxPointers(1)
@@ -350,7 +420,7 @@ const MessageBubbleComponent = function MessageBubble({
             overshootClamping: false,
           })
         }),
-    [handleSwipeReply, isRecalled, onReply, swipeDirection, swipeOffsetX],
+    [handleSwipeReply, isSwipeReplyEnabled, swipeDirection, swipeOffsetX],
   )
 
   return (
@@ -414,8 +484,8 @@ const MessageBubbleComponent = function MessageBubble({
         ) : null}
 
         <GestureDetector gesture={swipeGesture}>
-          <Animated.View style={[bubbleHighlightWrapStyle, swipeBubbleStyle]}>
-            <View className="relative">
+          <Animated.View style={bubbleWrapStyle}>
+            <View ref={bubbleRef} collapsable={false} className="relative">
               <Animated.View
                 pointerEvents="none"
                 className={cn(
@@ -427,56 +497,54 @@ const MessageBubbleComponent = function MessageBubble({
                 <MaterialIcons name="reply" size={16} color="#FF6B2C" />
               </Animated.View>
 
-              <View ref={bubbleRef} collapsable={false}>
-                <Pressable
-                  onPress={toggleDetails}
-                  {...(!isRecalled
-                    ? {
-                        onLongPress: handleLongPress,
-                        delayLongPress: 180,
-                      }
-                    : null)}
-                  className={bubbleClassName}
-                >
-                  {isRecalled ? (
-                    <Text
-                      className={cn(
-                        'font-sans text-base italic leading-[22px]',
-                        isOwn ? 'text-white/60' : 'text-text-muted',
-                      )}
-                    >
-                      Tin nhắn đã thu hồi
-                    </Text>
-                  ) : isImage ? (
-                    <View className="relative">
-                      <Image
-                        source={{ uri: message.content }}
-                        className="w-48 h-64 rounded-[18px] bg-surface-card"
-                        resizeMode="cover"
-                      />
-                      {isSending && (
-                        <View className="absolute inset-0 items-center justify-center rounded-[18px] bg-black/30">
-                          <MaterialIcons
-                            name="cloud-upload"
-                            size={32}
-                            color="#ffffff"
-                            style={{ opacity: 0.8 }}
-                          />
-                        </View>
-                      )}
-                    </View>
-                  ) : (
-                    <Text
-                      className={cn(
-                        'font-sans text-base leading-[22px]',
-                        isOwn ? 'text-white' : 'text-text-primary',
-                      )}
-                    >
-                      {message.content}
-                    </Text>
-                  )}
-                </Pressable>
-              </View>
+              <Pressable
+                onPress={toggleDetails}
+                {...(!isRecalled
+                  ? {
+                      onLongPress: handleLongPress,
+                      delayLongPress: 180,
+                    }
+                  : null)}
+                className={bubbleClassName}
+              >
+                {isRecalled ? (
+                  <Text
+                    className={cn(
+                      'font-sans text-base italic leading-[22px]',
+                      isOwn ? 'text-white/60' : 'text-text-muted',
+                    )}
+                  >
+                    Tin nhắn đã thu hồi
+                  </Text>
+                ) : isImage ? (
+                  <View className="relative">
+                    <Image
+                      source={{ uri: message.content }}
+                      className="w-48 h-64 rounded-[18px] bg-surface-card"
+                      resizeMode="cover"
+                    />
+                    {isSending && (
+                      <View className="absolute inset-0 items-center justify-center rounded-[18px] bg-black/30">
+                        <MaterialIcons
+                          name="cloud-upload"
+                          size={32}
+                          color="#ffffff"
+                          style={{ opacity: 0.8 }}
+                        />
+                      </View>
+                    )}
+                  </View>
+                ) : (
+                  <Text
+                    className={cn(
+                      'font-sans text-base leading-[22px]',
+                      isOwn ? 'text-white' : 'text-text-primary',
+                    )}
+                  >
+                    {message.content}
+                  </Text>
+                )}
+              </Pressable>
             </View>
           </Animated.View>
         </GestureDetector>
@@ -508,7 +576,7 @@ const MessageBubbleComponent = function MessageBubble({
           <Animated.View style={animatedStyle}>
             <View className={cn('flex-row items-center', isOwn ? 'justify-end' : 'justify-start')}>
               <Text className="px-1 text-[11px] text-text-muted">
-                {timeString}
+                {timeLabel}
                 {isOwn && ` • ${getStatusText()}`}
               </Text>
               {isOwn && isSeen && !isSending && (
@@ -534,16 +602,22 @@ export const MessageBubble = memo(MessageBubbleComponent, (prevProps, nextProps)
   const isReplyEqual =
     typeof prevReply === 'string' || typeof nextReply === 'string'
       ? prevReply === nextReply
-      : prevReply?.content === nextReply?.content && prevReply?.type === nextReply?.type
+      : prevReply?.content === nextReply?.content &&
+        prevReply?.type === nextReply?.type &&
+        prevReply?.senderName === nextReply?.senderName
 
   return (
     prevProps.message.id === nextProps.message.id &&
     prevProps.message.content === nextProps.message.content &&
+    prevProps.message.type === nextProps.message.type &&
+    prevProps.message.senderId === nextProps.message.senderId &&
     prevProps.message.status === nextProps.message.status &&
-    prevProps.message.readBy === nextProps.message.readBy &&
-    prevProps.message.reactions === nextProps.message.reactions &&
+    areReadReceiptsEqual(prevProps.message.readBy, nextProps.message.readBy) &&
+    areReactionsEqual(prevProps.message.reactions, nextProps.message.reactions) &&
     prevProps.isOwn === nextProps.isOwn &&
     prevProps.showAvatar === nextProps.showAvatar &&
+    areSenderInfosEqual(prevProps.senderInfo, nextProps.senderInfo) &&
+    prevProps.timeLabel === nextProps.timeLabel &&
     prevProps.isGroupedTop === nextProps.isGroupedTop &&
     prevProps.isGroupedBottom === nextProps.isGroupedBottom &&
     prevProps.highlightToken === nextProps.highlightToken &&
