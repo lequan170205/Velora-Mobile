@@ -1,10 +1,25 @@
-import { MaterialIcons } from '@expo/vector-icons'
+import { Ionicons } from '@expo/vector-icons'
 import { format } from 'date-fns'
+import * as Haptics from 'expo-haptics'
 import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
+import Animated, {
+  Easing,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 
 import { ReelVideo } from './ReelVideo'
@@ -20,10 +35,20 @@ interface ReelFeedItemProps {
   shouldPreload: boolean
   isMuted: boolean
   onToggleMuted: () => void
+  onTimelineInteractionChange?: ((isInteracting: boolean) => void) | undefined
 }
 
 const SCRUBBER_TOUCH_ZONE_HEIGHT = 40
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
+const TIMELINE_ACTIVE_HEIGHT = 10
+const TIMELINE_CHIP_WIDTH = 74
+const TIMELINE_LOADING_CHIP_WIDTH = 96
+const TIMELINE_CHIP_BOTTOM_OFFSET = 4
+const TIMELINE_MOTION_EASING = Easing.bezier(0.22, 1, 0.36, 1)
+const clamp = (value: number, min: number, max: number) => {
+  'worklet'
+
+  return Math.min(max, Math.max(min, value))
+}
 const formatPlaybackTime = (value: number) => {
   const safeValue = Number.isFinite(value) && value > 0 ? Math.floor(value) : 0
   const minutes = Math.floor(safeValue / 60)
@@ -97,39 +122,61 @@ const ReelFeedItemComponent = function ReelFeedItem({
   shouldPreload,
   isMuted,
   onToggleMuted,
+  onTimelineInteractionChange,
 }: ReelFeedItemProps) {
   const videoRef = useRef<ReelVideoHandle | null>(null)
   const resumeAfterScrubRef = useRef(false)
   const pendingSeekTargetRef = useRef<number | null>(null)
+  const lastScrubRatioRef = useRef(0)
+  const scrubReleaseHandledRef = useRef(false)
   const [isReady, setIsReady] = useState(false)
   const [bufferedPosition, setBufferedPosition] = useState(0)
   const [durationSeconds, setDurationSeconds] = useState(0)
   const [isPausedByUser, setIsPausedByUser] = useState(false)
-  const [isScrubberVisible, setIsScrubberVisible] = useState(false)
   const [isScrubbing, setIsScrubbing] = useState(false)
-  const [isSeekFeedbackPending, setIsSeekFeedbackPending] = useState(false)
-  const [isSettlingAfterScrub, setIsSettlingAfterScrub] = useState(false)
   const [hasPlaybackError, setHasPlaybackError] = useState(false)
   const [playbackPosition, setPlaybackPosition] = useState(0)
+  const [pendingSeekRatio, setPendingSeekRatio] = useState<number | null>(null)
   const [scrubPosition, setScrubPosition] = useState(0)
   const [scrubberWidth, setScrubberWidth] = useState(0)
+  const timelineInteractionProgress = useSharedValue(0)
+  const timelinePreviewRatio = useSharedValue(0)
   const playbackState = useMemo(() => getPlaybackState(reel.status), [reel.status])
   const descriptionText = description?.trim()
   const metaLine = format(new Date(reel.createdAt), 'MMM d')
-  const showPausedControls =
-    isPausedByUser && !isScrubbing && isActive && playbackState.isPlayable && !hasPlaybackError
-  const showScrubber = isScrubberVisible && durationSeconds > 0 && isActive
+  const pendingSeekPosition =
+    pendingSeekRatio !== null && durationSeconds > 0 ? pendingSeekRatio * durationSeconds : null
+  const showScrubber = isScrubbing && durationSeconds > 0 && isActive
   const showLoadingRail =
-    (isSettlingAfterScrub || isSeekFeedbackPending) &&
+    pendingSeekPosition !== null &&
     !isScrubbing &&
     durationSeconds > 0 &&
-    isActive
+    isActive &&
+    pendingSeekPosition > bufferedPosition + 0.24
+  const showPausedControls =
+    isPausedByUser &&
+    !isScrubbing &&
+    !showLoadingRail &&
+    isActive &&
+    playbackState.isPlayable &&
+    !hasPlaybackError
   const shouldRenderVideo = playbackState.isPlayable && (isActive || shouldPreload)
   const effectivePosition = isScrubbing ? scrubPosition : playbackPosition
+  const timelinePosition = pendingSeekPosition ?? effectivePosition
   const bufferedRatio = durationSeconds > 0 ? clamp(bufferedPosition / durationSeconds, 0, 1) : 0
   const progressRatio = durationSeconds > 0 ? clamp(effectivePosition / durationSeconds, 0, 1) : 0
   const scrubRailBottom = 0
   const metadataBottom = SCRUBBER_TOUCH_ZONE_HEIGHT + 14
+  const timelineLabel = formatPlaybackTime(timelinePosition)
+  const timelineChipWidth = showLoadingRail ? TIMELINE_LOADING_CHIP_WIDTH : TIMELINE_CHIP_WIDTH
+
+  const triggerScrubStartHaptic = useCallback(() => {
+    void Haptics.selectionAsync().catch(() => undefined)
+  }, [])
+
+  const triggerScrubSettleHaptic = useCallback(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
+  }, [])
 
   const handleProgress = ({
     bufferedPosition: nextBufferedPosition,
@@ -153,12 +200,13 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
     if (
       pendingSeekTargetRef.current !== null &&
+      !isScrubbing &&
       Math.abs(currentTime - pendingSeekTargetRef.current) < 0.45 &&
       isTargetBuffered
     ) {
       pendingSeekTargetRef.current = null
-      setIsSeekFeedbackPending(false)
-      setIsSettlingAfterScrub(false)
+      setPendingSeekRatio(null)
+      triggerScrubSettleHaptic()
     }
   }
 
@@ -168,10 +216,12 @@ const ReelFeedItemComponent = function ReelFeedItem({
         return
       }
 
-      const nextPosition = clamp(ratio, 0, 1) * durationSeconds
+      const safeRatio = clamp(ratio, 0, 1)
+      lastScrubRatioRef.current = safeRatio
+      const nextPosition = safeRatio * durationSeconds
       pendingSeekTargetRef.current = nextPosition
+      setPendingSeekRatio(safeRatio)
       setScrubPosition(nextPosition)
-      setIsSeekFeedbackPending(true)
       videoRef.current?.seekTo(nextPosition)
     },
     [durationSeconds],
@@ -183,14 +233,14 @@ const ReelFeedItemComponent = function ReelFeedItem({
         return
       }
 
+      scrubReleaseHandledRef.current = false
       resumeAfterScrubRef.current = !isPausedByUser
-      setIsSettlingAfterScrub(false)
       setIsPausedByUser(true)
-      setIsScrubberVisible(true)
       setIsScrubbing(true)
+      triggerScrubStartHaptic()
       seekToRatio(touchX / scrubberWidth)
     },
-    [durationSeconds, isPausedByUser, scrubberWidth, seekToRatio],
+    [durationSeconds, isPausedByUser, scrubberWidth, seekToRatio, triggerScrubStartHaptic],
   )
 
   const updateScrub = useCallback(
@@ -204,15 +254,36 @@ const ReelFeedItemComponent = function ReelFeedItem({
     [durationSeconds, scrubberWidth, seekToRatio],
   )
 
-  const finishScrub = useCallback(() => {
-    setIsScrubbing(false)
-    setIsScrubberVisible(false)
-    setIsSettlingAfterScrub(pendingSeekTargetRef.current !== null)
+  const finishScrub = useCallback(
+    (touchX?: number, velocityX = 0) => {
+      if (scrubReleaseHandledRef.current) {
+        return
+      }
 
-    if (resumeAfterScrubRef.current) {
-      setIsPausedByUser(false)
-    }
-  }, [])
+      scrubReleaseHandledRef.current = true
+
+      if (typeof touchX === 'number' && durationSeconds > 0 && scrubberWidth > 0) {
+        const baseRatio = clamp(touchX / scrubberWidth, 0, 1)
+        const momentumSeconds =
+          Math.abs(velocityX) > 260
+            ? clamp((velocityX / Math.max(scrubberWidth, 1)) * (durationSeconds * 0.018), -3.5, 3.5)
+            : 0
+        const nextRatio = clamp(baseRatio + momentumSeconds / Math.max(durationSeconds, 1), 0, 1)
+        timelinePreviewRatio.value = withTiming(nextRatio, {
+          duration: 90,
+          easing: TIMELINE_MOTION_EASING,
+        })
+        seekToRatio(nextRatio)
+      }
+
+      setIsScrubbing(false)
+
+      if (resumeAfterScrubRef.current) {
+        setIsPausedByUser(false)
+      }
+    },
+    [durationSeconds, scrubberWidth, seekToRatio, timelinePreviewRatio],
+  )
 
   const scrubGesture = useMemo(
     () =>
@@ -224,45 +295,118 @@ const ReelFeedItemComponent = function ReelFeedItem({
         .activeOffsetX([-2, 2])
         .failOffsetY([-12, 12])
         .onStart((event) => {
+          const ratio = scrubberWidth > 0 ? clamp(event.x / scrubberWidth, 0, 1) : 0
+          timelinePreviewRatio.value = ratio
           scheduleOnRN(beginScrub, event.x)
         })
         .onUpdate((event) => {
+          const ratio = scrubberWidth > 0 ? clamp(event.x / scrubberWidth, 0, 1) : 0
+          timelinePreviewRatio.value = ratio
           scheduleOnRN(updateScrub, event.x)
         })
-        .onEnd(() => {
-          scheduleOnRN(finishScrub)
+        .onEnd((event) => {
+          const ratio = scrubberWidth > 0 ? clamp(event.x / scrubberWidth, 0, 1) : 0
+          timelinePreviewRatio.value = ratio
+          scheduleOnRN(finishScrub, event.x, event.velocityX)
         })
         .onFinalize(() => {
-          scheduleOnRN(finishScrub)
+          scheduleOnRN(finishScrub, lastScrubRatioRef.current * scrubberWidth, 0)
         }),
-    [beginScrub, durationSeconds, finishScrub, isActive, playbackState.isPlayable, updateScrub],
+    [
+      beginScrub,
+      durationSeconds,
+      finishScrub,
+      isActive,
+      playbackState.isPlayable,
+      scrubberWidth,
+      timelinePreviewRatio,
+      updateScrub,
+    ],
   )
 
   useEffect(() => {
+    timelineInteractionProgress.value = withTiming(showScrubber || showLoadingRail ? 1 : 0, {
+      duration: showScrubber || showLoadingRail ? 160 : 210,
+      easing: TIMELINE_MOTION_EASING,
+    })
+  }, [showLoadingRail, showScrubber, timelineInteractionProgress])
+
+  useEffect(() => {
+    if (!isScrubbing && pendingSeekRatio === null) {
+      timelinePreviewRatio.value = withTiming(progressRatio, {
+        duration: 110,
+        easing: TIMELINE_MOTION_EASING,
+      })
+    }
+  }, [isScrubbing, pendingSeekRatio, progressRatio, timelinePreviewRatio])
+
+  useEffect(() => {
+    onTimelineInteractionChange?.(isScrubbing)
+
+    return () => {
+      onTimelineInteractionChange?.(false)
+    }
+  }, [isScrubbing, onTimelineInteractionChange])
+
+  const timelineFillStyle = useAnimatedStyle(() => ({
+    width: scrubberWidth * timelinePreviewRatio.value,
+  }))
+
+  const timelineOverlayStyle = useAnimatedStyle(() => ({
+    opacity: timelineInteractionProgress.value,
+    transform: [
+      {
+        translateY: interpolate(timelineInteractionProgress.value, [0, 1], [6, 0]),
+      },
+    ],
+  }))
+
+  const timelineBaseStyle = useAnimatedStyle(() => ({
+    opacity: 1 - timelineInteractionProgress.value,
+  }))
+
+  const timelineChipStyle = useAnimatedStyle(() => {
+    const maxTranslate = Math.max(8, scrubberWidth - timelineChipWidth - 8)
+    const translateX = Math.max(
+      8,
+      Math.min(maxTranslate, scrubberWidth * timelinePreviewRatio.value - timelineChipWidth / 2),
+    )
+
+    return {
+      opacity: timelineInteractionProgress.value,
+      transform: [
+        { translateX },
+        { translateY: interpolate(timelineInteractionProgress.value, [0, 1], [8, 0]) },
+      ],
+    }
+  })
+
+  useEffect(() => {
     pendingSeekTargetRef.current = null
+    lastScrubRatioRef.current = 0
+    scrubReleaseHandledRef.current = false
     setBufferedPosition(0)
     setDurationSeconds(0)
     setIsReady(false)
     setHasPlaybackError(false)
     setIsPausedByUser(false)
-    setIsScrubberVisible(false)
     setIsScrubbing(false)
-    setIsSeekFeedbackPending(false)
-    setIsSettlingAfterScrub(false)
+    setPendingSeekRatio(null)
     setPlaybackPosition(0)
     setScrubPosition(0)
-  }, [reel.id])
+    timelinePreviewRatio.value = 0
+    timelineInteractionProgress.value = 0
+  }, [reel.id, timelineInteractionProgress, timelinePreviewRatio])
 
   useEffect(() => {
     if (!isActive) {
       if (!shouldPreload) {
         setIsReady(false)
       }
+      scrubReleaseHandledRef.current = false
       setIsPausedByUser(false)
-      setIsScrubberVisible(false)
       setIsScrubbing(false)
-      setIsSeekFeedbackPending(false)
-      setIsSettlingAfterScrub(false)
+      setPendingSeekRatio(null)
       return
     }
 
@@ -323,14 +467,14 @@ const ReelFeedItemComponent = function ReelFeedItem({
           >
             <View className="absolute inset-0 items-center justify-center">
               <TouchableOpacity
-                className="h-[72px] w-[72px] items-center justify-center rounded-full bg-black/52"
+                className="h-[76px] w-[76px] items-center justify-center rounded-full"
                 activeOpacity={0.84}
                 onPress={(event) => {
                   event.stopPropagation()
                   setIsPausedByUser(false)
                 }}
               >
-                <MaterialIcons name="play-arrow" size={40} color="#FFFFFF" />
+                <Ionicons name="play-circle" size={72} color="rgba(255,255,255,0.96)" />
               </TouchableOpacity>
             </View>
           </Pressable>
@@ -350,69 +494,60 @@ const ReelFeedItemComponent = function ReelFeedItem({
                 }}
                 style={{ height: SCRUBBER_TOUCH_ZONE_HEIGHT }}
               >
-                <View className="absolute inset-x-0 bottom-0 h-[2px] rounded-full bg-white/22">
+                <Animated.View
+                  className="absolute inset-x-0 bottom-0 h-[2px] rounded-full bg-white/18"
+                  style={timelineBaseStyle}
+                >
                   <View
-                    className="absolute inset-y-0 left-0 rounded-full bg-white/90"
-                    style={{ width: `${progressRatio * 100}%` }}
+                    className="absolute inset-y-0 left-0 bg-white/24"
+                    style={{ width: `${bufferedRatio * 100}%` }}
                   />
-                </View>
+                  <Animated.View
+                    className="absolute inset-y-0 left-0 rounded-full bg-white/90"
+                    style={timelineFillStyle}
+                  />
+                </Animated.View>
 
-                {showLoadingRail ? (
-                  <View className="absolute inset-x-0 bottom-0 rounded-full bg-black/62 px-3 py-2.5">
-                    <View className="h-[3px] overflow-hidden rounded-full bg-white/28">
-                      <View
-                        className="absolute inset-y-0 left-0 bg-white/45"
-                        style={{ width: `${bufferedRatio * 100}%` }}
-                      />
-                      <View
-                        className="absolute inset-y-0 left-0 bg-white"
-                        style={{ width: `${progressRatio * 100}%` }}
-                      />
+                <Animated.View
+                  pointerEvents="none"
+                  className="absolute inset-x-0 bottom-0"
+                  style={timelineOverlayStyle}
+                >
+                  <Animated.View
+                    className="absolute rounded-full bg-black/58 px-3 py-1.5"
+                    style={[
+                      { bottom: TIMELINE_CHIP_BOTTOM_OFFSET, width: timelineChipWidth },
+                      timelineChipStyle,
+                    ]}
+                  >
+                    <View className="flex-row items-center justify-center">
+                      <Text className="text-xs2 font-medium text-white">{timelineLabel}</Text>
+                      {showLoadingRail ? (
+                        <>
+                          <ActivityIndicator
+                            color="#FFFFFF"
+                            size="small"
+                            style={{ marginLeft: 8, transform: [{ scale: 0.7 }] }}
+                          />
+                        </>
+                      ) : null}
                     </View>
+                  </Animated.View>
 
-                    <View className="mt-2 flex-row items-center justify-between">
-                      <Text className="text-xs2 text-white">
-                        {formatPlaybackTime(playbackPosition)}
-                      </Text>
-                      <View className="flex-row items-center">
-                        <View className="mr-2 h-2 w-2 rounded-full bg-white/72" />
-                        <Text className="text-xs2 text-white">Loading</Text>
-                      </View>
-                    </View>
+                  <View
+                    className="absolute inset-x-0 bottom-0 h-[4px] rounded-full bg-white/18"
+                    style={{ height: TIMELINE_ACTIVE_HEIGHT }}
+                  >
+                    <View
+                      className="absolute inset-y-0 left-0 bg-white/28"
+                      style={{ width: `${bufferedRatio * 100}%` }}
+                    />
+                    <Animated.View
+                      className="absolute inset-y-0 left-0 rounded-full bg-white"
+                      style={timelineFillStyle}
+                    />
                   </View>
-                ) : null}
-
-                {showScrubber ? (
-                  <View className="absolute inset-x-0 bottom-0 rounded-full bg-black/58 px-3 py-3">
-                    <View className="h-[3px] overflow-hidden rounded-full bg-white/28">
-                      <View
-                        className="absolute inset-y-0 left-0 bg-white/45"
-                        style={{ width: `${bufferedRatio * 100}%` }}
-                      />
-                      <View
-                        className="absolute inset-y-0 left-0 bg-white"
-                        style={{ width: `${progressRatio * 100}%` }}
-                      />
-                    </View>
-
-                    <View className="mt-2 flex-row items-center justify-between">
-                      <Text className="text-xs2 text-white">
-                        {formatPlaybackTime(effectivePosition)}
-                      </Text>
-
-                      {isSeekFeedbackPending ? (
-                        <View className="flex-row items-center">
-                          <View className="mr-2 h-2 w-2 rounded-full bg-white/72" />
-                          <Text className="text-xs2 text-white">Loading</Text>
-                        </View>
-                      ) : (
-                        <Text className="text-xs2 text-white">
-                          {formatPlaybackTime(durationSeconds)}
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-                ) : null}
+                </Animated.View>
               </View>
             </View>
           </GestureDetector>
@@ -451,15 +586,15 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
               {showPausedControls ? (
                 <TouchableOpacity
-                  className="h-12 w-12 items-center justify-center rounded-full bg-black/36"
+                  className="h-12 w-12 items-center justify-center rounded-full"
                   activeOpacity={0.84}
                   onPress={() => {
                     onToggleMuted()
                   }}
                 >
-                  <MaterialIcons
-                    name={isMuted ? 'volume-off' : 'volume-up'}
-                    size={20}
+                  <Ionicons
+                    name={isMuted ? 'volume-mute' : 'volume-high'}
+                    size={28}
                     color="#FFFFFF"
                   />
                 </TouchableOpacity>

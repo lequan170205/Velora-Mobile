@@ -3,7 +3,7 @@ import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs'
 import { useIsFocused } from '@react-navigation/native'
 import { useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
@@ -84,6 +84,10 @@ export default function ReelsScreen() {
   const [viewportHeight, setViewportHeight] = useState(windowHeight)
   const [activeReelId, setActiveReelId] = useState<string | null>(null)
   const [isMuted, setIsMuted] = useState(false)
+  const [isTimelineInteracting, setIsTimelineInteracting] = useState(false)
+  const handleTimelineInteractionChange = useCallback((isInteracting: boolean) => {
+    setIsTimelineInteracting(isInteracting)
+  }, [])
   const {
     data,
     isPending,
@@ -194,11 +198,13 @@ export default function ReelsScreen() {
         extraData={{
           activeDescription: activeReelDetail?.description ?? '',
           activeReelId,
+          isTimelineInteracting,
         }}
         contentContainerStyle={reels.length === 0 ? { flexGrow: 1 } : undefined}
         pagingEnabled
         bounces={false}
         overScrollMode="never"
+        scrollEnabled={!isTimelineInteracting}
         keyExtractor={(item) => item.id}
         renderItem={({ item, index }) => (
           <ReelFeedItem
@@ -211,6 +217,7 @@ export default function ReelsScreen() {
             onToggleMuted={() => {
               setIsMuted((current) => !current)
             }}
+            onTimelineInteractionChange={handleTimelineInteractionChange}
           />
         )}
         getItemLayout={(_, index) => ({

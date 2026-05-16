@@ -175,7 +175,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
   const player = useVideoPlayer(buildExpoVideoSource(uri), (videoPlayer) => {
     videoPlayer.loop = loop
     videoPlayer.muted = muted
-    videoPlayer.timeUpdateEventInterval = 0.25
+    videoPlayer.timeUpdateEventInterval = 0.1
     videoPlayer.pause()
   })
 
@@ -206,7 +206,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
   useEffect(() => {
     player.loop = loop
     player.muted = muted
-    player.timeUpdateEventInterval = 0.25
+    player.timeUpdateEventInterval = 0.1
 
     if (shouldPlay) {
       player.play()
