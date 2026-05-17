@@ -2,20 +2,11 @@ import { MaterialIcons } from '@expo/vector-icons'
 import { useIsFocused } from '@react-navigation/native'
 import { useQueryClient } from '@tanstack/react-query'
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Image,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native'
+import { ActivityIndicator, Alert, FlatList, Image, ScrollView, View } from 'react-native'
 import Animated, { FadeInDown } from 'react-native-reanimated'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
+import { AppPressable, AppText, AppTextInput } from '../../src/components/base'
 import { ConversationItem } from '../../src/components/chat/ConversationItem'
 import { SafeTouchableOpacity } from '../../src/components/common/SafeTouchableOpacity'
 import { useBotChat } from '../../src/hooks/useBotChat'
@@ -231,18 +222,18 @@ export default function ConversationsScreen() {
     return (
       <SafeAreaView className="flex-1 bg-bg-primary">
         <View className="flex-1 items-center justify-center px-6">
-          <Text className="text-center text-base2 text-text-secondary">
+          <AppText className="text-center text-base2 text-text-secondary">
             We couldn&apos;t load your conversations.
-          </Text>
-          <TouchableOpacity
+          </AppText>
+          <AppPressable
             className="mt-4 rounded-full bg-brand px-5 py-3"
             onPress={() => {
               refetch()
             }}
             activeOpacity={0.85}
           >
-            <Text className="font-medium text-white">Try again</Text>
-          </TouchableOpacity>
+            <AppText className="font-medium text-white">Try again</AppText>
+          </AppPressable>
         </View>
       </SafeAreaView>
     )
@@ -265,11 +256,11 @@ export default function ConversationsScreen() {
               entering={SECTION_ENTERING}
               className="flex-row items-center justify-between px-5 pt-2"
             >
-              <Text className="text-[28px] font-semibold tracking-[-0.6px] text-text-primary">
-                Messages
-              </Text>
+              <AppText className="text-[20px] font-bold tracking-[-0.6px] text-brand-dark">
+                VELORA
+              </AppText>
 
-              <TouchableOpacity
+              <AppPressable
                 className="h-10 w-10 items-center justify-center rounded-full bg-surface-input"
                 onPress={handleBotChat}
                 activeOpacity={0.82}
@@ -280,25 +271,21 @@ export default function ConversationsScreen() {
                 ) : (
                   <MaterialIcons name="smart-toy" size={20} color="#161616" />
                 )}
-              </TouchableOpacity>
+              </AppPressable>
             </Animated.View>
 
             {matches.length > 0 ? (
-              <Animated.View entering={SECTION_ENTERING.delay(40)} className="pt-5">
-                <Text className="px-5 text-xs2 uppercase tracking-[1.4px] text-text-muted">
-                  People
-                </Text>
-
+              <Animated.View entering={SECTION_ENTERING.delay(40)} className="pt-3">
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 14, gap: 16 }}
+                  contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 14, gap: 4 }}
                 >
                   {matches.map((match) => (
                     <SafeTouchableOpacity
                       key={match.id}
+                      style={{ width: 96 }}
                       className="items-center"
-                      style={{ width: 68 }}
                       onPress={() => openConversation(match.conversationId)}
                       onPressIn={() => {
                         prefetchConversation(match.conversationId)
@@ -308,22 +295,25 @@ export default function ConversationsScreen() {
                       {match.picture ? (
                         <Image
                           source={{ uri: match.picture }}
-                          className="h-14 w-14 rounded-full bg-surface-input"
+                          className="h-24 w-24 rounded-full bg-surface-input"
                           resizeMode="cover"
                         />
                       ) : (
-                        <View className="h-14 w-14 items-center justify-center rounded-full bg-surface-input">
-                          <Text className="font-medium text-base text-text-primary">
+                        <View className="h-24 w-24 items-center justify-center rounded-full bg-surface-input">
+                          <AppText className="font-medium text-base text-text-primary">
                             {match.name.charAt(0).toUpperCase()}
-                          </Text>
+                          </AppText>
                         </View>
                       )}
-                      <Text
-                        className="mt-2 text-center text-sm2 font-medium text-text-primary"
+
+                      <AppText
+                        className="mt-2 text-sm font-medium text-text-primary"
                         numberOfLines={1}
+                        ellipsizeMode="tail"
+                        style={{ width: 96, textAlign: 'center' }}
                       >
                         {match.name}
-                      </Text>
+                      </AppText>
                     </SafeTouchableOpacity>
                   ))}
                 </ScrollView>
@@ -332,7 +322,7 @@ export default function ConversationsScreen() {
 
             <Animated.View entering={SECTION_ENTERING.delay(80)} className="px-5 pt-5">
               <View className="flex-row items-center rounded-full bg-surface-input px-4 py-3.5">
-                <TextInput
+                <AppTextInput
                   className="flex-1 text-base text-text-primary"
                   value={searchQuery}
                   onChangeText={setSearchQuery}
@@ -344,20 +334,20 @@ export default function ConversationsScreen() {
             </Animated.View>
 
             <Animated.View entering={SECTION_ENTERING.delay(120)} className="pt-6">
-              <Text className="px-5 text-xs2 uppercase tracking-[1.4px] text-text-muted">
+              <AppText className="px-5 text-xs uppercase tracking-[1.4px] text-text-muted">
                 Messages
-              </Text>
+              </AppText>
               <View className="mt-4 h-px bg-border-light" />
             </Animated.View>
           </View>
         }
         ListEmptyComponent={
           <View className="items-center px-5 pt-10">
-            <Text className="text-center text-base2 text-text-secondary">
+            <AppText className="text-center text-base2 text-text-secondary">
               {deferredSearchQuery.trim()
                 ? 'No conversations match your search.'
                 : 'No conversations yet.'}
-            </Text>
+            </AppText>
           </View>
         }
       />

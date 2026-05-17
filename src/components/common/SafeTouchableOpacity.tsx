@@ -1,17 +1,19 @@
 import React, { useCallback, useRef } from 'react'
-import { TouchableOpacity } from 'react-native'
 
-import type { GestureResponderEvent, TouchableOpacityProps } from 'react-native'
+import { AppPressable } from '../base/AppPressable'
 
-interface SafeTouchableOpacityProps extends TouchableOpacityProps {
+import type { GestureResponderEvent } from 'react-native'
+
+interface SafeTouchableOpacityProps extends React.ComponentPropsWithoutRef<typeof AppPressable> {
   delay?: number
 }
 
-export const SafeTouchableOpacity: React.FC<SafeTouchableOpacityProps> = ({
-  onPress,
-  delay = 500,
-  ...props
-}) => {
+type SafeTouchableOpacityRef = React.ElementRef<typeof AppPressable>
+
+export const SafeTouchableOpacity = React.forwardRef<
+  SafeTouchableOpacityRef,
+  SafeTouchableOpacityProps
+>(({ onPress, delay = 500, ...props }, ref) => {
   const lastPress = useRef(0)
 
   const handlePress = useCallback(
@@ -19,11 +21,13 @@ export const SafeTouchableOpacity: React.FC<SafeTouchableOpacityProps> = ({
       const now = Date.now()
       if (now - lastPress.current > delay) {
         lastPress.current = now
-        if (onPress) onPress(e)
+        onPress?.(e)
       }
     },
     [onPress, delay],
   )
 
-  return <TouchableOpacity onPress={handlePress} {...props} />
-}
+  return <AppPressable ref={ref} onPress={handlePress} {...props} />
+})
+
+SafeTouchableOpacity.displayName = 'SafeTouchableOpacity'

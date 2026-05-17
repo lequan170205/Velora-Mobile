@@ -71,7 +71,7 @@ module.exports = {
     // React Native
     'react-native/no-unused-styles': 'error',
     'react-native/no-inline-styles': 'off',
-    'react-native/no-raw-text': ['error', { skip: ['Button', 'Typography'] }],
+    'react-native/no-raw-text': ['error', { skip: ['Button', 'Typography', 'AppText'] }],
     'react-native/no-color-literals': 'off',
 
     // General
