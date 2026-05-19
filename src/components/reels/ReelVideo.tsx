@@ -139,12 +139,20 @@ try {
   expoVideoModule = null
 }
 
-let expoAvModule: ExpoAvModule | null = null
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
-  expoAvModule = require('expo-av') as ExpoAvModule
-} catch {
-  expoAvModule = null
+let expoAvModule: ExpoAvModule | null | undefined
+const getExpoAvModule = () => {
+  if (expoAvModule !== undefined) {
+    return expoAvModule
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+    expoAvModule = require('expo-av') as ExpoAvModule
+  } catch {
+    expoAvModule = null
+  }
+
+  return expoAvModule
 }
 
 const posterStyle = StyleSheet.create({
@@ -175,7 +183,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
   const player = useVideoPlayer(buildExpoVideoSource(uri), (videoPlayer) => {
     videoPlayer.loop = loop
     videoPlayer.muted = muted
-    videoPlayer.timeUpdateEventInterval = 0.1
+    videoPlayer.timeUpdateEventInterval = 0.25
     videoPlayer.pause()
   })
 
@@ -206,7 +214,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
   useEffect(() => {
     player.loop = loop
     player.muted = muted
-    player.timeUpdateEventInterval = 0.1
+    player.timeUpdateEventInterval = 0.25
 
     if (shouldPlay) {
       player.play()
@@ -284,7 +292,7 @@ const ExpoAvPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoAv
   },
   ref,
 ) {
-  const { ResizeMode, Video: VideoComponent } = expoAvModule as ExpoAvModule
+  const { ResizeMode, Video: VideoComponent } = getExpoAvModule() as ExpoAvModule
   const videoRef = useRef<ExpoAvPlaybackRef | null>(null)
 
   useImperativeHandle(
@@ -364,10 +372,16 @@ const ExpoAvPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoAv
 
 export const ReelVideo = forwardRef<ReelVideoHandle, ReelVideoProps>(
   function ReelVideo(props, ref) {
-    if (expoVideoModule && (isHlsUri(props.uri) || !expoAvModule)) {
+    if (expoVideoModule) {
       return <ExpoVideoPlayer {...props} ref={ref} />
     }
 
-    return <ExpoAvPlayer {...props} ref={ref} />
+    if (getExpoAvModule()) {
+      return <ExpoAvPlayer {...props} ref={ref} />
+    }
+
+    return props.posterUri ? (
+      <Image source={{ uri: props.posterUri }} style={posterStyle.fill} />
+    ) : null
   },
 )

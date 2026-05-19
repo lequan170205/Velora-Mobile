@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
 import { mediaApi } from '../api/media.api'
@@ -9,6 +9,24 @@ import { DEFAULT_REELS_LIMIT } from '../constants/reels'
 import type { AllowedVideoType, ListReelsParams } from '../types/reel.types'
 
 const REELS_QUERY_STALE_TIME_MS = 30 * 1000
+
+type LegacyFileSystemModule = {
+  FileSystemUploadType: {
+    BINARY_CONTENT: number
+  }
+  uploadAsync: (
+    url: string,
+    fileUri: string,
+    options: {
+      headers?: Record<string, string>
+      httpMethod?: string
+      uploadType?: number
+    },
+  ) => Promise<{ status: number }>
+}
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+const LegacyFileSystem = require('expo-file-system/legacy') as LegacyFileSystemModule
 
 interface CreateReelVariables {
   fileUri: string
@@ -43,15 +61,6 @@ export function useReelsFeed(params: Omit<ListReelsParams, 'cursor'> = {}) {
   })
 }
 
-export function useReelDetail(reelId?: string, enabled = true) {
-  return useQuery({
-    queryKey: reelId ? queryKeys.reels.detail(reelId) : ['reels', 'detail', 'unknown'],
-    queryFn: () => reelsApi.getById(reelId as string),
-    enabled: !!reelId && enabled,
-    staleTime: REELS_QUERY_STALE_TIME_MS,
-  })
-}
-
 export function useCreateReel() {
   const queryClient = useQueryClient()
   const [step, setStep] = useState<CreateReelStep>('idle')
@@ -61,16 +70,13 @@ export function useCreateReel() {
       setStep('uploading')
       const { uploadUrl, key } = await mediaApi.getReelUploadUrl({ fileType })
 
-      const localFileResponse = await fetch(fileUri)
-      const fileBlob = await localFileResponse.blob()
-
-      const uploadResponse = await fetch(uploadUrl, {
-        method: 'PUT',
+      const uploadResponse = await LegacyFileSystem.uploadAsync(uploadUrl, fileUri, {
+        httpMethod: 'PUT',
+        uploadType: LegacyFileSystem.FileSystemUploadType.BINARY_CONTENT,
         headers: { 'Content-Type': fileType },
-        body: fileBlob,
       })
 
-      if (!uploadResponse.ok) {
+      if (uploadResponse.status < 200 || uploadResponse.status >= 300) {
         throw new Error('Video upload failed')
       }
 

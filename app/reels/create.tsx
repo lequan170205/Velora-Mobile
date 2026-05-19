@@ -22,7 +22,12 @@ import { HashtagCaptionInput } from '../../src/components/reels/HashtagCaptionIn
 import { ReelVideo } from '../../src/components/reels/ReelVideo'
 import { allowedVideoTypes } from '../../src/constants/reels'
 import { useCreateReel } from '../../src/hooks/useReels'
-import { extractHashtags, formatDurationLabel, resolveAllowedVideoType } from '../../src/lib/reels'
+import {
+  extractHashtags,
+  formatDurationLabel,
+  resolveAllowedVideoType,
+  stripHashtagsFromCaption,
+} from '../../src/lib/reels'
 
 import type { ImagePickerAsset } from 'expo-image-picker'
 
@@ -51,6 +56,7 @@ export default function CreateReelScreen() {
     selectedAsset?.fileName ?? selectedAsset?.uri,
   )
   const extractedTags = useMemo(() => extractHashtags(description), [description])
+  const sanitizedDescription = useMemo(() => stripHashtagsFromCaption(description), [description])
   const previewExpandedHeight = Math.min(320, Math.max(240, windowHeight * 0.34))
   const previewCollapsedHeight = 156
 
@@ -140,7 +146,7 @@ export default function CreateReelScreen() {
         fileUri: selectedAsset.uri,
         fileType: selectedAssetType,
         title: title.trim(),
-        description: description.trim(),
+        description: sanitizedDescription,
         tags: extractedTags,
       },
       {

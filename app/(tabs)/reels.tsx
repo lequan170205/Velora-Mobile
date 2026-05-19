@@ -3,21 +3,16 @@ import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs'
 import { useIsFocused } from '@react-navigation/native'
 import { useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  ActivityIndicator,
-  FlatList,
-  Text,
-  TouchableOpacity,
-  View,
-  useWindowDimensions,
-} from 'react-native'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ActivityIndicator, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
+import { FlatList } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { ReelFeedItem } from '../../src/components/reels/ReelFeedItem'
 import { DEFAULT_REELS_LIMIT } from '../../src/constants/reels'
-import { useReelDetail, useReelsFeed } from '../../src/hooks/useReels'
+import { useReelsFeed } from '../../src/hooks/useReels'
 
+import type { Reel } from '../../src/types/reel.types'
 import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent } from 'react-native'
 
 function ReelsLoadingSkeleton({
@@ -81,6 +76,7 @@ export default function ReelsScreen() {
   const tabBarHeight = useBottomTabBarHeight()
   const isFocused = useIsFocused()
   const { height: windowHeight } = useWindowDimensions()
+  const listRef = useRef<FlatList<Reel> | null>(null)
   const [viewportHeight, setViewportHeight] = useState(windowHeight)
   const [activeReelId, setActiveReelId] = useState<string | null>(null)
   const [isMuted, setIsMuted] = useState(false)
@@ -105,8 +101,6 @@ export default function ReelsScreen() {
     () => reels.findIndex((reel) => reel.id === activeReelId),
     [activeReelId, reels],
   )
-  const effectiveActiveIndex = activeIndex >= 0 ? activeIndex : 0
-  const { data: activeReelDetail } = useReelDetail(activeReelId ?? undefined, isFocused)
   useEffect(() => {
     if (activeReelId || reels.length === 0) {
       return
@@ -124,6 +118,12 @@ export default function ReelsScreen() {
   const handleLayout = (event: LayoutChangeEvent) => {
     const nextHeight = event.nativeEvent.layout.height
     if (nextHeight > 0 && nextHeight !== viewportHeight) {
+      if (activeIndex >= 0) {
+        listRef.current?.scrollToOffset({
+          offset: activeIndex * nextHeight,
+          animated: false,
+        })
+      }
       setViewportHeight(nextHeight)
     }
   }
@@ -194,25 +194,23 @@ export default function ReelsScreen() {
       <StatusBar style="light" />
 
       <FlatList
+        ref={listRef}
         data={reels}
-        extraData={{
-          activeDescription: activeReelDetail?.description ?? '',
-          activeReelId,
-          isTimelineInteracting,
-        }}
+        extraData={`${activeReelId ?? ''}:${isMuted ? '1' : '0'}:${isTimelineInteracting ? '1' : '0'}`}
         contentContainerStyle={reels.length === 0 ? { flexGrow: 1 } : undefined}
         pagingEnabled
         bounces={false}
+        disableIntervalMomentum
         overScrollMode="never"
+        removeClippedSubviews={false}
         scrollEnabled={!isTimelineInteracting}
         keyExtractor={(item) => item.id}
-        renderItem={({ item, index }) => (
+        renderItem={({ item }) => (
           <ReelFeedItem
             reel={item}
-            description={activeReelId === item.id ? activeReelDetail?.description : undefined}
+            description={item.description}
             height={viewportHeight}
             isActive={isFocused && activeReelId === item.id}
-            shouldPreload={isFocused && Math.abs(index - effectiveActiveIndex) <= 1}
             isMuted={isMuted}
             onToggleMuted={() => {
               setIsMuted((current) => !current)
@@ -225,12 +223,12 @@ export default function ReelsScreen() {
           offset: viewportHeight * index,
           index,
         })}
-        decelerationRate="fast"
         showsVerticalScrollIndicator={false}
+        snapToInterval={viewportHeight}
         snapToAlignment="start"
-        initialNumToRender={2}
-        maxToRenderPerBatch={2}
-        windowSize={3}
+        initialNumToRender={3}
+        maxToRenderPerBatch={3}
+        windowSize={5}
         onScrollEndDrag={handleScrollEndDrag}
         onMomentumScrollEnd={handleMomentumScrollEnd}
         onEndReachedThreshold={0.45}

@@ -90,6 +90,16 @@ export const extractHashtags = (value: string) => {
   )
 }
 
+export const stripHashtagsFromCaption = (value: string) =>
+  getCaptionSegments(value)
+    .filter((segment) => !segment.isHashtag)
+    .map((segment) => segment.text)
+    .join('')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\s+\n/g, '\n')
+    .replace(/\n\s+/g, '\n')
+    .trim()
+
 export const formatViewCount = (count: number) => {
   if (count < 1000) {
     return `${count}`

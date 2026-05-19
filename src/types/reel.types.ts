@@ -7,6 +7,7 @@ export interface Reel {
   userId: string
   mediaKey: string
   title: string
+  description?: string
   tags: string[]
   status: string
   visibility: ReelVisibility

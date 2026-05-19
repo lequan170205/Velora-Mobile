@@ -32,7 +32,6 @@ interface ReelFeedItemProps {
   reel: Reel
   height: number
   isActive: boolean
-  shouldPreload: boolean
   isMuted: boolean
   onToggleMuted: () => void
   onTimelineInteractionChange?: ((isInteracting: boolean) => void) | undefined
@@ -44,6 +43,7 @@ const TIMELINE_CHIP_WIDTH = 74
 const TIMELINE_LOADING_CHIP_WIDTH = 96
 const TIMELINE_CHIP_BOTTOM_OFFSET = 4
 const TIMELINE_MOTION_EASING = Easing.bezier(0.22, 1, 0.36, 1)
+const TIMELINE_PLAYBACK_EASING = Easing.linear
 const clamp = (value: number, min: number, max: number) => {
   'worklet'
 
@@ -119,16 +119,13 @@ const ReelFeedItemComponent = function ReelFeedItem({
   reel,
   height,
   isActive,
-  shouldPreload,
   isMuted,
   onToggleMuted,
   onTimelineInteractionChange,
 }: ReelFeedItemProps) {
   const videoRef = useRef<ReelVideoHandle | null>(null)
-  const resumeAfterScrubRef = useRef(false)
-  const pendingSeekTargetRef = useRef<number | null>(null)
-  const lastScrubRatioRef = useRef(0)
-  const scrubReleaseHandledRef = useRef(false)
+  const lastBufferedPositionRef = useRef(0)
+  const lastPlaybackPositionRef = useRef(0)
   const [isReady, setIsReady] = useState(false)
   const [bufferedPosition, setBufferedPosition] = useState(0)
   const [durationSeconds, setDurationSeconds] = useState(0)
@@ -139,6 +136,10 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const [pendingSeekRatio, setPendingSeekRatio] = useState<number | null>(null)
   const [scrubPosition, setScrubPosition] = useState(0)
   const [scrubberWidth, setScrubberWidth] = useState(0)
+  const resumeAfterScrub = useSharedValue(0)
+  const pendingSeekTarget = useSharedValue(-1)
+  const lastScrubRatio = useSharedValue(0)
+  const scrubReleaseHandled = useSharedValue(0)
   const timelineInteractionProgress = useSharedValue(0)
   const timelinePreviewRatio = useSharedValue(0)
   const playbackState = useMemo(() => getPlaybackState(reel.status), [reel.status])
@@ -160,11 +161,10 @@ const ReelFeedItemComponent = function ReelFeedItem({
     isActive &&
     playbackState.isPlayable &&
     !hasPlaybackError
-  const shouldRenderVideo = playbackState.isPlayable && (isActive || shouldPreload)
+  const shouldRenderVideo = playbackState.isPlayable && isActive
   const effectivePosition = isScrubbing ? scrubPosition : playbackPosition
   const timelinePosition = pendingSeekPosition ?? effectivePosition
   const bufferedRatio = durationSeconds > 0 ? clamp(bufferedPosition / durationSeconds, 0, 1) : 0
-  const progressRatio = durationSeconds > 0 ? clamp(effectivePosition / durationSeconds, 0, 1) : 0
   const scrubRailBottom = 0
   const metadataBottom = SCRUBBER_TOUCH_ZONE_HEIGHT + 14
   const timelineLabel = formatPlaybackTime(timelinePosition)
@@ -183,28 +183,58 @@ const ReelFeedItemComponent = function ReelFeedItem({
     currentTime,
     duration,
   }: ReelVideoProgress) => {
-    setPlaybackPosition(currentTime)
-
-    if (duration > 0) {
+    if (duration > 0 && duration !== durationSeconds) {
       setDurationSeconds(duration)
     }
 
-    if (typeof nextBufferedPosition === 'number' && nextBufferedPosition >= 0) {
+    if (!isScrubbing && pendingSeekRatio === null && duration > 0) {
+      const nextProgressRatio = clamp(currentTime / duration, 0, 1)
+
+      timelinePreviewRatio.value =
+        currentTime < lastPlaybackPositionRef.current
+          ? nextProgressRatio
+          : withTiming(nextProgressRatio, {
+              duration: 280,
+              easing: TIMELINE_PLAYBACK_EASING,
+            })
+    }
+
+    const shouldCommitPlaybackPosition =
+      currentTime === 0 ||
+      currentTime < lastPlaybackPositionRef.current ||
+      Math.abs(currentTime - lastPlaybackPositionRef.current) >= 0.5
+
+    if (shouldCommitPlaybackPosition) {
+      lastPlaybackPositionRef.current = currentTime
+      setPlaybackPosition(currentTime)
+    }
+
+    const shouldTrackBufferedPosition =
+      pendingSeekTarget.value >= 0 || isScrubbing || pendingSeekRatio !== null
+
+    if (
+      shouldTrackBufferedPosition &&
+      typeof nextBufferedPosition === 'number' &&
+      nextBufferedPosition >= 0 &&
+      Math.abs(nextBufferedPosition - lastBufferedPositionRef.current) >= 0.25
+    ) {
+      lastBufferedPositionRef.current = nextBufferedPosition
       setBufferedPosition(nextBufferedPosition)
     }
 
+    const pendingSeekTargetValue = pendingSeekTarget.value
     const isTargetBuffered =
-      pendingSeekTargetRef.current === null ||
+      pendingSeekTargetValue < 0 ||
       typeof nextBufferedPosition !== 'number' ||
-      nextBufferedPosition >= pendingSeekTargetRef.current - 0.2
+      nextBufferedPosition >= pendingSeekTargetValue - 0.2
 
     if (
-      pendingSeekTargetRef.current !== null &&
+      pendingSeekTargetValue >= 0 &&
       !isScrubbing &&
-      Math.abs(currentTime - pendingSeekTargetRef.current) < 0.45 &&
+      Math.abs(currentTime - pendingSeekTargetValue) < 0.45 &&
       isTargetBuffered
     ) {
-      pendingSeekTargetRef.current = null
+      pendingSeekTarget.value = -1
       setPendingSeekRatio(null)
       triggerScrubSettleHaptic()
     }
@@ -217,14 +247,14 @@ const ReelFeedItemComponent = function ReelFeedItem({
       }
 
       const safeRatio = clamp(ratio, 0, 1)
-      lastScrubRatioRef.current = safeRatio
+      lastScrubRatio.value = safeRatio
       const nextPosition = safeRatio * durationSeconds
-      pendingSeekTargetRef.current = nextPosition
+      pendingSeekTarget.value = nextPosition
       setPendingSeekRatio(safeRatio)
       setScrubPosition(nextPosition)
       videoRef.current?.seekTo(nextPosition)
     },
-    [durationSeconds],
+    [durationSeconds, lastScrubRatio, pendingSeekTarget],
   )
 
   const beginScrub = useCallback(
@@ -233,14 +263,22 @@ const ReelFeedItemComponent = function ReelFeedItem({
         return
       }
 
-      scrubReleaseHandledRef.current = false
-      resumeAfterScrubRef.current = !isPausedByUser
+      scrubReleaseHandled.value = 0
+      resumeAfterScrub.value = isPausedByUser ? 0 : 1
       setIsPausedByUser(true)
       setIsScrubbing(true)
       triggerScrubStartHaptic()
       seekToRatio(touchX / scrubberWidth)
     },
-    [durationSeconds, isPausedByUser, scrubberWidth, seekToRatio, triggerScrubStartHaptic],
+    [
+      durationSeconds,
+      isPausedByUser,
+      resumeAfterScrub,
+      scrubReleaseHandled,
+      scrubberWidth,
+      seekToRatio,
+      triggerScrubStartHaptic,
+    ],
   )
 
   const updateScrub = useCallback(
@@ -256,11 +294,11 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
   const finishScrub = useCallback(
     (touchX?: number, velocityX = 0) => {
-      if (scrubReleaseHandledRef.current) {
+      if (scrubReleaseHandled.value === 1) {
         return
       }
 
-      scrubReleaseHandledRef.current = true
+      scrubReleaseHandled.value = 1
 
       if (typeof touchX === 'number' && durationSeconds > 0 && scrubberWidth > 0) {
         const baseRatio = clamp(touchX / scrubberWidth, 0, 1)
@@ -278,11 +316,18 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
       setIsScrubbing(false)
 
-      if (resumeAfterScrubRef.current) {
+      if (resumeAfterScrub.value === 1) {
         setIsPausedByUser(false)
       }
     },
-    [durationSeconds, scrubberWidth, seekToRatio, timelinePreviewRatio],
+    [
+      durationSeconds,
+      resumeAfterScrub,
+      scrubReleaseHandled,
+      scrubberWidth,
+      seekToRatio,
+      timelinePreviewRatio,
+    ],
   )
 
   const scrubGesture = useMemo(
@@ -310,13 +355,14 @@ const ReelFeedItemComponent = function ReelFeedItem({
           scheduleOnRN(finishScrub, event.x, event.velocityX)
         })
         .onFinalize(() => {
-          scheduleOnRN(finishScrub, lastScrubRatioRef.current * scrubberWidth, 0)
+          scheduleOnRN(finishScrub, lastScrubRatio.value * scrubberWidth, 0)
         }),
     [
       beginScrub,
       durationSeconds,
       finishScrub,
       isActive,
+      lastScrubRatio,
       playbackState.isPlayable,
       scrubberWidth,
       timelinePreviewRatio,
@@ -330,15 +376,6 @@ const ReelFeedItemComponent = function ReelFeedItem({
       easing: TIMELINE_MOTION_EASING,
     })
   }, [showLoadingRail, showScrubber, timelineInteractionProgress])
-
-  useEffect(() => {
-    if (!isScrubbing && pendingSeekRatio === null) {
-      timelinePreviewRatio.value = withTiming(progressRatio, {
-        duration: 110,
-        easing: TIMELINE_MOTION_EASING,
-      })
-    }
-  }, [isScrubbing, pendingSeekRatio, progressRatio, timelinePreviewRatio])
 
   useEffect(() => {
     onTimelineInteractionChange?.(isScrubbing)
@@ -382,9 +419,10 @@ const ReelFeedItemComponent = function ReelFeedItem({
   })
 
   useEffect(() => {
-    pendingSeekTargetRef.current = null
-    lastScrubRatioRef.current = 0
-    scrubReleaseHandledRef.current = false
+    pendingSeekTarget.value = -1
+    lastScrubRatio.value = 0
+    resumeAfterScrub.value = 0
+    scrubReleaseHandled.value = 0
     setBufferedPosition(0)
     setDurationSeconds(0)
     setIsReady(false)
@@ -394,24 +432,33 @@ const ReelFeedItemComponent = function ReelFeedItem({
     setPendingSeekRatio(null)
     setPlaybackPosition(0)
     setScrubPosition(0)
+    lastBufferedPositionRef.current = 0
+    lastPlaybackPositionRef.current = 0
     timelinePreviewRatio.value = 0
     timelineInteractionProgress.value = 0
-  }, [reel.id, timelineInteractionProgress, timelinePreviewRatio])
+  }, [
+    lastScrubRatio,
+    pendingSeekTarget,
+    reel.id,
+    resumeAfterScrub,
+    scrubReleaseHandled,
+    timelineInteractionProgress,
+    timelinePreviewRatio,
+  ])
 
   useEffect(() => {
     if (!isActive) {
-      if (!shouldPreload) {
-        setIsReady(false)
-      }
-      scrubReleaseHandledRef.current = false
+      setIsReady(false)
+      scrubReleaseHandled.value = 0
       setIsPausedByUser(false)
       setIsScrubbing(false)
       setPendingSeekRatio(null)
+      lastBufferedPositionRef.current = 0
       return
     }
 
     setHasPlaybackError(false)
-  }, [isActive, shouldPreload])
+  }, [isActive, scrubReleaseHandled])
 
   return (
     <View className="flex-1 bg-[#050505]" style={{ height }}>
