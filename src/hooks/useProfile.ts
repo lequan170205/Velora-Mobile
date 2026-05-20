@@ -8,7 +8,7 @@ export function useUpdateProfile() {
   const { user, hydrateAuth } = useAuthStore()
 
   return useMutation({
-    mutationFn: (data: { firstName?: string; lastName?: string }) => {
+    mutationFn: (data: { fullName?: string; username?: string }) => {
       if (!user) throw new Error('Not logged in')
       return userApi.update(user.id, data)
     },

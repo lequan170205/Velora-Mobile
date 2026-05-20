@@ -4,7 +4,7 @@ import {
   isErrorWithCode,
   statusCodes,
 } from '@react-native-google-signin/google-signin'
-import { Link, useRouter } from 'expo-router'
+import { Link, useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useEffect, useState } from 'react'
 import {
   Alert,
@@ -25,7 +25,8 @@ import { cn } from '../../src/lib/cn'
 import { useAuthStore } from '../../src/stores/authStore'
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState('')
+  const params = useLocalSearchParams<{ email?: string }>()
+  const [email, setEmail] = useState(params.email ?? '')
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
@@ -40,6 +41,12 @@ export default function LoginScreen() {
       iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '',
     })
   }, [])
+
+  useEffect(() => {
+    if (params.email) {
+      setEmail(params.email)
+    }
+  }, [params.email])
 
   const handleLogin = async () => {
     try {

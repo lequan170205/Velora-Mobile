@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs'
 import { useIsFocused } from '@react-navigation/native'
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { ReelFeedItem } from '../../src/components/reels/ReelFeedItem'
 import { DEFAULT_REELS_LIMIT } from '../../src/constants/reels'
-import { useReelsFeed } from '../../src/hooks/useReels'
+import { useReelDetail, useReelsFeed } from '../../src/hooks/useReels'
 
 import type { Reel } from '../../src/types/reel.types'
 import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent } from 'react-native'
@@ -72,15 +72,18 @@ function ReelsLoadingSkeleton({
 
 export default function ReelsScreen() {
   const router = useRouter()
+  const { reelId } = useLocalSearchParams<{ reelId?: string | string[] }>()
   const insets = useSafeAreaInsets()
   const tabBarHeight = useBottomTabBarHeight()
   const isFocused = useIsFocused()
   const { height: windowHeight } = useWindowDimensions()
   const listRef = useRef<FlatList<Reel> | null>(null)
+  const handledRequestedReelIdRef = useRef<string | null>(null)
   const [viewportHeight, setViewportHeight] = useState(windowHeight)
   const [activeReelId, setActiveReelId] = useState<string | null>(null)
   const [isMuted, setIsMuted] = useState(false)
   const [isTimelineInteracting, setIsTimelineInteracting] = useState(false)
+  const selectedReelId = Array.isArray(reelId) ? reelId[0] : reelId
   const handleTimelineInteractionChange = useCallback((isInteracting: boolean) => {
     setIsTimelineInteracting(isInteracting)
   }, [])
@@ -95,19 +98,61 @@ export default function ReelsScreen() {
     isFetchingNextPage,
     isRefetching,
   } = useReelsFeed({ limit: DEFAULT_REELS_LIMIT, visibility: 'public' })
+  const { data: selectedReel } = useReelDetail(selectedReelId, {
+    enabled: Boolean(selectedReelId),
+  })
 
-  const reels = useMemo(() => data?.pages.flatMap((page) => page.items) ?? [], [data])
+  const reels = useMemo(() => {
+    const feedItems = data?.pages.flatMap((page) => page.items) ?? []
+
+    if (!selectedReel) {
+      return feedItems
+    }
+
+    return feedItems.some((item) => item.id === selectedReel.id)
+      ? feedItems
+      : [selectedReel, ...feedItems]
+  }, [data, selectedReel])
   const activeIndex = useMemo(
     () => reels.findIndex((reel) => reel.id === activeReelId),
     [activeReelId, reels],
   )
+
   useEffect(() => {
-    if (activeReelId || reels.length === 0) {
+    if (!selectedReelId) {
+      handledRequestedReelIdRef.current = null
+    }
+  }, [selectedReelId])
+
+  useEffect(() => {
+    if (activeReelId || reels.length === 0 || selectedReelId) {
       return
     }
 
     setActiveReelId(reels[0]?.id ?? null)
-  }, [activeReelId, reels])
+  }, [activeReelId, reels, selectedReelId])
+
+  useEffect(() => {
+    if (!selectedReelId || handledRequestedReelIdRef.current === selectedReelId) {
+      return
+    }
+
+    const targetIndex = reels.findIndex((item) => item.id === selectedReelId)
+
+    if (targetIndex === -1) {
+      return
+    }
+
+    handledRequestedReelIdRef.current = selectedReelId
+    setActiveReelId(selectedReelId)
+
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToIndex({
+        index: targetIndex,
+        animated: false,
+      })
+    })
+  }, [reels, selectedReelId, viewportHeight])
 
   const errorMessage =
     (error as (Error & { response?: { data?: { message?: string } } }) | null)?.response?.data

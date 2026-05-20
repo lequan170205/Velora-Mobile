@@ -1,15 +1,52 @@
 import { apiClient } from './client'
 
 import type {
+  AuthIdentityResponse,
   LoginResponse,
   MeResponse,
   MessageResponse,
+  RegisterPayload,
+  RegisterResponse,
   SocketTokenResponse,
 } from '../types/auth.types'
+import type { UserSession } from '../types/user.types'
+
+const splitFullName = (fullName?: string) => {
+  const tokens = fullName?.trim().split(/\s+/).filter(Boolean) ?? []
+
+  if (tokens.length === 0) {
+    return { firstName: '', lastName: '' }
+  }
+
+  if (tokens.length === 1) {
+    return { firstName: tokens[0], lastName: '' }
+  }
+
+  return {
+    firstName: tokens[0],
+    lastName: tokens.slice(1).join(' '),
+  }
+}
+
+const toUserSession = (data: AuthIdentityResponse): UserSession => {
+  const { firstName, lastName } = splitFullName(data.fullName)
+
+  return {
+    id: data.id,
+    email: data.email,
+    firstName,
+    lastName,
+    picture: data.picture ?? null,
+    role: data.roles.includes('ADMIN') ? 'ADMIN' : 'USER',
+    isEmailVerified: Boolean(data.isVerified),
+    ...(data.fullName ? { fullName: data.fullName } : {}),
+    ...(data.username ? { username: data.username } : {}),
+  }
+}
 
 export const authApi = {
-  register: async (data: Record<string, unknown>) => {
-    const response = await apiClient.post<MessageResponse>('/auth/register', data)
+  register: async (data: RegisterPayload) => {
+    const response = await apiClient.post<RegisterResponse>('/auth/register', data)
     return response.data
   },
   login: async (data: Record<string, unknown>) => {
@@ -17,7 +54,9 @@ export const authApi = {
     return response.data
   },
   logout: async () => {
-    const response = await apiClient.post('/auth/logout')
+    const response = await apiClient.post<MessageResponse>('/auth/logout', undefined, {
+      timeout: 2500,
+    })
     return response.data
   },
   refresh: async () => {
@@ -26,7 +65,7 @@ export const authApi = {
   },
   me: async () => {
     const response = await apiClient.get<MeResponse>('/auth/me')
-    return response.data
+    return toUserSession(response.data)
   },
   getSocketToken: async () => {
     const response = await apiClient.get<SocketTokenResponse>('/auth/socket-token')

@@ -1,5 +1,6 @@
 import { apiClient } from './client'
 
+import type { UsernameAvailabilityResponse } from '../types/auth.types'
 import type { DirectoryUser, UserSession } from '../types/user.types'
 
 interface UsersIndexResponse {
@@ -44,8 +45,17 @@ export const userApi = {
     const response = await apiClient.get<UserSession>(`/users/${id}`)
     return response.data
   },
-  update: async (id: string, data: { firstName?: string; lastName?: string }) => {
+  update: async (id: string, data: { fullName?: string; username?: string }) => {
     const response = await apiClient.patch<UserSession>(`/users/${id}`, data)
+    return response.data
+  },
+  checkUsernameAvailability: async (username: string) => {
+    const response = await apiClient.get<UsernameAvailabilityResponse>(
+      '/users/username-availability',
+      {
+        params: { username },
+      },
+    )
     return response.data
   },
 }

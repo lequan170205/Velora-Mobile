@@ -13,7 +13,6 @@ import {
 
 import { authApi } from '../../src/api/auth.api'
 import { cn } from '../../src/lib/cn'
-import { useAuthStore } from '../../src/stores/authStore'
 
 export default function VerifyEmailScreen() {
   const { email } = useLocalSearchParams<{ email: string }>()
@@ -23,7 +22,6 @@ export default function VerifyEmailScreen() {
   const [countdown, setCountdown] = useState(60)
   const [isFocused, setIsFocused] = useState(false)
   const router = useRouter()
-  const { hydrateAuth } = useAuthStore()
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>
@@ -42,8 +40,7 @@ export default function VerifyEmailScreen() {
     try {
       setIsLoading(true)
       await authApi.confirm(token)
-      await hydrateAuth()
-      router.replace('/')
+      router.replace(`/(auth)/login?email=${encodeURIComponent(email ?? '')}`)
     } catch (err: unknown) {
       const error = err as Error & { response?: { data?: { message?: string }; status?: number } }
       Alert.alert('Error', error?.response?.data?.message || 'Verification failed')

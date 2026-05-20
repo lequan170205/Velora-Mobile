@@ -104,6 +104,7 @@ export default function RootLayout() {
                     >
                       <Stack.Screen name="(tabs)" />
                       <Stack.Screen name="(auth)" />
+                      <Stack.Screen name="complete-profile" />
                       <Stack.Screen
                         name="conversation/[id]"
                         options={{

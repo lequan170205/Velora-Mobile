@@ -3,21 +3,23 @@ export interface UserSession {
   email: string
   firstName: string
   lastName: string
-  picture?: string
+  fullName?: string
+  username?: string
+  picture?: string | null
   role: 'USER' | 'ADMIN'
   isEmailVerified: boolean
-  createdAt: string
+  createdAt?: string
 }
 
 export interface DirectoryUser {
   id: string
   email: string
-  picture?: string
+  picture?: string | null
   createdAt: string
 }
 
 export interface UserSummary {
   id: string
   email: string
-  picture?: string
+  picture?: string | null
 }

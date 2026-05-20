@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
 import { mediaApi } from '../api/media.api'
@@ -44,12 +44,16 @@ const normalizeListParams = (params: Omit<ListReelsParams, 'cursor'> = {}) => ({
   ...(params.visibility ? { visibility: params.visibility } : {}),
 })
 
-export function useReelsFeed(params: Omit<ListReelsParams, 'cursor'> = {}) {
+export function useReelsFeed(
+  params: Omit<ListReelsParams, 'cursor'> = {},
+  options: { enabled?: boolean } = {},
+) {
   const normalizedParams =
     Object.keys(params).length > 0 ? normalizeListParams(params) : { limit: DEFAULT_REELS_LIMIT }
 
   return useInfiniteQuery({
     queryKey: queryKeys.reels.list(normalizedParams),
+    enabled: options.enabled ?? true,
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>
       reelsApi.list({
@@ -57,6 +61,21 @@ export function useReelsFeed(params: Omit<ListReelsParams, 'cursor'> = {}) {
         ...(pageParam ? { cursor: pageParam } : {}),
       }),
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    staleTime: REELS_QUERY_STALE_TIME_MS,
+  })
+}
+
+export function useReelDetail(id?: string, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.reels.detail(id || 'unknown'),
+    queryFn: () => {
+      if (!id) {
+        throw new Error('Missing reel id')
+      }
+
+      return reelsApi.getById(id)
+    },
+    enabled: Boolean(id) && (options.enabled ?? true),
     staleTime: REELS_QUERY_STALE_TIME_MS,
   })
 }

@@ -1,16 +1,49 @@
 import { MaterialIcons } from '@expo/vector-icons'
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs'
 import { useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { Image } from 'expo-image'
 import * as ImagePicker from 'expo-image-picker'
-import React from 'react'
-import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { LinearGradient } from 'expo-linear-gradient'
+import { useRouter } from 'expo-router'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ActivityIndicator,
+  FlatList,
+  Modal,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native'
+import Animated, {
+  Easing,
+  FadeInDown,
+  LinearTransition,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { authApi } from '../../src/api/auth.api'
+import { useFriends } from '../../src/hooks/useFriends'
 import { useUpdateAvatar } from '../../src/hooks/useProfile'
+import { useReelsFeed } from '../../src/hooks/useReels'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useChatStore } from '../../src/stores/chatStore'
+
+import type { FriendSummary } from '../../src/types/friend.types'
+import type { Reel } from '../../src/types/reel.types'
+
+const PROFILE_REELS_LIMIT = 24
+type SheetMode = 'settings' | 'clear-cache' | 'sign-out' | null
+type DeferredSheetAction = 'clear-cache' | 'sign-out' | null
+const RFC_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const getMemberSince = (createdAt?: string) => {
   if (!createdAt) return 'Recently joined'
@@ -22,219 +55,958 @@ const getMemberSince = (createdAt?: string) => {
   }
 }
 
+const getProfileHandle = (email?: string, username?: string) => {
+  const normalizedUsername = username?.trim()
+
+  if (normalizedUsername) {
+    return normalizedUsername.replace(/^@+/, '')
+  }
+
+  const [localPart] = (email || '').trim().toLowerCase().split('@')
+  return localPart || 'profile'
+}
+
+const getDisplayName = ({
+  email,
+  firstName,
+  fullName,
+  lastName,
+}: {
+  email?: string | undefined
+  firstName?: string | undefined
+  fullName?: string | undefined
+  lastName?: string | undefined
+}) => {
+  const normalizedFullName = fullName?.trim()
+
+  if (normalizedFullName) {
+    return normalizedFullName
+  }
+
+  const fallbackName = [firstName, lastName].filter(Boolean).join(' ').trim()
+  if (fallbackName) {
+    return fallbackName
+  }
+
+  return getProfileHandle(email)
+}
+
+const getInitials = (value?: string | null) => {
+  const tokens = value?.trim().split(/\s+/).filter(Boolean) || []
+
+  if (tokens.length === 0) {
+    return 'U'
+  }
+
+  if (tokens.length === 1) {
+    return tokens[0].slice(0, 1).toUpperCase()
+  }
+
+  return `${tokens[0].slice(0, 1)}${tokens[tokens.length - 1].slice(0, 1)}`.toUpperCase()
+}
+
+const getPlaybackBadge = (status?: string | null) => {
+  const normalized = status?.trim().toLowerCase()
+
+  if (
+    !normalized ||
+    normalized === 'ready' ||
+    normalized === 'completed' ||
+    normalized === 'published'
+  ) {
+    return null
+  }
+
+  if (normalized === 'processing') {
+    return 'Processing'
+  }
+
+  if (normalized === 'pending') {
+    return 'Queued'
+  }
+
+  if (normalized === 'failed') {
+    return 'Unavailable'
+  }
+
+  return null
+}
+
+const isRfcUuid = (value?: string | null) => {
+  return Boolean(value && RFC_UUID_REGEX.test(value))
+}
+
+function FriendHighlight({ friend }: { friend: FriendSummary }) {
+  return (
+    <View className="mr-4 items-center">
+      <View
+        className="h-[76px] w-[76px] items-center justify-center rounded-full border border-border-light bg-white"
+        style={{
+          shadowColor: 'rgba(22, 22, 22, 0.06)',
+          shadowOffset: { width: 0, height: 10 },
+          shadowOpacity: 1,
+          shadowRadius: 20,
+          elevation: 2,
+        }}
+      >
+        {friend.user.picture ? (
+          <Image
+            source={{ uri: friend.user.picture }}
+            style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: '#F5F5F5' }}
+          />
+        ) : (
+          <View className="h-[68px] w-[68px] items-center justify-center rounded-full bg-surface-muted">
+            <Text className="font-heading text-lg text-text-primary">
+              {getInitials(friend.user.fullName)}
+            </Text>
+          </View>
+        )}
+      </View>
+      <Text className="mt-2 max-w-[78px] text-center text-sm2 text-text-primary" numberOfLines={1}>
+        @{friend.user.username}
+      </Text>
+    </View>
+  )
+}
+
+function FriendSkeleton() {
+  return (
+    <View className="mr-4 items-center">
+      <View className="h-[76px] w-[76px] rounded-full bg-surface-muted" />
+      <View className="mt-2 h-3 w-14 rounded-full bg-surface-muted" />
+    </View>
+  )
+}
+
+function EmptyReelsState({ onCreate }: { onCreate: () => void }) {
+  return (
+    <View className="px-5 pt-8">
+      <View
+        className="items-center rounded-[28px] border border-dashed border-border-default bg-surface-card px-6 py-10"
+        style={{ borderCurve: 'continuous' }}
+      >
+        <View className="h-14 w-14 items-center justify-center rounded-full bg-brand-soft">
+          <MaterialIcons name="play-circle-outline" size={28} color="#D85A21" />
+        </View>
+        <Text className="mt-4 font-heading text-xl text-text-primary">No reels yet</Text>
+        <Text className="mt-2 text-center text-base2 text-text-secondary">
+          Publish your first reel to start building the grid.
+        </Text>
+        <Pressable
+          className="mt-5 rounded-full bg-brand px-5 py-3"
+          onPress={onCreate}
+          android_ripple={{ color: 'rgba(255,255,255,0.16)', borderless: false }}
+        >
+          <Text className="font-medium text-white">Create reel</Text>
+        </Pressable>
+      </View>
+    </View>
+  )
+}
+
+function ReelsLoadingGrid({ tileSize }: { tileSize: number }) {
+  return (
+    <View className="flex-row flex-wrap px-[1px] pt-[2px]">
+      {Array.from({ length: 6 }).map((_, index) => (
+        <View
+          key={`reel-skeleton-${index}`}
+          className="mb-[2px] bg-surface-muted"
+          style={{
+            width: tileSize,
+            height: tileSize,
+            marginRight: (index + 1) % 3 === 0 ? 0 : 2,
+          }}
+        />
+      ))}
+    </View>
+  )
+}
+
+function SheetActionRow({
+  description,
+  icon,
+  isDestructive = false,
+  label,
+  onPress,
+}: {
+  label: string
+  description: string
+  icon: keyof typeof MaterialIcons.glyphMap
+  isDestructive?: boolean
+  onPress: () => void
+}) {
+  return (
+    <Pressable
+      className="flex-row items-center rounded-[24px] bg-surface-muted px-4 py-4"
+      onPress={onPress}
+    >
+      <View
+        className={
+          isDestructive
+            ? 'h-12 w-12 items-center justify-center rounded-full bg-[#FFF1EE]'
+            : 'h-12 w-12 items-center justify-center rounded-full bg-white'
+        }
+      >
+        <MaterialIcons name={icon} size={20} color={isDestructive ? '#FF3B30' : '#161616'} />
+      </View>
+      <View className="ml-3 flex-1">
+        <Text
+          className={
+            isDestructive
+              ? 'font-medium text-md text-status-error'
+              : 'font-medium text-md text-text-primary'
+          }
+        >
+          {label}
+        </Text>
+        <Text className="mt-1 text-sm2 text-text-secondary">{description}</Text>
+      </View>
+      <MaterialIcons name="chevron-right" size={20} color="#BEBEBE" />
+    </Pressable>
+  )
+}
+
 export default function ProfileScreen() {
+  const router = useRouter()
+  const queryClient = useQueryClient()
+  const insets = useSafeAreaInsets()
+  const { width: windowWidth } = useWindowDimensions()
+  const tabBarHeight = useBottomTabBarHeight()
+  const tileSize = useMemo(() => Math.floor((windowWidth - 4) / 3), [windowWidth])
+  const closeSheetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isMountedRef = useRef(true)
+
   const { user, clearAuth } = useAuthStore()
   const { clearCache } = useChatStore()
-  const queryClient = useQueryClient()
   const { mutate: updateAvatar, isPending: isUpdatingAvatar } = useUpdateAvatar()
+  const hasValidProfileUserId = isRfcUuid(user?.id)
+  const profileUserId = hasValidProfileUserId ? user?.id : undefined
+  const {
+    data: friends = [],
+    isPending: isFriendsPending,
+    isRefetching: isFriendsRefetching,
+    refetch: refetchFriends,
+  } = useFriends()
+  const profileReelsParams = profileUserId
+    ? { userId: profileUserId, limit: PROFILE_REELS_LIMIT }
+    : { limit: PROFILE_REELS_LIMIT, visibility: 'public' as const }
+  const {
+    data: reelsData,
+    isPending: isReelsPending,
+    isFetchingNextPage,
+    isRefetching: isReelsRefetching,
+    hasNextPage,
+    fetchNextPage,
+    refetch: refetchReels,
+  } = useReelsFeed(profileReelsParams, {
+    enabled: Boolean(user?.id),
+  })
+  const [sheetMode, setSheetMode] = useState<SheetMode>(null)
+  const [isSheetVisible, setIsSheetVisible] = useState(false)
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
+  const [isClearingCache, setIsClearingCache] = useState(false)
+  const [isSigningOut, setIsSigningOut] = useState(false)
+  const sheetBackdropOpacity = useSharedValue(0)
+  const sheetTranslateY = useSharedValue(48)
+  const sheetScale = useSharedValue(0.985)
 
-  const handleLogout = async () => {
-    Alert.alert('Logout', 'Are you sure?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Logout',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await authApi.logout()
-          } catch (error) {
-            console.error(error)
-          }
+  const profileFeedItems = useMemo(
+    () => reelsData?.pages.flatMap((page) => page.items) ?? [],
+    [reelsData],
+  )
+  const profileReels = useMemo(() => {
+    if (hasValidProfileUserId) {
+      return profileFeedItems
+    }
 
-          queryClient.clear()
-          clearCache()
-          clearAuth()
-        },
-      },
-    ])
-  }
+    return profileFeedItems.filter((reel) => reel.userId === user?.id)
+  }, [hasValidProfileUserId, profileFeedItems, user?.id])
+  const friendsValue = isFriendsPending && friends.length === 0 ? '...' : String(friends.length)
+  const friendHighlights = friends.slice(0, 7)
+  const extraFriendsCount = Math.max(friends.length - friendHighlights.length, 0)
+  const profileHandle = getProfileHandle(user?.email, user?.username)
+  const displayName = getDisplayName({
+    email: user?.email,
+    firstName: user?.firstName,
+    fullName: user?.fullName,
+    lastName: user?.lastName,
+  })
+  const memberSinceLabel = getMemberSince(user?.createdAt)
+  const isSheetBusy = isClearingCache || isSigningOut
 
-  const handleClearCache = async () => {
-    Alert.alert('Clear Cache', 'Clear all cached messages?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Clear',
-        onPress: async () => {
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false
+
+      if (closeSheetTimeoutRef.current) {
+        clearTimeout(closeSheetTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!feedbackMessage) {
+      return
+    }
+
+    const timeoutId = setTimeout(() => {
+      setFeedbackMessage(null)
+    }, 2200)
+
+    return () => {
+      clearTimeout(timeoutId)
+    }
+  }, [feedbackMessage])
+
+  const handleCreateReel = useCallback(() => {
+    router.push('/reels/create')
+  }, [router])
+
+  const animateSheetIn = useCallback(() => {
+    sheetBackdropOpacity.value = withTiming(1, {
+      duration: 160,
+      easing: Easing.out(Easing.quad),
+    })
+    sheetTranslateY.value = withTiming(0, {
+      duration: 190,
+      easing: Easing.out(Easing.cubic),
+    })
+    sheetScale.value = withTiming(1, {
+      duration: 190,
+      easing: Easing.out(Easing.cubic),
+    })
+  }, [sheetBackdropOpacity, sheetScale, sheetTranslateY])
+
+  const executeDeferredSheetAction = useCallback(
+    async (action: DeferredSheetAction) => {
+      if (action === 'clear-cache') {
+        try {
           await clearCache()
           queryClient.clear()
-          Alert.alert('Success', 'Cache cleared!')
-        },
-      },
-    ])
-  }
 
-  const handlePickImage = async () => {
+          if (isMountedRef.current) {
+            setFeedbackMessage('Cache cleared')
+          }
+        } finally {
+          if (isMountedRef.current) {
+            setIsClearingCache(false)
+          }
+        }
+
+        return
+      }
+
+      if (action === 'sign-out') {
+        try {
+          const logoutPromise = authApi.logout().catch((error) => {
+            console.error(error)
+          })
+
+          await clearCache()
+          queryClient.clear()
+          void logoutPromise
+
+          if (isMountedRef.current) {
+            setIsSigningOut(false)
+          }
+        } finally {
+          clearAuth()
+        }
+      }
+    },
+    [clearAuth, clearCache, queryClient],
+  )
+
+  const closeSheet = useCallback(
+    (action: DeferredSheetAction = null) => {
+      if (isSheetVisible && isSheetBusy && action === null) {
+        return
+      }
+
+      sheetBackdropOpacity.value = withTiming(0, {
+        duration: 120,
+        easing: Easing.out(Easing.quad),
+      })
+      sheetTranslateY.value = withTiming(56, {
+        duration: 145,
+        easing: Easing.inOut(Easing.cubic),
+      })
+      sheetScale.value = withTiming(0.985, {
+        duration: 145,
+        easing: Easing.out(Easing.cubic),
+      })
+
+      if (closeSheetTimeoutRef.current) {
+        clearTimeout(closeSheetTimeoutRef.current)
+      }
+
+      closeSheetTimeoutRef.current = setTimeout(() => {
+        if (!isMountedRef.current) {
+          return
+        }
+
+        setIsSheetVisible(false)
+        setSheetMode(null)
+
+        if (action) {
+          void executeDeferredSheetAction(action)
+        }
+      }, 150)
+    },
+    [
+      executeDeferredSheetAction,
+      isSheetBusy,
+      isSheetVisible,
+      sheetBackdropOpacity,
+      sheetScale,
+      sheetTranslateY,
+    ],
+  )
+
+  const handleSettingsPress = useCallback(() => {
+    if (closeSheetTimeoutRef.current) {
+      clearTimeout(closeSheetTimeoutRef.current)
+    }
+
+    setSheetMode('settings')
+    setIsSheetVisible(true)
+
+    requestAnimationFrame(() => {
+      animateSheetIn()
+    })
+  }, [animateSheetIn])
+
+  const handlePickImage = useCallback(async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.8,
+      quality: 0.82,
     })
 
-    if (!result.canceled && result.assets[0].uri) {
+    if (!result.canceled && result.assets[0]?.uri) {
       updateAvatar(result.assets[0].uri)
     }
+  }, [updateAvatar])
+
+  const handleShareProfile = useCallback(async () => {
+    try {
+      await Share.share({
+        title: displayName,
+        message: `${displayName}\n@${profileHandle}\n${user?.email ?? ''}`,
+      })
+    } catch (error) {
+      console.error(error)
+    }
+  }, [displayName, profileHandle, user?.email])
+
+  const handleRefresh = useCallback(() => {
+    void Promise.all([refetchFriends(), refetchReels()])
+  }, [refetchFriends, refetchReels])
+
+  const isRefreshing = isFriendsRefetching || isReelsRefetching
+
+  const handleClearCacheConfirmed = useCallback(() => {
+    if (isSheetBusy) {
+      return
+    }
+
+    setIsClearingCache(true)
+    closeSheet('clear-cache')
+  }, [closeSheet, isSheetBusy])
+
+  const handleSignOutConfirmed = useCallback(() => {
+    if (isSheetBusy) {
+      return
+    }
+
+    setIsSigningOut(true)
+    closeSheet('sign-out')
+  }, [closeSheet, isSheetBusy])
+
+  const backdropAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: sheetBackdropOpacity.value,
+  }))
+
+  const sheetAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: sheetTranslateY.value }, { scale: sheetScale.value }],
+  }))
+
+  const renderReelItem = useCallback(
+    ({ item, index }: { item: Reel; index: number }) => {
+      const playbackBadge = getPlaybackBadge(item.status)
+
+      return (
+        <Pressable
+          className="mb-[2px] overflow-hidden bg-surface-muted"
+          onPress={() => {
+            router.push({
+              pathname: '/reels',
+              params: { reelId: item.id },
+            })
+          }}
+          style={{
+            width: tileSize,
+            height: tileSize,
+            marginRight: (index + 1) % 3 === 0 ? 0 : 2,
+          }}
+        >
+          {item.thumbnailUrl ? (
+            <Image
+              source={{ uri: item.thumbnailUrl }}
+              style={{ width: '100%', height: '100%' }}
+              contentFit="cover"
+            />
+          ) : (
+            <View className="flex-1 items-center justify-center bg-[#141414]">
+              <MaterialIcons name="play-arrow" size={28} color="#FFFFFF" />
+            </View>
+          )}
+
+          <LinearGradient
+            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.62)']}
+            className="absolute inset-x-0 bottom-0 h-16"
+          />
+
+          <View className="absolute bottom-2 left-2 right-2 flex-row items-end justify-between">
+            <Text className="flex-1 text-xs2 font-medium text-white" numberOfLines={1}>
+              {item.title}
+            </Text>
+            <MaterialIcons name="play-arrow" size={18} color="#FFFFFF" />
+          </View>
+
+          {playbackBadge ? (
+            <View className="absolute left-2 top-2 rounded-full bg-black/58 px-2.5 py-1">
+              <Text className="text-xs2 font-medium text-white">{playbackBadge}</Text>
+            </View>
+          ) : null}
+        </Pressable>
+      )
+    },
+    [router, tileSize],
+  )
+
+  if (!user) {
+    return (
+      <SafeAreaView className="flex-1 items-center justify-center bg-bg-primary">
+        <ActivityIndicator color="#FF6B2C" size="large" />
+      </SafeAreaView>
+    )
   }
 
   return (
     <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 164, paddingTop: 12 }}
+      {feedbackMessage ? (
+        <View pointerEvents="none" className="absolute inset-x-0 top-3 z-20 items-center">
+          <View className="rounded-full px-4 py-2" style={{ backgroundColor: '#161616' }}>
+            <Text className="text-sm2 text-white">{feedbackMessage}</Text>
+          </View>
+        </View>
+      ) : null}
+
+      <FlatList
+        data={profileReels}
+        numColumns={3}
+        keyExtractor={(item) => item.id}
+        renderItem={renderReelItem}
         showsVerticalScrollIndicator={false}
-      >
-        <View
-          className="rounded-[32px] border border-border-light bg-surface-card px-5 py-5"
-          style={{
-            borderCurve: 'continuous',
-            boxShadow: '0 18px 36px rgba(93, 74, 53, 0.08)',
-          }}
-        >
-          <Text className="text-xs2 uppercase tracking-[1.4px] text-text-muted">
-            Enterprise profile
-          </Text>
-          <Text className="mt-2 font-heading text-[30px] leading-[36px] text-text-primary">
-            Your Velora identity
-          </Text>
-          <Text className="mt-2 text-base2 leading-6 text-text-secondary">
-            Manage your account presence, trust signals, and workspace hygiene from one calm control
-            surface.
-          </Text>
-
-          <View className="mt-6 flex-row items-center">
-            <TouchableOpacity
-              onPress={handlePickImage}
-              disabled={isUpdatingAvatar}
-              className="relative"
-              activeOpacity={0.82}
-            >
-              {user?.picture ? (
-                <Image
-                  source={{ uri: user.picture }}
-                  style={{
-                    width: 96,
-                    height: 96,
-                    borderRadius: 48,
-                    backgroundColor: '#F2EEE8',
-                  }}
-                />
-              ) : (
-                <View className="h-24 w-24 items-center justify-center rounded-full bg-surface-muted">
-                  <Text className="font-heading text-[34px] text-text-primary">
-                    {user?.firstName?.charAt(0).toUpperCase() || 'U'}
-                  </Text>
-                </View>
-              )}
-
-              <View className="absolute bottom-0 right-0 h-9 w-9 items-center justify-center rounded-full bg-brand border-2 border-surface-card">
-                <MaterialIcons name="camera-alt" size={16} color="#FFFFFF" />
+        contentContainerStyle={{ paddingBottom: tabBarHeight + 28 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            colors={['#FF6B2C']}
+            tintColor="#FF6B2C"
+          />
+        }
+        ListHeaderComponent={
+          <View className="px-5 pb-6 pt-2">
+            <View className="flex-row items-center justify-between">
+              <View>
+                <Text className="text-xs2 uppercase tracking-[1.2px] text-text-muted">Profile</Text>
+                <Text className="mt-1 font-heading text-xl text-text-primary">
+                  @{profileHandle}
+                </Text>
               </View>
-            </TouchableOpacity>
 
-            <View className="ml-4 flex-1">
-              <Text className="font-heading text-xxl text-text-primary">
-                {user?.firstName} {user?.lastName}
-              </Text>
-              <Text className="mt-1 text-base2 text-text-secondary">{user?.email}</Text>
+              <Pressable
+                className="h-11 w-11 items-center justify-center rounded-full border border-border-light bg-surface-card"
+                onPress={handleSettingsPress}
+              >
+                <MaterialIcons name="menu" size={22} color="#161616" />
+              </Pressable>
+            </View>
 
-              <View className="mt-3 flex-row flex-wrap gap-2">
-                <View className="rounded-full bg-brand-soft px-3 py-2">
-                  <Text className="text-xs2 font-medium uppercase tracking-[1px] text-brand-dark">
-                    {user?.role || 'User'}
+            <LinearGradient
+              colors={['#FFF7EF', '#FFFFFF']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              className="mt-5 overflow-hidden rounded-[34px] border border-border-light px-5 py-5"
+              style={{
+                borderCurve: 'continuous',
+                shadowColor: 'rgba(22, 22, 22, 0.08)',
+                shadowOffset: { width: 0, height: 18 },
+                shadowOpacity: 1,
+                shadowRadius: 30,
+                elevation: 4,
+              }}
+            >
+              <View
+                pointerEvents="none"
+                className="absolute -right-7 -top-9 h-28 w-28 rounded-full"
+                style={{ backgroundColor: 'rgba(255, 107, 44, 0.10)' }}
+              />
+              <View
+                pointerEvents="none"
+                className="absolute -left-7 bottom-4 h-20 w-20 rounded-full"
+                style={{ backgroundColor: 'rgba(255, 107, 44, 0.06)' }}
+              />
+
+              <View className="flex-row items-center">
+                <Pressable onPress={handlePickImage} className="relative">
+                  {user.picture ? (
+                    <Image
+                      source={{ uri: user.picture }}
+                      style={{
+                        width: 96,
+                        height: 96,
+                        borderRadius: 48,
+                        backgroundColor: '#F5F5F5',
+                      }}
+                    />
+                  ) : (
+                    <View className="h-24 w-24 items-center justify-center rounded-full bg-surface-muted">
+                      <Text className="font-heading text-[30px] text-text-primary">
+                        {getInitials(displayName)}
+                      </Text>
+                    </View>
+                  )}
+
+                  <View className="absolute bottom-0 right-0 h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-brand">
+                    {isUpdatingAvatar ? (
+                      <ActivityIndicator color="#FFFFFF" size="small" />
+                    ) : (
+                      <MaterialIcons name="photo-camera" size={16} color="#FFFFFF" />
+                    )}
+                  </View>
+                </Pressable>
+
+                <View className="ml-4 flex-1">
+                  <Text className="font-heading text-[30px] leading-[34px] text-text-primary">
+                    {displayName}
+                  </Text>
+                  <View className="mt-2 flex-row flex-wrap items-center">
+                    <View className="rounded-full border border-border-light bg-white px-3 py-1.5">
+                      <Text className="text-xs2 uppercase tracking-[1.1px] text-text-secondary">
+                        @{profileHandle}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              <View className="mt-5">
+                <Text className="text-base2 leading-6 text-text-secondary">
+                  Velora member since {memberSinceLabel}
+                </Text>
+              </View>
+
+              <View className="mt-5 flex-row">
+                <Pressable
+                  className="mr-3 flex-1 rounded-full border border-border-light bg-white py-3"
+                  onPress={handlePickImage}
+                >
+                  <Text className="text-center font-medium text-text-primary">
+                    {isUpdatingAvatar ? 'Updating...' : 'Edit photo'}
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  className="flex-1 rounded-full border border-border-light bg-surface-card py-3"
+                  onPress={handleShareProfile}
+                >
+                  <Text className="text-center font-medium text-text-primary">Share</Text>
+                </Pressable>
+              </View>
+            </LinearGradient>
+
+            <View className="mt-5">
+              <View className="flex-row items-center">
+                <Text className="font-heading text-lg text-text-primary">Friends</Text>
+                <View className="ml-2 rounded-full bg-surface-muted px-3 py-1.5">
+                  <Text className="text-xs2 uppercase tracking-[1px] text-text-secondary">
+                    {friendsValue}
                   </Text>
                 </View>
+              </View>
 
-                <View className="rounded-full bg-surface-muted px-3 py-2">
-                  <Text className="text-xs2 font-medium uppercase tracking-[1px] text-text-secondary">
-                    {user?.isEmailVerified ? 'Verified' : 'Verification pending'}
-                  </Text>
-                </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingTop: 16, paddingRight: 20 }}
+              >
+                {isFriendsPending && friends.length === 0 ? (
+                  Array.from({ length: 4 }).map((_, index) => (
+                    <FriendSkeleton key={`friend-skeleton-${index}`} />
+                  ))
+                ) : friendHighlights.length > 0 ? (
+                  <>
+                    {friendHighlights.map((friend) => (
+                      <FriendHighlight key={friend.id} friend={friend} />
+                    ))}
+
+                    {extraFriendsCount > 0 ? (
+                      <View className="mr-4 items-center">
+                        <View className="h-[76px] w-[76px] items-center justify-center rounded-full border border-dashed border-border-strong bg-white">
+                          <Text className="font-heading text-lg text-text-primary">
+                            +{extraFriendsCount}
+                          </Text>
+                        </View>
+                        <Text className="mt-2 text-sm2 text-text-secondary">More</Text>
+                      </View>
+                    ) : null}
+                  </>
+                ) : (
+                  <View
+                    className="rounded-[24px] border border-dashed border-border-default bg-surface-card px-5 py-4"
+                    style={{ borderCurve: 'continuous' }}
+                  >
+                    <Text className="font-medium text-text-primary">No friends yet</Text>
+                    <Text className="mt-1 text-sm2 text-text-secondary">
+                      Friends you add will appear here.
+                    </Text>
+                  </View>
+                )}
+              </ScrollView>
+            </View>
+
+            <View className="mt-6 border-y border-border-light">
+              <View className="items-center py-3">
+                <View
+                  className="absolute top-0 h-[2px] w-14 bg-brand"
+                  style={{ alignSelf: 'center' }}
+                />
+                <MaterialIcons name="grid-on" size={20} color="#161616" />
               </View>
             </View>
           </View>
-        </View>
+        }
+        ListEmptyComponent={
+          isReelsPending ? (
+            <ReelsLoadingGrid tileSize={tileSize} />
+          ) : (
+            <EmptyReelsState onCreate={handleCreateReel} />
+          )
+        }
+        ListFooterComponent={
+          isFetchingNextPage ? (
+            <View className="py-5">
+              <ActivityIndicator color="#FF6B2C" size="small" />
+            </View>
+          ) : null
+        }
+        onEndReachedThreshold={0.35}
+        onEndReached={() => {
+          if (hasNextPage && !isFetchingNextPage) {
+            void fetchNextPage()
+          }
+        }}
+      />
 
-        <View className="mt-4 flex-row gap-3">
-          <View className="flex-1 rounded-[24px] bg-surface-card px-4 py-4 border border-border-light">
-            <Text className="text-xs2 uppercase tracking-[1.1px] text-text-muted">Role</Text>
-            <Text className="mt-2 font-heading text-xl text-text-primary">{user?.role}</Text>
-          </View>
+      <Modal
+        visible={isSheetVisible}
+        transparent
+        animationType="none"
+        statusBarTranslucent
+        onRequestClose={() => {
+          if (!isSheetBusy) {
+            closeSheet()
+          }
+        }}
+      >
+        <View style={StyleSheet.absoluteFillObject} className="justify-end">
+          <Animated.View
+            style={[
+              StyleSheet.absoluteFillObject,
+              { backgroundColor: 'rgba(8, 8, 10, 0.44)' },
+              backdropAnimatedStyle,
+            ]}
+          >
+            <Pressable
+              disabled={isSheetBusy}
+              onPress={() => {
+                closeSheet()
+              }}
+              style={StyleSheet.absoluteFillObject}
+            />
+          </Animated.View>
 
-          <View className="flex-1 rounded-[24px] bg-surface-card px-4 py-4 border border-border-light">
-            <Text className="text-xs2 uppercase tracking-[1.1px] text-text-muted">
-              Member since
-            </Text>
-            <Text className="mt-2 font-heading text-xl text-text-primary">
-              {getMemberSince(user?.createdAt)}
-            </Text>
-          </View>
-        </View>
+          <Animated.View
+            style={[
+              sheetAnimatedStyle,
+              {
+                paddingBottom: Math.max(insets.bottom, 18),
+                shadowColor: 'rgba(22, 22, 22, 0.18)',
+                shadowOffset: { width: 0, height: -8 },
+                shadowOpacity: 1,
+                shadowRadius: 24,
+                elevation: 18,
+              },
+            ]}
+            className="rounded-t-[32px] bg-white px-5 pb-8 pt-3"
+          >
+            <View className="items-center pb-2">
+              <View className="h-1.5 w-14 rounded-full bg-[#D9D9D9]" />
+            </View>
 
-        <View
-          className="mt-4 rounded-[28px] border border-border-light bg-surface-card px-4 py-4"
-          style={{
-            borderCurve: 'continuous',
-            boxShadow: '0 12px 24px rgba(93, 74, 53, 0.06)',
-          }}
-        >
-          <Text className="font-heading text-lg text-text-primary">Workspace actions</Text>
-
-          <View className="mt-4 gap-3">
-            <TouchableOpacity
-              className="flex-row items-center rounded-[22px] bg-surface-muted px-4 py-4"
-              activeOpacity={0.78}
-              onPress={handlePickImage}
-              style={{ borderCurve: 'continuous' }}
+            <Animated.View
+              key={sheetMode ?? 'settings'}
+              entering={FadeInDown.springify().damping(18).stiffness(220)}
+              layout={LinearTransition.springify().damping(18).stiffness(220)}
             >
-              <View className="h-11 w-11 items-center justify-center rounded-full bg-surface-card">
-                <MaterialIcons name="photo-camera" size={20} color="#161514" />
-              </View>
-              <View className="ml-3 flex-1">
-                <Text className="font-medium text-md text-text-primary">
-                  {isUpdatingAvatar ? 'Updating photo...' : 'Update profile photo'}
-                </Text>
-                <Text className="mt-1 text-sm2 text-text-secondary">
-                  Keep your workspace presence polished and current.
-                </Text>
-              </View>
-            </TouchableOpacity>
+              {sheetMode === 'settings' ? (
+                <>
+                  <View className="mt-3 flex-row items-start justify-between">
+                    <View className="flex-1 pr-4">
+                      <Text className="font-heading text-xl text-text-primary">
+                        Profile options
+                      </Text>
+                      <Text className="mt-1 text-base2 text-text-secondary">
+                        Focus actions for @{profileHandle}
+                      </Text>
+                    </View>
 
-            <TouchableOpacity
-              className="flex-row items-center rounded-[22px] bg-surface-muted px-4 py-4"
-              onPress={handleClearCache}
-              activeOpacity={0.78}
-              style={{ borderCurve: 'continuous' }}
-            >
-              <View className="h-11 w-11 items-center justify-center rounded-full bg-surface-card">
-                <MaterialIcons name="delete-sweep" size={20} color="#D85A21" />
-              </View>
-              <View className="ml-3 flex-1">
-                <Text className="font-medium text-md text-text-primary">Clear workspace cache</Text>
-                <Text className="mt-1 text-sm2 text-text-secondary">
-                  Reset local message data when you need a clean sync.
-                </Text>
-              </View>
-            </TouchableOpacity>
+                    <Pressable
+                      className="h-11 w-11 items-center justify-center rounded-full bg-surface-muted"
+                      disabled={isSheetBusy}
+                      onPress={() => {
+                        closeSheet()
+                      }}
+                    >
+                      <MaterialIcons name="close" size={20} color="#161616" />
+                    </Pressable>
+                  </View>
 
-            <TouchableOpacity
-              className="flex-row items-center rounded-[22px] bg-[#FFF2F0] px-4 py-4"
-              onPress={handleLogout}
-              activeOpacity={0.78}
-              style={{ borderCurve: 'continuous' }}
-            >
-              <View className="h-11 w-11 items-center justify-center rounded-full bg-white">
-                <MaterialIcons name="logout" size={20} color="#FF3B30" />
-              </View>
-              <View className="ml-3 flex-1">
-                <Text className="font-medium text-md text-status-error">Sign out securely</Text>
-                <Text className="mt-1 text-sm2 text-text-secondary">
-                  End your current session on this device.
-                </Text>
-              </View>
-            </TouchableOpacity>
-          </View>
+                  <View className="mt-5 gap-3">
+                    <SheetActionRow
+                      icon="delete-sweep"
+                      label="Clear cache"
+                      description="Remove local chat data from this device."
+                      onPress={() => {
+                        setSheetMode('clear-cache')
+                      }}
+                    />
+                    <SheetActionRow
+                      icon="logout"
+                      label="Sign out"
+                      description="End the current session on this device."
+                      isDestructive
+                      onPress={() => {
+                        setSheetMode('sign-out')
+                      }}
+                    />
+                  </View>
+                </>
+              ) : null}
+
+              {sheetMode === 'clear-cache' ? (
+                <>
+                  <View className="mt-3 flex-row items-start justify-between">
+                    <View className="flex-1 pr-4">
+                      <Text className="font-heading text-xl text-text-primary">Clear cache?</Text>
+                      <Text className="mt-2 text-base2 leading-6 text-text-secondary">
+                        Messages will sync again from the server the next time you open the
+                        conversation.
+                      </Text>
+                    </View>
+
+                    <Pressable
+                      className="h-11 w-11 items-center justify-center rounded-full bg-surface-muted"
+                      disabled={isSheetBusy}
+                      onPress={() => {
+                        closeSheet()
+                      }}
+                    >
+                      <MaterialIcons name="close" size={20} color="#161616" />
+                    </Pressable>
+                  </View>
+
+                  <View className="mt-6 flex-row">
+                    <Pressable
+                      className="mr-3 flex-1 rounded-full border border-border-light bg-surface-muted py-3"
+                      disabled={isSheetBusy}
+                      onPress={() => {
+                        setSheetMode('settings')
+                      }}
+                    >
+                      <Text className="text-center font-medium text-text-primary">Back</Text>
+                    </Pressable>
+
+                    <Pressable
+                      className="flex-1 rounded-full bg-brand py-3"
+                      disabled={isSheetBusy}
+                      onPress={() => {
+                        void handleClearCacheConfirmed()
+                      }}
+                    >
+                      <Text className="text-center font-medium text-white">
+                        {isClearingCache ? 'Clearing...' : 'Clear'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </>
+              ) : null}
+
+              {sheetMode === 'sign-out' ? (
+                <>
+                  <View className="mt-3 flex-row items-start justify-between">
+                    <View className="flex-1 pr-4">
+                      <Text className="font-heading text-xl text-text-primary">Sign out?</Text>
+                      <Text className="mt-2 text-base2 leading-6 text-text-secondary">
+                        This ends the current session on this device and clears the local cache.
+                      </Text>
+                    </View>
+
+                    <Pressable
+                      className="h-11 w-11 items-center justify-center rounded-full bg-surface-muted"
+                      disabled={isSheetBusy}
+                      onPress={() => {
+                        closeSheet()
+                      }}
+                    >
+                      <MaterialIcons name="close" size={20} color="#161616" />
+                    </Pressable>
+                  </View>
+
+                  <View className="mt-6 flex-row">
+                    <Pressable
+                      className="mr-3 flex-1 rounded-full border border-border-light bg-surface-muted py-3"
+                      disabled={isSheetBusy}
+                      onPress={() => {
+                        setSheetMode('settings')
+                      }}
+                    >
+                      <Text className="text-center font-medium text-text-primary">Back</Text>
+                    </Pressable>
+
+                    <Pressable
+                      className="flex-1 rounded-full bg-[#FF3B30] py-3"
+                      disabled={isSheetBusy}
+                      onPress={() => {
+                        void handleSignOutConfirmed()
+                      }}
+                    >
+                      <Text className="text-center font-medium text-white">
+                        {isSigningOut ? 'Signing out...' : 'Sign out'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </>
+              ) : null}
+            </Animated.View>
+          </Animated.View>
         </View>
-      </ScrollView>
+      </Modal>
     </SafeAreaView>
   )
 }
