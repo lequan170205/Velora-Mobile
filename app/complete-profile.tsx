@@ -18,19 +18,8 @@ import { authApi } from '../src/api/auth.api'
 import { userApi } from '../src/api/user.api'
 import { useUsernameAvailability } from '../src/hooks/useUsernameAvailability'
 import { cn } from '../src/lib/cn'
+import { MAX_USERNAME_LENGTH, getUsernameError, normalizeUsername } from '../src/lib/profile'
 import { useAuthStore } from '../src/stores/authStore'
-
-const MAX_USERNAME_LENGTH = 31
-const USERNAME_PATTERN = /^[A-Za-z0-9._]+$/
-
-const normalizeUsername = (value: string) =>
-  value.replace(/^@+/, '').replace(/\s+/g, '').slice(0, MAX_USERNAME_LENGTH)
-
-const getUsernameError = (username: string) => {
-  if (!username.trim()) return 'Choose a username.'
-  if (!USERNAME_PATTERN.test(username)) return 'Use letters, numbers, periods, or underscores only.'
-  return ''
-}
 
 const inputClassName = (isFocused: boolean) =>
   cn(

@@ -1,5 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs'
+import { useFocusEffect } from '@react-navigation/native'
 import { useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { Image } from 'expo-image'
@@ -34,15 +35,17 @@ import { authApi } from '../../src/api/auth.api'
 import { useFriends } from '../../src/hooks/useFriends'
 import { useUpdateAvatar } from '../../src/hooks/useProfile'
 import { useReelsFeed } from '../../src/hooks/useReels'
+import { getDisplayName, getInitials, getProfileHandle } from '../../src/lib/profile'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useChatStore } from '../../src/stores/chatStore'
+import { useProfileUiStore } from '../../src/stores/profileUiStore'
 
 import type { FriendSummary } from '../../src/types/friend.types'
 import type { Reel } from '../../src/types/reel.types'
 
 const PROFILE_REELS_LIMIT = 24
 type SheetMode = 'settings' | 'clear-cache' | 'sign-out' | null
-type DeferredSheetAction = 'clear-cache' | 'sign-out' | null
+type DeferredSheetAction = 'clear-cache' | 'edit-profile' | 'sign-out' | null
 const RFC_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const getMemberSince = (createdAt?: string) => {
@@ -53,56 +56,6 @@ const getMemberSince = (createdAt?: string) => {
   } catch {
     return 'Recently joined'
   }
-}
-
-const getProfileHandle = (email?: string, username?: string) => {
-  const normalizedUsername = username?.trim()
-
-  if (normalizedUsername) {
-    return normalizedUsername.replace(/^@+/, '')
-  }
-
-  const [localPart] = (email || '').trim().toLowerCase().split('@')
-  return localPart || 'profile'
-}
-
-const getDisplayName = ({
-  email,
-  firstName,
-  fullName,
-  lastName,
-}: {
-  email?: string | undefined
-  firstName?: string | undefined
-  fullName?: string | undefined
-  lastName?: string | undefined
-}) => {
-  const normalizedFullName = fullName?.trim()
-
-  if (normalizedFullName) {
-    return normalizedFullName
-  }
-
-  const fallbackName = [firstName, lastName].filter(Boolean).join(' ').trim()
-  if (fallbackName) {
-    return fallbackName
-  }
-
-  return getProfileHandle(email)
-}
-
-const getInitials = (value?: string | null) => {
-  const tokens = value?.trim().split(/\s+/).filter(Boolean) || []
-
-  if (tokens.length === 0) {
-    return 'U'
-  }
-
-  if (tokens.length === 1) {
-    return tokens[0].slice(0, 1).toUpperCase()
-  }
-
-  return `${tokens[0].slice(0, 1)}${tokens[tokens.length - 1].slice(0, 1)}`.toUpperCase()
 }
 
 const getPlaybackBadge = (status?: string | null) => {
@@ -278,6 +231,10 @@ export default function ProfileScreen() {
 
   const { user, clearAuth } = useAuthStore()
   const { clearCache } = useChatStore()
+  const clearPendingFeedbackMessage = useProfileUiStore(
+    (state) => state.clearPendingFeedbackMessage,
+  )
+  const pendingFeedbackMessage = useProfileUiStore((state) => state.pendingFeedbackMessage)
   const { mutate: updateAvatar, isPending: isUpdatingAvatar } = useUpdateAvatar()
   const hasValidProfileUserId = isRfcUuid(user?.id)
   const profileUserId = hasValidProfileUserId ? user?.id : undefined
@@ -358,6 +315,17 @@ export default function ProfileScreen() {
     }
   }, [feedbackMessage])
 
+  useFocusEffect(
+    useCallback(() => {
+      if (!pendingFeedbackMessage) {
+        return
+      }
+
+      setFeedbackMessage(pendingFeedbackMessage)
+      clearPendingFeedbackMessage()
+    }, [clearPendingFeedbackMessage, pendingFeedbackMessage]),
+  )
+
   const handleCreateReel = useCallback(() => {
     router.push('/reels/create')
   }, [router])
@@ -396,6 +364,11 @@ export default function ProfileScreen() {
         return
       }
 
+      if (action === 'edit-profile') {
+        router.push('/account')
+        return
+      }
+
       if (action === 'sign-out') {
         try {
           const logoutPromise = authApi.logout().catch((error) => {
@@ -414,7 +387,7 @@ export default function ProfileScreen() {
         }
       }
     },
-    [clearAuth, clearCache, queryClient],
+    [clearAuth, clearCache, queryClient, router],
   )
 
   const closeSheet = useCallback(
@@ -597,7 +570,11 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
       {feedbackMessage ? (
-        <View pointerEvents="none" className="absolute inset-x-0 top-3 z-20 items-center">
+        <View
+          pointerEvents="none"
+          className="absolute inset-x-0 z-20 items-center"
+          style={{ top: Math.max(insets.top, 12) }}
+        >
           <View className="rounded-full px-4 py-2" style={{ backgroundColor: '#161616' }}>
             <Text className="text-sm2 text-white">{feedbackMessage}</Text>
           </View>
@@ -887,24 +864,45 @@ export default function ProfileScreen() {
                     </Pressable>
                   </View>
 
-                  <View className="mt-5 gap-3">
-                    <SheetActionRow
-                      icon="delete-sweep"
-                      label="Clear cache"
-                      description="Remove local chat data from this device."
-                      onPress={() => {
-                        setSheetMode('clear-cache')
-                      }}
-                    />
-                    <SheetActionRow
-                      icon="logout"
-                      label="Sign out"
-                      description="End the current session on this device."
-                      isDestructive
-                      onPress={() => {
-                        setSheetMode('sign-out')
-                      }}
-                    />
+                  <View className="mt-5">
+                    <Text className="mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">
+                      Account
+                    </Text>
+                    <View className="gap-3">
+                      <SheetActionRow
+                        icon="person-outline"
+                        label="Edit profile"
+                        description="Update your name and username."
+                        onPress={() => {
+                          closeSheet('edit-profile')
+                        }}
+                      />
+                    </View>
+                  </View>
+
+                  <View className="mt-5">
+                    <Text className="mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">
+                      System
+                    </Text>
+                    <View className="gap-3">
+                      <SheetActionRow
+                        icon="delete-sweep"
+                        label="Clear cache"
+                        description="Remove local chat data from this device."
+                        onPress={() => {
+                          setSheetMode('clear-cache')
+                        }}
+                      />
+                      <SheetActionRow
+                        icon="logout"
+                        label="Sign out"
+                        description="End the current session on this device."
+                        isDestructive
+                        onPress={() => {
+                          setSheetMode('sign-out')
+                        }}
+                      />
+                    </View>
                   </View>
                 </>
               ) : null}

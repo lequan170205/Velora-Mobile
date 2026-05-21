@@ -11,7 +11,7 @@ interface AuthState {
 
   setUser: (user: UserSession) => void
   clearAuth: () => void
-  hydrateAuth: () => Promise<void>
+  hydrateAuth: (options?: { silent?: boolean }) => Promise<void>
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -25,9 +25,14 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ user: null, isAuthenticated: false })
   },
 
-  hydrateAuth: async () => {
+  hydrateAuth: async (options) => {
+    const shouldShowLoading = !options?.silent
+
     try {
-      set({ isLoading: true })
+      if (shouldShowLoading) {
+        set({ isLoading: true })
+      }
+
       const data = await authApi.me()
       set({ user: data, isAuthenticated: true, isLoading: false })
     } catch (error) {

@@ -104,6 +104,13 @@ export default function RootLayout() {
                     >
                       <Stack.Screen name="(tabs)" />
                       <Stack.Screen name="(auth)" />
+                      <Stack.Screen
+                        name="account"
+                        options={{
+                          animation: 'slide_from_right',
+                          animationDuration: 250,
+                        }}
+                      />
                       <Stack.Screen name="complete-profile" />
                       <Stack.Screen
                         name="conversation/[id]"

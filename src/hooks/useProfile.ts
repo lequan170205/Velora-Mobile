@@ -4,16 +4,18 @@ import { mediaApi } from '../api/media.api'
 import { userApi } from '../api/user.api'
 import { useAuthStore } from '../stores/authStore'
 
+import type { UserProfileUpdateInput } from '../types/user.types'
+
 export function useUpdateProfile() {
   const { user, hydrateAuth } = useAuthStore()
 
   return useMutation({
-    mutationFn: (data: { fullName?: string; username?: string }) => {
+    mutationFn: (data: UserProfileUpdateInput) => {
       if (!user) throw new Error('Not logged in')
       return userApi.update(user.id, data)
     },
-    onSuccess: () => {
-      hydrateAuth()
+    onSuccess: async () => {
+      await hydrateAuth({ silent: true })
     },
   })
 }
@@ -26,9 +28,14 @@ export function useUpdateAvatar() {
       if (!user) throw new Error('Not logged in')
 
       const fileName = fileUri.split('/').pop() || 'avatar.jpg'
-      const mimeType = fileName.endsWith('png') ? 'image/png' : 'image/jpeg'
+      const normalizedFileName = fileName.toLowerCase()
+      const mimeType = normalizedFileName.endsWith('.png')
+        ? 'image/png'
+        : normalizedFileName.endsWith('.webp')
+          ? 'image/webp'
+          : 'image/jpeg'
 
-      const { uploadUrl, fileKey } = await mediaApi.getUploadUrl({ fileName, mimeType })
+      const { key, uploadUrl } = await mediaApi.getUploadUrl({ fileType: mimeType })
 
       const resp = await fetch(fileUri)
       const blob = await resp.blob()
@@ -38,11 +45,11 @@ export function useUpdateAvatar() {
         body: blob,
       })
 
-      const result = await mediaApi.confirmUpload({ fileKey })
+      const result = await userApi.updateAvatar({ avatarKey: key })
       return result
     },
-    onSuccess: () => {
-      hydrateAuth()
+    onSuccess: async () => {
+      await hydrateAuth({ silent: true })
     },
   })
 }

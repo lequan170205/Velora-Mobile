@@ -11,6 +11,11 @@ export interface UserSession {
   createdAt?: string
 }
 
+export interface UserProfileUpdateInput {
+  fullName?: string
+  username?: string
+}
+
 export interface DirectoryUser {
   id: string
   email: string
