@@ -2,11 +2,19 @@ export type ReelVisibility = 'public' | 'private'
 
 export type AllowedVideoType = 'video/mp4' | 'video/webm' | 'video/quicktime'
 
+export interface ReelAuthor {
+  id: string
+  username: string | null
+  displayName: string | null
+  avatarUrl: string | null
+  isVerified: boolean | null
+}
+
 export interface Reel {
   id: string
   userId: string
   mediaKey: string
-  title: string
+  title?: string
   description?: string
   tags: string[]
   status: string
@@ -16,6 +24,7 @@ export interface Reel {
   thumbnailUrl?: string
   streamUrl: string
   createdAt: string
+  author?: ReelAuthor | null
 }
 
 export interface ReelDetail extends Reel {

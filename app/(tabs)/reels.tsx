@@ -46,21 +46,20 @@ function ReelsLoadingSkeleton({
       <View className="flex-1 bg-[#090909]" style={{ height: viewportHeight }}>
         <View className="absolute inset-0 bg-white/[0.02]" />
 
-        <View pointerEvents="none" className="absolute right-4" style={{ bottom: 124 }}>
+        <View pointerEvents="none" className="absolute right-4" style={{ bottom: 128 }}>
           <View className="items-center">
+            <View className="mb-4 h-12 w-12 rounded-full bg-white/18" />
             <View className="mb-4 h-11 w-11 rounded-full bg-white/16" />
-            <View className="mb-4 h-11 w-11 rounded-full bg-white/12" />
-            <View className="mb-4 h-11 w-11 rounded-full bg-white/10" />
           </View>
         </View>
 
         <View pointerEvents="none" className="absolute inset-x-0 px-4" style={{ bottom: 56 }}>
-          <View className="max-w-[82%]">
-            <View className="h-6 w-44 rounded-full bg-white/18" />
-            <View className="mt-3 h-4 w-full rounded-full bg-white/12" />
-            <View className="mt-2 h-4 w-[86%] rounded-full bg-white/10" />
-            <View className="mt-2 h-4 w-[62%] rounded-full bg-white/10" />
-            <View className="mt-3 h-3 w-16 rounded-full bg-white/12" />
+          <View className="max-w-[78%]">
+            <View className="h-4 w-36 rounded-full bg-white/18" />
+            <View className="mt-2 h-3 w-28 rounded-full bg-white/12" />
+            <View className="mt-4 h-4 w-full rounded-full bg-white/12" />
+            <View className="mt-2 h-4 w-[84%] rounded-full bg-white/10" />
+            <View className="mt-3 h-4 w-32 rounded-full bg-white/12" />
           </View>
         </View>
 

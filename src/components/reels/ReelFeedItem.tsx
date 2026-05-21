@@ -22,6 +22,8 @@ import Animated, {
 } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 
+import { getInitials } from '../../lib/profile'
+
 import { ReelVideo } from './ReelVideo'
 
 import type { ReelVideoHandle, ReelVideoProgress } from './ReelVideo'
@@ -115,6 +117,23 @@ const getPlaybackState = (status?: string | null) => {
   }
 }
 
+const getAuthorHandle = (username?: string | null) => {
+  const normalized = username?.trim().replace(/^@+/, '')
+
+  return normalized || null
+}
+
+const normalizeAuthorLabel = (value?: string | null) =>
+  value?.trim().replace(/^@+/, '').toLowerCase() ?? ''
+
+const getCreatedAtLabel = (value: string) => {
+  try {
+    return format(new Date(value), 'MMM d')
+  } catch {
+    return 'Recently'
+  }
+}
+
 const ReelFeedItemComponent = function ReelFeedItem({
   description,
   reel,
@@ -146,7 +165,24 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const timelinePreviewRatio = useSharedValue(0)
   const playbackState = useMemo(() => getPlaybackState(reel.status), [reel.status])
   const descriptionText = description?.trim()
-  const metaLine = format(new Date(reel.createdAt), 'MMM d')
+  const titleText = reel.title?.trim()
+  const metaLine = getCreatedAtLabel(reel.createdAt)
+  const authorHandle = getAuthorHandle(reel.author?.username)
+  const authorDisplayName = reel.author?.displayName?.trim() || authorHandle || 'Creator'
+  const authorNameLine =
+    reel.author?.displayName?.trim() || (authorHandle ? `@${authorHandle}` : 'Creator')
+  const authorUsernameLine =
+    authorHandle && normalizeAuthorLabel(authorNameLine) !== normalizeAuthorLabel(authorHandle)
+      ? `@${authorHandle}`
+      : null
+  const captionText = descriptionText || titleText || 'Shared a new reel.'
+  const hashtagLine = reel.tags
+    .slice(0, 4)
+    .map((tag) => tag.trim().replace(/^#/, ''))
+    .filter(Boolean)
+    .map((tag) => `#${tag}`)
+    .join(' ')
+  const avatarInitials = getInitials(authorDisplayName)
   const pendingSeekPosition =
     pendingSeekRatio !== null && durationSeconds > 0 ? pendingSeekRatio * durationSeconds : null
   const showScrubber = isScrubbing && durationSeconds > 0 && isActive
@@ -523,16 +559,33 @@ const ReelFeedItemComponent = function ReelFeedItem({
             }}
           >
             <View className="absolute inset-0 items-center justify-center">
-              <TouchableOpacity
-                className="h-[68px] w-[68px] items-center justify-center rounded-full border border-white/15 bg-black/40"
-                activeOpacity={0.84}
-                onPress={(event) => {
-                  event.stopPropagation()
-                  setIsPausedByUser(false)
-                }}
-              >
-                <Ionicons name="play" size={30} color="#FFFFFF" style={{ marginLeft: 3 }} />
-              </TouchableOpacity>
+              <View className="items-center">
+                <TouchableOpacity
+                  className="mb-4 h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/40"
+                  activeOpacity={0.84}
+                  onPress={(event) => {
+                    event.stopPropagation()
+                    onToggleMuted()
+                  }}
+                >
+                  <Ionicons
+                    name={isMuted ? 'volume-mute' : 'volume-high'}
+                    size={16}
+                    color="#FFFFFF"
+                  />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  className="h-[68px] w-[68px] items-center justify-center rounded-full border border-white/15 bg-black/40"
+                  activeOpacity={0.84}
+                  onPress={(event) => {
+                    event.stopPropagation()
+                    setIsPausedByUser(false)
+                  }}
+                >
+                  <Ionicons name="play" size={30} color="#FFFFFF" style={{ marginLeft: 3 }} />
+                </TouchableOpacity>
+              </View>
             </View>
           </Pressable>
         ) : null}
@@ -626,36 +679,50 @@ const ReelFeedItemComponent = function ReelFeedItem({
           style={{ bottom: metadataBottom }}
         >
           <View className="px-4">
-            <View className="flex-row items-end justify-between gap-4">
-              <View className="max-w-[86%]">
-                <Text className="font-heading text-[22px] leading-[26px] text-white">
-                  {reel.title?.trim() || 'Untitled reel'}
-                </Text>
-
-                {descriptionText ? (
-                  <Text className="mt-2 text-sm2 leading-6 text-white" numberOfLines={3}>
-                    {descriptionText}
-                  </Text>
-                ) : null}
-
-                <Text className="mt-2 text-sm2 text-white">{metaLine}</Text>
-              </View>
-
-              {showPausedControls ? (
-                <TouchableOpacity
-                  className="h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/45"
-                  activeOpacity={0.84}
-                  onPress={() => {
-                    onToggleMuted()
-                  }}
-                >
-                  <Ionicons
-                    name={isMuted ? 'volume-mute' : 'volume-high'}
-                    size={18}
-                    color="#FFFFFF"
+            <View className="max-w-[86%]">
+              <View className="flex-row items-start">
+                {reel.author?.avatarUrl ? (
+                  <Image
+                    source={{ uri: reel.author.avatarUrl }}
+                    contentFit="cover"
+                    style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: '#121212' }}
                   />
-                </TouchableOpacity>
-              ) : null}
+                ) : (
+                  <View className="h-[42px] w-[42px] items-center justify-center rounded-full bg-white/12">
+                    <Text className="font-heading text-sm text-white">{avatarInitials}</Text>
+                  </View>
+                )}
+
+                <View className="ml-3 flex-1">
+                  <View className="flex-row items-center">
+                    <Text className="flex-shrink font-medium text-md text-white" numberOfLines={1}>
+                      {authorNameLine}
+                    </Text>
+                    <Text className="ml-2 text-xs2 uppercase tracking-[1px] text-white">
+                      {metaLine}
+                    </Text>
+                  </View>
+
+                  {authorUsernameLine ? (
+                    <Text className="mt-1 text-sm2 text-white" numberOfLines={1}>
+                      {authorUsernameLine}
+                    </Text>
+                  ) : null}
+
+                  <Text className="mt-3 text-sm2 leading-6 text-white" numberOfLines={3}>
+                    {captionText}
+                  </Text>
+
+                  {hashtagLine ? (
+                    <Text
+                      className="mt-2 text-sm2 font-medium leading-5 text-white"
+                      numberOfLines={1}
+                    >
+                      {hashtagLine}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
             </View>
           </View>
         </View>
