@@ -1,7 +1,7 @@
-import type { Message } from '../types/conversation.types'
+import type { Message, MessageMedia } from '../types/conversation.types'
 
 type MessageLike = Partial<
-  Pick<Message, 'id' | '_id' | 'clientMessageId' | 'createdAt' | 'updatedAt'>
+  Pick<Message, 'id' | '_id' | 'clientMessageId' | 'createdAt' | 'updatedAt' | 'media'>
 > & {
   status?: string
 }
@@ -55,5 +55,25 @@ export const mergeMessageRecords = <T extends MessageLike>(existing: T, incoming
     fallback = incoming
   }
 
-  return { ...fallback, ...preferred }
+  const mergedMedia = mergeMessageMedia(existing.media, incoming.media)
+
+  return {
+    ...fallback,
+    ...preferred,
+    ...(mergedMedia ? { media: mergedMedia } : {}),
+  }
+}
+
+const mergeMessageMedia = (
+  existing?: MessageMedia | null,
+  incoming?: MessageMedia | null,
+): MessageMedia | undefined => {
+  if (!existing && !incoming) {
+    return undefined
+  }
+
+  return {
+    ...(existing ?? {}),
+    ...(incoming ?? {}),
+  }
 }

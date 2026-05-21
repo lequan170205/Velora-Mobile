@@ -22,7 +22,13 @@ interface ChatState {
   botConversationIds: Set<string> // Conversation IDs that belong to bot chats
 
   addOptimisticMessage: (conversationId: string, message: Message) => void
+  addOptimisticMessages: (conversationId: string, messages: Message[]) => void
   removeOptimisticMessage: (conversationId: string, tempId: string) => void
+  updateOptimisticMessage: (
+    conversationId: string,
+    tempId: string,
+    updater: (message: Message) => Message,
+  ) => void
   confirmMessage: (tempId: string, message: Message) => void
   markMessageFailed: (conversationId: string, tempId: string) => void
   setTyping: (conversationId: string, userId: string, isTyping: boolean) => void
@@ -98,6 +104,35 @@ export const useChatStore = create<ChatState>()(
           }
         }),
 
+      addOptimisticMessages: (conversationId, messages) =>
+        set((state) => {
+          if (messages.length === 0) {
+            return state
+          }
+
+          const currentMessages = state.optimisticMessages[conversationId] || []
+          const existingIds = new Set(currentMessages.map((message) => message.id))
+          const nextMessages = messages.filter((message) => {
+            if (existingIds.has(message.id)) {
+              return false
+            }
+
+            existingIds.add(message.id)
+            return true
+          })
+
+          if (nextMessages.length === 0) {
+            return state
+          }
+
+          return {
+            optimisticMessages: {
+              ...state.optimisticMessages,
+              [conversationId]: [...currentMessages, ...nextMessages.reverse()],
+            },
+          }
+        }),
+
       removeOptimisticMessage: (conversationId, tempId) =>
         set((state) => {
           const msgs = state.optimisticMessages[conversationId] || []
@@ -105,6 +140,32 @@ export const useChatStore = create<ChatState>()(
             optimisticMessages: {
               ...state.optimisticMessages,
               [conversationId]: msgs.filter((m) => m.id !== tempId),
+            },
+          }
+        }),
+
+      updateOptimisticMessage: (conversationId, tempId, updater) =>
+        set((state) => {
+          const msgs = state.optimisticMessages[conversationId] || []
+          let hasChanges = false
+
+          const nextMessages = msgs.map((message) => {
+            if (message.id !== tempId) {
+              return message
+            }
+
+            hasChanges = true
+            return updater(message)
+          })
+
+          if (!hasChanges) {
+            return state
+          }
+
+          return {
+            optimisticMessages: {
+              ...state.optimisticMessages,
+              [conversationId]: nextMessages,
             },
           }
         }),

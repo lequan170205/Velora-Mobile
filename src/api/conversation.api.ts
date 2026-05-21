@@ -51,7 +51,8 @@ export const conversationApi = {
     data: {
       clientMessageId?: string
       content: string
-      type: 'text' | 'image' | 'file' | 'voice'
+      media?: Message['media']
+      type: 'text' | 'image' | 'video' | 'file' | 'voice' | 'call'
       signalType?: number
       replyToId?: string
     },

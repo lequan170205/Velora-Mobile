@@ -44,6 +44,38 @@ export interface ReplyPreviewData {
   type: 'text' | 'image' | 'video' | 'file' | 'call'
 }
 
+export type MessageMediaStatus = 'ready' | 'processing' | 'failed'
+
+export type MessageMediaUploadStage =
+  | 'queued'
+  | 'uploading'
+  | 'syncing'
+  | 'ready'
+  | 'processing'
+  | 'failed'
+
+export interface MessageMedia {
+  fileKey?: string
+  fileUrl?: string
+  thumbnailKey?: string
+  thumbnailUrl?: string
+  mimeType?: string
+  width?: number
+  height?: number
+  durationMs?: number
+  status?: MessageMediaStatus
+  failureReason?: string
+
+  // Local-only frontend metadata for optimistic rendering.
+  localFileUri?: string
+  localPosterUri?: string
+  displayWidth?: number
+  displayHeight?: number
+  uploadStage?: MessageMediaUploadStage
+  uploadStartedAt?: number
+  lastProgressAt?: number
+}
+
 export interface Message {
   id: string
   conversationId: string
@@ -51,7 +83,8 @@ export interface Message {
   clientMessageId?: string
   sender: UserSummary
   content: string
-  type: 'text' | 'image' | 'file' | 'voice'
+  media?: MessageMedia
+  type: 'text' | 'image' | 'video' | 'file' | 'voice' | 'call'
   status: 'SENT' | 'DELIVERED' | 'READ' | 'FAILED'
   readBy?: { userId: string; at: string }[]
   replyTo?: Message
@@ -87,7 +120,8 @@ export interface BotChatResponse {
   conversationId: string
   senderId: string
   content: string
-  type: 'text' | 'image' | 'file' | 'voice'
+  media?: MessageMedia
+  type: 'text' | 'image' | 'video' | 'file' | 'voice' | 'call'
   signalType: number
   createdAt: string
   createdAtMs: number

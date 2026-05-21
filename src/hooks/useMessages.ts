@@ -4,20 +4,16 @@ import type { InfiniteData, QueryClient } from '@tanstack/react-query'
 
 import { conversationApi } from '../api/conversation.api'
 import { queryKeys } from '../constants/queryKeys'
+import {
+  upsertConversationSummaryInCache,
+  upsertMessageIntoConversationCache,
+} from '../lib/chatMessageCache'
+import { createClientMessageId } from '../lib/clientMessageId'
 import { useSocket } from '../providers/SocketProvider'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
 
 import type { Conversation, Message } from '../types/conversation.types'
-
-const createClientMessageId = () => {
-  const randomPart =
-    typeof globalThis.crypto?.randomUUID === 'function'
-      ? globalThis.crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-
-  return `temp-${randomPart}`
-}
 
 const ensureClientMessageId = (variables: { clientMessageId?: string }) => {
   if (!variables.clientMessageId) {
@@ -27,8 +23,23 @@ const ensureClientMessageId = (variables: { clientMessageId?: string }) => {
   return variables.clientMessageId
 }
 
+const isPersistedMessage = (value: unknown): value is Message => {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  return (
+    typeof (value as Message).id === 'string' &&
+    typeof (value as Message).conversationId === 'string' &&
+    typeof (value as Message).createdAt === 'string' &&
+    typeof (value as Message).updatedAt === 'string'
+  )
+}
+
 interface SendMessageVariables {
   content: string
+  media?: Message['media']
+  type?: Message['type']
   replyToId?: string
   clientMessageId?: string
 }
@@ -126,8 +137,20 @@ export function useSendMessage(conversationId: string) {
 
   return useMutation({
     mutationFn: async (variables: SendMessageVariables) => {
-      const { content, replyToId } = variables
+      const { content, media, replyToId } = variables
       const resolvedClientMessageId = ensureClientMessageId(variables)
+      const type = variables.type ?? 'text'
+
+      if (type !== 'text' || media) {
+        return conversationApi.sendMessage(conversationId, {
+          clientMessageId: resolvedClientMessageId,
+          content,
+          media,
+          type,
+          signalType: 0,
+          ...(replyToId ? { replyToId } : {}),
+        })
+      }
 
       if (!socket) {
         console.warn('[Socket] send_message queued: socket is not initialized')
@@ -153,7 +176,7 @@ export function useSendMessage(conversationId: string) {
       } = {
         conversationId,
         content,
-        type: 'text',
+        type,
         signalType: 0,
         clientMessageId: resolvedClientMessageId,
       }
@@ -179,9 +202,10 @@ export function useSendMessage(conversationId: string) {
     onMutate: async (variables: SendMessageVariables) => {
       if (!user) return
 
-      const { content, replyToId } = variables
+      const { content, media, replyToId } = variables
       const now = new Date().toISOString()
       const tempId = ensureClientMessageId(variables)
+      const type = variables.type ?? 'text'
 
       let replyPreview: Message['replyPreview'] | undefined = undefined
       if (replyToId && replyToMessage) {
@@ -207,7 +231,8 @@ export function useSendMessage(conversationId: string) {
         clientMessageId: tempId,
         sender: user,
         content,
-        type: 'text',
+        ...(media ? { media } : {}),
+        type,
         status: 'SENT',
         createdAt: now,
         updatedAt: now,
@@ -216,12 +241,14 @@ export function useSendMessage(conversationId: string) {
       }
 
       addOptimisticMessage(conversationId, tempMessage)
-      enqueueOfflineMessage({
-        id: tempId,
-        conversationId,
-        content,
-        ...(replyToId ? { replyToId } : {}),
-      })
+      if (type === 'text' && !media) {
+        enqueueOfflineMessage({
+          id: tempId,
+          conversationId,
+          content,
+          ...(replyToId ? { replyToId } : {}),
+        })
+      }
 
       queryClient.setQueryData<Conversation[] | undefined>(
         queryKeys.conversations.all,
@@ -250,6 +277,27 @@ export function useSendMessage(conversationId: string) {
       const { tempId } = context || {}
       if (tempId) {
         markMessageFailed(conversationId, tempId)
+      }
+    },
+    onSuccess: (result, variables, context) => {
+      if (!result || 'pending' in result || !isPersistedMessage(result)) {
+        return
+      }
+
+      const tempId = context?.tempId
+      if (tempId) {
+        useChatStore.getState().confirmMessage(tempId, result)
+        upsertMessageIntoConversationCache(queryClient, result)
+        upsertConversationSummaryInCache(queryClient, {
+          id: result.conversationId,
+          lastMessage: result.content,
+          lastMessageAt: result.createdAt,
+          updatedAt: result.updatedAt,
+        })
+      }
+
+      if ((variables.type ?? 'text') === 'text' && !variables.media && result.clientMessageId) {
+        useChatStore.getState().dequeueOfflineMessage(result.clientMessageId)
       }
     },
   })
