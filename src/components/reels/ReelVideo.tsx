@@ -212,6 +212,12 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
   }, [uri])
 
   useEffect(() => {
+    if (shouldPlay && hasRenderedFrame) {
+      onReady?.()
+    }
+  }, [hasRenderedFrame, onReady, shouldPlay])
+
+  useEffect(() => {
     player.loop = loop
     player.muted = muted
     player.timeUpdateEventInterval = 0.25

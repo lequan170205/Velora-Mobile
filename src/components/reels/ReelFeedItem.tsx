@@ -32,6 +32,7 @@ interface ReelFeedItemProps {
   reel: Reel
   height: number
   isActive: boolean
+  shouldWarmVideo?: boolean | undefined
   isMuted: boolean
   onToggleMuted: () => void
   onTimelineInteractionChange?: ((isInteracting: boolean) => void) | undefined
@@ -119,6 +120,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   reel,
   height,
   isActive,
+  shouldWarmVideo = false,
   isMuted,
   onToggleMuted,
   onTimelineInteractionChange,
@@ -161,7 +163,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
     isActive &&
     playbackState.isPlayable &&
     !hasPlaybackError
-  const shouldRenderVideo = playbackState.isPlayable && isActive
+  const shouldRenderVideo = playbackState.isPlayable && shouldWarmVideo
   const effectivePosition = isScrubbing ? scrubPosition : playbackPosition
   const timelinePosition = pendingSeekPosition ?? effectivePosition
   const bufferedRatio = durationSeconds > 0 ? clamp(bufferedPosition / durationSeconds, 0, 1) : 0
@@ -418,47 +420,55 @@ const ReelFeedItemComponent = function ReelFeedItem({
     }
   })
 
-  useEffect(() => {
-    pendingSeekTarget.value = -1
-    lastScrubRatio.value = 0
-    resumeAfterScrub.value = 0
-    scrubReleaseHandled.value = 0
-    setBufferedPosition(0)
-    setDurationSeconds(0)
-    setIsReady(false)
-    setHasPlaybackError(false)
-    setIsPausedByUser(false)
-    setIsScrubbing(false)
-    setPendingSeekRatio(null)
-    setPlaybackPosition(0)
-    setScrubPosition(0)
-    lastBufferedPositionRef.current = 0
-    lastPlaybackPositionRef.current = 0
-    timelinePreviewRatio.value = 0
-    timelineInteractionProgress.value = 0
-  }, [
-    lastScrubRatio,
-    pendingSeekTarget,
-    reel.id,
-    resumeAfterScrub,
-    scrubReleaseHandled,
-    timelineInteractionProgress,
-    timelinePreviewRatio,
-  ])
-
-  useEffect(() => {
-    if (!isActive) {
-      setIsReady(false)
+  const resetTimelineState = useCallback(
+    ({
+      includeDuration = false,
+      resetReadyState = false,
+    }: { includeDuration?: boolean; resetReadyState?: boolean } = {}) => {
+      pendingSeekTarget.value = -1
+      lastScrubRatio.value = 0
+      resumeAfterScrub.value = 0
       scrubReleaseHandled.value = 0
+      timelinePreviewRatio.value = 0
+      timelineInteractionProgress.value = 0
+      lastBufferedPositionRef.current = 0
+      lastPlaybackPositionRef.current = 0
+      setBufferedPosition(0)
+      if (includeDuration) {
+        setDurationSeconds(0)
+      }
+      if (resetReadyState) {
+        setIsReady(false)
+      }
+      setHasPlaybackError(false)
       setIsPausedByUser(false)
       setIsScrubbing(false)
       setPendingSeekRatio(null)
-      lastBufferedPositionRef.current = 0
+      setPlaybackPosition(0)
+      setScrubPosition(0)
+    },
+    [
+      lastScrubRatio,
+      pendingSeekTarget,
+      resumeAfterScrub,
+      scrubReleaseHandled,
+      timelineInteractionProgress,
+      timelinePreviewRatio,
+    ],
+  )
+
+  useEffect(() => {
+    resetTimelineState({ includeDuration: true, resetReadyState: true })
+  }, [reel.id, resetTimelineState])
+
+  useEffect(() => {
+    if (!isActive) {
+      resetTimelineState({ resetReadyState: !shouldWarmVideo })
       return
     }
 
     setHasPlaybackError(false)
-  }, [isActive, scrubReleaseHandled])
+  }, [isActive, resetTimelineState, shouldWarmVideo])
 
   return (
     <View className="flex-1 bg-[#050505]" style={{ height }}>
@@ -514,14 +524,14 @@ const ReelFeedItemComponent = function ReelFeedItem({
           >
             <View className="absolute inset-0 items-center justify-center">
               <TouchableOpacity
-                className="h-[76px] w-[76px] items-center justify-center rounded-full"
+                className="h-[68px] w-[68px] items-center justify-center rounded-full border border-white/15 bg-black/40"
                 activeOpacity={0.84}
                 onPress={(event) => {
                   event.stopPropagation()
                   setIsPausedByUser(false)
                 }}
               >
-                <Ionicons name="play-circle" size={72} color="rgba(255,255,255,0.96)" />
+                <Ionicons name="play" size={30} color="#FFFFFF" style={{ marginLeft: 3 }} />
               </TouchableOpacity>
             </View>
           </Pressable>
@@ -633,7 +643,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
               {showPausedControls ? (
                 <TouchableOpacity
-                  className="h-12 w-12 items-center justify-center rounded-full"
+                  className="h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/45"
                   activeOpacity={0.84}
                   onPress={() => {
                     onToggleMuted()
@@ -641,7 +651,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                 >
                   <Ionicons
                     name={isMuted ? 'volume-mute' : 'volume-high'}
-                    size={28}
+                    size={18}
                     color="#FFFFFF"
                   />
                 </TouchableOpacity>

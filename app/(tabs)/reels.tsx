@@ -250,19 +250,26 @@ export default function ReelsScreen() {
         removeClippedSubviews={false}
         scrollEnabled={!isTimelineInteracting}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <ReelFeedItem
-            reel={item}
-            description={item.description}
-            height={viewportHeight}
-            isActive={isFocused && activeReelId === item.id}
-            isMuted={isMuted}
-            onToggleMuted={() => {
-              setIsMuted((current) => !current)
-            }}
-            onTimelineInteractionChange={handleTimelineInteractionChange}
-          />
-        )}
+        renderItem={({ item, index }) => {
+          const isActiveItem = isFocused && activeReelId === item.id
+          const shouldWarmVideo =
+            isFocused && (isActiveItem || (activeIndex >= 0 && Math.abs(index - activeIndex) <= 1))
+
+          return (
+            <ReelFeedItem
+              reel={item}
+              description={item.description}
+              height={viewportHeight}
+              isActive={isActiveItem}
+              shouldWarmVideo={shouldWarmVideo}
+              isMuted={isMuted}
+              onToggleMuted={() => {
+                setIsMuted((current) => !current)
+              }}
+              onTimelineInteractionChange={handleTimelineInteractionChange}
+            />
+          )
+        }}
         getItemLayout={(_, index) => ({
           length: viewportHeight,
           offset: viewportHeight * index,
