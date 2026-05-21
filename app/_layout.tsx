@@ -17,6 +17,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { paperTheme } from '../src/constants/paperTheme'
 import { colors } from '../src/constants/theme'
 import { AuthProvider } from '../src/providers/AuthProvider'
+import { ChatMediaUploadProvider } from '../src/providers/ChatMediaUploadProvider'
 import { QueryProvider } from '../src/providers/QueryProvider'
 import { SocketProvider } from '../src/providers/SocketProvider'
 import { useAuthStore } from '../src/stores/authStore'
@@ -95,38 +96,32 @@ export default function RootLayout() {
               <QueryProvider>
                 <AuthProvider>
                   <SocketProvider>
-                    <Stack
-                      screenOptions={{
-                        headerShown: false,
-                        contentStyle: { backgroundColor: colors.bg.secondary },
-                        freezeOnBlur: true,
-                      }}
-                    >
-                      <Stack.Screen name="(tabs)" />
-                      <Stack.Screen name="(auth)" />
-                      <Stack.Screen
-                        name="account"
-                        options={{
-                          animation: 'slide_from_right',
-                          animationDuration: 250,
+                    <ChatMediaUploadProvider>
+                      <Stack
+                        screenOptions={{
+                          headerShown: false,
+                          contentStyle: { backgroundColor: colors.bg.secondary },
+                          freezeOnBlur: true,
                         }}
-                      />
-                      <Stack.Screen name="complete-profile" />
-                      <Stack.Screen
-                        name="conversation/[id]"
-                        options={{
-                          animation: 'slide_from_right',
-                          animationDuration: 250,
-                        }}
-                      />
-                      <Stack.Screen name="reels/create" options={{ presentation: 'modal' }} />
-                      <Stack.Screen
-                        name="call/[id]"
-                        options={{ presentation: 'fullScreenModal' }}
-                      />
-                    </Stack>
+                      >
+                        <Stack.Screen name="(tabs)" />
+                        <Stack.Screen name="(auth)" />
+                        <Stack.Screen
+                          name="conversation/[id]"
+                          options={{
+                            animation: 'slide_from_right',
+                            animationDuration: 250,
+                          }}
+                        />
+                        <Stack.Screen name="reels/create" options={{ presentation: 'modal' }} />
+                        <Stack.Screen
+                          name="call/[id]"
+                          options={{ presentation: 'fullScreenModal' }}
+                        />
+                      </Stack>
 
-                    <ActiveCallBanner />
+                      <ActiveCallBanner />
+                    </ChatMediaUploadProvider>
                   </SocketProvider>
                 </AuthProvider>
               </QueryProvider>

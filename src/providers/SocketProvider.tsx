@@ -6,12 +6,23 @@ import type { InfiniteData } from '@tanstack/react-query'
 
 import { authApi } from '../api/auth.api'
 import { queryKeys } from '../constants/queryKeys'
+import {
+  patchConversationMessagesInCache,
+  patchMessagesAcrossConversationCaches,
+} from '../lib/chatMessageCache'
 import { isSameMessageIdentity, mergeMessageRecords } from '../lib/messageIdentity'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
 
 import type { Conversation, Message } from '../types/conversation.types'
 import type { Socket } from 'socket.io-client'
+
+interface FileSystemCleanupModule {
+  deleteAsync: (fileUri: string, options?: { idempotent?: boolean }) => Promise<void>
+}
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+const LegacyFileSystemCleanup = require('expo-file-system/legacy') as FileSystemCleanupModule
 
 interface SocketContextType {
   socket: Socket | null
@@ -372,6 +383,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       const store = useChatStore.getState()
       const pendingMsgs = store.optimisticMessages[message.conversationId] || []
       const tempMessages = pendingMsgs.filter((pending) => pending.id.startsWith('temp-'))
+      const identityMatch = tempMessages.find((pending) => isSameMessageIdentity(pending, message))
       const replyToId = message.replyToId ?? message.reply_to_id ?? null
 
       const exactMatch = tempMessages.find(
@@ -383,11 +395,87 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       )
 
       const fallbackMatch = tempMessages.length === 1 ? tempMessages[0] : undefined
-      const match = exactMatch ?? fallbackMatch
+      const match = identityMatch ?? exactMatch ?? fallbackMatch
 
       if (match) {
         store.confirmMessage(match.id, message)
       }
+    }
+
+    const patchMessageMediaFromProcessingEvent = (payload: {
+      conversationId?: string
+      fileKey?: string
+      messageIds?: string[]
+      media?: Message['media']
+    }) => {
+      if (!payload.media) {
+        return
+      }
+
+      const messageIds = new Set(
+        (payload.messageIds ?? []).filter(
+          (messageId): messageId is string => typeof messageId === 'string' && messageId.length > 0,
+        ),
+      )
+      const fileKey =
+        typeof payload.fileKey === 'string' && payload.fileKey.length > 0 ? payload.fileKey : null
+
+      if (messageIds.size === 0 && !fileKey) {
+        return
+      }
+
+      const updateMessage = (message: Message) => {
+        const matchesMessageId =
+          messageIds.has(message.id) || (message._id ? messageIds.has(message._id) : false)
+        const matchesFileKey = Boolean(fileKey && message.media?.fileKey === fileKey)
+
+        if (!matchesMessageId && !matchesFileKey) {
+          return message
+        }
+
+        const localPosterUri = message.media?.localPosterUri
+        const localFileUri = message.media?.localFileUri
+        const uploadStage = message.media?.uploadStage
+        const uploadStartedAt = message.media?.uploadStartedAt
+        const lastProgressAt = message.media?.lastProgressAt
+        const failureReason = message.media?.failureReason
+        const {
+          localPosterUri: _localPosterUri,
+          localFileUri: _localFileUri,
+          uploadStage: _uploadStage,
+          uploadStartedAt: _uploadStartedAt,
+          lastProgressAt: _lastProgressAt,
+          failureReason: _failureReason,
+          ...restMedia
+        } = message.media ?? {}
+
+        if (localPosterUri && payload.media?.thumbnailUrl) {
+          void LegacyFileSystemCleanup.deleteAsync(localPosterUri, { idempotent: true }).catch(
+            () => undefined,
+          )
+        }
+
+        return mergeMessageRecords(message, {
+          ...message,
+          media: {
+            ...restMedia,
+            ...payload.media,
+            ...(localPosterUri && !payload.media?.thumbnailUrl ? { localPosterUri } : {}),
+            ...(localFileUri && !payload.media?.fileUrl ? { localFileUri } : {}),
+            ...(payload.media?.status === 'failed' && failureReason ? { failureReason } : {}),
+            ...(payload.media?.status === undefined && uploadStage ? { uploadStage } : {}),
+            ...(payload.media?.status === undefined && uploadStartedAt ? { uploadStartedAt } : {}),
+            ...(payload.media?.status === undefined && lastProgressAt ? { lastProgressAt } : {}),
+          },
+        })
+      }
+
+      if (payload.conversationId) {
+        patchConversationMessagesInCache(queryClient, payload.conversationId, updateMessage)
+        return
+      }
+
+      patchMessagesAcrossConversationCaches(queryClient, updateMessage)
     }
 
     newSocket.on('new_message', (message: Message) => {
@@ -487,6 +575,30 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           store.markMessageFailed(payload.conversationId, payload.clientMessageId)
           store.dequeueOfflineMessage(payload.clientMessageId)
         }
+      },
+    )
+
+    newSocket.on(
+      'media_processing_completed',
+      (payload: {
+        conversationId?: string
+        fileKey?: string
+        messageIds?: string[]
+        media?: Message['media']
+      }) => {
+        patchMessageMediaFromProcessingEvent(payload)
+      },
+    )
+
+    newSocket.on(
+      'media_processing_failed',
+      (payload: {
+        conversationId?: string
+        fileKey?: string
+        messageIds?: string[]
+        media?: Message['media']
+      }) => {
+        patchMessageMediaFromProcessingEvent(payload)
       },
     )
 
