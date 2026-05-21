@@ -17,6 +17,8 @@ import { scheduleOnRN } from 'react-native-worklets'
 import { cn } from '../../lib/cn'
 import { useChatStore } from '../../stores/chatStore'
 
+import { ChatMediaBubble } from './ChatMediaBubble'
+
 import type { BubbleAnchor } from './MessageContextMenu'
 import type {
   ChatParticipant,
@@ -158,6 +160,29 @@ const areSenderInfosEqual = (
   )
 }
 
+const areMediaEqual = (left?: Message['media'], right?: Message['media']) => {
+  if (left === right) return true
+  if (!left || !right) return !left && !right
+
+  return (
+    left.fileKey === right.fileKey &&
+    left.fileUrl === right.fileUrl &&
+    left.thumbnailKey === right.thumbnailKey &&
+    left.thumbnailUrl === right.thumbnailUrl &&
+    left.mimeType === right.mimeType &&
+    left.width === right.width &&
+    left.height === right.height &&
+    left.durationMs === right.durationMs &&
+    left.status === right.status &&
+    left.failureReason === right.failureReason &&
+    left.localFileUri === right.localFileUri &&
+    left.localPosterUri === right.localPosterUri &&
+    left.displayWidth === right.displayWidth &&
+    left.displayHeight === right.displayHeight &&
+    left.uploadStage === right.uploadStage
+  )
+}
+
 interface MessageBubbleProps {
   message: Message
   timeLabel?: string
@@ -259,7 +284,7 @@ const MessageBubbleComponent = function MessageBubble({
     if (onToggleDetails) onToggleDetails()
   }
 
-  const isImage = message.type === 'image'
+  const isMedia = message.type === 'image' || message.type === 'video'
   const isRecalled = message.isRecalled === true || message.is_recalled === true
   const swipeDirection = isOwn ? -1 : 1
 
@@ -384,15 +409,15 @@ const MessageBubbleComponent = function MessageBubble({
   const bubbleClassName = useMemo(
     () =>
       cn(
-        !isImage && 'px-4 py-3',
-        !isImage && (isOwn ? 'bg-bubble-out' : 'bg-bubble-in'),
+        !isMedia && 'px-4 py-3',
+        !isMedia && (isOwn ? 'bg-bubble-out' : 'bg-bubble-in'),
         'overflow-hidden rounded-[18px]',
         isOwn && isGroupedTop && 'rounded-tr-[4px]',
         isOwn && isGroupedBottom && 'rounded-br-[4px]',
         !isOwn && isGroupedTop && 'rounded-tl-[4px]',
         !isOwn && isGroupedBottom && 'rounded-bl-[4px]',
       ),
-    [isGroupedBottom, isGroupedTop, isImage, isOwn],
+    [isGroupedBottom, isGroupedTop, isMedia, isOwn],
   )
   const isSwipeReplyEnabled = !isRecalled && Boolean(onReply)
 
@@ -508,7 +533,7 @@ const MessageBubbleComponent = function MessageBubble({
               </Animated.View>
 
               <Pressable
-                onPress={toggleDetails}
+                onPress={isMedia ? undefined : toggleDetails}
                 {...(!isRecalled
                   ? {
                       onLongPress: handleLongPress,
@@ -526,24 +551,8 @@ const MessageBubbleComponent = function MessageBubble({
                   >
                     Tin nhắn đã thu hồi
                   </Text>
-                ) : isImage ? (
-                  <View className="relative">
-                    <Image
-                      source={{ uri: message.content }}
-                      className="w-48 h-64 rounded-[18px] bg-surface-card"
-                      resizeMode="cover"
-                    />
-                    {isSending && (
-                      <View className="absolute inset-0 items-center justify-center rounded-[18px] bg-black/30">
-                        <MaterialIcons
-                          name="cloud-upload"
-                          size={32}
-                          color="#ffffff"
-                          style={{ opacity: 0.8 }}
-                        />
-                      </View>
-                    )}
-                  </View>
+                ) : isMedia ? (
+                  <ChatMediaBubble message={message} />
                 ) : (
                   <Text
                     className={cn(
@@ -620,6 +629,7 @@ export const MessageBubble = memo(MessageBubbleComponent, (prevProps, nextProps)
     prevProps.message.id === nextProps.message.id &&
     prevProps.message.content === nextProps.message.content &&
     prevProps.message.type === nextProps.message.type &&
+    areMediaEqual(prevProps.message.media, nextProps.message.media) &&
     prevProps.message.senderId === nextProps.message.senderId &&
     prevProps.message.status === nextProps.message.status &&
     areReadReceiptsEqual(prevProps.message.readBy, nextProps.message.readBy) &&

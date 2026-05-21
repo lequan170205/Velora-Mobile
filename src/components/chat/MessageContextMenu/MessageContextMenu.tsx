@@ -1,4 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons'
+import { BlurView } from 'expo-blur'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import React, { useRef, useState } from 'react'
@@ -303,6 +304,14 @@ function MessageContextMenuInner({
       onRequestClose={close}
     >
       <Animated.View style={[StyleSheet.absoluteFillObject, backdropStyle]}>
+        <BlurView
+          intensity={32}
+          tint={theme.dark ? 'dark' : 'light'}
+          experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : 'none'}
+          blurReductionFactor={3}
+          pointerEvents="none"
+          style={StyleSheet.absoluteFillObject}
+        />
         <View
           style={[
             StyleSheet.absoluteFillObject,

@@ -31,6 +31,8 @@ import Animated, {
   withSequence,
   withTiming,
   withSpring,
+  interpolate,
+  Extrapolation,
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -41,6 +43,7 @@ import {
 import { MessageContextMenu } from '../../src/components/chat/MessageContextMenu'
 import { MessageInput, type MessageInputHandle } from '../../src/components/chat/MessageInput'
 import { queryKeys } from '../../src/constants/queryKeys'
+import { useChatMediaUploads } from '../../src/hooks/useChatMediaUploads'
 import { useRecallMessage } from '../../src/hooks/useMessageActions'
 import { trimMessagesCache, useMessages, useSendMessage } from '../../src/hooks/useMessages'
 import {
@@ -52,9 +55,11 @@ import { formatLastSeenLabel } from '../../src/lib/presence'
 import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useChatStore } from '../../src/stores/chatStore'
+import { useChatVideoPlaybackStore } from '../../src/stores/chatVideoPlaybackStore'
 import { useMessageListUiStore } from '../../src/stores/messageListUiStore'
 
 import type { ChatParticipant, Conversation, Message } from '../../src/types/conversation.types'
+import type { ImagePickerAsset } from 'expo-image-picker'
 
 type MessageLayout = {
   showDateSeparator: boolean
@@ -394,10 +399,14 @@ export default function ChatScreen() {
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useMessages(conversationId)
   const { mutate: sendMessage } = useSendMessage(conversationId)
+  const { enqueueMediaAssets } = useChatMediaUploads(conversationId)
   const { mutate: recallMessage } = useRecallMessage(conversationId)
   const toggleExpandedMessage = useMessageListUiStore((state) => state.toggleExpandedMessage)
   const bumpHighlightToken = useMessageListUiStore((state) => state.bumpHighlightToken)
   const resetConversationUi = useMessageListUiStore((state) => state.resetConversationUi)
+  const clearConversationInlinePlayback = useChatVideoPlaybackStore(
+    (state) => state.clearConversation,
+  )
   const [activeContextMenu, setActiveContextMenu] = useState<ActiveContextMenuState | null>(null)
 
   const listRef = useRef<FlashListRef<Message>>(null)
@@ -418,13 +427,27 @@ export default function ChatScreen() {
       transform: [{ translateY: -Math.max(liveKeyboardOffset, frozenOffset) }],
     }
   })
+
+  const listSpacerStyle = useAnimatedStyle(() => {
+    const ACTIVE_PADDING = 8
+    const bottomInset = Math.max(insets.bottom, 8)
+
+    const dynamicPadding = interpolate(
+      Math.abs(keyboardHeight.value),
+      [0, 40],
+      [bottomInset, ACTIVE_PADDING],
+      Extrapolation.CLAMP,
+    )
+
+    return { height: dynamicPadding + 50 }
+  })
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const offsetY = Math.max(0, event.nativeEvent.contentOffset.y)
-      const shouldShowScrollButton = offsetY > 200
-      const isNearBottom = !shouldShowScrollButton
+      const isNearBottom = offsetY <= 50
       isNearBottomRef.current = isNearBottom
 
+      const shouldShowScrollButton = offsetY > 200
       if (shouldShowScrollButton !== isScrollButtonVisible.value) {
         isScrollButtonVisible.value = shouldShowScrollButton
       }
@@ -478,10 +501,18 @@ export default function ChatScreen() {
     }
 
     const combinedMessages = [...pendingMessages, ...serverMessages]
-    combinedMessages.sort(
-      (left, right) =>
-        getMessageCreatedAtMs(right.createdAt) - getMessageCreatedAtMs(left.createdAt),
-    )
+    const getVirtualTime = (msg: Message) => {
+      let time = getMessageCreatedAtMs(msg.createdAt)
+      const isSending = (msg.id || msg._id || '').startsWith('temp-') && msg.status !== 'FAILED'
+
+      if (isSending) {
+        time += 10000000000000
+      }
+
+      return time
+    }
+
+    combinedMessages.sort((left, right) => getVirtualTime(right) - getVirtualTime(left))
 
     const dedupedIndexByIdentity = new Map<string, number>()
     const dedupedMessages: Message[] = []
@@ -736,26 +767,41 @@ export default function ChatScreen() {
 
   useEffect(() => {
     setActiveContextMenu(null)
+    clearConversationInlinePlayback(conversationId)
     shouldRestoreComposerFocusRef.current = false
     preservedKeyboardOffset.value = 0
 
     return () => {
+      clearConversationInlinePlayback(conversationId)
       resetConversationUi(conversationId)
     }
-  }, [conversationId, preservedKeyboardOffset, resetConversationUi])
+  }, [
+    clearConversationInlinePlayback,
+    conversationId,
+    preservedKeyboardOffset,
+    resetConversationUi,
+  ])
 
   useEffect(() => {
     if (newestMessageId && newestMessageId !== prevNewestMessageId.current) {
-      if (isNearBottomRef.current || newestSenderId === user?.id) {
-        scrollToBottom()
+      const isInitialAutoScroll = prevNewestMessageId.current === undefined
+      const isMyMessage = newestSenderId === user?.id
+
+      const shouldAutoScroll = isMyMessage || isNearBottomRef.current || isInitialAutoScroll
+
+      if (shouldAutoScroll) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            scrollToBottom()
+          })
+        })
       }
 
-      if (socket?.connected) {
+      if (socket?.connected && shouldAutoScroll) {
         socket.emit('mark_seen', conversationId)
         clearConversationUnread(conversationId)
       }
     }
-
     prevNewestMessageId.current = newestMessageId
   }, [
     clearConversationUnread,
@@ -835,30 +881,12 @@ export default function ChatScreen() {
     return () => clearInterval(intervalId)
   }, [isOnline, lastSeenAt])
 
-  const handleSendMedia = async (
-    uri: string,
-    type: 'image' | 'file',
-    _fileInfo: { fileName?: string } | unknown,
-  ) => {
-    if (!user?.id) return
-
-    const now = new Date().toISOString()
-    const tempId = `temp-${Date.now()}`
-
-    const tempMessage: Message = {
-      id: tempId,
-      conversationId,
-      senderId: user.id,
-      sender: user,
-      content: uri,
-      type: type,
-      status: 'SENT',
-      createdAt: now,
-      updatedAt: now,
-    }
-
-    useChatStore.getState().addOptimisticMessage(conversationId, tempMessage)
-  }
+  const handleSendMedia = useCallback(
+    async (assets: ImagePickerAsset[]) => {
+      await enqueueMediaAssets(assets)
+    },
+    [enqueueMediaAssets],
+  )
 
   const handleTyping = useCallback(
     (text: string) => {
@@ -1030,6 +1058,15 @@ export default function ChatScreen() {
     }
   }, [queryClient, socket, conversationId])
 
+  const renderListHeader = useCallback(() => {
+    return (
+      <View>
+        {isOtherUserTyping ? <TypingIndicator displayName={displayName} /> : null}
+        <Animated.View style={listSpacerStyle} />
+      </View>
+    )
+  }, [isOtherUserTyping, displayName, listSpacerStyle])
+
   const renderItem = useCallback(
     ({ item }: ListRenderItemInfo<Message>) => {
       if (!item) return null
@@ -1069,6 +1106,9 @@ export default function ChatScreen() {
     }
 
     return item.type || 'text'
+  }, [])
+  const keyExtractor = useCallback((item: Message, index: number) => {
+    return getMessageIdentityKey(item) ?? item.id ?? item._id ?? `fallback-${index}`
   }, [])
 
   const colorScheme = useColorScheme()
@@ -1220,27 +1260,33 @@ export default function ChatScreen() {
                 inverted
                 data={orderedMessages}
                 renderItem={renderItem}
-                keyExtractor={(item: Message, index: number) =>
-                  item?.id ? item.id.toString() : `fallback-${index}`
-                }
+                keyExtractor={keyExtractor}
                 getItemType={getItemType}
+                contentContainerStyle={{
+                  paddingBottom: 20,
+                }}
                 onEndReached={loadOlderMessages}
                 onEndReachedThreshold={0.2}
                 onScroll={handleScroll}
                 scrollEventThrottle={16}
                 keyboardDismissMode="none"
                 keyboardShouldPersistTaps="handled"
-                ListHeaderComponent={
-                  isOtherUserTyping ? <TypingIndicator displayName={displayName} /> : null
-                }
+                ListHeaderComponent={renderListHeader}
                 ListEmptyComponent={isInitialMessagesLoading ? <MessageListLoadingState /> : null}
                 showsVerticalScrollIndicator={false}
                 removeClippedSubviews={false}
               />
               <Animated.View
-                className="absolute bottom-5 right-4 z-10"
-                style={scrollButtonStyle}
                 pointerEvents="box-none"
+                style={[
+                  scrollButtonStyle,
+                  {
+                    position: 'absolute',
+                    right: 16,
+                    bottom: 120,
+                    zIndex: 40,
+                  },
+                ]}
               >
                 <TouchableOpacity
                   className="h-11 w-11 items-center justify-center rounded-full bg-surface-card border border-border-light"
@@ -1254,18 +1300,26 @@ export default function ChatScreen() {
                   <MaterialIcons name="keyboard-arrow-down" size={24} color="#161514" />
                 </TouchableOpacity>
               </Animated.View>
-            </View>
-
-            <View>
-              <MessageInput
-                ref={messageInputRef}
-                onSend={handleSendText}
-                onSendMedia={handleSendMedia}
-                onChangeText={handleTyping}
-                onFocusChange={handleComposerFocusChange}
-                replyTo={replyToMessage}
-                onCancelReply={handleCancelReply}
-              />
+              <Animated.View
+                pointerEvents="box-none"
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  zIndex: 30,
+                }}
+              >
+                <MessageInput
+                  ref={messageInputRef}
+                  onSend={handleSendText}
+                  onSendMedia={handleSendMedia}
+                  onChangeText={handleTyping}
+                  onFocusChange={handleComposerFocusChange}
+                  replyTo={replyToMessage}
+                  onCancelReply={handleCancelReply}
+                />
+              </Animated.View>
             </View>
           </Animated.View>
         </View>

@@ -1,17 +1,51 @@
-import { MaterialIcons } from '@expo/vector-icons'
-import * as DocumentPicker from 'expo-document-picker'
+import { Ionicons } from '@expo/vector-icons'
+import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
 import * as ImagePicker from 'expo-image-picker'
-import React, { memo, useCallback, useImperativeHandle, useRef, useState } from 'react'
-import { Alert, Text, TextInput, TouchableOpacity, View } from 'react-native'
-import Animated, { FadeInDown, FadeOut } from 'react-native-reanimated'
+import React, {
+  memo,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
+import {
+  Alert,
+  Keyboard,
+  PanResponder,
+  Platform,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+} from 'react-native'
+import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
+import Animated, {
+  Easing,
+  Extrapolation,
+  FadeInDown,
+  FadeOut,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import {
+  AttachmentLauncherSheet,
+  type AttachmentLauncherSheetHandle,
+} from './AttachmentLauncherSheet'
+
 import type { Message, ReplyPreviewData } from '../../types/conversation.types'
+import type { ImagePickerAsset } from 'expo-image-picker'
 
 interface MessageInputProps {
   onSend: (text: string, replyToId?: string) => void
-  onSendMedia?: (uri: string, type: 'image' | 'file', fileInfo: unknown) => void
+  onSendMedia?: (assets: ImagePickerAsset[]) => void | Promise<void>
   onChangeText?: (text: string) => void
   onFocusChange?: (focused: boolean) => void
   replyTo?: Message | null
@@ -23,6 +57,191 @@ export interface MessageInputHandle {
   focus: () => void
 }
 
+interface ComposerIconButtonProps {
+  accessibilityLabel: string
+  icon: React.ComponentProps<typeof Ionicons>['name']
+  onPress: () => void
+  accent?: boolean
+  disabled?: boolean
+}
+
+const BRAND = '#FF6B2C'
+const BRAND_DARK = '#D85A21'
+const TEXT_PRIMARY = '#161616'
+const TEXT_MUTED = '#A6A6A6'
+
+const ComposerIconButton = memo(function ComposerIconButton({
+  accessibilityLabel,
+  icon,
+  onPress,
+  accent = false,
+  disabled = false,
+}: ComposerIconButtonProps) {
+  const scale = useSharedValue(1)
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }))
+
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      disabled={disabled}
+      hitSlop={8}
+      onPress={() => {
+        void Haptics.selectionAsync()
+        onPress()
+      }}
+      onPressIn={() => {
+        scale.value = withTiming(0.9, { duration: 80 })
+      }}
+      onPressOut={() => {
+        scale.value = withSpring(1, { damping: 18, stiffness: 360 })
+      }}
+      style={{ opacity: disabled ? 0.4 : 1 }}
+    >
+      <Animated.View
+        style={[
+          {
+            width: accent ? 40 : 38,
+            height: accent ? 40 : 38,
+            borderRadius: accent ? 20 : 21,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: accent ? BRAND : 'transparent',
+          },
+          animatedStyle,
+        ]}
+      >
+        <Ionicons name={icon} size={accent ? 22 : 28} color={accent ? '#FFFFFF' : '#777777'} />
+      </Animated.View>
+    </Pressable>
+  )
+})
+
+interface ComposerAccessorySlotProps {
+  hasText: boolean
+  onAttach: () => void
+  onMic: () => void
+  onSend: () => void
+}
+
+const ComposerAccessorySlot = memo(function ComposerAccessorySlot({
+  hasText,
+  onAttach,
+  onMic,
+  onSend,
+}: ComposerAccessorySlotProps) {
+  const progress = useSharedValue(hasText ? 1 : 0)
+  const sendPressScale = useSharedValue(1)
+
+  useEffect(() => {
+    progress.value = hasText
+      ? withTiming(1, { duration: 160, easing: Easing.out(Easing.cubic) })
+      : withTiming(0, { duration: 160, easing: Easing.inOut(Easing.quad) })
+  }, [hasText, progress])
+
+  const slotStyle = useAnimatedStyle(() => ({
+    width: interpolate(progress.value, [0, 1], [118, 40], Extrapolation.CLAMP),
+  }))
+
+  const accessoryStyle = useAnimatedStyle(() => ({
+    opacity: 1 - progress.value,
+    transform: [
+      { translateX: interpolate(progress.value, [0, 1], [0, 8]) },
+      { scale: interpolate(progress.value, [0, 1], [1, 0.94]) },
+    ],
+  }))
+
+  const sendStyle = useAnimatedStyle(() => ({
+    opacity: progress.value,
+    transform: [
+      { translateX: interpolate(progress.value, [0, 1], [8, 0]) },
+      { scale: progress.value * sendPressScale.value },
+    ],
+  }))
+
+  return (
+    <Animated.View
+      style={[
+        {
+          height: 40,
+          justifyContent: 'center',
+          overflow: 'hidden',
+        },
+        slotStyle,
+      ]}
+    >
+      <Animated.View
+        pointerEvents={hasText ? 'none' : 'auto'}
+        style={[
+          {
+            position: 'absolute',
+            right: 0,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 4,
+          },
+          accessoryStyle,
+        ]}
+      >
+        <ComposerIconButton
+          accessibilityLabel="Record voice message"
+          icon="mic-outline"
+          onPress={onMic}
+        />
+        <ComposerIconButton
+          accessibilityLabel="Open attachment options"
+          icon="image-outline"
+          onPress={onAttach}
+        />
+        <ComposerIconButton
+          accessibilityLabel="Open emoji picker"
+          icon="happy-outline"
+          onPress={() => {
+            /* emoji picker placeholder */
+          }}
+        />
+        <ComposerIconButton
+          accessibilityLabel="Open more attachment options"
+          icon="add-circle-outline"
+          onPress={onAttach}
+        />
+      </Animated.View>
+
+      <Animated.View
+        pointerEvents={hasText ? 'auto' : 'none'}
+        style={[{ position: 'absolute', right: 0 }, sendStyle]}
+      >
+        <Pressable
+          accessibilityLabel="Send message"
+          accessibilityRole="button"
+          disabled={!hasText}
+          hitSlop={8}
+          onPress={onSend}
+          onPressIn={() => {
+            sendPressScale.value = withTiming(0.88, { duration: 70 })
+          }}
+          onPressOut={() => {
+            sendPressScale.value = withSpring(1, { damping: 15, stiffness: 380 })
+          }}
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: BRAND,
+          }}
+        >
+          <Ionicons name="send" size={18} color="#FFFFFF" style={{ marginLeft: 2 }} />
+        </Pressable>
+      </Animated.View>
+    </Animated.View>
+  )
+})
+
 const MessageInputComponent = function MessageInput(
   { onSend, onSendMedia, onChangeText, onFocusChange, replyTo, onCancelReply }: MessageInputProps,
   ref: React.ForwardedRef<MessageInputHandle>,
@@ -30,8 +249,9 @@ const MessageInputComponent = function MessageInput(
   const [text, setText] = useState('')
   const insets = useSafeAreaInsets()
   const inputRef = useRef<TextInput>(null)
-  const pressActionRef = useRef<'send' | 'attach' | null>(null)
+  const attachmentSheetRef = useRef<AttachmentLauncherSheetHandle>(null)
   const sendLockRef = useRef(false)
+  const inputFocusProgress = useSharedValue(0)
 
   useImperativeHandle(
     ref,
@@ -44,173 +264,344 @@ const MessageInputComponent = function MessageInput(
 
   const handleSend = useCallback(() => {
     const message = text.trim()
-
     if (!message || sendLockRef.current) return
 
     sendLockRef.current = true
-
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
     onSend(message, replyTo?.id)
     setText('')
-
     onChangeText?.('')
+    onCancelReply?.()
 
-    if (onCancelReply) {
-      onCancelReply()
-    }
-
-    requestAnimationFrame(() => {
-      inputRef.current?.focus()
-    })
-
+    requestAnimationFrame(() => inputRef.current?.focus())
     setTimeout(() => {
       sendLockRef.current = false
     }, 300)
   }, [onCancelReply, onChangeText, onSend, replyTo?.id, text])
 
-  const handleTextChange = (value: string) => {
-    setText(value)
+  const handleTextChange = useCallback(
+    (value: string) => {
+      setText(value)
+      onChangeText?.(value)
+    },
+    [onChangeText],
+  )
 
-    if (onChangeText) {
-      onChangeText(value)
-    }
-  }
+  const handleMicPress = useCallback(() => {
+    // eslint-disable-next-line no-console
+    console.log('Voice message placeholder')
+  }, [])
 
-  const handleAttachImage = async () => {
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+  const waitForKeyboardToHide = useCallback(() => {
+    return new Promise<void>((resolve) => {
+      let settled = false
+      const subscriptions = [
+        Keyboard.addListener('keyboardDidHide', finish),
+        ...(Platform.OS === 'ios' ? [Keyboard.addListener('keyboardWillHide', finish)] : []),
+      ]
+      const timeoutId = setTimeout(finish, 220)
 
-      if (status !== 'granted') {
-        Alert.alert('Permission denied', 'App needs access to your photos.')
-        return
+      function finish() {
+        if (settled) return
+        settled = true
+        clearTimeout(timeoutId)
+        subscriptions.forEach((subscription) => subscription.remove())
+        resolve()
       }
 
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: false,
-        quality: 0.8,
-      })
+      Keyboard.dismiss()
+    })
+  }, [])
 
-      if (!result.canceled && result.assets && result.assets.length > 0 && onSendMedia) {
-        const asset = result.assets[0]
-        onSendMedia(asset.uri, 'image', asset)
-      }
-    } catch (error) {
-      console.error(error)
+  const handleOpenAttachmentLauncher = useCallback(async () => {
+    const wasFocused = inputRef.current?.isFocused() ?? false
+    inputRef.current?.blur()
+    if (wasFocused) await waitForKeyboardToHide()
+    attachmentSheetRef.current?.present()
+  }, [waitForKeyboardToHide])
+
+  const handleOpenCamera = useCallback(async () => {
+    const wasFocused = inputRef.current?.isFocused() ?? false
+    inputRef.current?.blur()
+    if (wasFocused) await waitForKeyboardToHide()
+
+    const permission = await ImagePicker.requestCameraPermissionsAsync()
+    if (permission.status !== 'granted') {
+      Alert.alert('Permission denied', 'Velora needs camera access to take a photo.')
+      return
     }
-  }
 
-  const handleAttachFile = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: '*/*',
-        copyToCacheDirectory: true,
-      })
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images'],
+      allowsEditing: false,
+      cameraType: ImagePicker.CameraType.back,
+      quality: 0.92,
+      preferredAssetRepresentationMode:
+        ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
+    })
 
-      if (!result.canceled && result.assets && result.assets.length > 0 && onSendMedia) {
-        const file = result.assets[0]
-        onSendMedia(file.uri, 'file', file)
-      }
-    } catch (error) {
-      console.error(error)
+    if (!result.canceled) {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
+      await onSendMedia?.(result.assets)
     }
-  }
+  }, [onSendMedia, waitForKeyboardToHide])
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gestureState) =>
+          gestureState.dy > 10 && gestureState.vy > 0.5,
+        onPanResponderRelease: (_event, gestureState) => {
+          if (gestureState.dy > 10 && gestureState.vy > 0.5) {
+            Keyboard.dismiss()
+          }
+        },
+      }),
+    [],
+  )
 
   const hasText = text.trim().length > 0
+  const showCharCounter = text.length > 800
+  const counterColor = text.length > 950 ? '#E11D48' : TEXT_MUTED
+  const replyPreviewData =
+    replyTo?.replyPreview && typeof replyTo.replyPreview !== 'string'
+      ? (replyTo.replyPreview as ReplyPreviewData)
+      : null
   const replyPreviewText =
     typeof replyTo?.replyPreview === 'string'
       ? replyTo.replyPreview
-      : replyTo?.replyPreview
-        ? `${(replyTo.replyPreview as ReplyPreviewData).senderName}: ${(replyTo.replyPreview as ReplyPreviewData).content}`
+      : replyPreviewData
+        ? replyPreviewData.content
         : replyTo?.content
+  const replySenderLabel = replyPreviewData?.senderName ?? replyTo?.sender?.email ?? 'Replying to'
+  const replyInitial = (replyPreviewText?.trim().charAt(0) || '?').toUpperCase()
+  const bottomInset = Math.max(insets.bottom, 8)
+  const { height: keyboardHeight } = useReanimatedKeyboardAnimation()
+  const ACTIVE_PADDING = 8 // The tight spacing you want when focused
+
+  const containerStyle = useAnimatedStyle(() => {
+    const dynamicPadding = interpolate(
+      Math.abs(keyboardHeight.value),
+      [0, 40], // Threshold: animates over the first 40px of keyboard movement
+      [bottomInset, ACTIVE_PADDING],
+      Extrapolation.CLAMP,
+    )
+    return {
+      marginTop: -14,
+      paddingTop: 14,
+      paddingHorizontal: 10,
+      paddingBottom: dynamicPadding,
+    }
+  })
+
+  const bgCoverStyle = useAnimatedStyle(() => {
+    const dynamicPadding = interpolate(
+      Math.abs(keyboardHeight.value),
+      [0, 40],
+      [bottomInset, ACTIVE_PADDING],
+      Extrapolation.CLAMP,
+    )
+    return { height: dynamicPadding }
+  })
+
+  const cornerCoverStyle = useAnimatedStyle(() => {
+    const dynamicPadding = interpolate(
+      Math.abs(keyboardHeight.value),
+      [0, 40],
+      [bottomInset, ACTIVE_PADDING],
+      Extrapolation.CLAMP,
+    )
+    return { bottom: dynamicPadding }
+  })
+  // const inputPillStyle = useAnimatedStyle(() => ({
+  //   borderColor: interpolateColor(
+  //     inputFocusProgress.value,
+  //     [0, 1],
+  //     [BORDER_LIGHT, 'rgba(255,107,44,0.30)'],
+  //   ),
+  //   shadowOpacity: interpolate(inputFocusProgress.value, [0, 1], [0.03, 0.08]),
+  //   shadowRadius: interpolate(inputFocusProgress.value, [0, 1], [5, 9]),
+  // }))
 
   return (
-    <View
-      className="border-t border-border-light bg-bg-primary px-3 pt-2"
-      style={{ paddingBottom: Math.max(insets.bottom, 8) }}
-    >
+    <Animated.View style={containerStyle}>
+      <Animated.View
+        pointerEvents="none"
+        className="absolute left-0 right-0 bg-bg-primary"
+        style={[{ bottom: 0 }, bgCoverStyle]}
+      />
+      <Animated.View
+        pointerEvents="none"
+        className="absolute bg-bg-primary"
+        style={[{ left: 10, width: 24, height: 24 }, cornerCoverStyle]}
+      />
+      <Animated.View
+        pointerEvents="none"
+        className="absolute bg-bg-primary"
+        style={[{ right: 10, width: 24, height: 24 }, cornerCoverStyle]}
+      />
+
       {replyTo ? (
         <Animated.View
-          entering={FadeInDown.duration(180)}
-          exiting={FadeOut.duration(120)}
-          className="mb-2 flex-row items-center rounded-[14px] bg-surface-input px-3 py-2.5"
+          entering={FadeInDown.duration(170).withInitialValues({
+            opacity: 0,
+            transform: [{ translateY: 7 }, { translateX: -8 }],
+          })}
+          exiting={FadeOut.duration(110)}
+          className="mb-2 flex-row items-center rounded-[16px] bg-surface-input py-2.5"
+          style={{
+            paddingLeft: 12,
+            paddingRight: 8,
+            borderLeftWidth: 3,
+            borderLeftColor: BRAND,
+            overflow: 'hidden',
+          }}
         >
-          <View className="mr-3 h-full w-1 rounded-full bg-brand" />
-          <View className="flex-1">
-            <Text className="text-xs2 text-text-muted">Replying to</Text>
-            <Text className="mt-0.5 text-sm2 text-text-primary" numberOfLines={1}>
+          <View
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 14,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: '#FF6B2C22',
+              marginRight: 10,
+            }}
+          >
+            <Text style={{ fontSize: 12, fontWeight: '800', color: BRAND_DARK }}>
+              {replyInitial}
+            </Text>
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <Text
+              style={{ fontSize: 12, fontWeight: '700', color: BRAND_DARK, marginBottom: 2 }}
+              numberOfLines={1}
+            >
+              {replySenderLabel}
+            </Text>
+            <Text style={{ fontSize: 13, color: '#777777', lineHeight: 17 }} numberOfLines={1}>
               {replyPreviewText}
             </Text>
           </View>
 
-          <TouchableOpacity
+          <Pressable
+            accessibilityLabel="Cancel reply"
+            accessibilityRole="button"
             onPress={onCancelReply}
-            className="ml-2 h-8 w-8 items-center justify-center rounded-full"
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            style={({ pressed }) => ({
+              width: 28,
+              height: 28,
+              borderRadius: 14,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: pressed ? '#DDDAD6' : '#E8E4E0',
+              marginLeft: 8,
+            })}
           >
-            <MaterialIcons name="close" size={18} color="#A6A6A6" />
-          </TouchableOpacity>
+            <Ionicons name="close" size={20} color="#888888" />
+          </Pressable>
         </Animated.View>
       ) : null}
 
-      <View className="flex-row items-end gap-2">
-        <View className="flex-1 flex-row items-end rounded-[18px] bg-surface-input px-4 py-1">
-          <TextInput
-            ref={inputRef}
-            className="min-h-[20px] flex-1 py-2 text-md text-text-primary"
-            value={text}
-            onChangeText={handleTextChange}
-            placeholder="Message"
-            placeholderTextColor="#A6A6A6"
-            multiline
-            maxLength={1000}
-            onBlur={() => onFocusChange?.(false)}
-            onFocus={() => onFocusChange?.(true)}
-          />
-
-          <TouchableOpacity
-            className="h-10 w-10 items-center justify-center"
-            onPress={() => {
-              /* emoji picker placeholder */
-            }}
-            activeOpacity={0.75}
-          >
-            <MaterialIcons name="sentiment-satisfied-alt" size={20} color="#A6A6A6" />
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity
-          className="h-12 w-12 items-center justify-center rounded-[16px] bg-surface-input"
-          onPressIn={() => {
-            pressActionRef.current = hasText ? 'send' : 'attach'
-
-            if (hasText) {
-              handleSend()
-            }
+      <BlurView
+        intensity={42}
+        tint="systemThinMaterialLight"
+        experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : 'none'}
+        blurReductionFactor={3}
+        style={{
+          borderRadius: 24,
+          overflow: 'hidden',
+          backgroundColor: 'rgba(245,245,245,0.58)',
+        }}
+      >
+        <Animated.View
+          style={{
+            minHeight: 48,
+            maxHeight: 116,
+            borderRadius: 24,
+            flexDirection: 'row',
+            alignItems: 'flex-end',
+            paddingLeft: 4,
+            paddingRight: 4,
+            paddingVertical: 4,
+            overflow: 'hidden', // clips children to border radius — no white corners
           }}
-          onPress={() => {
-            if (pressActionRef.current === 'attach') {
-              handleAttachImage()
-            }
-
-            pressActionRef.current = null
-          }}
-          onLongPress={() => {
-            if (!hasText) {
-              pressActionRef.current = null
-              handleAttachFile()
-            }
-          }}
-          activeOpacity={0.8}
         >
-          <MaterialIcons
-            name={hasText ? 'north-east' : 'attach-file'}
-            size={20}
-            color={hasText ? '#FF6B2C' : '#777777'}
+          <ComposerIconButton
+            accessibilityLabel="Open camera"
+            icon="camera"
+            accent
+            onPress={() => {
+              void handleOpenCamera()
+            }}
           />
-        </TouchableOpacity>
-      </View>
-    </View>
+
+          <View style={{ flex: 1, minHeight: 40, justifyContent: 'center' }}>
+            <TextInput
+              ref={inputRef}
+              value={text}
+              onChangeText={handleTextChange}
+              placeholder="Message..."
+              placeholderTextColor={TEXT_MUTED}
+              multiline
+              scrollEnabled
+              maxLength={1000}
+              onBlur={() => {
+                inputFocusProgress.value = withTiming(0, { duration: 170 })
+                onFocusChange?.(false)
+              }}
+              onFocus={() => {
+                inputFocusProgress.value = withTiming(1, { duration: 150 })
+                onFocusChange?.(true)
+              }}
+              style={{
+                minHeight: 38,
+                maxHeight: 108,
+                paddingTop: 8,
+                paddingBottom: showCharCounter ? 18 : 8,
+                paddingHorizontal: 10,
+                color: TEXT_PRIMARY,
+                fontSize: 16,
+                lineHeight: 21,
+              }}
+            />
+
+            {showCharCounter ? (
+              <Text
+                style={{
+                  position: 'absolute',
+                  left: 10,
+                  bottom: 1,
+                  fontSize: 10,
+                  fontWeight: '500',
+                  color: counterColor,
+                }}
+              >
+                {text.length} / 1000
+              </Text>
+            ) : null}
+          </View>
+
+          <ComposerAccessorySlot
+            hasText={hasText}
+            onAttach={() => {
+              void handleOpenAttachmentLauncher()
+            }}
+            onMic={handleMicPress}
+            onSend={handleSend}
+          />
+        </Animated.View>
+      </BlurView>
+
+      <AttachmentLauncherSheet
+        ref={attachmentSheetRef}
+        onSelectAssets={async (assets) => {
+          await onSendMedia?.(assets)
+        }}
+      />
+    </Animated.View>
   )
 }
 
