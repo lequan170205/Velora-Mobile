@@ -2,25 +2,8 @@ import { Ionicons } from '@expo/vector-icons'
 import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
 import * as ImagePicker from 'expo-image-picker'
-import React, {
-  memo,
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
-import {
-  Alert,
-  Keyboard,
-  PanResponder,
-  Platform,
-  Pressable,
-  Text,
-  TextInput,
-  View,
-} from 'react-native'
+import React, { memo, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { Alert, Keyboard, Platform, Pressable, Text, TextInput, View } from 'react-native'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, {
   Easing,
@@ -345,20 +328,6 @@ const MessageInputComponent = function MessageInput(
       await onSendMedia?.(result.assets)
     }
   }, [onSendMedia, waitForKeyboardToHide])
-
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_event, gestureState) =>
-          gestureState.dy > 10 && gestureState.vy > 0.5,
-        onPanResponderRelease: (_event, gestureState) => {
-          if (gestureState.dy > 10 && gestureState.vy > 0.5) {
-            Keyboard.dismiss()
-          }
-        },
-      }),
-    [],
-  )
 
   const hasText = text.trim().length > 0
   const showCharCounter = text.length > 800
