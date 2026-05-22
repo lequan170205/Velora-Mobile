@@ -19,6 +19,8 @@ export interface UserProfileUpdateInput {
 export interface DirectoryUser {
   id: string
   email: string
+  fullName?: string
+  username?: string | null
   picture?: string | null
   createdAt: string
 }
@@ -27,4 +29,12 @@ export interface UserSummary {
   id: string
   email: string
   picture?: string | null
+}
+
+export interface PublicUserProfile {
+  id: string
+  fullName: string
+  username: string | null
+  picture: string | null
+  isVerified: boolean
 }

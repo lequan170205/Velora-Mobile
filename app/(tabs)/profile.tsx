@@ -89,9 +89,9 @@ const isRfcUuid = (value?: string | null) => {
   return Boolean(value && RFC_UUID_REGEX.test(value))
 }
 
-function FriendHighlight({ friend }: { friend: FriendSummary }) {
+function FriendHighlight({ friend, onPress }: { friend: FriendSummary; onPress: () => void }) {
   return (
-    <View className="mr-4 items-center">
+    <Pressable className="mr-4 items-center" onPress={onPress}>
       <View
         className="h-[76px] w-[76px] items-center justify-center rounded-full border border-border-light bg-white"
         style={{
@@ -118,7 +118,7 @@ function FriendHighlight({ friend }: { friend: FriendSummary }) {
       <Text className="mt-2 max-w-[78px] text-center text-sm2 text-text-primary" numberOfLines={1}>
         @{friend.user.username}
       </Text>
-    </View>
+    </Pressable>
   )
 }
 
@@ -329,6 +329,19 @@ export default function ProfileScreen() {
   const handleCreateReel = useCallback(() => {
     router.push('/reels/create')
   }, [router])
+
+  const handleFriendPress = useCallback(
+    (username?: string | null) => {
+      const normalizedUsername = username?.trim().replace(/^@+/, '')
+
+      if (!normalizedUsername) {
+        return
+      }
+
+      router.push(`/users/${normalizedUsername}`)
+    },
+    [router],
+  )
 
   const animateSheetIn = useCallback(() => {
     sheetBackdropOpacity.value = withTiming(1, {
@@ -729,7 +742,11 @@ export default function ProfileScreen() {
                 ) : friendHighlights.length > 0 ? (
                   <>
                     {friendHighlights.map((friend) => (
-                      <FriendHighlight key={friend.id} friend={friend} />
+                      <FriendHighlight
+                        key={friend.id}
+                        friend={friend}
+                        onPress={() => handleFriendPress(friend.user.username)}
+                      />
                     ))}
 
                     {extraFriendsCount > 0 ? (

@@ -1,23 +1,37 @@
 import { apiClient } from './client'
 
 import type {
+  FriendPaginationParams,
   FriendRequestSummary,
   FriendSummary,
   FriendshipActionResponse,
   FriendshipStatusResponse,
+  PaginatedFriendResults,
 } from '../types/friend.types'
 
 export const friendApi = {
-  list: async () => {
-    const response = await apiClient.get<FriendSummary[]>('/friends')
+  list: async (params?: FriendPaginationParams) => {
+    const response = await apiClient.get<PaginatedFriendResults<FriendSummary>>('/friends', {
+      params,
+    })
     return response.data
   },
-  listIncomingRequests: async () => {
-    const response = await apiClient.get<FriendRequestSummary[]>('/friends/requests/incoming')
+  listIncomingRequests: async (params?: FriendPaginationParams) => {
+    const response = await apiClient.get<PaginatedFriendResults<FriendRequestSummary>>(
+      '/friends/requests/incoming',
+      {
+        params,
+      },
+    )
     return response.data
   },
-  listOutgoingRequests: async () => {
-    const response = await apiClient.get<FriendRequestSummary[]>('/friends/requests/outgoing')
+  listOutgoingRequests: async (params?: FriendPaginationParams) => {
+    const response = await apiClient.get<PaginatedFriendResults<FriendRequestSummary>>(
+      '/friends/requests/outgoing',
+      {
+        params,
+      },
+    )
     return response.data
   },
   sendRequest: async (recipientId: string) => {

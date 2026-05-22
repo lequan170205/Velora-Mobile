@@ -7,9 +7,11 @@ export const queryKeys = {
   },
   friends: {
     all: ['friends'] as const,
-    list: () => ['friends', 'list'] as const,
-    incoming: () => ['friends', 'incoming'] as const,
-    outgoing: () => ['friends', 'outgoing'] as const,
+    list: (userId?: string | null) => ['friends', 'list', userId ?? 'anonymous'] as const,
+    incoming: (userId?: string | null) =>
+      ['friends', 'incoming', 'pages', userId ?? 'anonymous'] as const,
+    outgoing: (userId?: string | null) =>
+      ['friends', 'outgoing', 'pages', userId ?? 'anonymous'] as const,
     status: (userId: string) => ['friends', 'status', userId] as const,
   },
   reels: {
@@ -20,6 +22,8 @@ export const queryKeys = {
   users: {
     all: ['users'] as const,
     detail: (id: string) => ['users', id] as const,
+    discover: (query: string) => ['users', 'discover', query] as const,
+    publicProfile: (username: string) => ['users', 'public', username] as const,
     usernameAvailability: (username: string) =>
       ['users', 'username-availability', username] as const,
   },

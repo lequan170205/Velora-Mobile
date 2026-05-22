@@ -1,7 +1,12 @@
 import { apiClient } from './client'
 
 import type { UsernameAvailabilityResponse } from '../types/auth.types'
-import type { DirectoryUser, UserProfileUpdateInput, UserSession } from '../types/user.types'
+import type {
+  DirectoryUser,
+  PublicUserProfile,
+  UserProfileUpdateInput,
+  UserSession,
+} from '../types/user.types'
 
 interface UsersIndexResponse {
   data: DirectoryUser[]
@@ -24,6 +29,35 @@ export const userApi = {
       page: meta.page,
       totalPages: meta.lastPage,
     }
+  },
+  discover: async (params: { query: string; limit?: number }) => {
+    const normalizedQuery = params.query.trim()
+
+    if (!normalizedQuery) {
+      return []
+    }
+
+    const response = await apiClient.get<PublicUserProfile[]>('/users/discover', {
+      params: {
+        query: normalizedQuery,
+        limit: params.limit ?? 20,
+      },
+    })
+
+    return response.data
+  },
+  findPublicProfile: async (username: string) => {
+    const normalizedUsername = username.trim().replace(/^@+/, '')
+
+    if (!normalizedUsername) {
+      throw new Error('Username is required.')
+    }
+
+    const response = await apiClient.get<PublicUserProfile>(
+      `/users/public/${encodeURIComponent(normalizedUsername)}`,
+    )
+
+    return response.data
   },
   findByEmail: async (email: string) => {
     const normalizedEmail = email.trim().toLowerCase()
