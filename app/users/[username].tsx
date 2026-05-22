@@ -10,6 +10,7 @@ import {
   Modal,
   Pressable,
   RefreshControl,
+  ScrollView,
   Text,
   View,
   useWindowDimensions,
@@ -28,12 +29,12 @@ import { queryKeys } from '../../src/constants/queryKeys'
 import { usePublicProfile } from '../../src/hooks/useContacts'
 import { useConversationNavigation } from '../../src/hooks/useConversationNavigation'
 import { getConversationsQueryOptions } from '../../src/hooks/useConversations'
-import { useFriendshipStatus } from '../../src/hooks/useFriends'
+import { useFriends, useFriendshipStatus } from '../../src/hooks/useFriends'
 import { useReelsFeed } from '../../src/hooks/useReels'
 import { cn } from '../../src/lib/cn'
 import { getInitials } from '../../src/lib/profile'
 
-import type { FriendshipState } from '../../src/types/friend.types'
+import type { FriendSummary, FriendshipState } from '../../src/types/friend.types'
 import type { Reel } from '../../src/types/reel.types'
 
 type ActionVariant = 'primary' | 'secondary' | 'muted' | 'danger'
@@ -185,6 +186,48 @@ function ReelsLoadingGrid({ tileSize }: { tileSize: number }) {
   )
 }
 
+function FriendHighlight({ friend, onPress }: { friend: FriendSummary; onPress: () => void }) {
+  return (
+    <Pressable className="mr-4 items-center" onPress={onPress}>
+      <View
+        className="h-[76px] w-[76px] items-center justify-center rounded-full border border-border-light bg-white"
+        style={{
+          shadowColor: 'rgba(22, 22, 22, 0.06)',
+          shadowOffset: { width: 0, height: 10 },
+          shadowOpacity: 1,
+          shadowRadius: 20,
+          elevation: 2,
+        }}
+      >
+        {friend.user.picture ? (
+          <Image
+            source={{ uri: friend.user.picture }}
+            style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: '#F5F5F5' }}
+          />
+        ) : (
+          <View className="h-[68px] w-[68px] items-center justify-center rounded-full bg-surface-muted">
+            <Text className="font-heading text-lg text-text-primary">
+              {getInitials(friend.user.fullName)}
+            </Text>
+          </View>
+        )}
+      </View>
+      <Text className="mt-2 max-w-[78px] text-center text-sm2 text-text-primary" numberOfLines={1}>
+        @{friend.user.username}
+      </Text>
+    </Pressable>
+  )
+}
+
+function FriendSkeleton() {
+  return (
+    <View className="mr-4 items-center">
+      <View className="h-[76px] w-[76px] rounded-full bg-surface-muted" />
+      <View className="mt-2 h-3 w-14 rounded-full bg-surface-muted" />
+    </View>
+  )
+}
+
 export default function PublicProfileScreen() {
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -229,6 +272,12 @@ export default function PublicProfileScreen() {
     refetch: refetchStatus,
   } = useFriendshipStatus(profile?.id ?? '')
   const {
+    data: friends = [],
+    isPending: isFriendsPending,
+    isRefetching: isFriendsRefetching,
+    refetch: refetchFriends,
+  } = useFriends(profile?.id)
+  const {
     data: reelsData,
     isPending: isReelsPending,
     isFetchingNextPage,
@@ -246,7 +295,11 @@ export default function PublicProfileScreen() {
     () => reelsData?.pages.flatMap((page) => page.items) ?? [],
     [reelsData],
   )
-  const isRefreshing = isProfileFetching || isStatusFetching || isReelsRefetching
+  const friendsValue = isFriendsPending && friends.length === 0 ? '...' : String(friends.length)
+  const friendHighlights = friends.slice(0, 7)
+  const extraFriendsCount = Math.max(friends.length - friendHighlights.length, 0)
+  const isRefreshing =
+    isProfileFetching || isStatusFetching || isFriendsRefetching || isReelsRefetching
 
   useEffect(() => {
     return () => {
@@ -423,6 +476,19 @@ export default function PublicProfileScreen() {
     )
   }, [profile?.id, runFriendAction])
 
+  const handleFriendPress = useCallback(
+    (username?: string | null) => {
+      const nextUsername = username?.trim().replace(/^@+/, '')
+
+      if (!nextUsername) {
+        return
+      }
+
+      router.push(`/users/${nextUsername}`)
+    },
+    [router],
+  )
+
   const action = useMemo(() => {
     if (!profile?.id) {
       return {
@@ -494,8 +560,8 @@ export default function PublicProfileScreen() {
   }, [handleMessage, profile?.id, requestId, runFriendAction, status])
 
   const handleRefresh = useCallback(() => {
-    void Promise.all([refetchProfile(), refetchStatus(), refetchReels()])
-  }, [refetchProfile, refetchReels, refetchStatus])
+    void Promise.all([refetchProfile(), refetchStatus(), refetchFriends(), refetchReels()])
+  }, [refetchFriends, refetchProfile, refetchReels, refetchStatus])
 
   const removeSheetBackdropAnimatedStyle = useAnimatedStyle(() => ({
     opacity: removeSheetBackdropOpacity.value,
@@ -710,6 +776,60 @@ export default function PublicProfileScreen() {
                 ) : null}
               </View>
             </LinearGradient>
+
+            <View className="mt-5">
+              <View className="flex-row items-center">
+                <Text className="font-heading text-lg text-text-primary">Friends</Text>
+                <View className="ml-2 rounded-full bg-surface-muted px-3 py-1.5">
+                  <Text className="text-xs2 uppercase tracking-[1px] text-text-secondary">
+                    {friendsValue}
+                  </Text>
+                </View>
+              </View>
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingTop: 16, paddingRight: 20 }}
+              >
+                {isFriendsPending && friends.length === 0 ? (
+                  Array.from({ length: 4 }).map((_, index) => (
+                    <FriendSkeleton key={`friend-skeleton-${index}`} />
+                  ))
+                ) : friendHighlights.length > 0 ? (
+                  <>
+                    {friendHighlights.map((friend) => (
+                      <FriendHighlight
+                        key={friend.id}
+                        friend={friend}
+                        onPress={() => handleFriendPress(friend.user.username)}
+                      />
+                    ))}
+
+                    {extraFriendsCount > 0 ? (
+                      <View className="mr-4 items-center">
+                        <View className="h-[76px] w-[76px] items-center justify-center rounded-full border border-dashed border-border-strong bg-white">
+                          <Text className="font-heading text-lg text-text-primary">
+                            +{extraFriendsCount}
+                          </Text>
+                        </View>
+                        <Text className="mt-2 text-sm2 text-text-secondary">More</Text>
+                      </View>
+                    ) : null}
+                  </>
+                ) : (
+                  <View
+                    className="rounded-[24px] border border-dashed border-border-default bg-surface-card px-5 py-4"
+                    style={{ borderCurve: 'continuous' }}
+                  >
+                    <Text className="font-medium text-text-primary">No friends yet</Text>
+                    <Text className="mt-1 text-sm2 text-text-secondary">
+                      This profile has no friends to show yet.
+                    </Text>
+                  </View>
+                )}
+              </ScrollView>
+            </View>
 
             <View className="mt-6 border-y border-border-light">
               <View className="items-center py-3">

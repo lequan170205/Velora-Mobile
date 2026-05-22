@@ -1,6 +1,7 @@
 export type FriendshipState = 'none' | 'request_sent' | 'request_received' | 'friends'
 
 export interface FriendPaginationParams {
+  userId?: string
   limit?: number
   cursor?: string
 }

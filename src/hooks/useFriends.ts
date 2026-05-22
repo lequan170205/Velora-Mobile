@@ -10,7 +10,10 @@ const FRIEND_REQUESTS_PAGE_SIZE = 20
 export const getFriendsQueryOptions = (userId?: string | null) => ({
   queryKey: queryKeys.friends.list(userId),
   queryFn: async () => {
-    const response = await friendApi.list({ limit: FRIENDS_LIST_LIMIT })
+    const response = await friendApi.list({
+      ...(userId ? { userId } : {}),
+      limit: FRIENDS_LIST_LIMIT,
+    })
     return response.items
   },
   enabled: Boolean(userId),
@@ -48,9 +51,15 @@ export const getFriendshipStatusQueryOptions = (userId: string) => ({
   enabled: Boolean(userId),
 })
 
-export function useFriends() {
-  const userId = useAuthStore((state) => state.user?.id)
-  return useQuery(getFriendsQueryOptions(userId))
+export function useFriends(targetUserId?: string) {
+  const authUserId = useAuthStore((state) => state.user?.id)
+  const resolvedUserId = targetUserId ?? authUserId
+  const isEnabled = Boolean(authUserId) && Boolean(resolvedUserId)
+
+  return useQuery({
+    ...getFriendsQueryOptions(resolvedUserId),
+    enabled: isEnabled,
+  })
 }
 
 export function useIncomingFriendRequests() {
