@@ -41,7 +41,7 @@ import { useChatStore } from '../../src/stores/chatStore'
 import { useProfileUiStore } from '../../src/stores/profileUiStore'
 
 import type { FriendSummary } from '../../src/types/friend.types'
-import type { Reel } from '../../src/types/reel.types'
+import type { Reel, ReelVisibility } from '../../src/types/reel.types'
 
 const PROFILE_REELS_LIMIT = 24
 type SheetMode = 'settings' | 'clear-cache' | 'sign-out' | null
@@ -131,7 +131,15 @@ function FriendSkeleton() {
   )
 }
 
-function EmptyReelsState({ onCreate }: { onCreate: () => void }) {
+function EmptyReelsState({
+  onCreate,
+  visibility,
+}: {
+  onCreate: () => void
+  visibility: ReelVisibility
+}) {
+  const isPrivate = visibility === 'private'
+
   return (
     <View className="px-5 pt-8">
       <View
@@ -141,9 +149,13 @@ function EmptyReelsState({ onCreate }: { onCreate: () => void }) {
         <View className="h-14 w-14 items-center justify-center rounded-full bg-brand-soft">
           <MaterialIcons name="play-circle-outline" size={28} color="#D85A21" />
         </View>
-        <Text className="mt-4 font-heading text-xl text-text-primary">No reels yet</Text>
+        <Text className="mt-4 font-heading text-xl text-text-primary">
+          {isPrivate ? 'No private reels yet' : 'No public reels yet'}
+        </Text>
         <Text className="mt-2 text-center text-base2 text-text-secondary">
-          Publish your first reel to start building the grid.
+          {isPrivate
+            ? 'Private reels are visible only to you from this profile.'
+            : 'Publish a public reel to start building the grid.'}
         </Text>
         <Pressable
           className="mt-5 rounded-full bg-brand px-5 py-3"
@@ -238,15 +250,27 @@ export default function ProfileScreen() {
   const { mutate: updateAvatar, isPending: isUpdatingAvatar } = useUpdateAvatar()
   const hasValidProfileUserId = isRfcUuid(user?.id)
   const profileUserId = hasValidProfileUserId ? user?.id : undefined
+  const [activeReelsVisibility, setActiveReelsVisibility] = useState<ReelVisibility>('public')
   const {
     data: friends = [],
     isPending: isFriendsPending,
     isRefetching: isFriendsRefetching,
     refetch: refetchFriends,
   } = useFriends()
-  const profileReelsParams = profileUserId
-    ? { userId: profileUserId, limit: PROFILE_REELS_LIMIT }
-    : { limit: PROFILE_REELS_LIMIT, visibility: 'public' as const }
+  const profileReelsParams = useMemo(
+    () =>
+      profileUserId
+        ? {
+            userId: profileUserId,
+            limit: PROFILE_REELS_LIMIT,
+            visibility: activeReelsVisibility,
+          }
+        : {
+            limit: PROFILE_REELS_LIMIT,
+            visibility: activeReelsVisibility,
+          },
+    [activeReelsVisibility, profileUserId],
+  )
   const {
     data: reelsData,
     isPending: isReelsPending,
@@ -774,13 +798,52 @@ export default function ProfileScreen() {
               </ScrollView>
             </View>
 
-            <View className="mt-6 border-y border-border-light">
-              <View className="items-center py-3">
-                <View
-                  className="absolute top-0 h-[2px] w-14 bg-brand"
-                  style={{ alignSelf: 'center' }}
-                />
-                <MaterialIcons name="grid-on" size={20} color="#161616" />
+            <View className="mt-6 rounded-[24px] border border-border-light bg-surface-muted p-1">
+              <View className="flex-row gap-1">
+                {(
+                  [
+                    { icon: 'grid-on', label: 'Public', value: 'public' },
+                    { icon: 'lock-outline', label: 'Private', value: 'private' },
+                  ] as const
+                ).map((tab) => {
+                  const isActive = activeReelsVisibility === tab.value
+
+                  return (
+                    <Pressable
+                      key={tab.value}
+                      className={`flex-1 flex-row items-center justify-center rounded-[20px] px-3 py-3 ${
+                        isActive ? 'bg-white' : ''
+                      }`}
+                      onPress={() => {
+                        setActiveReelsVisibility(tab.value)
+                      }}
+                      style={
+                        isActive
+                          ? {
+                              shadowColor: 'rgba(22, 22, 22, 0.08)',
+                              shadowOffset: { width: 0, height: 8 },
+                              shadowOpacity: 1,
+                              shadowRadius: 16,
+                              elevation: 2,
+                            }
+                          : undefined
+                      }
+                    >
+                      <MaterialIcons
+                        name={tab.icon}
+                        size={19}
+                        color={isActive ? '#161616' : '#8A8379'}
+                      />
+                      <Text
+                        className={`ml-2 text-sm2 font-bold ${
+                          isActive ? 'text-text-primary' : 'text-text-secondary'
+                        }`}
+                      >
+                        {tab.label}
+                      </Text>
+                    </Pressable>
+                  )
+                })}
               </View>
             </View>
           </View>
@@ -789,7 +852,7 @@ export default function ProfileScreen() {
           isReelsPending ? (
             <ReelsLoadingGrid tileSize={tileSize} />
           ) : (
-            <EmptyReelsState onCreate={handleCreateReel} />
+            <EmptyReelsState onCreate={handleCreateReel} visibility={activeReelsVisibility} />
           )
         }
         ListFooterComponent={

@@ -16,8 +16,10 @@ export const queryKeys = {
   },
   reels: {
     all: ['reels'] as const,
+    lists: () => ['reels', 'list'] as const,
     list: (params?: Record<string, unknown>) => ['reels', 'list', params ?? {}] as const,
     detail: (id: string) => ['reels', id] as const,
+    status: (id: string) => ['reels', id, 'status'] as const,
   },
   users: {
     all: ['users'] as const,

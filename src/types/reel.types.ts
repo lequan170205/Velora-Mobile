@@ -1,6 +1,7 @@
 export type ReelVisibility = 'public' | 'private'
 
 export type AllowedVideoType = 'video/mp4' | 'video/webm' | 'video/quicktime'
+export type ReelProcessingState = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED'
 
 export interface ReelAuthor {
   id: string
@@ -17,11 +18,17 @@ export interface Reel {
   title?: string
   description?: string
   tags: string[]
-  status: string
+  status: ReelProcessingState
   visibility: ReelVisibility
   viewCount: number
   thumbnailKey?: string
   thumbnailUrl?: string
+  processingStage?: string
+  processingMessage?: string
+  processingProgress?: number
+  stage?: string
+  message?: string
+  progress?: number
   streamUrl: string
   createdAt: string
   author?: ReelAuthor | null
@@ -51,6 +58,13 @@ export interface CreateReelPayload {
   tags: string[]
 }
 
+export interface UpdateReelPayload {
+  title?: string
+  description?: string
+  tags?: string[]
+  visibility?: ReelVisibility
+}
+
 export interface ReelUploadUrlRequest {
   fileType: AllowedVideoType
 }
@@ -59,4 +73,16 @@ export interface ReelUploadUrlResponse {
   uploadUrl: string
   key: string
   expiresIn: number
+}
+
+export interface ReelProcessingStatusResponse {
+  reelId: string
+  status: ReelProcessingState
+  stage?: string
+  message?: string
+  progress?: number
+  mediaKey?: string
+  thumbnailKey?: string
+  thumbnailUrl?: string
+  streamUrl?: string
 }

@@ -6,6 +6,14 @@ import type { StyleProp, ViewStyle } from 'react-native'
 
 type ContentFit = 'cover' | 'contain'
 
+type VideoBufferOptions = {
+  maxBufferBytes?: number | null
+  minBufferForPlayback?: number
+  preferredForwardBufferDuration?: number
+  prioritizeTimeOverSizeThreshold?: boolean
+  waitsToMinimizeStalling?: boolean
+}
+
 interface ReelVideoProps {
   uri: string
   posterUri?: string
@@ -47,6 +55,7 @@ interface ExpoVideoModule {
     setup?: (player: {
       loop: boolean
       muted: boolean
+      bufferOptions: VideoBufferOptions
       currentTime: number
       duration: number
       timeUpdateEventInterval: number
@@ -57,6 +66,7 @@ interface ExpoVideoModule {
   ) => {
     loop: boolean
     muted: boolean
+    bufferOptions: VideoBufferOptions
     currentTime: number
     duration: number
     timeUpdateEventInterval: number
@@ -123,6 +133,13 @@ interface ExpoAvModule {
 
 const isHlsUri = (uri: string) => /\.m3u8($|[?#])/i.test(uri)
 
+const REEL_BUFFER_OPTIONS: VideoBufferOptions = {
+  minBufferForPlayback: 0.2,
+  preferredForwardBufferDuration: 2,
+  prioritizeTimeOverSizeThreshold: true,
+  waitsToMinimizeStalling: false,
+}
+
 const buildExpoVideoSource = (uri: string): string | { uri: string; contentType: 'hls' } => {
   if (isHlsUri(uri)) {
     return { uri, contentType: 'hls' }
@@ -183,6 +200,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
   const player = useVideoPlayer(buildExpoVideoSource(uri), (videoPlayer) => {
     videoPlayer.loop = loop
     videoPlayer.muted = muted
+    videoPlayer.bufferOptions = REEL_BUFFER_OPTIONS
     videoPlayer.timeUpdateEventInterval = 0.25
     videoPlayer.pause()
   })
@@ -220,6 +238,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
   useEffect(() => {
     player.loop = loop
     player.muted = muted
+    player.bufferOptions = REEL_BUFFER_OPTIONS
     player.timeUpdateEventInterval = 0.25
 
     if (shouldPlay) {
@@ -227,12 +246,14 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
       return
     }
 
-    player.pause()
+    if (!shouldPlay) {
+      player.pause()
 
-    if (resetOnPause) {
-      player.currentTime = 0
+      if (resetOnPause) {
+        player.currentTime = 0
+      }
     }
-  }, [loop, muted, player, resetOnPause, shouldPlay])
+  }, [hasRenderedFrame, loop, muted, player, resetOnPause, shouldPlay])
 
   useEffect(() => {
     const statusSubscription = player.addListener('statusChange', ({ status, error }) => {

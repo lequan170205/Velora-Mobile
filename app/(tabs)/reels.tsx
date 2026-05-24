@@ -4,8 +4,15 @@ import { useIsFocused } from '@react-navigation/native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
-import { FlatList } from 'react-native-gesture-handler'
+import {
+  ActivityIndicator,
+  FlatList,
+  RefreshControl,
+  Text,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
+} from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { ReelFeedItem } from '../../src/components/reels/ReelFeedItem'
@@ -13,7 +20,12 @@ import { DEFAULT_REELS_LIMIT } from '../../src/constants/reels'
 import { useReelDetail, useReelsFeed } from '../../src/hooks/useReels'
 
 import type { Reel } from '../../src/types/reel.types'
-import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent } from 'react-native'
+import type {
+  LayoutChangeEvent,
+  ListRenderItem,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+} from 'react-native'
 
 function ReelsLoadingSkeleton({
   headerTop,
@@ -80,11 +92,16 @@ export default function ReelsScreen() {
   const handledRequestedReelIdRef = useRef<string | null>(null)
   const [viewportHeight, setViewportHeight] = useState(windowHeight)
   const [activeReelId, setActiveReelId] = useState<string | null>(null)
+  const activeReelIdRef = useRef<string | null>(null)
+  const [deletedReelIds, setDeletedReelIds] = useState<Set<string>>(() => new Set())
   const [isMuted, setIsMuted] = useState(false)
   const [isTimelineInteracting, setIsTimelineInteracting] = useState(false)
   const selectedReelId = Array.isArray(reelId) ? reelId[0] : reelId
   const handleTimelineInteractionChange = useCallback((isInteracting: boolean) => {
     setIsTimelineInteracting(isInteracting)
+  }, [])
+  const handleToggleMuted = useCallback(() => {
+    setIsMuted((current) => !current)
   }, [])
   const {
     data,
@@ -102,16 +119,17 @@ export default function ReelsScreen() {
   })
 
   const reels = useMemo(() => {
-    const feedItems = data?.pages.flatMap((page) => page.items) ?? []
+    const feedItems =
+      data?.pages.flatMap((page) => page.items).filter((item) => !deletedReelIds.has(item.id)) ?? []
 
-    if (!selectedReel) {
+    if (!selectedReel || deletedReelIds.has(selectedReel.id)) {
       return feedItems
     }
 
     return feedItems.some((item) => item.id === selectedReel.id)
       ? feedItems
       : [selectedReel, ...feedItems]
-  }, [data, selectedReel])
+  }, [data, deletedReelIds, selectedReel])
   const activeIndex = useMemo(
     () => reels.findIndex((reel) => reel.id === activeReelId),
     [activeReelId, reels],
@@ -128,7 +146,9 @@ export default function ReelsScreen() {
       return
     }
 
-    setActiveReelId(reels[0]?.id ?? null)
+    const firstReelId = reels[0]?.id ?? null
+    activeReelIdRef.current = firstReelId
+    setActiveReelId(firstReelId)
   }, [activeReelId, reels, selectedReelId])
 
   useEffect(() => {
@@ -143,6 +163,7 @@ export default function ReelsScreen() {
     }
 
     handledRequestedReelIdRef.current = selectedReelId
+    activeReelIdRef.current = selectedReelId
     setActiveReelId(selectedReelId)
 
     requestAnimationFrame(() => {
@@ -172,17 +193,31 @@ export default function ReelsScreen() {
     }
   }
 
-  const setActiveByOffset = (offsetY: number) => {
-    if (reels.length === 0 || viewportHeight <= 0) {
-      setActiveReelId(null)
-      return
-    }
+  const setActiveByOffset = useCallback(
+    (offsetY: number) => {
+      if (reels.length === 0 || viewportHeight <= 0) {
+        if (activeReelIdRef.current !== null) {
+          activeReelIdRef.current = null
+          setActiveReelId(null)
+        }
+        return
+      }
 
-    const nextIndex = Math.max(0, Math.min(reels.length - 1, Math.round(offsetY / viewportHeight)))
-    const nextReelId = reels[nextIndex]?.id ?? null
+      const nextIndex = Math.max(
+        0,
+        Math.min(reels.length - 1, Math.round(offsetY / viewportHeight)),
+      )
+      const nextReelId = reels[nextIndex]?.id ?? null
 
-    setActiveReelId((current) => (current === nextReelId ? current : nextReelId))
-  }
+      if (activeReelIdRef.current === nextReelId) {
+        return
+      }
+
+      activeReelIdRef.current = nextReelId
+      setActiveReelId(nextReelId)
+    },
+    [reels, viewportHeight],
+  )
 
   const handleMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     setActiveByOffset(event.nativeEvent.contentOffset.y)
@@ -196,11 +231,111 @@ export default function ReelsScreen() {
     }
   }
 
-  if (isPending) {
+  const handleScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      setActiveByOffset(event.nativeEvent.contentOffset.y)
+    },
+    [setActiveByOffset],
+  )
+
+  const handleRefresh = useCallback(() => {
+    void refetch()
+  }, [refetch])
+
+  const handleReelDeleted = useCallback(
+    (deletedReelId: string) => {
+      setDeletedReelIds((current) => {
+        const next = new Set(current)
+        next.add(deletedReelId)
+        return next
+      })
+
+      const deletedIndex = reels.findIndex((item) => item.id === deletedReelId)
+      const fallbackIndex = deletedIndex >= 0 ? deletedIndex : activeIndex
+      const nextReel =
+        reels[fallbackIndex + 1] ??
+        reels[fallbackIndex - 1] ??
+        reels.find((item) => item.id !== deletedReelId)
+
+      if (selectedReelId === deletedReelId) {
+        router.replace('/reels')
+      }
+
+      if (!nextReel) {
+        activeReelIdRef.current = null
+        setActiveReelId(null)
+        void refetch()
+        return
+      }
+
+      const nextIndexBeforeDelete = reels.findIndex((item) => item.id === nextReel.id)
+      const nextIndexAfterDelete =
+        nextIndexBeforeDelete > fallbackIndex ? fallbackIndex : nextIndexBeforeDelete
+
+      activeReelIdRef.current = nextReel.id
+      setActiveReelId(nextReel.id)
+
+      requestAnimationFrame(() => {
+        listRef.current?.scrollToIndex({
+          index: Math.max(0, nextIndexAfterDelete),
+          animated: false,
+        })
+      })
+
+      void refetch()
+    },
+    [activeIndex, reels, refetch, router, selectedReelId],
+  )
+
+  const keyExtractor = useCallback((item: Reel) => item.id, [])
+
+  const getItemLayout = useCallback(
+    (_: ArrayLike<Reel> | null | undefined, index: number) => ({
+      length: viewportHeight,
+      offset: viewportHeight * index,
+      index,
+    }),
+    [viewportHeight],
+  )
+
+  const renderItem = useCallback<ListRenderItem<Reel>>(
+    ({ item, index }) => {
+      const isActiveItem = isFocused && activeReelId === item.id
+      const shouldWarmVideo =
+        isFocused && (isActiveItem || (activeIndex >= 0 && Math.abs(index - activeIndex) <= 1))
+
+      return (
+        <ReelFeedItem
+          reel={item}
+          description={item.description}
+          height={viewportHeight}
+          isActive={isActiveItem}
+          shouldWarmVideo={shouldWarmVideo}
+          enableStatusPolling={isActiveItem}
+          isMuted={isMuted}
+          onToggleMuted={handleToggleMuted}
+          onDeleted={handleReelDeleted}
+          onTimelineInteractionChange={handleTimelineInteractionChange}
+        />
+      )
+    },
+    [
+      activeReelId,
+      activeIndex,
+      handleTimelineInteractionChange,
+      handleToggleMuted,
+      handleReelDeleted,
+      isFocused,
+      isMuted,
+      viewportHeight,
+    ],
+  )
+
+  if (isPending && !selectedReel) {
     return <ReelsLoadingSkeleton headerTop={insets.top + 18} viewportHeight={viewportHeight} />
   }
 
-  if (isError) {
+  if (isError && reels.length === 0) {
     return (
       <View className="flex-1 items-center justify-center bg-[#050505] px-6">
         <StatusBar style="light" />
@@ -240,46 +375,27 @@ export default function ReelsScreen() {
       <FlatList
         ref={listRef}
         data={reels}
-        extraData={`${activeReelId ?? ''}:${isMuted ? '1' : '0'}:${isTimelineInteracting ? '1' : '0'}`}
+        extraData={`${activeReelId ?? ''}:${isMuted ? '1' : '0'}`}
         contentContainerStyle={reels.length === 0 ? { flexGrow: 1 } : undefined}
         pagingEnabled
-        bounces={false}
+        alwaysBounceVertical
+        bounces={activeIndex <= 0 || isRefetching}
         disableIntervalMomentum
-        overScrollMode="never"
+        overScrollMode={activeIndex <= 0 || isRefetching ? 'auto' : 'never'}
         removeClippedSubviews={false}
         scrollEnabled={!isTimelineInteracting}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item, index }) => {
-          const isActiveItem = isFocused && activeReelId === item.id
-          const shouldWarmVideo =
-            isFocused && (isActiveItem || (activeIndex >= 0 && Math.abs(index - activeIndex) <= 1))
-
-          return (
-            <ReelFeedItem
-              reel={item}
-              description={item.description}
-              height={viewportHeight}
-              isActive={isActiveItem}
-              shouldWarmVideo={shouldWarmVideo}
-              isMuted={isMuted}
-              onToggleMuted={() => {
-                setIsMuted((current) => !current)
-              }}
-              onTimelineInteractionChange={handleTimelineInteractionChange}
-            />
-          )
-        }}
-        getItemLayout={(_, index) => ({
-          length: viewportHeight,
-          offset: viewportHeight * index,
-          index,
-        })}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        getItemLayout={getItemLayout}
         showsVerticalScrollIndicator={false}
         snapToInterval={viewportHeight}
         snapToAlignment="start"
-        initialNumToRender={3}
-        maxToRenderPerBatch={3}
-        windowSize={5}
+        initialNumToRender={2}
+        maxToRenderPerBatch={2}
+        updateCellsBatchingPeriod={16}
+        windowSize={3}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         onScrollEndDrag={handleScrollEndDrag}
         onMomentumScrollEnd={handleMomentumScrollEnd}
         onEndReachedThreshold={0.45}
@@ -288,10 +404,15 @@ export default function ReelsScreen() {
             void fetchNextPage()
           }
         }}
-        onRefresh={() => {
-          void refetch()
-        }}
-        refreshing={isRefetching}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={handleRefresh}
+            colors={['#FF7A45']}
+            tintColor="#FF7A45"
+            progressViewOffset={insets.top + 96}
+          />
+        }
         ListEmptyComponent={
           <View
             className="items-center justify-center px-6"
@@ -358,7 +479,7 @@ export default function ReelsScreen() {
           style={{ bottom: tabBarHeight + 18 }}
         >
           <View className="rounded-full bg-black/44 px-4 py-2">
-            <ActivityIndicator color="#FFFFFF" size="small" />
+            <ActivityIndicator color="#FF7A45" size="small" />
           </View>
         </View>
       ) : null}

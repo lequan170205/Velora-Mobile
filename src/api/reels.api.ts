@@ -5,6 +5,8 @@ import type {
   ListReelsParams,
   ListReelsResponse,
   ReelDetail,
+  ReelProcessingStatusResponse,
+  UpdateReelPayload,
 } from '../types/reel.types'
 
 export const reelsApi = {
@@ -16,8 +18,21 @@ export const reelsApi = {
     const response = await apiClient.get<ReelDetail>(`/content/reels/${id}`)
     return response.data
   },
+  getStatus: async (id: string) => {
+    const response = await apiClient.get<ReelProcessingStatusResponse>(
+      `/content/reels/${id}/status`,
+    )
+    return response.data
+  },
   create: async (data: CreateReelPayload) => {
     const response = await apiClient.post<ReelDetail>('/content/reels', data)
     return response.data
+  },
+  update: async (id: string, data: UpdateReelPayload) => {
+    const response = await apiClient.patch<ReelDetail>(`/content/reels/${id}`, data)
+    return response.data
+  },
+  delete: async (id: string) => {
+    await apiClient.delete(`/content/reels/${id}`)
   },
 }

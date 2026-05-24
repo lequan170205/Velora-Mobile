@@ -1,8 +1,9 @@
-import { Ionicons } from '@expo/vector-icons'
+import { Ionicons, MaterialIcons } from '@expo/vector-icons'
 import { format } from 'date-fns'
 import * as Haptics from 'expo-haptics'
 import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
+import { useRouter } from 'expo-router'
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
@@ -22,8 +23,12 @@ import Animated, {
 } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 
+import { useReelProcessingStatus, useDeleteReel } from '../../hooks/useReels'
 import { getInitials } from '../../lib/profile'
+import { useAuthStore } from '../../stores/authStore'
 
+import { DeleteReelModal } from './DeleteReelModal'
+import { ReelActionsMenu } from './ReelActionsMenu'
 import { ReelVideo } from './ReelVideo'
 
 import type { ReelVideoHandle, ReelVideoProgress } from './ReelVideo'
@@ -35,9 +40,15 @@ interface ReelFeedItemProps {
   height: number
   isActive: boolean
   shouldWarmVideo?: boolean | undefined
+  enableStatusPolling?: boolean | undefined
   isMuted: boolean
   onToggleMuted: () => void
+  onDeleted?: ((reelId: string) => void) | undefined
   onTimelineInteractionChange?: ((isInteracting: boolean) => void) | undefined
+}
+
+type ReelWithLocalThumbnail = Reel & {
+  localThumbnailUri?: string
 }
 
 const SCRUBBER_TOUCH_ZONE_HEIGHT = 40
@@ -75,46 +86,55 @@ const styles = StyleSheet.create({
   },
 })
 
-const getPlaybackState = (status?: string | null) => {
-  const normalized = status?.trim().toLowerCase()
+const getPlaybackState = (status?: string | null, streamUrl?: string | null) => {
+  const normalized = status?.trim().toUpperCase()
 
   if (
     !normalized ||
-    normalized === 'ready' ||
-    normalized === 'completed' ||
-    normalized === 'published'
+    normalized === 'READY' ||
+    normalized === 'COMPLETED' ||
+    normalized === 'PUBLISHED'
   ) {
     return {
-      isPlayable: true,
+      isPlayable: Boolean(streamUrl),
       label: null,
     }
   }
 
-  if (normalized === 'processing') {
+  if (normalized === 'PROCESSING') {
     return {
       isPlayable: false,
       label: 'Processing',
     }
   }
 
-  if (normalized === 'pending') {
+  if (normalized === 'PENDING') {
     return {
       isPlayable: false,
       label: 'Queued',
     }
   }
 
-  if (normalized === 'failed') {
+  if (normalized === 'FAILED') {
     return {
       isPlayable: false,
-      label: 'Unavailable',
+      label: 'Failed',
     }
   }
 
   return {
-    isPlayable: true,
+    isPlayable: Boolean(streamUrl),
     label: null,
   }
+}
+
+const normalizeProgress = (value?: number | null) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null
+  }
+
+  const percentValue = value <= 1 ? value * 100 : value
+  return Math.min(100, Math.max(0, Math.round(percentValue)))
 }
 
 const getAuthorHandle = (username?: string | null) => {
@@ -140,10 +160,14 @@ const ReelFeedItemComponent = function ReelFeedItem({
   height,
   isActive,
   shouldWarmVideo = false,
+  enableStatusPolling = false,
   isMuted,
   onToggleMuted,
+  onDeleted,
   onTimelineInteractionChange,
 }: ReelFeedItemProps) {
+  const router = useRouter()
+  const { user } = useAuthStore()
   const videoRef = useRef<ReelVideoHandle | null>(null)
   const lastBufferedPositionRef = useRef(0)
   const lastPlaybackPositionRef = useRef(0)
@@ -157,26 +181,90 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const [pendingSeekRatio, setPendingSeekRatio] = useState<number | null>(null)
   const [scrubPosition, setScrubPosition] = useState(0)
   const [scrubberWidth, setScrubberWidth] = useState(0)
+  const [showActionsMenu, setShowActionsMenu] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const { data: processingStatus } = useReelProcessingStatus(reel, {
+    enabled: enableStatusPolling,
+  })
+  const deleteReel = useDeleteReel()
+  const displayReel = useMemo<ReelWithLocalThumbnail>(() => {
+    const sourceReel = reel as ReelWithLocalThumbnail
+    const nextReel: ReelWithLocalThumbnail = {
+      ...sourceReel,
+      status: processingStatus?.status ?? sourceReel.status,
+      streamUrl: processingStatus?.streamUrl ?? sourceReel.streamUrl,
+    }
+    const thumbnailUrl = processingStatus?.thumbnailUrl ?? sourceReel.thumbnailUrl
+    const thumbnailKey = processingStatus?.thumbnailKey ?? sourceReel.thumbnailKey
+    const mediaKey = processingStatus?.mediaKey ?? sourceReel.mediaKey
+    const stage = processingStatus?.stage ?? sourceReel.stage ?? sourceReel.processingStage
+    const message = processingStatus?.message ?? sourceReel.message ?? sourceReel.processingMessage
+    const progress =
+      processingStatus?.progress ?? sourceReel.progress ?? sourceReel.processingProgress
+
+    if (mediaKey) {
+      nextReel.mediaKey = mediaKey
+    }
+
+    if (thumbnailKey) {
+      nextReel.thumbnailKey = thumbnailKey
+    }
+
+    if (thumbnailUrl) {
+      nextReel.thumbnailUrl = thumbnailUrl
+    }
+
+    if (typeof stage === 'string') {
+      nextReel.stage = stage
+      nextReel.processingStage = stage
+    }
+
+    if (typeof message === 'string') {
+      nextReel.message = message
+      nextReel.processingMessage = message
+    }
+
+    if (typeof progress === 'number') {
+      nextReel.progress = progress
+      nextReel.processingProgress = progress
+    }
+
+    return nextReel
+  }, [processingStatus, reel])
   const resumeAfterScrub = useSharedValue(0)
   const pendingSeekTarget = useSharedValue(-1)
   const lastScrubRatio = useSharedValue(0)
   const scrubReleaseHandled = useSharedValue(0)
   const timelineInteractionProgress = useSharedValue(0)
   const timelinePreviewRatio = useSharedValue(0)
-  const playbackState = useMemo(() => getPlaybackState(reel.status), [reel.status])
+  const playbackState = useMemo(
+    () => getPlaybackState(displayReel.status, displayReel.streamUrl),
+    [displayReel.status, displayReel.streamUrl],
+  )
   const descriptionText = description?.trim()
-  const titleText = reel.title?.trim()
-  const metaLine = getCreatedAtLabel(reel.createdAt)
-  const authorHandle = getAuthorHandle(reel.author?.username)
-  const authorDisplayName = reel.author?.displayName?.trim() || authorHandle || 'Creator'
+  const titleText = displayReel.title?.trim()
+  const metaLine = getCreatedAtLabel(displayReel.createdAt)
+  const effectiveAuthor =
+    displayReel.author ||
+    (user
+      ? {
+          id: user.id,
+          username: user.username ?? null,
+          displayName: user.fullName ?? null,
+          avatarUrl: user.picture ?? null,
+          isVerified: false,
+        }
+      : null)
+  const authorHandle = getAuthorHandle(effectiveAuthor?.username)
+  const authorDisplayName = effectiveAuthor?.displayName?.trim() || authorHandle || 'Creator'
   const authorNameLine =
-    reel.author?.displayName?.trim() || (authorHandle ? `@${authorHandle}` : 'Creator')
+    effectiveAuthor?.displayName?.trim() || (authorHandle ? `@${authorHandle}` : 'Creator')
   const authorUsernameLine =
     authorHandle && normalizeAuthorLabel(authorNameLine) !== normalizeAuthorLabel(authorHandle)
       ? `@${authorHandle}`
       : null
   const captionText = descriptionText || titleText || 'Shared a new reel.'
-  const hashtagLine = reel.tags
+  const hashtagLine = displayReel.tags
     .slice(0, 4)
     .map((tag) => tag.trim().replace(/^#/, ''))
     .filter(Boolean)
@@ -207,6 +295,14 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const metadataBottom = SCRUBBER_TOUCH_ZONE_HEIGHT + 14
   const timelineLabel = formatPlaybackTime(timelinePosition)
   const timelineChipWidth = showLoadingRail ? TIMELINE_LOADING_CHIP_WIDTH : TIMELINE_CHIP_WIDTH
+  const processingMessage = displayReel.message ?? displayReel.processingMessage
+  const processingProgress = normalizeProgress(
+    displayReel.progress ?? displayReel.processingProgress,
+  )
+  const isFailed = displayReel.status === 'FAILED'
+  const canManageReel = user?.id === displayReel.userId
+  const posterUri = displayReel.thumbnailUrl ?? displayReel.localThumbnailUri
+  const shouldShowVideoLayer = isActive && (isReady || playbackPosition > 0)
 
   const triggerScrubStartHaptic = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined)
@@ -495,7 +591,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
   useEffect(() => {
     resetTimelineState({ includeDuration: true, resetReadyState: true })
-  }, [reel.id, resetTimelineState])
+  }, [displayReel.id, resetTimelineState])
 
   useEffect(() => {
     if (!isActive) {
@@ -509,19 +605,20 @@ const ReelFeedItemComponent = function ReelFeedItem({
   return (
     <View className="flex-1 bg-[#050505]" style={{ height }}>
       <View className="flex-1 bg-[#050505]">
-        {reel.thumbnailUrl ? (
-          <Image source={{ uri: reel.thumbnailUrl }} contentFit="cover" style={styles.video} />
+        {posterUri ? (
+          <Image source={{ uri: posterUri }} contentFit="cover" style={styles.video} />
         ) : (
           <View style={styles.video} />
         )}
 
         {shouldRenderVideo ? (
           <ReelVideo
+            key={displayReel.streamUrl}
             ref={videoRef}
-            uri={reel.streamUrl}
+            uri={displayReel.streamUrl}
             shouldPlay={isActive && !isPausedByUser && !hasPlaybackError}
             loop
-            muted={isMuted}
+            muted={isMuted || !isActive}
             contentFit="cover"
             resetOnPause={!isActive}
             onReady={() => {
@@ -530,8 +627,8 @@ const ReelFeedItemComponent = function ReelFeedItem({
             onError={() => {
               setHasPlaybackError(true)
             }}
-            onProgress={handleProgress}
-            style={[styles.videoOverlay, { opacity: isActive && isReady ? 1 : 0 }]}
+            {...(isActive ? { onProgress: handleProgress } : {})}
+            style={[styles.videoOverlay, { opacity: shouldShowVideoLayer ? 1 : 0 }]}
           />
         ) : null}
 
@@ -664,11 +761,59 @@ const ReelFeedItemComponent = function ReelFeedItem({
         ) : null}
 
         {!playbackState.isPlayable || hasPlaybackError ? (
-          <View pointerEvents="none" className="absolute inset-0 items-center justify-center px-8">
-            <View className="rounded-[28px] bg-black/58 px-6 py-4">
-              <Text className="text-center font-medium text-md text-white">
-                {playbackState.label || 'This reel could not be played.'}
-              </Text>
+          <View
+            pointerEvents={isFailed ? 'auto' : 'none'}
+            className="absolute inset-0 items-center justify-center px-8"
+          >
+            <View className="w-full max-w-[280px] rounded-[28px] bg-black/68 px-6 py-5">
+              {hasPlaybackError ? (
+                <>
+                  <Text className="text-center font-heading text-xl text-white">
+                    Playback unavailable
+                  </Text>
+                  <Text className="mt-2 text-center text-sm2 leading-5 text-white">
+                    This reel could not be played.
+                  </Text>
+                </>
+              ) : isFailed ? (
+                <>
+                  <Text className="text-center font-heading text-xl text-white">Upload failed</Text>
+                  <Text className="mt-2 text-center text-sm2 leading-5 text-white">
+                    {processingMessage || 'Something went wrong while uploading this reel.'}
+                  </Text>
+                  <TouchableOpacity
+                    className="mt-4 rounded-full bg-white px-5 py-3"
+                    activeOpacity={0.84}
+                    onPress={() => {
+                      router.push('/reels/create')
+                    }}
+                  >
+                    <Text className="text-center font-medium text-[#17120F]">Try again</Text>
+                  </TouchableOpacity>
+                </>
+              ) : typeof processingProgress === 'number' ? (
+                <>
+                  <Text className="text-center font-heading text-xl text-white">Uploading</Text>
+                  <View className="mt-4">
+                    <View className="h-2 overflow-hidden rounded-full bg-white/16">
+                      <View
+                        className="h-full rounded-full bg-[#FF7A45]"
+                        style={{ width: `${processingProgress}%` }}
+                      />
+                    </View>
+                    <Text className="mt-2 text-center text-base2 font-medium text-white">
+                      {processingProgress}%
+                    </Text>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text className="text-center font-heading text-xl text-white">Processing</Text>
+                  <Text className="mt-2 text-center text-sm2 leading-5 text-white">
+                    Your reel is being processed...
+                  </Text>
+                </>
+              )}
             </View>
           </View>
         ) : null}
@@ -679,22 +824,29 @@ const ReelFeedItemComponent = function ReelFeedItem({
           style={{ bottom: metadataBottom }}
         >
           <View className="px-4">
-            <View className="max-w-[86%]">
-              <View className="flex-row items-start">
-                {reel.author?.avatarUrl ? (
-                  <Image
-                    source={{ uri: reel.author.avatarUrl }}
-                    contentFit="cover"
-                    style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: '#121212' }}
-                  />
-                ) : (
-                  <View className="h-[42px] w-[42px] items-center justify-center rounded-full bg-white/12">
-                    <Text className="font-heading text-sm text-white">{avatarInitials}</Text>
-                  </View>
-                )}
+            <View className="flex-row items-start">
+              <View className="max-w-[78%] flex-1 flex-row items-start">
+                <View>
+                  {effectiveAuthor?.avatarUrl ? (
+                    <Image
+                      source={{ uri: effectiveAuthor.avatarUrl }}
+                      contentFit="cover"
+                      style={{
+                        width: 42,
+                        height: 42,
+                        borderRadius: 21,
+                        backgroundColor: '#121212',
+                      }}
+                    />
+                  ) : (
+                    <View className="h-[42px] w-[42px] items-center justify-center rounded-full bg-white/12">
+                      <Text className="font-heading text-sm text-white">{avatarInitials}</Text>
+                    </View>
+                  )}
+                </View>
 
                 <View className="ml-3 flex-1">
-                  <View className="flex-row items-center">
+                  <View className="min-w-0 flex-row items-center">
                     <Text className="flex-shrink font-medium text-md text-white" numberOfLines={1}>
                       {authorNameLine}
                     </Text>
@@ -723,9 +875,52 @@ const ReelFeedItemComponent = function ReelFeedItem({
                   ) : null}
                 </View>
               </View>
+
+              {canManageReel ? (
+                <TouchableOpacity
+                  className="ml-auto h-10 w-10 items-center justify-center rounded-full bg-white/14"
+                  activeOpacity={0.84}
+                  onPress={() => {
+                    setShowActionsMenu(true)
+                  }}
+                >
+                  <MaterialIcons name="more-horiz" size={24} color="#FFFFFF" />
+                </TouchableOpacity>
+              ) : null}
             </View>
           </View>
         </View>
+
+        <ReelActionsMenu
+          visible={showActionsMenu}
+          onEdit={() => {
+            router.push(`/reels/${displayReel.id}/edit`)
+          }}
+          onDelete={() => {
+            setShowDeleteModal(true)
+          }}
+          onClose={() => {
+            setShowActionsMenu(false)
+          }}
+        />
+
+        <DeleteReelModal
+          visible={showDeleteModal}
+          reel={displayReel}
+          isDeleting={deleteReel.isPending}
+          onConfirm={() => {
+            deleteReel.mutate(displayReel.id, {
+              onSuccess: () => {
+                setShowDeleteModal(false)
+                setShowActionsMenu(false)
+                onDeleted?.(displayReel.id)
+              },
+            })
+          }}
+          onCancel={() => {
+            setShowDeleteModal(false)
+          }}
+        />
       </View>
     </View>
   )

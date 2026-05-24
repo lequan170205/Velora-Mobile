@@ -16,7 +16,9 @@
       "supportsTablet": true,
       "infoPlist": {
         "UIBackgroundModes": ["audio", "voip"],
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Velora uses the camera to record reels.",
+        "NSMicrophoneUsageDescription": "Velora uses the microphone to record audio for reels."
       },
       "bundleIdentifier": "com.yourcompany.velora",
       "jsEngine": "jsc"
@@ -30,6 +32,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
+        "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
@@ -47,6 +50,14 @@
       "expo-secure-store",
       "expo-font",
       "expo-web-browser",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Velora to use your camera to record reels.",
+          "microphonePermission": "Allow Velora to use your microphone to record reel audio.",
+          "recordAudioAndroid": true
+        }
+      ],
       [
         "@react-native-google-signin/google-signin",
         {
