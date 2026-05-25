@@ -2,6 +2,8 @@ import { apiClient } from './client'
 
 import type {
   CreateReelPayload,
+  ReelContextParams,
+  ReelContextResponse,
   ListReelsParams,
   ListReelsResponse,
   ReelDetail,
@@ -16,6 +18,12 @@ export const reelsApi = {
   },
   getById: async (id: string) => {
     const response = await apiClient.get<ReelDetail>(`/content/reels/${id}`)
+    return response.data
+  },
+  getContext: async (id: string, params: ReelContextParams = {}) => {
+    const response = await apiClient.get<ReelContextResponse>(`/content/reels/${id}/context`, {
+      params,
+    })
     return response.data
   },
   getStatus: async (id: string) => {

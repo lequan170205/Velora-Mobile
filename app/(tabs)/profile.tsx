@@ -551,8 +551,8 @@ export default function ProfileScreen() {
           className="mb-[2px] overflow-hidden bg-surface-muted"
           onPress={() => {
             router.push({
-              pathname: '/reels',
-              params: { reelId: item.id },
+              pathname: '/reels/[id]',
+              params: { id: item.id, source: 'profile', returnTo: 'profile' },
             })
           }}
           style={{

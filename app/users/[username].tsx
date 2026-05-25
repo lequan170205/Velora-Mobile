@@ -580,8 +580,13 @@ export default function PublicProfileScreen() {
           className="mb-[2px] overflow-hidden bg-surface-muted"
           onPress={() => {
             router.push({
-              pathname: '/reels',
-              params: { reelId: item.id },
+              pathname: '/reels/[id]',
+              params: {
+                id: item.id,
+                source: 'profile',
+                returnTo: 'user-profile',
+                returnUsername: normalizedUsername,
+              },
             })
           }}
           style={{
@@ -622,7 +627,7 @@ export default function PublicProfileScreen() {
         </Pressable>
       )
     },
-    [router, tileSize],
+    [normalizedUsername, router, tileSize],
   )
 
   if (isProfileLoading) {

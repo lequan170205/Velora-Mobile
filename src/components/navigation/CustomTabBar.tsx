@@ -336,6 +336,16 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 
       if (!isFocused && !event.defaultPrevented) {
         prepareLayoutForIndex(nextIndex)
+
+        if (route.name === 'reels') {
+          navigation.navigate({
+            name: route.name,
+            params: { resetKey: String(Date.now()) },
+            merge: false,
+          })
+          return
+        }
+
         navigation.navigate(route.name, route.params)
       }
     },

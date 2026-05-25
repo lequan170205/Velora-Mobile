@@ -423,8 +423,8 @@ export function useReelCreator() {
         await saveDraftSnapshot(null)
         resetCreatorState()
         router.replace({
-          pathname: '/reels',
-          params: { reelId: createdReel.id },
+          pathname: '/reels/[id]',
+          params: { id: createdReel.id, source: 'profile', returnTo: 'profile' },
         })
         return
       } catch (error) {

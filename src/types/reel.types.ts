@@ -51,6 +51,29 @@ export interface ListReelsResponse {
   nextCursor?: string | null
 }
 
+export type ReelContextSource = 'profile' | 'public'
+
+export interface ReelContextParams {
+  source?: ReelContextSource
+  before?: number
+  after?: number
+}
+
+export interface ReelContextScope {
+  userId: string
+  visibility: ReelVisibility
+}
+
+export interface ReelContextResponse {
+  source: ReelContextSource
+  scope: ReelContextScope
+  selectedId: string
+  selectedIndex: number
+  items: Reel[]
+  previousCursor?: string | null
+  nextCursor?: string | null
+}
+
 export interface CreateReelPayload {
   mediaKey: string
   title: string

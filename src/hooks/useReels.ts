@@ -12,6 +12,8 @@ import type {
   AllowedVideoType,
   ListReelsParams,
   ListReelsResponse,
+  ReelContextParams,
+  ReelContextResponse,
   Reel,
   ReelDetail,
   ReelProcessingStatusResponse,
@@ -23,6 +25,7 @@ const REELS_QUERY_STALE_TIME_MS = 30 * 1000
 const REEL_STATUS_POLL_INTERVAL_MS = 3000
 
 type ReelsInfiniteData = InfiniteData<ListReelsResponse, string | undefined>
+type ReelContextData = ReelContextResponse
 
 type LegacyFileSystemModule = {
   FileSystemUploadType: {
@@ -147,6 +150,20 @@ const updateReelInInfiniteData = (
   }
 }
 
+const updateReelInContextData = (
+  data: ReelContextData | undefined,
+  reel: Reel,
+): ReelContextData | undefined => {
+  if (!data?.items.length) {
+    return data
+  }
+
+  return {
+    ...data,
+    items: data.items.map((item) => (item.id === reel.id ? { ...item, ...reel } : item)),
+  }
+}
+
 const removeReelFromInfiniteData = (
   data: ReelsInfiniteData | undefined,
   reelId: string,
@@ -161,6 +178,33 @@ const removeReelFromInfiniteData = (
       ...page,
       items: page.items.filter((item) => item.id !== reelId),
     })),
+  }
+}
+
+const removeReelFromContextData = (
+  data: ReelContextData | undefined,
+  reelId: string,
+): ReelContextData | undefined => {
+  if (!data?.items.length) {
+    return data
+  }
+
+  const removedIndex = data.items.findIndex((item) => item.id === reelId)
+  const items = data.items.filter((item) => item.id !== reelId)
+
+  if (removedIndex === -1) {
+    return data
+  }
+
+  const selectedIndex =
+    removedIndex < data.selectedIndex
+      ? Math.max(0, data.selectedIndex - 1)
+      : Math.min(data.selectedIndex, Math.max(0, items.length - 1))
+
+  return {
+    ...data,
+    items,
+    selectedIndex,
   }
 }
 
@@ -190,6 +234,12 @@ const normalizeListParams = (params: Omit<ListReelsParams, 'cursor'> = {}) => ({
   ...(params.limit ? { limit: params.limit } : {}),
   ...(params.userId ? { userId: params.userId } : {}),
   ...(params.visibility ? { visibility: params.visibility } : {}),
+})
+
+const normalizeContextParams = (params: ReelContextParams = {}) => ({
+  source: params.source ?? 'profile',
+  before: params.before ?? 1,
+  after: params.after ?? Math.max(1, DEFAULT_REELS_LIMIT - 1),
 })
 
 export function useReelsFeed(
@@ -228,6 +278,27 @@ export function useReelDetail(id?: string, options: { enabled?: boolean } = {}) 
   })
 }
 
+export function useReelContext(
+  id?: string,
+  params: ReelContextParams = {},
+  options: { enabled?: boolean } = {},
+) {
+  const normalizedParams = normalizeContextParams(params)
+
+  return useQuery({
+    queryKey: queryKeys.reels.context(id || 'unknown', normalizedParams),
+    queryFn: () => {
+      if (!id) {
+        throw new Error('Missing reel id')
+      }
+
+      return reelsApi.getContext(id, normalizedParams)
+    },
+    enabled: Boolean(id) && (options.enabled ?? true),
+    staleTime: REELS_QUERY_STALE_TIME_MS,
+  })
+}
+
 export function useReelProcessingStatus(reel?: Reel | null, options: { enabled?: boolean } = {}) {
   const queryClient = useQueryClient()
   const shouldPoll = (options.enabled ?? true) && isProcessingReel(reel)
@@ -258,10 +329,17 @@ export function useReelProcessingStatus(reel?: Reel | null, options: { enabled?:
     queryClient.setQueriesData<ReelsInfiniteData>({ queryKey: queryKeys.reels.lists() }, (data) =>
       updateReelInInfiniteData(data, nextReel),
     )
+    queryClient.setQueriesData<ReelContextData>({ queryKey: queryKeys.reels.contexts() }, (data) =>
+      updateReelInContextData(data, nextReel),
+    )
 
     if (isTerminalReelStatus(query.data.status)) {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.reels.lists(),
+        refetchType: 'none',
+      })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.reels.contexts(),
         refetchType: 'none',
       })
     }
@@ -350,6 +428,10 @@ export function useUpdateReel() {
       queryClient.setQueriesData<ReelsInfiniteData>({ queryKey: queryKeys.reels.lists() }, (data) =>
         updateReelInInfiniteData(data, updatedReel),
       )
+      queryClient.setQueriesData<ReelContextData>(
+        { queryKey: queryKeys.reels.contexts() },
+        (data) => updateReelInContextData(data, updatedReel),
+      )
     },
   })
 }
@@ -364,7 +446,12 @@ export function useDeleteReel() {
       queryClient.setQueriesData<ReelsInfiniteData>({ queryKey: queryKeys.reels.lists() }, (data) =>
         removeReelFromInfiniteData(data, id),
       )
+      queryClient.setQueriesData<ReelContextData>(
+        { queryKey: queryKeys.reels.contexts() },
+        (data) => removeReelFromContextData(data, id),
+      )
       void queryClient.invalidateQueries({ queryKey: queryKeys.reels.lists() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.reels.contexts() })
     },
   })
 }
