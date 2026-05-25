@@ -90,13 +90,20 @@ export default function ReelsScreen() {
   const { height: windowHeight } = useWindowDimensions()
   const listRef = useRef<FlatList<Reel> | null>(null)
   const handledRequestedReelIdRef = useRef<string | null>(null)
+  const scrollOffsetYRef = useRef(0)
   const [viewportHeight, setViewportHeight] = useState(windowHeight)
   const [activeReelId, setActiveReelId] = useState<string | null>(null)
   const activeReelIdRef = useRef<string | null>(null)
   const [deletedReelIds, setDeletedReelIds] = useState<Set<string>>(() => new Set())
   const [isMuted, setIsMuted] = useState(false)
   const [isTimelineInteracting, setIsTimelineInteracting] = useState(false)
+  const [isPublicFeedMode, setIsPublicFeedMode] = useState(false)
   const selectedReelId = Array.isArray(reelId) ? reelId[0] : reelId
+  const reelsRef = useRef<Reel[]>([])
+  const activeIndexRef = useRef(-1)
+  const selectedReelIdRef = useRef<string | undefined>(selectedReelId)
+  const previousSelectedReelIdRef = useRef<string | undefined>(selectedReelId)
+  const shouldInjectSelectedReel = Boolean(selectedReelId) && !isPublicFeedMode
   const handleTimelineInteractionChange = useCallback((isInteracting: boolean) => {
     setIsTimelineInteracting(isInteracting)
   }, [])
@@ -115,25 +122,46 @@ export default function ReelsScreen() {
     isRefetching,
   } = useReelsFeed({ limit: DEFAULT_REELS_LIMIT, visibility: 'public' })
   const { data: selectedReel } = useReelDetail(selectedReelId, {
-    enabled: Boolean(selectedReelId),
+    enabled: shouldInjectSelectedReel,
   })
+  const selectedReelForFeed = shouldInjectSelectedReel ? selectedReel : undefined
 
   const reels = useMemo(() => {
     const feedItems =
       data?.pages.flatMap((page) => page.items).filter((item) => !deletedReelIds.has(item.id)) ?? []
 
-    if (!selectedReel || deletedReelIds.has(selectedReel.id)) {
+    if (!selectedReelForFeed || deletedReelIds.has(selectedReelForFeed.id)) {
       return feedItems
     }
 
-    return feedItems.some((item) => item.id === selectedReel.id)
+    return feedItems.some((item) => item.id === selectedReelForFeed.id)
       ? feedItems
-      : [selectedReel, ...feedItems]
-  }, [data, deletedReelIds, selectedReel])
+      : [selectedReelForFeed, ...feedItems]
+  }, [data, deletedReelIds, selectedReelForFeed])
   const activeIndex = useMemo(
     () => reels.findIndex((reel) => reel.id === activeReelId),
     [activeReelId, reels],
   )
+
+  useEffect(() => {
+    reelsRef.current = reels
+  }, [reels])
+
+  useEffect(() => {
+    activeIndexRef.current = activeIndex
+  }, [activeIndex])
+
+  useEffect(() => {
+    selectedReelIdRef.current = selectedReelId
+  }, [selectedReelId])
+
+  useEffect(() => {
+    if (selectedReelId && previousSelectedReelIdRef.current !== selectedReelId) {
+      setIsPublicFeedMode(false)
+    }
+
+    previousSelectedReelIdRef.current = selectedReelId
+  }, [selectedReelId])
 
   useEffect(() => {
     if (!selectedReelId) {
@@ -142,17 +170,21 @@ export default function ReelsScreen() {
   }, [selectedReelId])
 
   useEffect(() => {
-    if (activeReelId || reels.length === 0 || selectedReelId) {
+    if (activeReelId || reels.length === 0 || shouldInjectSelectedReel) {
       return
     }
 
     const firstReelId = reels[0]?.id ?? null
     activeReelIdRef.current = firstReelId
     setActiveReelId(firstReelId)
-  }, [activeReelId, reels, selectedReelId])
+  }, [activeReelId, reels, shouldInjectSelectedReel])
 
   useEffect(() => {
-    if (!selectedReelId || handledRequestedReelIdRef.current === selectedReelId) {
+    if (
+      !shouldInjectSelectedReel ||
+      !selectedReelId ||
+      handledRequestedReelIdRef.current === selectedReelId
+    ) {
       return
     }
 
@@ -172,7 +204,7 @@ export default function ReelsScreen() {
         animated: false,
       })
     })
-  }, [reels, selectedReelId, viewportHeight])
+  }, [reels, selectedReelId, shouldInjectSelectedReel, viewportHeight])
 
   const errorMessage =
     (error as (Error & { response?: { data?: { message?: string } } }) | null)?.response?.data
@@ -195,6 +227,8 @@ export default function ReelsScreen() {
 
   const setActiveByOffset = useCallback(
     (offsetY: number) => {
+      scrollOffsetYRef.current = offsetY
+
       if (reels.length === 0 || viewportHeight <= 0) {
         if (activeReelIdRef.current !== null) {
           activeReelIdRef.current = null
@@ -219,6 +253,14 @@ export default function ReelsScreen() {
     [reels, viewportHeight],
   )
 
+  useEffect(() => {
+    if (!activeReelId || reels.some((item) => item.id === activeReelId)) {
+      return
+    }
+
+    setActiveByOffset(scrollOffsetYRef.current)
+  }, [activeReelId, reels, setActiveByOffset])
+
   const handleMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     setActiveByOffset(event.nativeEvent.contentOffset.y)
   }
@@ -239,25 +281,45 @@ export default function ReelsScreen() {
   )
 
   const handleRefresh = useCallback(() => {
+    setIsPublicFeedMode(true)
+    handledRequestedReelIdRef.current = null
+
+    const firstPublicReelId =
+      reelsRef.current.find((item) => item.visibility === 'public')?.id ?? null
+    activeReelIdRef.current = firstPublicReelId
+    setActiveReelId(firstPublicReelId)
+
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToOffset({ offset: 0, animated: false })
+    })
+
+    if (selectedReelIdRef.current) {
+      router.replace('/reels')
+    }
+
     void refetch()
-  }, [refetch])
+  }, [refetch, router])
 
   const handleReelDeleted = useCallback(
     (deletedReelId: string) => {
+      const currentReels = reelsRef.current
+      const currentActiveIndex = activeIndexRef.current
+      const currentSelectedReelId = selectedReelIdRef.current
+
       setDeletedReelIds((current) => {
         const next = new Set(current)
         next.add(deletedReelId)
         return next
       })
 
-      const deletedIndex = reels.findIndex((item) => item.id === deletedReelId)
-      const fallbackIndex = deletedIndex >= 0 ? deletedIndex : activeIndex
+      const deletedIndex = currentReels.findIndex((item) => item.id === deletedReelId)
+      const fallbackIndex = deletedIndex >= 0 ? deletedIndex : currentActiveIndex
       const nextReel =
-        reels[fallbackIndex + 1] ??
-        reels[fallbackIndex - 1] ??
-        reels.find((item) => item.id !== deletedReelId)
+        currentReels[fallbackIndex + 1] ??
+        currentReels[fallbackIndex - 1] ??
+        currentReels.find((item) => item.id !== deletedReelId)
 
-      if (selectedReelId === deletedReelId) {
+      if (currentSelectedReelId === deletedReelId) {
         router.replace('/reels')
       }
 
@@ -268,7 +330,7 @@ export default function ReelsScreen() {
         return
       }
 
-      const nextIndexBeforeDelete = reels.findIndex((item) => item.id === nextReel.id)
+      const nextIndexBeforeDelete = currentReels.findIndex((item) => item.id === nextReel.id)
       const nextIndexAfterDelete =
         nextIndexBeforeDelete > fallbackIndex ? fallbackIndex : nextIndexBeforeDelete
 
@@ -284,7 +346,7 @@ export default function ReelsScreen() {
 
       void refetch()
     },
-    [activeIndex, reels, refetch, router, selectedReelId],
+    [refetch, router],
   )
 
   const keyExtractor = useCallback((item: Reel) => item.id, [])
@@ -300,9 +362,10 @@ export default function ReelsScreen() {
 
   const renderItem = useCallback<ListRenderItem<Reel>>(
     ({ item, index }) => {
-      const isActiveItem = isFocused && activeReelId === item.id
+      const isCurrentItem = activeReelId === item.id
+      const isActiveItem = isFocused && isCurrentItem
       const shouldWarmVideo =
-        isFocused && (isActiveItem || (activeIndex >= 0 && Math.abs(index - activeIndex) <= 1))
+        isCurrentItem || (isFocused && activeIndex >= 0 && Math.abs(index - activeIndex) <= 1)
 
       return (
         <ReelFeedItem
@@ -331,7 +394,7 @@ export default function ReelsScreen() {
     ],
   )
 
-  if (isPending && !selectedReel) {
+  if (isPending && !selectedReelForFeed) {
     return <ReelsLoadingSkeleton headerTop={insets.top + 18} viewportHeight={viewportHeight} />
   }
 
@@ -375,7 +438,7 @@ export default function ReelsScreen() {
       <FlatList
         ref={listRef}
         data={reels}
-        extraData={`${activeReelId ?? ''}:${isMuted ? '1' : '0'}`}
+        extraData={`${activeReelId ?? ''}:${isMuted ? '1' : '0'}:${isFocused ? '1' : '0'}`}
         contentContainerStyle={reels.length === 0 ? { flexGrow: 1 } : undefined}
         pagingEnabled
         alwaysBounceVertical

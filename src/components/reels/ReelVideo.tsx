@@ -30,6 +30,8 @@ interface ReelVideoProps {
 }
 
 export interface ReelVideoHandle {
+  pause: () => void
+  play: () => void
   seekBy: (seconds: number) => void
   seekTo: (seconds: number) => void
 }
@@ -208,6 +210,12 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
   useImperativeHandle(
     ref,
     () => ({
+      pause: () => {
+        player.pause()
+      },
+      play: () => {
+        player.play()
+      },
       seekBy: (seconds: number) => {
         if (typeof player.seekBy === 'function') {
           player.seekBy(seconds)
@@ -325,6 +333,12 @@ const ExpoAvPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoAv
   useImperativeHandle(
     ref,
     () => ({
+      pause: () => {
+        void videoRef.current?.pauseAsync().catch(() => undefined)
+      },
+      play: () => {
+        void videoRef.current?.playAsync().catch(() => undefined)
+      },
       seekBy: (seconds: number) => {
         void videoRef.current
           ?.getStatusAsync()

@@ -336,7 +336,7 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 
       if (!isFocused && !event.defaultPrevented) {
         prepareLayoutForIndex(nextIndex)
-        navigation.navigate(route.name)
+        navigation.navigate(route.name, route.params)
       }
     },
     [navigation, prepareLayoutForIndex, state.index, state.routes],

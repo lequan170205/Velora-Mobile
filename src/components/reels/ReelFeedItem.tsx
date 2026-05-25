@@ -1,4 +1,5 @@
 import { Ionicons, MaterialIcons } from '@expo/vector-icons'
+import { useFocusEffect } from '@react-navigation/native'
 import { format } from 'date-fns'
 import * as Haptics from 'expo-haptics'
 import { Image } from 'expo-image'
@@ -602,6 +603,20 @@ const ReelFeedItemComponent = function ReelFeedItem({
     setHasPlaybackError(false)
   }, [isActive, resetTimelineState, shouldWarmVideo])
 
+  useFocusEffect(
+    useCallback(() => {
+      if (isActive && playbackState.isPlayable && !isPausedByUser && !hasPlaybackError) {
+        videoRef.current?.play()
+      }
+
+      return () => {
+        if (isActive) {
+          videoRef.current?.pause()
+        }
+      }
+    }, [hasPlaybackError, isActive, isPausedByUser, playbackState.isPlayable]),
+  )
+
   return (
     <View className="flex-1 bg-[#050505]" style={{ height }}>
       <View className="flex-1 bg-[#050505]">
@@ -926,4 +941,16 @@ const ReelFeedItemComponent = function ReelFeedItem({
   )
 }
 
-export const ReelFeedItem = memo(ReelFeedItemComponent)
+const areReelFeedItemPropsEqual = (previous: ReelFeedItemProps, next: ReelFeedItemProps) =>
+  previous.reel === next.reel &&
+  previous.description === next.description &&
+  previous.height === next.height &&
+  previous.isActive === next.isActive &&
+  previous.shouldWarmVideo === next.shouldWarmVideo &&
+  previous.enableStatusPolling === next.enableStatusPolling &&
+  previous.isMuted === next.isMuted &&
+  previous.onToggleMuted === next.onToggleMuted &&
+  previous.onDeleted === next.onDeleted &&
+  previous.onTimelineInteractionChange === next.onTimelineInteractionChange
+
+export const ReelFeedItem = memo(ReelFeedItemComponent, areReelFeedItemPropsEqual)
