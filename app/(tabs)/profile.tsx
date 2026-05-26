@@ -651,13 +651,9 @@ export default function ProfileScreen() {
               </Pressable>
             </View>
 
-            <LinearGradient
-              colors={['#FFF7EF', '#FFFFFF']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              className="mt-5 overflow-hidden rounded-[34px] border border-border-light px-5 py-5"
+            <View
+              className="mt-5 rounded-[34px]"
               style={{
-                borderCurve: 'continuous',
                 shadowColor: 'rgba(22, 22, 22, 0.08)',
                 shadowOffset: { width: 0, height: 18 },
                 shadowOpacity: 1,
@@ -665,84 +661,95 @@ export default function ProfileScreen() {
                 elevation: 4,
               }}
             >
-              <View
-                pointerEvents="none"
-                className="absolute -right-7 -top-9 h-28 w-28 rounded-full"
-                style={{ backgroundColor: 'rgba(255, 107, 44, 0.10)' }}
-              />
-              <View
-                pointerEvents="none"
-                className="absolute -left-7 bottom-4 h-20 w-20 rounded-full"
-                style={{ backgroundColor: 'rgba(255, 107, 44, 0.06)' }}
-              />
+              <View className="overflow-hidden rounded-[34px] border border-border-light">
+                <LinearGradient
+                  colors={['#FFF7EF', '#FFFFFF']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  className="absolute inset-0"
+                />
 
-              <View className="flex-row items-center">
-                <Pressable onPress={handlePickImage} className="relative">
-                  {user.picture ? (
-                    <Image
-                      source={{ uri: user.picture }}
-                      style={{
-                        width: 96,
-                        height: 96,
-                        borderRadius: 48,
-                        backgroundColor: '#F5F5F5',
-                      }}
-                    />
-                  ) : (
-                    <View className="h-24 w-24 items-center justify-center rounded-full bg-surface-muted">
-                      <Text className="font-heading text-[30px] text-text-primary">
-                        {getInitials(displayName)}
+                <View
+                  pointerEvents="none"
+                  className="absolute -right-7 -top-9 h-28 w-28 rounded-full"
+                  style={{ backgroundColor: 'rgba(255, 107, 44, 0.10)' }}
+                />
+                <View
+                  pointerEvents="none"
+                  className="absolute -left-7 bottom-4 h-20 w-20 rounded-full"
+                  style={{ backgroundColor: 'rgba(255, 107, 44, 0.06)' }}
+                />
+
+                <View className="px-5 py-5">
+                  <View className="flex-row items-center">
+                    <Pressable onPress={handlePickImage} className="relative">
+                      {user.picture ? (
+                        <Image
+                          source={{ uri: user.picture }}
+                          style={{
+                            width: 96,
+                            height: 96,
+                            borderRadius: 48,
+                            backgroundColor: '#F5F5F5',
+                          }}
+                        />
+                      ) : (
+                        <View className="h-24 w-24 items-center justify-center rounded-full bg-surface-muted">
+                          <Text className="font-heading text-[30px] text-text-primary">
+                            {getInitials(displayName)}
+                          </Text>
+                        </View>
+                      )}
+
+                      <View className="absolute bottom-0 right-0 h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-brand">
+                        {isUpdatingAvatar ? (
+                          <ActivityIndicator color="#FFFFFF" size="small" />
+                        ) : (
+                          <MaterialIcons name="photo-camera" size={16} color="#FFFFFF" />
+                        )}
+                      </View>
+                    </Pressable>
+
+                    <View className="ml-4 flex-1">
+                      <Text className="font-heading text-[30px] leading-[34px] text-text-primary">
+                        {displayName}
                       </Text>
+                      <View className="mt-2 flex-row flex-wrap items-center">
+                        <View className="rounded-full border border-border-light bg-white px-3 py-1.5">
+                          <Text className="text-xs2 uppercase tracking-[1.1px] text-text-secondary">
+                            @{profileHandle}
+                          </Text>
+                        </View>
+                      </View>
                     </View>
-                  )}
-
-                  <View className="absolute bottom-0 right-0 h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-brand">
-                    {isUpdatingAvatar ? (
-                      <ActivityIndicator color="#FFFFFF" size="small" />
-                    ) : (
-                      <MaterialIcons name="photo-camera" size={16} color="#FFFFFF" />
-                    )}
                   </View>
-                </Pressable>
 
-                <View className="ml-4 flex-1">
-                  <Text className="font-heading text-[30px] leading-[34px] text-text-primary">
-                    {displayName}
-                  </Text>
-                  <View className="mt-2 flex-row flex-wrap items-center">
-                    <View className="rounded-full border border-border-light bg-white px-3 py-1.5">
-                      <Text className="text-xs2 uppercase tracking-[1.1px] text-text-secondary">
-                        @{profileHandle}
+                  <View className="mt-5">
+                    <Text className="text-base2 leading-6 text-text-secondary">
+                      Velora member since {memberSinceLabel}
+                    </Text>
+                  </View>
+
+                  <View className="mt-5 flex-row">
+                    <Pressable
+                      className="mr-3 flex-1 rounded-full border border-border-light bg-white py-3"
+                      onPress={handlePickImage}
+                    >
+                      <Text className="text-center font-medium text-text-primary">
+                        {isUpdatingAvatar ? 'Updating...' : 'Edit photo'}
                       </Text>
-                    </View>
+                    </Pressable>
+
+                    <Pressable
+                      className="flex-1 rounded-full border border-border-light bg-surface-card py-3"
+                      onPress={handleShareProfile}
+                    >
+                      <Text className="text-center font-medium text-text-primary">Share</Text>
+                    </Pressable>
                   </View>
                 </View>
               </View>
-
-              <View className="mt-5">
-                <Text className="text-base2 leading-6 text-text-secondary">
-                  Velora member since {memberSinceLabel}
-                </Text>
-              </View>
-
-              <View className="mt-5 flex-row">
-                <Pressable
-                  className="mr-3 flex-1 rounded-full border border-border-light bg-white py-3"
-                  onPress={handlePickImage}
-                >
-                  <Text className="text-center font-medium text-text-primary">
-                    {isUpdatingAvatar ? 'Updating...' : 'Edit photo'}
-                  </Text>
-                </Pressable>
-
-                <Pressable
-                  className="flex-1 rounded-full border border-border-light bg-surface-card py-3"
-                  onPress={handleShareProfile}
-                >
-                  <Text className="text-center font-medium text-text-primary">Share</Text>
-                </Pressable>
-              </View>
-            </LinearGradient>
+            </View>
 
             <View className="mt-5">
               <View className="flex-row items-center">
