@@ -26,10 +26,10 @@ import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent } from 
 type ReelsViewerMode = 'public' | 'context'
 
 interface ReelsViewerProps {
+  bottomContentInset?: number
   contextSource?: ReelContextSource
   mode: ReelsViewerMode
   reelId?: string | undefined
-  resetKey?: string | undefined
   returnTo?: string | undefined
   returnUsername?: string | undefined
   tabBarHeight?: number
@@ -90,10 +90,10 @@ function ReelsLoadingSkeleton({
 }
 
 export function ReelsViewer({
+  bottomContentInset = 0,
   contextSource = 'profile',
   mode,
   reelId,
-  resetKey,
   returnTo,
   returnUsername,
   tabBarHeight = 0,
@@ -111,15 +111,15 @@ export function ReelsViewer({
   const [deletedReelIds, setDeletedReelIds] = useState<Set<string>>(() => new Set())
   const [isMuted, setIsMuted] = useState(false)
   const [isTimelineInteracting, setIsTimelineInteracting] = useState(false)
-  const [isPublicFeedMode, setIsPublicFeedMode] = useState(false)
   const [contextExtraItems, setContextExtraItems] = useState<Reel[]>([])
   const [contextNextCursor, setContextNextCursor] = useState<string | null>(null)
   const [isFetchingContextNextPage, setIsFetchingContextNextPage] = useState(false)
   const reelsRef = useRef<Reel[]>([])
   const activeIndexRef = useRef(-1)
   const previousSelectedReelIdRef = useRef<string | undefined>(reelId)
-  const shouldUseReelContext = mode === 'context' && Boolean(reelId) && !isPublicFeedMode
+  const shouldUseReelContext = mode === 'context' && Boolean(reelId)
   const shouldLoadPublicFeed = !shouldUseReelContext
+  const shouldAllowRefresh = mode === 'public'
   const handleTimelineInteractionChange = useCallback((isInteracting: boolean) => {
     setIsTimelineInteracting(isInteracting)
   }, [])
@@ -151,7 +151,7 @@ export function ReelsViewer({
     reelId,
     {
       source: contextSource,
-      before: 1,
+      before: Math.max(1, DEFAULT_REELS_LIMIT - 1),
       after: Math.max(1, DEFAULT_REELS_LIMIT - 1),
     },
     {
@@ -181,10 +181,19 @@ export function ReelsViewer({
   }, [contextExtraItems, data, deletedReelIds, reelContext, shouldUseReelContext])
   const reelContextSelectedId = reelContext?.selectedId
   const reelContextInitialNextCursor = reelContext?.nextCursor ?? null
+  const requestedReelIndex = useMemo(() => {
+    if (!shouldUseReelContext || !reelId) {
+      return -1
+    }
+
+    return reels.findIndex((item) => item.id === reelId)
+  }, [reels, reelId, shouldUseReelContext])
   const activeIndex = useMemo(
     () => reels.findIndex((reel) => reel.id === activeReelId),
     [activeReelId, reels],
   )
+  const initialScrollIndex =
+    shouldUseReelContext && requestedReelIndex > 0 ? requestedReelIndex : undefined
 
   useEffect(() => {
     reelsRef.current = reels
@@ -195,31 +204,9 @@ export function ReelsViewer({
   }, [activeIndex])
 
   useEffect(() => {
-    if (mode !== 'public' || !resetKey) {
-      return
-    }
-
-    setIsPublicFeedMode(false)
-    setDeletedReelIds(new Set())
-    setContextExtraItems([])
-    setContextNextCursor(null)
-    handledRequestedReelIdRef.current = null
-    scrollOffsetYRef.current = 0
-    activeReelIdRef.current = null
-    setActiveReelId(null)
-
-    requestAnimationFrame(() => {
-      listRef.current?.scrollToOffset({ offset: 0, animated: false })
-    })
-
-    void refetch()
-  }, [mode, refetch, resetKey])
-
-  useEffect(() => {
     const previousSelectedReelId = previousSelectedReelIdRef.current
 
     if (reelId && previousSelectedReelId !== reelId) {
-      setIsPublicFeedMode(false)
       setContextExtraItems([])
       setContextNextCursor(null)
       handledRequestedReelIdRef.current = null
@@ -271,9 +258,7 @@ export function ReelsViewer({
       return
     }
 
-    const targetIndex = reels.findIndex((item) => item.id === reelId)
-
-    if (targetIndex === -1) {
+    if (requestedReelIndex === -1) {
       return
     }
 
@@ -283,12 +268,12 @@ export function ReelsViewer({
 
     requestAnimationFrame(() => {
       const scrollPromise = listRef.current?.scrollToIndex({
-        index: targetIndex,
+        index: requestedReelIndex,
         animated: false,
       })
       void scrollPromise?.catch(() => undefined)
     })
-  }, [reels, reelId, shouldUseReelContext, viewportHeight])
+  }, [reelId, requestedReelIndex, shouldUseReelContext])
 
   const activeError = shouldUseReelContext ? contextError : error
   const errorMessage =
@@ -345,6 +330,36 @@ export function ReelsViewer({
 
     setActiveByOffset(scrollOffsetYRef.current)
   }, [activeReelId, reels, setActiveByOffset])
+
+  useEffect(() => {
+    if (!isFocused || reels.length === 0 || viewportHeight <= 0) {
+      return
+    }
+
+    const currentIndex = activeIndexRef.current
+    const activeReelIndex = activeReelIdRef.current
+      ? reels.findIndex((item) => item.id === activeReelIdRef.current)
+      : -1
+    const offsetIndex = Math.round(scrollOffsetYRef.current / viewportHeight)
+    const nextIndex = Math.max(
+      0,
+      Math.min(
+        reels.length - 1,
+        activeReelIndex >= 0 ? activeReelIndex : currentIndex >= 0 ? currentIndex : offsetIndex,
+      ),
+    )
+    const nextReelId = reels[nextIndex]?.id ?? null
+
+    requestAnimationFrame(() => {
+      scrollOffsetYRef.current = nextIndex * viewportHeight
+      activeReelIdRef.current = nextReelId
+      setActiveReelId(nextReelId)
+      listRef.current?.scrollToOffset({
+        offset: nextIndex * viewportHeight,
+        animated: false,
+      })
+    })
+  }, [isFocused, reels, viewportHeight])
 
   const handleMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     setActiveByOffset(event.nativeEvent.contentOffset.y)
@@ -410,7 +425,10 @@ export function ReelsViewer({
   }, [contextNextCursor, isFetchingContextNextPage, reelContext, shouldUseReelContext])
 
   const handleRefresh = useCallback(() => {
-    setIsPublicFeedMode(true)
+    if (!shouldAllowRefresh) {
+      return
+    }
+
     setContextExtraItems([])
     setContextNextCursor(null)
     handledRequestedReelIdRef.current = null
@@ -421,28 +439,20 @@ export function ReelsViewer({
       listRef.current?.scrollToOffset({ offset: 0, animated: false })
     })
 
-    if (mode === 'context') {
-      router.replace({
-        pathname: '/reels',
-        params: { resetKey: String(Date.now()) },
-      })
-    }
-
     void refetch()
-  }, [mode, refetch, router])
+  }, [refetch, shouldAllowRefresh])
 
   const handleExitContext = useCallback(() => {
-    setIsPublicFeedMode(true)
     setContextExtraItems([])
     setContextNextCursor(null)
 
     if (returnTo === 'profile') {
-      router.replace('/profile')
+      router.dismissTo('/profile')
       return
     }
 
     if (returnTo === 'user-profile' && returnUsername) {
-      router.replace({
+      router.dismissTo({
         pathname: '/users/[username]',
         params: { username: returnUsername },
       })
@@ -475,19 +485,27 @@ export function ReelsViewer({
         currentReels[fallbackIndex - 1] ??
         currentReels.find((item) => item.id !== deletedReelId)
 
-      if (reelId === deletedReelId) {
-        setIsPublicFeedMode(true)
-        router.replace({
-          pathname: '/reels',
-          params: { resetKey: String(Date.now()) },
-        })
-      }
-
       if (!nextReel) {
         activeReelIdRef.current = null
         setActiveReelId(null)
-        void refetch()
+        if (shouldUseReelContext) {
+          handleExitContext()
+        } else {
+          void refetch()
+        }
         return
+      }
+
+      if (shouldUseReelContext && reelId === deletedReelId) {
+        router.replace({
+          pathname: '/reels/[id]',
+          params: {
+            id: nextReel.id,
+            source: contextSource,
+            ...(returnTo ? { returnTo } : {}),
+            ...(returnUsername ? { returnUsername } : {}),
+          },
+        })
       }
 
       const nextIndexBeforeDelete = currentReels.findIndex((item) => item.id === nextReel.id)
@@ -505,23 +523,34 @@ export function ReelsViewer({
         void scrollPromise?.catch(() => undefined)
       })
 
-      void refetch()
+      if (shouldUseReelContext) {
+        void refetchContext()
+      } else {
+        void refetch()
+      }
     },
-    [refetch, reelId, router],
+    [
+      contextSource,
+      handleExitContext,
+      reelId,
+      refetch,
+      refetchContext,
+      returnTo,
+      returnUsername,
+      router,
+      shouldUseReelContext,
+    ],
   )
 
   const keyExtractor = useCallback((item: Reel) => item.id, [])
+  const getItemType = useCallback(() => 'reel', [])
 
   const renderItem = useCallback(
     ({ item, index }: ListRenderItemInfo<Reel>) => {
       const isCurrentItem = activeReelId === item.id
       const isActiveItem = isFocused && isCurrentItem
       const shouldWarmVideo =
-        isCurrentItem ||
-        (isFocused &&
-          !shouldUseReelContext &&
-          activeIndex >= 0 &&
-          Math.abs(index - activeIndex) <= 1)
+        isCurrentItem || (isFocused && activeIndex >= 0 && Math.abs(index - activeIndex) <= 1)
 
       return (
         <ReelFeedItem
@@ -532,6 +561,7 @@ export function ReelsViewer({
           shouldWarmVideo={shouldWarmVideo}
           enableStatusPolling={isActiveItem}
           isMuted={isMuted}
+          bottomContentInset={bottomContentInset}
           onToggleMuted={handleToggleMuted}
           onDeleted={handleReelDeleted}
           onTimelineInteractionChange={handleTimelineInteractionChange}
@@ -546,7 +576,7 @@ export function ReelsViewer({
       handleReelDeleted,
       isFocused,
       isMuted,
-      shouldUseReelContext,
+      bottomContentInset,
       viewportHeight,
     ],
   )
@@ -604,19 +634,23 @@ export function ReelsViewer({
         data={reels}
         extraData={`${activeReelId ?? ''}:${isMuted ? '1' : '0'}:${isFocused ? '1' : '0'}`}
         contentContainerStyle={reels.length === 0 ? { flexGrow: 1 } : undefined}
+        initialScrollIndex={initialScrollIndex}
         pagingEnabled
-        alwaysBounceVertical
-        bounces={activeIndex <= 0 || isActiveRefetching}
+        alwaysBounceVertical={shouldAllowRefresh}
+        bounces={shouldAllowRefresh && (activeIndex <= 0 || isActiveRefetching)}
         disableIntervalMomentum
-        overScrollMode={activeIndex <= 0 || isActiveRefetching ? 'auto' : 'never'}
+        overScrollMode={
+          shouldAllowRefresh && (activeIndex <= 0 || isActiveRefetching) ? 'auto' : 'never'
+        }
         removeClippedSubviews={false}
         scrollEnabled={!isTimelineInteracting}
         keyExtractor={keyExtractor}
+        getItemType={getItemType}
         renderItem={renderItem}
         showsVerticalScrollIndicator={false}
         snapToInterval={viewportHeight}
         snapToAlignment="start"
-        drawDistance={viewportHeight * (shouldUseReelContext ? 1.2 : 2)}
+        drawDistance={viewportHeight * 2}
         maxItemsInRecyclePool={4}
         onScroll={handleScroll}
         scrollEventThrottle={16}
@@ -634,13 +668,15 @@ export function ReelsViewer({
           }
         }}
         refreshControl={
-          <RefreshControl
-            refreshing={isActiveRefetching}
-            onRefresh={handleRefresh}
-            colors={['#FF7A45']}
-            tintColor="#FF7A45"
-            progressViewOffset={insets.top + 96}
-          />
+          shouldAllowRefresh ? (
+            <RefreshControl
+              refreshing={isActiveRefetching}
+              onRefresh={handleRefresh}
+              colors={['#FF7A45']}
+              tintColor="#FF7A45"
+              progressViewOffset={insets.top + 96}
+            />
+          ) : undefined
         }
         ListEmptyComponent={
           <View

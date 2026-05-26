@@ -238,7 +238,7 @@ const normalizeListParams = (params: Omit<ListReelsParams, 'cursor'> = {}) => ({
 
 const normalizeContextParams = (params: ReelContextParams = {}) => ({
   source: params.source ?? 'profile',
-  before: params.before ?? 1,
+  before: params.before ?? Math.max(1, DEFAULT_REELS_LIMIT - 1),
   after: params.after ?? Math.max(1, DEFAULT_REELS_LIMIT - 1),
 })
 

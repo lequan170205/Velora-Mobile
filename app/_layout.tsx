@@ -107,7 +107,7 @@ export default function RootLayout() {
                         <Stack.Screen name="(tabs)" />
                         <Stack.Screen name="(auth)" />
                         <Stack.Screen
-                          name="reels/[id]"
+                          name="reels/[id]/index"
                           options={{
                             animation: 'slide_from_right',
                             animationDuration: 220,

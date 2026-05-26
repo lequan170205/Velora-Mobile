@@ -43,6 +43,7 @@ interface ReelFeedItemProps {
   shouldWarmVideo?: boolean | undefined
   enableStatusPolling?: boolean | undefined
   isMuted: boolean
+  bottomContentInset?: number | undefined
   onToggleMuted: () => void
   onDeleted?: ((reelId: string) => void) | undefined
   onTimelineInteractionChange?: ((isInteracting: boolean) => void) | undefined
@@ -163,6 +164,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   shouldWarmVideo = false,
   enableStatusPolling = false,
   isMuted,
+  bottomContentInset = 0,
   onToggleMuted,
   onDeleted,
   onTimelineInteractionChange,
@@ -292,8 +294,9 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const effectivePosition = isScrubbing ? scrubPosition : playbackPosition
   const timelinePosition = pendingSeekPosition ?? effectivePosition
   const bufferedRatio = durationSeconds > 0 ? clamp(bufferedPosition / durationSeconds, 0, 1) : 0
-  const scrubRailBottom = 0
-  const metadataBottom = SCRUBBER_TOUCH_ZONE_HEIGHT + 14
+  const safeBottomContentInset = Math.max(0, bottomContentInset)
+  const scrubRailBottom = safeBottomContentInset
+  const metadataBottom = safeBottomContentInset + SCRUBBER_TOUCH_ZONE_HEIGHT + 14
   const timelineLabel = formatPlaybackTime(timelinePosition)
   const timelineChipWidth = showLoadingRail ? TIMELINE_LOADING_CHIP_WIDTH : TIMELINE_CHIP_WIDTH
   const processingMessage = displayReel.message ?? displayReel.processingMessage
@@ -949,6 +952,7 @@ const areReelFeedItemPropsEqual = (previous: ReelFeedItemProps, next: ReelFeedIt
   previous.shouldWarmVideo === next.shouldWarmVideo &&
   previous.enableStatusPolling === next.enableStatusPolling &&
   previous.isMuted === next.isMuted &&
+  previous.bottomContentInset === next.bottomContentInset &&
   previous.onToggleMuted === next.onToggleMuted &&
   previous.onDeleted === next.onDeleted &&
   previous.onTimelineInteractionChange === next.onTimelineInteractionChange

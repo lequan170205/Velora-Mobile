@@ -38,6 +38,7 @@ const BASE_CUTOUT_RADIUS = CIRCLE_RADIUS + CUTOUT_GAP
 const FLOAT_LIFT = 14
 
 const REELS_INDEX = 2
+export const PROFILE_TAB_INDEX = 4
 
 const DOCK_EASING = Easing.bezier(0.22, 1, 0.36, 1)
 
@@ -99,6 +100,12 @@ const REELS_DARK_THEME: TrackTheme = {
   border: 'transparent',
   inactive: 'rgba(255,255,255,0.58)',
 }
+
+const getTabBarBottomInset = (safeAreaBottom: number) =>
+  Platform.OS === 'ios' ? Math.max(safeAreaBottom, 12) : Math.max(safeAreaBottom, 16)
+
+export const getDockedTabBarHeight = (safeAreaBottom: number) =>
+  PILL_H + getTabBarBottomInset(safeAreaBottom)
 
 function getCustomTabBarTokens(theme: MD3Theme): CustomTabBarTokens {
   return {
@@ -177,11 +184,22 @@ const TabIconSlot = React.memo(function TabIconSlot({
   )
 })
 
-function CustomTabBar({ state, navigation }: BottomTabBarProps) {
+type CustomTabBarSurfaceProps = {
+  activeIndex: number
+  forceDarkTheme?: boolean
+  forceDockedLayout?: boolean
+  onTabSelect: (nextIndex: number, routeName: string) => boolean | void
+}
+
+export const CustomTabBarSurface = React.memo(function CustomTabBarSurface({
+  activeIndex,
+  forceDarkTheme = false,
+  forceDockedLayout = false,
+  onTabSelect,
+}: CustomTabBarSurfaceProps) {
   const paperTheme = useTheme<MD3Theme>()
   const insets = useSafeAreaInsets()
-  const bottomInset =
-    Platform.OS === 'ios' ? Math.max(insets.bottom, 12) : Math.max(insets.bottom, 16)
+  const bottomInset = getTabBarBottomInset(insets.bottom)
   const tokens = useMemo(() => getCustomTabBarTokens(paperTheme), [paperTheme])
   const accentColor = tokens.accent
   const iconOnAccentColor = tokens.iconOnAccent
@@ -192,17 +210,19 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const lightBorderColor = tokens.light.border
   const darkBorderColor = tokens.dark.border
 
-  const isReelsActive = state.index === REELS_INDEX
-  const [isDockedLayout, setIsDockedLayout] = useState(isReelsActive)
+  const isReelsActive = activeIndex === REELS_INDEX
+  const shouldUseDarkTheme = forceDarkTheme || isReelsActive
+  const shouldUseDockedLayout = forceDockedLayout || isReelsActive
+  const [isDockedLayout, setIsDockedLayout] = useState(shouldUseDockedLayout)
 
   const wrapperHeight = isDockedLayout ? PILL_H + bottomInset : PILL_H + bottomInset + FLOAT_LIFT
 
-  const activeIndexPosition = useSharedValue(state.index)
+  const activeIndexPosition = useSharedValue(activeIndex)
   const pressProgress = useSharedValue(0)
-  const dockProgress = useSharedValue(isReelsActive ? 1 : 0)
-  const themeProgress = useSharedValue(isReelsActive ? 1 : 0)
+  const dockProgress = useSharedValue(shouldUseDockedLayout ? 1 : 0)
+  const themeProgress = useSharedValue(shouldUseDarkTheme ? 1 : 0)
 
-  const previousIndexRef = useRef(state.index)
+  const previousIndexRef = useRef(activeIndex)
 
   const barWidth = useDerivedValue(() =>
     interpolate(dockProgress.value, [0, 1], [FLOATING_BAR_W, DOCKED_BAR_W], Extrapolation.CLAMP),
@@ -294,62 +314,54 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   }, [dockProgress, isDockedLayout])
 
   useEffect(() => {
-    if (state.index === REELS_INDEX) {
+    if (shouldUseDockedLayout) {
       setIsDockedLayout(true)
       return
     }
 
     setIsDockedLayout(false)
-  }, [state.index])
+  }, [shouldUseDockedLayout])
 
   useEffect(() => {
-    if (previousIndexRef.current === state.index) {
+    if (previousIndexRef.current === activeIndex) {
+      themeProgress.value = withTiming(shouldUseDarkTheme ? 1 : 0, {
+        duration: 180,
+        easing: DOCK_EASING,
+      })
       return
     }
 
-    previousIndexRef.current = state.index
-    activeIndexPosition.value = withSpring(state.index, POSITION_SPRING)
-    themeProgress.value = withTiming(isReelsActive ? 1 : 0, {
+    previousIndexRef.current = activeIndex
+    activeIndexPosition.value = withSpring(activeIndex, POSITION_SPRING)
+    themeProgress.value = withTiming(shouldUseDarkTheme ? 1 : 0, {
       duration: 180,
       easing: DOCK_EASING,
     })
     triggerPressPulse()
-  }, [activeIndexPosition, isReelsActive, state.index, themeProgress, triggerPressPulse])
+  }, [activeIndex, activeIndexPosition, shouldUseDarkTheme, themeProgress, triggerPressPulse])
 
-  const prepareLayoutForIndex = useCallback((nextIndex: number) => {
-    setIsDockedLayout(nextIndex === REELS_INDEX)
-  }, [])
+  const prepareLayoutForIndex = useCallback(
+    (nextIndex: number) => {
+      setIsDockedLayout(forceDockedLayout || nextIndex === REELS_INDEX)
+    },
+    [forceDockedLayout],
+  )
 
   const handleTapSelection = useCallback(
     (nextIndex: number) => {
-      const route = state.routes[nextIndex]
-      if (!route) {
+      const tab = TABS[nextIndex]
+      if (!tab || nextIndex === activeIndex) {
         return
       }
 
-      const isFocused = state.index === nextIndex
-      const event = navigation.emit({
-        type: 'tabPress',
-        target: route.key,
-        canPreventDefault: true,
-      })
-
-      if (!isFocused && !event.defaultPrevented) {
-        prepareLayoutForIndex(nextIndex)
-
-        if (route.name === 'reels') {
-          navigation.navigate({
-            name: route.name,
-            params: { resetKey: String(Date.now()) },
-            merge: false,
-          })
-          return
-        }
-
-        navigation.navigate(route.name, route.params)
+      const didSelect = onTabSelect(nextIndex, tab.name)
+      if (didSelect === false) {
+        return
       }
+
+      prepareLayoutForIndex(nextIndex)
     },
-    [navigation, prepareLayoutForIndex, state.index, state.routes],
+    [activeIndex, onTabSelect, prepareLayoutForIndex],
   )
 
   const tapGesture = useMemo(
@@ -375,11 +387,11 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
             withSpring(0, PRESS_SPRING),
           )
 
-          if (nextIndex !== state.index) {
+          if (nextIndex !== activeIndex) {
             scheduleOnRN(handleTapSelection, nextIndex)
           }
         }),
-    [activeIndexPosition, barWidth, handleTapSelection, pressProgress, state.index],
+    [activeIndex, activeIndexPosition, barWidth, handleTapSelection, pressProgress],
   )
 
   return (
@@ -429,6 +441,42 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
       </GestureDetector>
     </View>
   )
+})
+
+function CustomTabBar({ state, navigation }: BottomTabBarProps) {
+  const handleTabSelect = useCallback(
+    (nextIndex: number) => {
+      const route = state.routes[nextIndex]
+      if (!route) {
+        return false
+      }
+
+      const event = navigation.emit({
+        type: 'tabPress',
+        target: route.key,
+        canPreventDefault: true,
+      })
+
+      if (event.defaultPrevented) {
+        return false
+      }
+
+      if (route.name === 'reels') {
+        navigation.navigate({
+          name: route.name,
+          params: {},
+          merge: false,
+        })
+        return true
+      }
+
+      navigation.navigate(route.name, route.params)
+      return true
+    },
+    [navigation, state.routes],
+  )
+
+  return <CustomTabBarSurface activeIndex={state.index} onTabSelect={handleTabSelect} />
 }
 
 export default React.memo(CustomTabBar)
