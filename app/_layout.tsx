@@ -121,7 +121,10 @@ export default function RootLayout() {
                             animationDuration: 250,
                           }}
                         />
-                        <Stack.Screen name="reels/create" options={{ presentation: 'modal' }} />
+                        <Stack.Screen
+                          name="reels/create"
+                          options={{ presentation: 'fullScreenModal' }}
+                        />
                         <Stack.Screen
                           name="call/[id]"
                           options={{ presentation: 'fullScreenModal' }}
