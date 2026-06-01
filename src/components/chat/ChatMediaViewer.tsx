@@ -3,7 +3,6 @@ import { Image } from 'expo-image'
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
-  FlatList,
   Modal,
   Pressable,
   StyleSheet,
@@ -11,9 +10,14 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native'
-import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler'
+import {
+  FlatList,
+  Gesture,
+  GestureDetector,
+  GestureHandlerRootView,
+} from 'react-native-gesture-handler'
 import Animated, {
-  Easing,
+  Extrapolation,
   interpolate,
   useAnimatedStyle,
   useReducedMotion,
@@ -53,6 +57,7 @@ export interface ChatMediaGalleryItem {
 }
 
 interface ChatMediaViewerProps {
+  conversationTitle?: string
   initialPayload: ChatMediaViewerOpenPayload | null
   isLoadingOlder?: boolean
   items: ChatMediaGalleryItem[]
@@ -62,8 +67,62 @@ interface ChatMediaViewerProps {
   savingMessageId?: string | null
 }
 
-const TRANSITION_DURATION_MS = 260
 const SPRING_CONFIG = { damping: 24, stiffness: 260, mass: 0.72 } as const
+const HERO_OPEN_SPRING_CONFIG = {
+  damping: 28,
+  mass: 0.86,
+  stiffness: 250,
+} as const
+const HERO_CLOSE_SPRING_CONFIG = {
+  damping: 30,
+  mass: 0.78,
+  stiffness: 320,
+} as const
+const DISMISS_RETURN_SPRING_CONFIG = { damping: 22, stiffness: 220, mass: 0.8 } as const
+const DISMISS_EXIT_SPRING_CONFIG = {
+  damping: 50,
+  overshootClamping: true,
+  stiffness: 200,
+} as const
+const DISMISS_DISTANCE_THRESHOLD = 132
+const DISMISS_VELOCITY_THRESHOLD = 980
+
+const formatShort = (ts?: number | string) => {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const now = new Date()
+  const isToday = d.toDateString() === now.toDateString()
+  return isToday
+    ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
+const getSenderName = (message?: Message | null) => {
+  const sender = message?.sender as
+    | (Message['sender'] & {
+        fullName?: string | null
+        name?: string | null
+        username?: string | null
+      })
+    | undefined
+
+  return (
+    sender?.fullName?.trim() ||
+    sender?.name?.trim() ||
+    sender?.username?.trim() ||
+    sender?.email?.trim() ||
+    ''
+  )
+}
+
+const getAvatarInitials = (senderName: string) => {
+  return senderName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('')
+}
 
 const getContainedRect = ({
   contentHeight,
@@ -92,11 +151,21 @@ const getContainedRect = ({
 
 function ZoomableImage({
   item,
+  chromeVisible,
   isActive,
+  isZoomed,
+  screenHeight,
+  screenWidth,
+  setIsChromeVisible,
   onZoomChange,
 }: {
   item: ChatMediaGalleryItem
+  chromeVisible: { value: number }
   isActive: boolean
+  isZoomed: boolean
+  screenHeight: number
+  screenWidth: number
+  setIsChromeVisible: (visible: boolean) => void
   onZoomChange: (zoomed: boolean) => void
 }) {
   const scale = useSharedValue(1)
@@ -155,28 +224,35 @@ function ZoomableImage({
   const panGesture = useMemo(
     () =>
       Gesture.Pan()
-        .enabled(isActive)
+        .enabled(isActive && isZoomed)
         .onUpdate((event) => {
           'worklet'
-          if (scale.value <= 1.02) {
-            return
-          }
           translateX.value = savedTranslateX.value + event.translationX
           translateY.value = savedTranslateY.value + event.translationY
         })
         .onEnd(() => {
           'worklet'
-          if (scale.value <= 1.02) {
-            translateX.value = withSpring(0, SPRING_CONFIG)
-            translateY.value = withSpring(0, SPRING_CONFIG)
-            savedTranslateX.value = 0
-            savedTranslateY.value = 0
-            return
-          }
-          savedTranslateX.value = translateX.value
-          savedTranslateY.value = translateY.value
+          const maxTranslateX = ((scale.value - 1) * screenWidth) / 2
+          const maxTranslateY = ((scale.value - 1) * screenHeight) / 2
+          const clampedX = Math.max(-maxTranslateX, Math.min(maxTranslateX, translateX.value))
+          const clampedY = Math.max(-maxTranslateY, Math.min(maxTranslateY, translateY.value))
+
+          translateX.value = withSpring(clampedX, SPRING_CONFIG)
+          translateY.value = withSpring(clampedY, SPRING_CONFIG)
+          savedTranslateX.value = clampedX
+          savedTranslateY.value = clampedY
         }),
-    [isActive, savedTranslateX, savedTranslateY, scale, translateX, translateY],
+    [
+      isActive,
+      isZoomed,
+      savedTranslateX,
+      savedTranslateY,
+      scale,
+      screenHeight,
+      screenWidth,
+      translateX,
+      translateY,
+    ],
   )
   const doubleTapGesture = useMemo(
     () =>
@@ -184,18 +260,30 @@ function ZoomableImage({
         .enabled(isActive)
         .numberOfTaps(2)
         .maxDuration(260)
-        .onEnd(() => {
+        .onEnd((event) => {
           'worklet'
           const isZoomingIn = scale.value <= 1.02
-          const nextScale = isZoomingIn ? 2.3 : 1
+          const nextScale = isZoomingIn ? 2.5 : 1
           scale.value = withSpring(nextScale, SPRING_CONFIG)
           savedScale.value = nextScale
-          if (!isZoomingIn) {
+
+          if (isZoomingIn) {
+            const centerX = screenWidth / 2
+            const centerY = screenHeight / 2
+            const nextTranslateX = (centerX - event.x) * (nextScale - 1)
+            const nextTranslateY = (centerY - event.y) * (nextScale - 1)
+
+            translateX.value = withSpring(nextTranslateX, SPRING_CONFIG)
+            translateY.value = withSpring(nextTranslateY, SPRING_CONFIG)
+            savedTranslateX.value = nextTranslateX
+            savedTranslateY.value = nextTranslateY
+          } else {
             translateX.value = withSpring(0, SPRING_CONFIG)
             translateY.value = withSpring(0, SPRING_CONFIG)
             savedTranslateX.value = 0
             savedTranslateY.value = 0
           }
+
           scheduleOnRN(onZoomChange, isZoomingIn)
         }),
     [
@@ -205,13 +293,34 @@ function ZoomableImage({
       savedTranslateX,
       savedTranslateY,
       scale,
+      screenHeight,
+      screenWidth,
       translateX,
       translateY,
     ],
   )
+  const singleTapGesture = useMemo(
+    () =>
+      Gesture.Tap()
+        .enabled(isActive)
+        .numberOfTaps(1)
+        .requireExternalGestureToFail(doubleTapGesture)
+        .onEnd(() => {
+          'worklet'
+          const nextValue = chromeVisible.value === 1 ? 0 : 1
+          chromeVisible.value = withSpring(nextValue, { damping: 24, stiffness: 260, mass: 0.9 })
+          scheduleOnRN(setIsChromeVisible, nextValue === 1)
+        }),
+    [chromeVisible, doubleTapGesture, isActive, setIsChromeVisible],
+  )
   const composedGesture = useMemo(
-    () => Gesture.Simultaneous(pinchGesture, panGesture, doubleTapGesture),
-    [doubleTapGesture, panGesture, pinchGesture],
+    () =>
+      Gesture.Simultaneous(
+        pinchGesture,
+        panGesture,
+        Gesture.Exclusive(doubleTapGesture, singleTapGesture),
+      ),
+    [doubleTapGesture, panGesture, pinchGesture, singleTapGesture],
   )
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
@@ -239,14 +348,24 @@ function ZoomableImage({
 
 const GalleryPage = memo(function GalleryPage({
   item,
+  chromeVisible,
   isActive,
   isTransitionComplete,
   shouldAutoplay,
+  isZoomed,
+  screenHeight,
+  screenWidth,
+  setIsChromeVisible,
   onZoomChange,
 }: {
   item: ChatMediaGalleryItem
+  chromeVisible: { value: number }
   isActive: boolean
   isTransitionComplete: boolean
+  isZoomed: boolean
+  screenHeight: number
+  screenWidth: number
+  setIsChromeVisible: (visible: boolean) => void
   shouldAutoplay: boolean
   onZoomChange: (zoomed: boolean) => void
 }) {
@@ -265,10 +384,22 @@ const GalleryPage = memo(function GalleryPage({
     )
   }
 
-  return <ZoomableImage isActive={isActive} item={item} onZoomChange={onZoomChange} />
+  return (
+    <ZoomableImage
+      chromeVisible={chromeVisible}
+      isActive={isActive}
+      isZoomed={isZoomed}
+      item={item}
+      screenHeight={screenHeight}
+      screenWidth={screenWidth}
+      setIsChromeVisible={setIsChromeVisible}
+      onZoomChange={onZoomChange}
+    />
+  )
 })
 
 export function ChatMediaViewer({
+  conversationTitle,
   initialPayload,
   isLoadingOlder = false,
   items,
@@ -282,8 +413,13 @@ export function ChatMediaViewer({
   const reduceMotion = useReducedMotion()
   const listRef = useRef<FlatList<ChatMediaGalleryItem>>(null)
   const openedPayloadIdRef = useRef<string | null>(null)
+  const backdropOpacity = useSharedValue(1)
+  const chromeVisible = useSharedValue(1)
+  const dismissTranslateX = useSharedValue(0)
+  const dismissTranslateY = useSharedValue(0)
   const transitionProgress = useSharedValue(0)
   const [activeItemId, setActiveItemId] = useState<string | null>(null)
+  const [isChromeVisible, setIsChromeVisible] = useState(true)
   const [isTransitionComplete, setIsTransitionComplete] = useState(false)
   const [isZoomed, setIsZoomed] = useState(false)
   const sourceItemIndex = initialPayload
@@ -302,6 +438,7 @@ export function ChatMediaViewer({
     return Math.max(sourceItemIndex, 0)
   }, [activeItemId, items, sourceItemIndex])
   const activeItem = items[activeIndex] ?? null
+  const isActiveOriginal = activeItem?.id === initialPayload?.messageId
 
   useEffect(() => {
     if (!isVisible || sourceItemIndex < 0 || !initialMessageId) {
@@ -315,29 +452,41 @@ export function ChatMediaViewer({
 
     openedPayloadIdRef.current = initialMessageId
     setActiveItemId(initialMessageId)
+    setIsChromeVisible(true)
     setIsZoomed(false)
     setIsTransitionComplete(Boolean(reduceMotion))
+    backdropOpacity.value = 1
+    chromeVisible.value = 1
+    dismissTranslateX.value = 0
+    dismissTranslateY.value = 0
     transitionProgress.value = reduceMotion ? 1 : 0
     const frameId = requestAnimationFrame(() => {
       listRef.current?.scrollToIndex({ animated: false, index: sourceItemIndex })
       if (reduceMotion) {
         return
       }
-      transitionProgress.value = withTiming(
-        1,
-        { duration: TRANSITION_DURATION_MS, easing: Easing.out(Easing.cubic) },
-        (finished) => {
-          if (finished) {
-            scheduleOnRN(setIsTransitionComplete, true)
-          }
-        },
-      )
+      transitionProgress.value = withSpring(1, HERO_OPEN_SPRING_CONFIG, (finished) => {
+        'worklet'
+        if (finished) {
+          scheduleOnRN(setIsTransitionComplete, true)
+        }
+      })
     })
 
     return () => {
       cancelAnimationFrame(frameId)
     }
-  }, [initialMessageId, isVisible, reduceMotion, sourceItemIndex, transitionProgress])
+  }, [
+    backdropOpacity,
+    chromeVisible,
+    dismissTranslateX,
+    dismissTranslateY,
+    initialMessageId,
+    isVisible,
+    reduceMotion,
+    sourceItemIndex,
+    transitionProgress,
+  ])
 
   useEffect(() => {
     if (!isVisible || activeIndex < 0 || activeIndex >= items.length) {
@@ -352,6 +501,13 @@ export function ChatMediaViewer({
       cancelAnimationFrame(frameId)
     }
   }, [activeIndex, isVisible, items.length])
+
+  useEffect(() => {
+    if (activeItem?.type === 'video' && !isChromeVisible) {
+      chromeVisible.value = 1
+      setIsChromeVisible(true)
+    }
+  }, [activeItem?.type, chromeVisible, isChromeVisible])
 
   const sourceItem = sourceItemIndex >= 0 ? items[sourceItemIndex] : null
   const sourceFrame = initialPayload?.sourceFrame
@@ -373,12 +529,44 @@ export function ChatMediaViewer({
     })
   }, [insets.bottom, insets.top, screenHeight, screenWidth, sourceFrame, sourceItem])
 
+  const animatedPaddingStyle = useAnimatedStyle(() => {
+    const paddingTop = interpolate(chromeVisible.value, [0, 1], [0, insets.top + 64])
+    const paddingBottom = interpolate(chromeVisible.value, [0, 1], [0, insets.bottom + 76])
+
+    return {
+      paddingTop,
+      paddingBottom,
+    }
+  })
   const backdropStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(transitionProgress.value, [0, 1], [0, 1]),
+    opacity: interpolate(transitionProgress.value, [0, 1], [0, 1]) * backdropOpacity.value,
   }))
   const pageContentStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(transitionProgress.value, [0.92, 1], [0, 1]),
+    opacity: transitionProgress.value === 1 ? 1 : 0,
   }))
+  const chromeStyle = useAnimatedStyle(() => ({
+    opacity: chromeVisible.value,
+  }))
+  const dismissibleContentStyle = useAnimatedStyle(() => {
+    const dragDistance = Math.sqrt(
+      dismissTranslateX.value * dismissTranslateX.value +
+        dismissTranslateY.value * dismissTranslateY.value,
+    )
+    const scale = interpolate(
+      dragDistance,
+      [0, screenHeight * 0.65],
+      [1, 0.84],
+      Extrapolation.CLAMP,
+    )
+
+    return {
+      transform: [
+        { translateX: dismissTranslateX.value },
+        { translateY: dismissTranslateY.value },
+        { scale },
+      ],
+    }
+  })
   const heroStyle = useAnimatedStyle(() => {
     if (!sourceFrame || !targetFrame) {
       return { opacity: 0 }
@@ -389,23 +577,40 @@ export function ChatMediaViewer({
     const targetCenterX = targetFrame.x + targetFrame.width / 2
     const targetCenterY = targetFrame.y + targetFrame.height / 2
 
+    const dragDistance = Math.sqrt(
+      dismissTranslateX.value * dismissTranslateX.value +
+        dismissTranslateY.value * dismissTranslateY.value,
+    )
+    const dismissScale = interpolate(
+      dragDistance,
+      [0, screenHeight * 0.65],
+      [1, 0.84],
+      Extrapolation.CLAMP,
+    )
+
+    const scaledTargetWidth = targetFrame.width * dismissScale
+    const scaledTargetHeight = targetFrame.height * dismissScale
+    const currentTargetCenterX = targetCenterX + dismissTranslateX.value
+    const currentTargetCenterY = targetCenterY + dismissTranslateY.value
+
     return {
+      borderRadius: interpolate(transitionProgress.value, [0, 1], [12, 0]),
       height: sourceFrame.height,
       left: sourceFrame.x,
-      opacity: interpolate(transitionProgress.value, [0, 0.98, 1], [1, 1, 0]),
+      opacity: transitionProgress.value === 1 ? 0 : 1,
       position: 'absolute' as const,
       top: sourceFrame.y,
       transform: [
-        { translateX: (targetCenterX - sourceCenterX) * transitionProgress.value },
-        { translateY: (targetCenterY - sourceCenterY) * transitionProgress.value },
+        { translateX: (currentTargetCenterX - sourceCenterX) * transitionProgress.value },
+        { translateY: (currentTargetCenterY - sourceCenterY) * transitionProgress.value },
         {
           scaleX:
-            1 + (targetFrame.width / Math.max(1, sourceFrame.width) - 1) * transitionProgress.value,
+            1 + (scaledTargetWidth / Math.max(1, sourceFrame.width) - 1) * transitionProgress.value,
         },
         {
           scaleY:
             1 +
-            (targetFrame.height / Math.max(1, sourceFrame.height) - 1) * transitionProgress.value,
+            (scaledTargetHeight / Math.max(1, sourceFrame.height) - 1) * transitionProgress.value,
         },
       ],
       width: sourceFrame.width,
@@ -419,16 +624,112 @@ export function ChatMediaViewer({
     }
 
     setIsTransitionComplete(false)
-    transitionProgress.value = withTiming(
-      0,
-      { duration: 210, easing: Easing.inOut(Easing.cubic) },
-      (finished) => {
-        if (finished) {
-          scheduleOnRN(onRequestClose)
-        }
-      },
-    )
+    transitionProgress.value = withSpring(0, HERO_CLOSE_SPRING_CONFIG, (finished) => {
+      'worklet'
+      if (finished) {
+        scheduleOnRN(onRequestClose)
+      }
+    })
   }, [activeItem?.id, initialPayload, onRequestClose, reduceMotion, transitionProgress])
+  const dismissGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(!isZoomed && isTransitionComplete)
+        .failOffsetX([-8, 8])
+        .activeOffsetY([-12, 12])
+        .onUpdate((event) => {
+          'worklet'
+          if (chromeVisible.value !== 1) {
+            chromeVisible.value = 1
+            scheduleOnRN(setIsChromeVisible, true)
+          }
+
+          dismissTranslateX.value = event.translationX * 0.95
+          dismissTranslateY.value = event.translationY * 0.95
+          backdropOpacity.value = interpolate(
+            Math.abs(event.translationY),
+            [0, screenHeight / 2],
+            [1, 0],
+            Extrapolation.CLAMP,
+          )
+        })
+        .onEnd((event) => {
+          'worklet'
+          const shouldDismissDown =
+            event.translationY > DISMISS_DISTANCE_THRESHOLD ||
+            event.velocityY > DISMISS_VELOCITY_THRESHOLD
+          const shouldDismissUp =
+            event.translationY < -DISMISS_DISTANCE_THRESHOLD ||
+            event.velocityY < -DISMISS_VELOCITY_THRESHOLD
+          const shouldDismiss = shouldDismissDown || shouldDismissUp
+
+          if (shouldDismiss) {
+            backdropOpacity.value = withTiming(0, { duration: 150 })
+
+            if (isActiveOriginal) {
+              transitionProgress.value = withSpring(0, HERO_CLOSE_SPRING_CONFIG, (finished) => {
+                'worklet'
+                if (finished) {
+                  scheduleOnRN(onRequestClose)
+                }
+              })
+              scheduleOnRN(setIsTransitionComplete, false)
+            } else {
+              const targetY =
+                event.translationY > 0 || event.velocityY > 0
+                  ? screenHeight + 200
+                  : -screenHeight - 200
+              const targetX = event.translationX + event.velocityX * 0.2
+
+              dismissTranslateX.value = withSpring(targetX, {
+                ...DISMISS_EXIT_SPRING_CONFIG,
+                velocity: event.velocityX,
+              })
+              dismissTranslateY.value = withSpring(
+                targetY,
+                {
+                  ...DISMISS_EXIT_SPRING_CONFIG,
+                  velocity: event.velocityY,
+                },
+                (finished) => {
+                  'worklet'
+                  if (finished) {
+                    scheduleOnRN(onRequestClose)
+                  }
+                },
+              )
+            }
+            return
+          }
+
+          backdropOpacity.value = withSpring(1)
+          dismissTranslateX.value = withSpring(0, {
+            damping: 24,
+            stiffness: 260,
+            mass: 0.9,
+            velocity: event.velocityX,
+          })
+          dismissTranslateY.value = withSpring(0, {
+            damping: 24,
+            stiffness: 260,
+            mass: 0.9,
+            velocity: event.velocityY,
+          })
+        }),
+    [
+      backdropOpacity,
+      chromeVisible,
+      dismissTranslateX,
+      dismissTranslateY,
+      isTransitionComplete,
+      isZoomed,
+      onRequestClose,
+      screenHeight,
+      setIsChromeVisible,
+      isActiveOriginal,
+      transitionProgress,
+    ],
+  )
 
   const handleMomentumScrollEnd = useCallback(
     (event: { nativeEvent: { contentOffset: { x: number } } }) => {
@@ -444,19 +745,33 @@ export function ChatMediaViewer({
   )
   const renderItem = useCallback(
     ({ item, index }: ListRenderItemInfo<ChatMediaGalleryItem>) => (
-      <View style={{ height: screenHeight, width: screenWidth }}>
+      <Animated.View style={[{ height: screenHeight, width: screenWidth }, animatedPaddingStyle]}>
         <GalleryPage
+          chromeVisible={chromeVisible}
           isActive={index === activeIndex}
           isTransitionComplete={isTransitionComplete}
+          isZoomed={isZoomed}
           item={item}
+          screenHeight={screenHeight}
+          screenWidth={screenWidth}
+          setIsChromeVisible={setIsChromeVisible}
           onZoomChange={setIsZoomed}
           shouldAutoplay={Boolean(
             initialPayload?.autoplayVideo && item.id === initialPayload.messageId,
           )}
         />
-      </View>
+      </Animated.View>
     ),
-    [activeIndex, initialPayload, isTransitionComplete, screenHeight, screenWidth],
+    [
+      activeIndex,
+      chromeVisible,
+      initialPayload,
+      isTransitionComplete,
+      isZoomed,
+      screenHeight,
+      screenWidth,
+      animatedPaddingStyle,
+    ],
   )
 
   if (!isVisible || !initialPayload || !sourceItem) {
@@ -466,81 +781,138 @@ export function ChatMediaViewer({
   const heroUri = sourceItem.type === 'video' ? sourceItem.posterUri : sourceItem.uri
   const durationLabel =
     activeItem?.type === 'video' ? formatDurationLabel(activeItem.message.media?.durationMs) : null
+  const senderName = getSenderName(activeItem?.message)
+  const sentAt = formatShort(activeItem?.message.createdAt)
+  const avatarInitials = getAvatarInitials(senderName)
 
   return (
     <Modal animationType="none" onRequestClose={close} statusBarTranslucent transparent visible>
       <GestureHandlerRootView style={styles.root}>
         <Animated.View style={[styles.backdrop, backdropStyle]} />
-        <Animated.View style={[styles.page, pageContentStyle]}>
-          <FlatList
-            data={items}
-            decelerationRate="fast"
-            getItemLayout={(_, index) => ({
-              index,
-              length: screenWidth,
-              offset: screenWidth * index,
-            })}
-            horizontal
-            initialScrollIndex={sourceItemIndex}
-            keyExtractor={(item) => item.id}
-            onMomentumScrollEnd={handleMomentumScrollEnd}
-            pagingEnabled
-            ref={listRef}
-            renderItem={renderItem}
-            scrollEnabled={!isZoomed && isTransitionComplete}
-            showsHorizontalScrollIndicator={false}
-          />
-        </Animated.View>
+        <GestureDetector gesture={dismissGesture}>
+          <Animated.View style={[styles.page, pageContentStyle, dismissibleContentStyle]}>
+            <FlatList
+              data={items}
+              decelerationRate="fast"
+              getItemLayout={(_, index) => ({
+                index,
+                length: screenWidth,
+                offset: screenWidth * index,
+              })}
+              horizontal
+              initialScrollIndex={sourceItemIndex}
+              keyExtractor={(item) => item.id}
+              onMomentumScrollEnd={handleMomentumScrollEnd}
+              pagingEnabled
+              ref={listRef}
+              renderItem={renderItem}
+              scrollEnabled={!isZoomed && isTransitionComplete}
+              showsHorizontalScrollIndicator={false}
+            />
+          </Animated.View>
+        </GestureDetector>
 
         <Animated.View
           pointerEvents={isTransitionComplete ? 'auto' : 'none'}
-          style={[styles.toolbar, { paddingTop: insets.top + 10 }, pageContentStyle]}
+          style={[styles.topBar, { paddingTop: insets.top }, pageContentStyle, chromeStyle]}
         >
           <Pressable
             accessibilityLabel="Close media gallery"
             accessibilityRole="button"
-            hitSlop={8}
+            hitSlop={12}
             onPress={close}
-            style={styles.toolbarButton}
+            style={styles.topBarAction}
           >
-            <MaterialIcons color="#FFFFFF" name="close" size={23} />
+            <MaterialIcons color="#FFFFFF" name="arrow-back" size={24} />
           </Pressable>
-          <Text style={styles.counter}>
-            {activeIndex + 1} / {items.length}
-          </Text>
-          <Pressable
-            accessibilityLabel="Save media"
-            accessibilityRole="button"
-            disabled={!activeItem?.canSave || savingMessageId === activeItem.id || !onSave}
-            hitSlop={8}
-            onPress={() => {
-              if (activeItem) {
-                onSave?.(activeItem)
-              }
-            }}
-            style={[styles.toolbarButton, !activeItem?.canSave ? styles.disabled : null]}
-          >
-            {savingMessageId === activeItem?.id ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <MaterialIcons color="#FFFFFF" name="file-download" size={23} />
-            )}
-          </Pressable>
+
+          <View style={styles.topBarCenter}>
+            <Text numberOfLines={1} style={styles.topBarTitle}>
+              {senderName}
+            </Text>
+            {items.length > 1 ? (
+              <Text style={styles.topBarSubtitle}>
+                {activeIndex + 1} of {items.length}
+                {sentAt ? ` · ${sentAt}` : ''}
+              </Text>
+            ) : sentAt ? (
+              <Text style={styles.topBarSubtitle}>{sentAt}</Text>
+            ) : null}
+          </View>
+
+          <View style={styles.topBarActions}>
+            <Pressable
+              accessibilityLabel="Save media"
+              accessibilityRole="button"
+              disabled={!activeItem?.canSave || savingMessageId === activeItem?.id || !onSave}
+              hitSlop={12}
+              onPress={() => {
+                if (activeItem) {
+                  onSave?.(activeItem)
+                }
+              }}
+              style={!activeItem?.canSave ? styles.disabled : undefined}
+            >
+              {savingMessageId === activeItem?.id ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <MaterialIcons color="#FFFFFF" name="file-download" size={24} />
+              )}
+            </Pressable>
+            <Pressable
+              accessibilityLabel="More options"
+              accessibilityRole="button"
+              hitSlop={12}
+              style={{ marginLeft: 20 }}
+            >
+              <MaterialIcons color="#FFFFFF" name="more-vert" size={24} />
+            </Pressable>
+          </View>
         </Animated.View>
 
-        {durationLabel ? (
-          <Animated.View style={[styles.durationPill, pageContentStyle]}>
-            <Text style={styles.durationText}>{durationLabel}</Text>
-          </Animated.View>
-        ) : null}
-        {isLoadingOlder ? (
-          <Animated.View style={[styles.loadingPill, pageContentStyle]}>
-            <ActivityIndicator color="#FFFFFF" size="small" />
-          </Animated.View>
-        ) : null}
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.bottomBar,
+            { paddingBottom: insets.bottom + 8 },
+            pageContentStyle,
+            chromeStyle,
+          ]}
+        >
+          <View style={styles.bottomBarLeft}>
+            <View style={styles.senderAvatar}>
+              <Text style={styles.senderAvatarText}>{avatarInitials}</Text>
+            </View>
+            <View style={styles.senderMeta}>
+              <Text numberOfLines={1} style={styles.senderMetaName}>
+                {senderName}
+              </Text>
+              {conversationTitle ? (
+                <Text numberOfLines={1} style={styles.senderMetaContext}>
+                  Sent in {conversationTitle}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+
+          {durationLabel ? (
+            <View style={styles.durationBadge}>
+              <Text style={styles.durationBadgeText}>{durationLabel}</Text>
+            </View>
+          ) : null}
+
+          {isLoadingOlder ? (
+            <ActivityIndicator
+              color="rgba(255,255,255,0.7)"
+              size="small"
+              style={{ marginLeft: 8 }}
+            />
+          ) : null}
+        </Animated.View>
+
         <Animated.View pointerEvents="none" style={[styles.hero, heroStyle]}>
           {heroUri ? (
-            <Image contentFit="cover" source={{ uri: heroUri }} style={styles.page} />
+            <Image contentFit="contain" source={{ uri: heroUri }} style={styles.page} />
           ) : (
             <View style={styles.heroFallback}>
               <MaterialIcons color="#D4D4D8" name="videocam" size={30} />
@@ -557,27 +929,39 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#050506',
   },
-  counter: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
+  bottomBar: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.52)',
+    bottom: 0,
+    flexDirection: 'row',
+    left: 0,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    position: 'absolute',
+    right: 0,
+  },
+  bottomBarLeft: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 10,
+    minWidth: 0,
   },
   disabled: {
     opacity: 0.36,
   },
-  durationPill: {
-    backgroundColor: 'rgba(12,12,13,0.68)',
+  durationBadge: {
+    backgroundColor: 'rgba(255,255,255,0.14)',
     borderRadius: 999,
-    bottom: 40,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    position: 'absolute',
-    right: 18,
+    flexShrink: 0,
+    marginLeft: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
   },
-  durationText: {
+  durationBadgeText: {
     color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '500',
   },
   hero: {
     backgroundColor: '#101012',
@@ -589,17 +973,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
-  loadingPill: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(20,20,21,0.62)',
-    borderRadius: 20,
-    bottom: 40,
-    height: 40,
-    justifyContent: 'center',
-    left: 18,
-    position: 'absolute',
-    width: 40,
-  },
   page: {
     flex: 1,
   },
@@ -607,21 +980,70 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     flex: 1,
   },
-  toolbar: {
+  senderAvatar: {
     alignItems: 'center',
+    backgroundColor: '#3a6fd8',
+    borderRadius: 17,
+    flexShrink: 0,
+    height: 34,
+    justifyContent: 'center',
+    width: 34,
+  },
+  senderAvatarText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  senderMeta: {
+    flex: 1,
+    minWidth: 0,
+  },
+  senderMetaContext: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 11,
+    marginTop: 1,
+  },
+  senderMetaName: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  topBar: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.52)',
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    left: 16,
+    left: 0,
+    paddingBottom: 14,
+    paddingHorizontal: 18,
     position: 'absolute',
-    right: 16,
+    right: 0,
     top: 0,
   },
-  toolbarButton: {
+  topBarAction: {
     alignItems: 'center',
-    backgroundColor: 'rgba(20,20,21,0.62)',
-    borderRadius: 22,
+    flexShrink: 0,
     height: 44,
     justifyContent: 'center',
-    width: 44,
+    width: 32,
+  },
+  topBarActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 0,
+  },
+  topBarCenter: {
+    flex: 1,
+    marginHorizontal: 12,
+    minWidth: 0,
+  },
+  topBarSubtitle: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 11,
+    marginTop: 1,
+  },
+  topBarTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
   },
 })
