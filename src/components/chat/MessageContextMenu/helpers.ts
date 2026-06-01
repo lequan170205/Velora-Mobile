@@ -1,3 +1,5 @@
+import { getMediaUploadStage, getResolvedMediaUri, isRemoteMediaUri } from '../../../lib/chatMedia'
+
 import {
   MESSAGE_CONTEXT_ACTIONS,
   RECALL_WINDOW_MS,
@@ -15,6 +17,7 @@ interface AvailableActionsParams {
   onForward?: (() => void) | undefined
   onRecall?: (() => void) | undefined
   onReply?: (() => void) | undefined
+  onSave?: (() => void) | undefined
 }
 
 function getReactionEntries(message: Message): ReactionEntry[] {
@@ -64,14 +67,23 @@ export function getAvailableMessageActions({
   onForward,
   onRecall,
   onReply,
+  onSave,
 }: AvailableActionsParams): MessageContextActionConfig[] {
   const isRecalled = isMessageRecalled(message)
   const isExpired = isMessageRecallExpired(message)
   const isRestrictedType = isRestrictedMessageType(message)
+  const mediaStage = getMediaUploadStage(message.media)
+  const mediaUri = getResolvedMediaUri(message.media)
+  const canSaveMedia =
+    (message.type === 'image' || message.type === 'video') &&
+    (mediaStage === null || mediaStage === 'ready') &&
+    message.status !== 'PENDING' &&
+    isRemoteMediaUri(mediaUri)
 
   return MESSAGE_CONTEXT_ACTIONS.filter((action) => {
     if (action.id === 'reply') return !isRecalled && Boolean(onReply)
     if (action.id === 'copy') return message.type === 'text' && !isRecalled
+    if (action.id === 'save') return canSaveMedia && !isRecalled && Boolean(onSave)
     if (action.id === 'forward') return !isRecalled && Boolean(onForward)
     if (action.id === 'recall') {
       return Boolean(onRecall) && isOwn && !isRecalled && !isExpired && !isRestrictedType

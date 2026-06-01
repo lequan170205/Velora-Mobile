@@ -27,6 +27,7 @@ import { scheduleOnRN } from 'react-native-worklets'
 
 import { typography } from '../../../constants/theme'
 import { useAddReaction, useRemoveReaction } from '../../../hooks/useMessageActions'
+import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../../lib/chatMedia'
 import { useAuthStore } from '../../../stores/authStore'
 
 import {
@@ -66,6 +67,7 @@ interface MessageContextMenuProps {
   onReply?: (() => void) | undefined
   onForward?: (() => void) | undefined
   onRecall?: (() => void) | undefined
+  onSave?: (() => void) | undefined
   conversationId?: string | undefined
 }
 
@@ -124,6 +126,7 @@ function MessageContextMenuInner({
   onReply,
   onForward,
   onRecall,
+  onSave,
   conversationId,
 }: MessageContextMenuInnerProps) {
   const { user } = useAuthStore()
@@ -226,6 +229,11 @@ function MessageContextMenuInner({
     close()
   }
 
+  const handleSave = () => {
+    onSave?.()
+    close()
+  }
+
   const handleReactionPress = (emoji: string) => {
     if (!message || !user || !conversationId) return
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)
@@ -249,6 +257,7 @@ function MessageContextMenuInner({
     forward: handleForward,
     recall: handleRecall,
     reply: handleReply,
+    save: handleSave,
   }
 
   const filteredActions: ActionItem[] = getAvailableMessageActions({
@@ -257,6 +266,7 @@ function MessageContextMenuInner({
     onForward,
     onRecall,
     onReply,
+    onSave,
   }).map((action) => ({
     ...action,
     onPress: actionHandlers[action.id],
@@ -537,8 +547,20 @@ function renderBubblePreview({
   }
 
   if (message.type === 'image') {
-    return (
-      <Image source={{ uri: message.content }} style={styles.imagePreview} resizeMode="cover" />
+    const imageUri = getResolvedMediaUri(message.media)
+    return imageUri ? (
+      <Image source={{ uri: imageUri }} style={styles.imagePreview} resizeMode="cover" />
+    ) : (
+      <Text style={[styles.textPreview, { color: tokens.textSecondary }]}>Photo</Text>
+    )
+  }
+
+  if (message.type === 'video') {
+    const posterUri = getResolvedMediaPosterUri(message.media)
+    return posterUri ? (
+      <Image source={{ uri: posterUri }} style={styles.imagePreview} resizeMode="cover" />
+    ) : (
+      <Text style={[styles.textPreview, { color: tokens.textSecondary }]}>Video</Text>
     )
   }
 
@@ -564,7 +586,7 @@ function getBubbleSurfaceStyle({
 }) {
   const groupedCornerStyle = getGroupedCornerStyle({ isOwn, isGroupedTop, isGroupedBottom })
 
-  if (message.type === 'image') {
+  if (message.type === 'image' || message.type === 'video') {
     return {
       backgroundColor: 'transparent',
       padding: 0,
@@ -609,7 +631,7 @@ function getBubblePreviewFrameStyle({
     alignSelf: isOwn ? 'flex-end' : 'flex-start',
   } as const
 
-  if (message.type === 'image') {
+  if (message.type === 'image' || message.type === 'video') {
     return {
       ...alignment,
       height,

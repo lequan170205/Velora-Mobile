@@ -2,8 +2,17 @@ import { Ionicons } from '@expo/vector-icons'
 import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
 import * as ImagePicker from 'expo-image-picker'
-import React, { memo, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { Alert, Keyboard, Platform, Pressable, Text, TextInput, View } from 'react-native'
+import React, { memo, useCallback, useImperativeHandle, useRef, useState } from 'react'
+import {
+  Alert,
+  Keyboard,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, {
   Easing,
@@ -12,6 +21,7 @@ import Animated, {
   FadeOut,
   interpolate,
   useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
   withSpring,
   withTiming,
@@ -25,6 +35,7 @@ import {
 
 import type { Message, ReplyPreviewData } from '../../types/conversation.types'
 import type { ImagePickerAsset } from 'expo-image-picker'
+import type { SharedValue } from 'react-native-reanimated'
 
 interface MessageInputProps {
   onSend: (text: string, replyToId?: string) => void
@@ -52,6 +63,7 @@ const BRAND = '#FF6B2C'
 const BRAND_DARK = '#D85A21'
 const TEXT_PRIMARY = '#161616'
 const TEXT_MUTED = '#A6A6A6'
+const ACCESSORY_SLOT_WIDTH = 164
 
 const ComposerIconButton = memo(function ComposerIconButton({
   accessibilityLabel,
@@ -104,7 +116,10 @@ const ComposerIconButton = memo(function ComposerIconButton({
 })
 
 interface ComposerAccessorySlotProps {
+  // Boolean for React pointerEvents (JS-side only, not animation)
   hasText: boolean
+  // SharedValue drives the animation entirely on the UI thread — no JS re-renders on keystrokes
+  hasTextProgress: SharedValue<number>
   onAttach: () => void
   onMic: () => void
   onSend: () => void
@@ -112,21 +127,24 @@ interface ComposerAccessorySlotProps {
 
 const ComposerAccessorySlot = memo(function ComposerAccessorySlot({
   hasText,
+  hasTextProgress,
   onAttach,
   onMic,
   onSend,
 }: ComposerAccessorySlotProps) {
-  const progress = useSharedValue(hasText ? 1 : 0)
   const sendPressScale = useSharedValue(1)
 
-  useEffect(() => {
-    progress.value = hasText
-      ? withTiming(1, { duration: 160, easing: Easing.out(Easing.cubic) })
-      : withTiming(0, { duration: 160, easing: Easing.inOut(Easing.quad) })
-  }, [hasText, progress])
+  // useDerivedValue runs entirely on the UI thread — no useEffect, no JS→UI bridge round-trip.
+  // The easing is evaluated on the UI thread when hasTextProgress changes.
+  const progress = useDerivedValue(() =>
+    withTiming(hasTextProgress.value, {
+      duration: 160,
+      easing: hasTextProgress.value > 0 ? Easing.out(Easing.cubic) : Easing.inOut(Easing.quad),
+    }),
+  )
 
   const slotStyle = useAnimatedStyle(() => ({
-    width: interpolate(progress.value, [0, 1], [118, 40], Extrapolation.CLAMP),
+    width: interpolate(progress.value, [0, 1], [ACCESSORY_SLOT_WIDTH, 40], Extrapolation.CLAMP),
   }))
 
   const accessoryStyle = useAnimatedStyle(() => ({
@@ -141,6 +159,7 @@ const ComposerAccessorySlot = memo(function ComposerAccessorySlot({
     opacity: progress.value,
     transform: [
       { translateX: interpolate(progress.value, [0, 1], [8, 0]) },
+      // Combine progress + press scale; when progress=0 button is invisible so scale=0 is correct
       { scale: progress.value * sendPressScale.value },
     ],
   }))
@@ -230,6 +249,14 @@ const MessageInputComponent = function MessageInput(
   ref: React.ForwardedRef<MessageInputHandle>,
 ) {
   const [text, setText] = useState('')
+  // Separate boolean state for hasText — only flips when empty→nonempty or vice versa.
+  // This prevents ComposerAccessorySlot from re-rendering on every keystroke.
+  const [hasText, setHasText] = useState(false)
+  // textRef lets handleSend read the latest text without being listed as a dependency,
+  // keeping the callback stable across keystrokes.
+  const textRef = useRef('')
+  // Shared value drives the slot animation directly on the UI thread.
+  const hasTextProgress = useSharedValue(0)
   const insets = useSafeAreaInsets()
   const inputRef = useRef<TextInput>(null)
   const attachmentSheetRef = useRef<AttachmentLauncherSheetHandle>(null)
@@ -246,13 +273,18 @@ const MessageInputComponent = function MessageInput(
   )
 
   const handleSend = useCallback(() => {
-    const message = text.trim()
+    // Read from ref — no dependency on `text` state, so this callback is stable
+    // across keystrokes and won't cause ComposerAccessorySlot to re-render.
+    const message = textRef.current.trim()
     if (!message || sendLockRef.current) return
 
     sendLockRef.current = true
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
     onSend(message, replyTo?.id)
+    textRef.current = ''
     setText('')
+    setHasText(false)
+    hasTextProgress.value = 0
     onChangeText?.('')
     onCancelReply?.()
 
@@ -260,14 +292,27 @@ const MessageInputComponent = function MessageInput(
     setTimeout(() => {
       sendLockRef.current = false
     }, 300)
-  }, [onCancelReply, onChangeText, onSend, replyTo?.id, text])
+  }, [hasTextProgress, onCancelReply, onChangeText, onSend, replyTo?.id])
+  // ↑ `text` is intentionally excluded — we read from textRef instead.
 
   const handleTextChange = useCallback(
     (value: string) => {
+      textRef.current = value
       setText(value)
       onChangeText?.(value)
+
+      // Only flip the boolean state (and trigger slot re-render) when the
+      // has-text status actually changes — not on every keystroke.
+      const next = value.trim().length > 0
+      setHasText((prev) => {
+        if (prev !== next) {
+          hasTextProgress.value = next ? 1 : 0
+          return next
+        }
+        return prev
+      })
     },
-    [onChangeText],
+    [hasTextProgress, onChangeText],
   )
 
   const handleMicPress = useCallback(() => {
@@ -329,7 +374,6 @@ const MessageInputComponent = function MessageInput(
     }
   }, [onSendMedia, waitForKeyboardToHide])
 
-  const hasText = text.trim().length > 0
   const showCharCounter = text.length > 800
   const counterColor = text.length > 950 ? '#E11D48' : TEXT_MUTED
   const replyPreviewData =
@@ -348,40 +392,27 @@ const MessageInputComponent = function MessageInput(
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation()
   const ACTIVE_PADDING = 8 // The tight spacing you want when focused
 
-  const containerStyle = useAnimatedStyle(() => {
-    const dynamicPadding = interpolate(
-      Math.abs(keyboardHeight.value),
-      [0, 40], // Threshold: animates over the first 40px of keyboard movement
-      [bottomInset, ACTIVE_PADDING],
-      Extrapolation.CLAMP,
-    )
-    return {
-      marginTop: -14,
-      paddingTop: 14,
-      paddingHorizontal: 10,
-      paddingBottom: dynamicPadding,
-    }
-  })
-
-  const bgCoverStyle = useAnimatedStyle(() => {
-    const dynamicPadding = interpolate(
+  // Single derived value computed once on the UI thread — shared across all 3 animated styles
+  // below so interpolate() is called once instead of three times per keyboard frame.
+  const dynamicPadding = useDerivedValue(() =>
+    interpolate(
       Math.abs(keyboardHeight.value),
       [0, 40],
       [bottomInset, ACTIVE_PADDING],
       Extrapolation.CLAMP,
-    )
-    return { height: dynamicPadding }
-  })
+    ),
+  )
 
-  const cornerCoverStyle = useAnimatedStyle(() => {
-    const dynamicPadding = interpolate(
-      Math.abs(keyboardHeight.value),
-      [0, 40],
-      [bottomInset, ACTIVE_PADDING],
-      Extrapolation.CLAMP,
-    )
-    return { bottom: dynamicPadding }
-  })
+  const containerStyle = useAnimatedStyle(() => ({
+    marginTop: -14,
+    paddingTop: 14,
+    paddingHorizontal: 10,
+    paddingBottom: dynamicPadding.value,
+  }))
+
+  const bgCoverStyle = useAnimatedStyle(() => ({ height: dynamicPadding.value }))
+
+  const cornerCoverStyle = useAnimatedStyle(() => ({ bottom: dynamicPadding.value }))
   // const inputPillStyle = useAnimatedStyle(() => ({
   //   borderColor: interpolateColor(
   //     inputFocusProgress.value,
@@ -525,16 +556,11 @@ const MessageInputComponent = function MessageInput(
                 inputFocusProgress.value = withTiming(1, { duration: 150 })
                 onFocusChange?.(true)
               }}
-              style={{
-                minHeight: 38,
-                maxHeight: 108,
-                paddingTop: 8,
-                paddingBottom: showCharCounter ? 18 : 8,
-                paddingHorizontal: 10,
-                color: TEXT_PRIMARY,
-                fontSize: 16,
-                lineHeight: 21,
-              }}
+              style={[
+                styles.textInput,
+                // paddingBottom only changes when counter appears (>800 chars), not every keystroke
+                showCharCounter && styles.textInputWithCounter,
+              ]}
             />
 
             {showCharCounter ? (
@@ -555,6 +581,7 @@ const MessageInputComponent = function MessageInput(
 
           <ComposerAccessorySlot
             hasText={hasText}
+            hasTextProgress={hasTextProgress}
             onAttach={() => {
               void handleOpenAttachmentLauncher()
             }}
@@ -575,3 +602,20 @@ const MessageInputComponent = function MessageInput(
 }
 
 export const MessageInput = memo(React.forwardRef(MessageInputComponent))
+
+// Static styles extracted from render to avoid new object allocations per frame.
+const styles = StyleSheet.create({
+  textInput: {
+    color: TEXT_PRIMARY,
+    fontSize: 16,
+    lineHeight: 21,
+    maxHeight: 108,
+    minHeight: 38,
+    paddingBottom: 8,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+  },
+  textInputWithCounter: {
+    paddingBottom: 18,
+  },
+})

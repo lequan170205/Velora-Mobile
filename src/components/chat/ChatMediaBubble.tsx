@@ -1,9 +1,8 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { Image } from 'expo-image'
-import React, { useEffect, useMemo, useState } from 'react'
-import { Modal, Pressable, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { Pressable, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import {
   calculateChatMediaDisplaySize,
@@ -17,10 +16,14 @@ import { useChatStore } from '../../stores/chatStore'
 import { useChatVideoPlaybackStore } from '../../stores/chatVideoPlaybackStore'
 import { ReelVideo } from '../reels/ReelVideo'
 
+import type { ChatMediaViewerOpenPayload } from './ChatMediaViewer'
 import type { Message } from '../../types/conversation.types'
 
 interface ChatMediaBubbleProps {
   message: Message
+  delayLongPress?: number
+  onLongPress?: () => void
+  onOpenMedia?: (payload: ChatMediaViewerOpenPayload) => void
 }
 
 const getStageLabel = (stage: ReturnType<typeof getMediaUploadStage>) => {
@@ -40,108 +43,110 @@ const getStageLabel = (stage: ReturnType<typeof getMediaUploadStage>) => {
   }
 }
 
-export function ChatMediaBubble({ message }: ChatMediaBubbleProps) {
-  const insets = useSafeAreaInsets()
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions()
-  const [isViewerVisible, setIsViewerVisible] = useState(false)
-  const [isViewerVideoPlaying, setIsViewerVideoPlaying] = useState(true)
+export function ChatMediaBubble({
+  delayLongPress,
+  message,
+  onLongPress,
+  onOpenMedia,
+}: ChatMediaBubbleProps) {
+  const { width: screenWidth } = useWindowDimensions()
+  const mediaRef = useRef<View>(null)
   const clientMessageId = message.clientMessageId ?? message.id
-  const uploadStage = useChatMediaUploadStore(
-    (state) => state.jobsById[clientMessageId]?.uploadStage ?? null,
+  const uploadJob = useChatMediaUploadStore((state) => state.jobsById[clientMessageId] ?? null)
+  const progress = useChatMediaUploadStore(
+    (state) => state.progressById[clientMessageId]?.progress ?? 0,
   )
-  const uploadFailureReason = useChatMediaUploadStore(
-    (state) => state.jobsById[clientMessageId]?.failureReason ?? null,
-  )
-  const uploadDisplayWidth = useChatMediaUploadStore(
-    (state) => state.jobsById[clientMessageId]?.displayWidth,
-  )
-  const uploadDisplayHeight = useChatMediaUploadStore(
-    (state) => state.jobsById[clientMessageId]?.displayHeight,
-  )
-
-  const [memoWidth, setMemoWidth] = useState(uploadDisplayWidth)
-  const [memoHeight, setMemoHeight] = useState(uploadDisplayHeight)
-
-  useEffect(() => {
-    if (uploadDisplayWidth) setMemoWidth(uploadDisplayWidth)
-    if (uploadDisplayHeight) setMemoHeight(uploadDisplayHeight)
-  }, [uploadDisplayWidth, uploadDisplayHeight])
-
-  const { displayWidth: mediaWidth, displayHeight: mediaHeight } = useMemo(() => {
-    const rawWidth =
-      message.media?.width || message.media?.displayWidth || uploadDisplayWidth || memoWidth || 200
-    const rawHeight =
-      message.media?.height ||
-      message.media?.displayHeight ||
-      uploadDisplayHeight ||
-      memoHeight ||
-      200
-    const maxWidth = Math.max(196, Math.min(Math.floor(screenWidth * 0.65), 260))
-
-    return calculateChatMediaDisplaySize({
-      width: rawWidth,
-      height: rawHeight,
-      maxWidth,
-    })
-  }, [message.media, uploadDisplayWidth, uploadDisplayHeight, memoWidth, memoHeight, screenWidth])
-
-  const uploadDurationMs = useChatMediaUploadStore(
-    (state) => state.jobsById[clientMessageId]?.durationMs ?? null,
-  )
-  const uploadLocalPosterUri = useChatMediaUploadStore(
-    (state) => state.jobsById[clientMessageId]?.localPosterUri ?? null,
+  const isCancelRequested = useChatMediaUploadStore((state) =>
+    Boolean(state.cancelRequestById[clientMessageId]),
   )
   const retryJob = useChatMediaUploadStore((state) => state.retryJob)
+  const requestCancel = useChatMediaUploadStore((state) => state.requestCancel)
   const setActiveMessage = useChatVideoPlaybackStore((state) => state.setActiveMessage)
   const isInlineVideoActive = useChatVideoPlaybackStore(
     (state) => state.activeMessageIdByConversation[message.conversationId] === message.id,
   )
-  const progressValue = useSharedValue(
-    useChatMediaUploadStore.getState().progressById[clientMessageId]?.progress ?? 0,
+  const [memoWidth, setMemoWidth] = useState(uploadJob?.displayWidth)
+  const [memoHeight, setMemoHeight] = useState(uploadJob?.displayHeight)
+  const [memoizedPoster, setMemoizedPoster] = useState(
+    uploadJob?.localPosterUri ?? message.media?.localPosterUri ?? null,
   )
-
-  const mediaStage = uploadStage ?? getMediaUploadStage(message.media)
-  const mediaUri = getResolvedMediaUri(message.media)
-
-  const currentLocalPoster = uploadLocalPosterUri ?? message.media?.localPosterUri ?? null
-
-  const [memoizedPoster, setMemoizedPoster] = useState(currentLocalPoster)
+  const progressValue = useSharedValue(progress)
 
   useEffect(() => {
-    if (currentLocalPoster) {
-      setMemoizedPoster(currentLocalPoster)
+    if (uploadJob?.displayWidth) setMemoWidth(uploadJob.displayWidth)
+    if (uploadJob?.displayHeight) setMemoHeight(uploadJob.displayHeight)
+    if (uploadJob?.localPosterUri ?? message.media?.localPosterUri) {
+      setMemoizedPoster(uploadJob?.localPosterUri ?? message.media?.localPosterUri ?? null)
     }
-  }, [currentLocalPoster])
+  }, [
+    message.media?.localPosterUri,
+    uploadJob?.displayHeight,
+    uploadJob?.displayWidth,
+    uploadJob?.localPosterUri,
+  ])
 
+  useEffect(() => {
+    progressValue.value = withTiming(progress, { duration: 140 })
+  }, [progress, progressValue])
+
+  const { displayWidth: mediaWidth, displayHeight: mediaHeight } = useMemo(() => {
+    const rawWidth =
+      message.media?.width ||
+      message.media?.displayWidth ||
+      uploadJob?.displayWidth ||
+      memoWidth ||
+      200
+    const rawHeight =
+      message.media?.height ||
+      message.media?.displayHeight ||
+      uploadJob?.displayHeight ||
+      memoHeight ||
+      200
+    const maxWidth = Math.max(196, Math.min(Math.floor(screenWidth * 0.65), 260))
+
+    return calculateChatMediaDisplaySize({ height: rawHeight, maxWidth, width: rawWidth })
+  }, [memoHeight, memoWidth, message.media, screenWidth, uploadJob])
+
+  const mediaStage = uploadJob?.uploadStage ?? getMediaUploadStage(message.media)
+  const mediaUri = getResolvedMediaUri(message.media)
   const isProcessing = mediaStage === 'processing'
-
   const posterUri = isProcessing
-    ? (memoizedPoster ?? null)
+    ? memoizedPoster
     : (message.media?.thumbnailUrl ?? memoizedPoster ?? null)
   const isVideo = message.type === 'video'
   const isFailed = mediaStage === 'failed' || message.status === 'FAILED'
   const isUploading =
     mediaStage === 'queued' || mediaStage === 'uploading' || mediaStage === 'syncing'
-  const durationLabel = formatDurationLabel(message.media?.durationMs ?? uploadDurationMs ?? null)
-  const cachePolicy = isRemoteMediaUri(posterUri ?? mediaUri) ? 'memory-disk' : 'memory'
-  const stageLabel = getStageLabel(mediaStage)
+  const canCancel =
+    isUploading && Boolean(uploadJob) && !uploadJob?.deliveryStartedAt && !isCancelRequested
   const canPlayInline = isVideo && !isUploading && !isFailed && Boolean(mediaUri)
-
-  useEffect(() => {
-    const unsubscribe = useChatMediaUploadStore.subscribe(
-      (state) => state.progressById[clientMessageId]?.progress ?? 0,
-      (nextProgress) => {
-        progressValue.value = withTiming(nextProgress, { duration: 140 })
-      },
-      { fireImmediately: true },
-    )
-
-    return unsubscribe
-  }, [clientMessageId, progressValue])
+  const stageLabel = getStageLabel(mediaStage)
+  const durationLabel = formatDurationLabel(
+    message.media?.durationMs ?? uploadJob?.durationMs ?? null,
+  )
+  const cachePolicy = isRemoteMediaUri(posterUri ?? mediaUri) ? 'memory-disk' : 'memory'
 
   const progressStyle = useAnimatedStyle(() => ({
     width: mediaWidth * progressValue.value,
   }))
+
+  const openViewer = (autoplayVideo: boolean) => {
+    if (!mediaUri || !onOpenMedia) {
+      return
+    }
+
+    if (isInlineVideoActive) {
+      setActiveMessage(message.conversationId, null)
+    }
+
+    mediaRef.current?.measureInWindow((x, y, width, height) => {
+      onOpenMedia({
+        autoplayVideo,
+        messageId: clientMessageId,
+        sourceFrame: { height, width, x, y },
+      })
+    })
+  }
 
   const handleRetry = () => {
     retryJob(clientMessageId)
@@ -149,7 +154,7 @@ export function ChatMediaBubble({ message }: ChatMediaBubbleProps) {
       .getState()
       .updateOptimisticMessage(message.conversationId, clientMessageId, (current) => ({
         ...current,
-        status: 'SENT',
+        status: 'PENDING',
         media: {
           ...(current.media ?? {}),
           uploadStage: 'queued',
@@ -157,319 +162,233 @@ export function ChatMediaBubble({ message }: ChatMediaBubbleProps) {
       }))
   }
 
-  const openViewer = () => {
-    if (isInlineVideoActive) {
-      setActiveMessage(message.conversationId, null)
-    }
-
-    setIsViewerVideoPlaying(true)
-    setIsViewerVisible(true)
-  }
-
-  const closeViewer = () => {
-    setIsViewerVisible(false)
-    setIsViewerVideoPlaying(false)
-  }
-
-  const renderImagePoster = () => {
-    if (mediaUri) {
-      return (
-        <Image
-          key={`img-${clientMessageId}-${mediaStage}-${mediaWidth}x${mediaHeight}`}
-          recyclingKey={mediaUri}
-          transition={150}
-          source={{ uri: mediaUri }}
-          cachePolicy={cachePolicy}
-          contentFit="cover"
-          style={{
-            width: mediaWidth,
-            height: mediaHeight,
-            backgroundColor: '#EFEFEF',
-          }}
-        />
-      )
-    }
-
-    return (
+  const renderImage = () =>
+    mediaUri ? (
+      <Image
+        accessibilityLabel="Photo attachment"
+        cachePolicy={cachePolicy}
+        contentFit="cover"
+        recyclingKey={mediaUri}
+        source={{ uri: mediaUri }}
+        style={{ backgroundColor: '#EFEFEF', height: mediaHeight, width: mediaWidth }}
+        transition={150}
+      />
+    ) : (
       <View
         style={{
-          width: mediaWidth,
-          height: mediaHeight,
           alignItems: 'center',
-          justifyContent: 'center',
           backgroundColor: '#EDEDED',
+          height: mediaHeight,
+          justifyContent: 'center',
+          width: mediaWidth,
         }}
       >
-        <MaterialIcons name="image" size={28} color="#A1A1AA" />
+        <MaterialIcons color="#A1A1AA" name="image" size={28} />
       </View>
     )
-  }
 
-  const renderVideoIdle = () => {
-    if (posterUri) {
-      return (
-        <Image
-          key={`video-poster-${clientMessageId}-${mediaStage}-${mediaWidth}x${mediaHeight}`}
-          recyclingKey={posterUri}
-          transition={150}
-          source={{ uri: posterUri }}
-          cachePolicy={cachePolicy}
-          contentFit="cover"
-          style={{
-            width: mediaWidth,
-            height: mediaHeight,
-            backgroundColor: '#0C0C0D',
-          }}
-        />
-      )
-    }
-
-    return (
+  const renderVideoPoster = () =>
+    posterUri ? (
+      <Image
+        accessibilityLabel="Video attachment"
+        cachePolicy={cachePolicy}
+        contentFit="cover"
+        recyclingKey={posterUri}
+        source={{ uri: posterUri }}
+        style={{ backgroundColor: '#0C0C0D', height: mediaHeight, width: mediaWidth }}
+        transition={150}
+      />
+    ) : (
       <View
         style={{
-          width: mediaWidth,
-          height: mediaHeight,
           alignItems: 'center',
-          justifyContent: 'center',
           backgroundColor: '#101012',
+          height: mediaHeight,
+          justifyContent: 'center',
+          width: mediaWidth,
         }}
       >
-        <MaterialIcons name="videocam" size={30} color="#D4D4D8" />
+        <MaterialIcons color="#D4D4D8" name="videocam" size={30} />
       </View>
     )
-  }
 
   return (
-    <>
-      <View
-        style={{
-          width: mediaWidth,
-          height: mediaHeight,
-          overflow: 'hidden',
-          borderRadius: 18,
-          backgroundColor: '#111111',
-        }}
-      >
-        {isVideo ? (
-          isInlineVideoActive && mediaUri ? (
-            <Pressable onPress={openViewer} style={{ width: mediaWidth, height: mediaHeight }}>
-              <ReelVideo
-                key={`inline-video-${clientMessageId}-${mediaStage}-${mediaWidth}x${mediaHeight}`}
-                uri={mediaUri}
-                shouldPlay
-                muted={false}
-                nativeControls={false}
-                contentFit="cover"
-                resetOnPause
-                style={{ width: mediaWidth, height: mediaHeight }}
-                {...(posterUri ? { posterUri } : {})}
-              />
-            </Pressable>
-          ) : (
-            <Pressable onPress={openViewer} style={{ width: mediaWidth, height: mediaHeight }}>
-              {renderVideoIdle()}
-              {canPlayInline ? (
-                <TouchableOpacity
-                  activeOpacity={0.9}
-                  onPress={() => {
-                    setActiveMessage(message.conversationId, message.id)
-                  }}
-                  style={{
-                    position: 'absolute',
-                    left: mediaWidth / 2 - 28,
-                    top: mediaHeight / 2 - 28,
-                    width: 56,
-                    height: 56,
-                    borderRadius: 28,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: 'rgba(12,12,13,0.58)',
-                    borderWidth: 1,
-                    borderColor: 'rgba(255,255,255,0.16)',
-                  }}
-                >
-                  <MaterialIcons name="play-arrow" size={28} color="#FFFFFF" />
-                </TouchableOpacity>
-              ) : null}
-            </Pressable>
-          )
-        ) : (
-          <Pressable onPress={openViewer}>{renderImagePoster()}</Pressable>
-        )}
-
-        {durationLabel ? (
-          <View
-            style={{
-              position: 'absolute',
-              right: 10,
-              bottom: 10,
-              paddingHorizontal: 8,
-              paddingVertical: 4,
-              borderRadius: 999,
-              backgroundColor: 'rgba(12,12,13,0.68)',
-            }}
-          >
-            <Text style={{ fontSize: 11, fontWeight: '600', color: '#FFFFFF' }}>
-              {durationLabel}
-            </Text>
-          </View>
-        ) : null}
-
-        {stageLabel || isFailed ? (
-          <View
-            pointerEvents={isFailed ? 'auto' : 'none'}
-            style={{
-              position: 'absolute',
-              inset: 0,
-              justifyContent: 'flex-end',
-              backgroundColor: isFailed ? 'rgba(15, 15, 16, 0.58)' : 'rgba(15, 15, 16, 0.24)',
-            }}
-          >
-            <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
-              {isUploading ? (
-                <View
-                  style={{
-                    height: 4,
-                    borderRadius: 999,
-                    overflow: 'hidden',
-                    backgroundColor: 'rgba(255,255,255,0.16)',
-                    marginBottom: 10,
-                  }}
-                >
-                  <Animated.View
-                    style={[
-                      progressStyle,
-                      {
-                        height: 4,
-                        borderRadius: 999,
-                        backgroundColor: '#FF6B2C',
-                      },
-                    ]}
-                  />
-                </View>
-              ) : null}
-
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                }}
-              >
-                <Text style={{ flex: 1, fontSize: 12, fontWeight: '600', color: '#FFFFFF' }}>
-                  {isFailed
-                    ? message.media?.failureReason || uploadFailureReason || 'Upload failed'
-                    : stageLabel}
-                </Text>
-
-                {isFailed ? (
-                  <TouchableOpacity
-                    activeOpacity={0.86}
-                    onPress={handleRetry}
-                    style={{
-                      marginLeft: 12,
-                      paddingHorizontal: 12,
-                      paddingVertical: 7,
-                      borderRadius: 999,
-                      backgroundColor: 'rgba(255,255,255,0.14)',
-                    }}
-                  >
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#FFFFFF' }}>Retry</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            </View>
-          </View>
-        ) : null}
-      </View>
-
-      <Modal
-        visible={isViewerVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={closeViewer}
-      >
-        <View
-          style={{
-            flex: 1,
-            backgroundColor: 'rgba(0,0,0,0.96)',
-            paddingTop: insets.top,
-            paddingBottom: insets.bottom,
-          }}
+    <View
+      collapsable={false}
+      ref={mediaRef}
+      style={{
+        backgroundColor: '#111111',
+        borderRadius: 18,
+        height: mediaHeight,
+        overflow: 'hidden',
+        width: mediaWidth,
+      }}
+    >
+      {isVideo ? (
+        <Pressable
+          accessibilityLabel="Open video"
+          accessibilityRole="button"
+          {...(delayLongPress ? { delayLongPress } : {})}
+          {...(onLongPress ? { onLongPress } : {})}
+          onPress={() => openViewer(true)}
+          style={{ height: mediaHeight, width: mediaWidth }}
         >
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingHorizontal: 18,
-              paddingTop: 10,
-              paddingBottom: 12,
-            }}
-          >
-            <Text style={{ fontSize: 15, fontWeight: '600', color: '#FFFFFF' }}>
-              {isVideo ? 'Video' : 'Photo'}
-            </Text>
+          {isInlineVideoActive && mediaUri ? (
+            <ReelVideo
+              contentFit="cover"
+              key={`inline-video-${clientMessageId}-${mediaStage}`}
+              muted={false}
+              nativeControls={false}
+              resetOnPause
+              shouldPlay
+              style={{ height: mediaHeight, width: mediaWidth }}
+              uri={mediaUri}
+              {...(posterUri ? { posterUri } : {})}
+            />
+          ) : (
+            renderVideoPoster()
+          )}
+          {canPlayInline ? (
             <TouchableOpacity
-              activeOpacity={0.82}
-              onPress={closeViewer}
+              accessibilityLabel={isInlineVideoActive ? 'Pause video' : 'Play video inline'}
+              accessibilityRole="button"
+              activeOpacity={0.9}
+              {...(delayLongPress ? { delayLongPress } : {})}
+              {...(onLongPress ? { onLongPress } : {})}
+              onPress={(event) => {
+                event.stopPropagation()
+                setActiveMessage(message.conversationId, isInlineVideoActive ? null : message.id)
+              }}
               style={{
-                width: 38,
-                height: 38,
-                borderRadius: 19,
                 alignItems: 'center',
+                backgroundColor: 'rgba(12,12,13,0.58)',
+                borderColor: 'rgba(255,255,255,0.16)',
+                borderRadius: 28,
+                borderWidth: 1,
+                height: 56,
                 justifyContent: 'center',
-                backgroundColor: 'rgba(255,255,255,0.12)',
+                left: mediaWidth / 2 - 28,
+                position: 'absolute',
+                top: mediaHeight / 2 - 28,
+                width: 56,
               }}
             >
-              <MaterialIcons name="close" size={22} color="#FFFFFF" />
+              <MaterialIcons
+                color="#FFFFFF"
+                name={isInlineVideoActive ? 'pause' : 'play-arrow'}
+                size={28}
+              />
             </TouchableOpacity>
-          </View>
+          ) : null}
+        </Pressable>
+      ) : (
+        <Pressable
+          accessibilityLabel="Open photo"
+          accessibilityRole="button"
+          {...(delayLongPress ? { delayLongPress } : {})}
+          {...(onLongPress ? { onLongPress } : {})}
+          onPress={() => openViewer(false)}
+        >
+          {renderImage()}
+        </Pressable>
+      )}
 
-          <View
-            style={{
-              flex: 1,
-              alignItems: 'center',
-              justifyContent: 'center',
-              paddingHorizontal: 12,
-            }}
-          >
-            {isVideo && mediaUri ? (
+      {durationLabel ? (
+        <View
+          style={{
+            backgroundColor: 'rgba(12,12,13,0.68)',
+            borderRadius: 999,
+            bottom: 10,
+            paddingHorizontal: 8,
+            paddingVertical: 4,
+            position: 'absolute',
+            right: 10,
+          }}
+        >
+          <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '600' }}>{durationLabel}</Text>
+        </View>
+      ) : null}
+
+      {stageLabel || isFailed ? (
+        <View
+          pointerEvents="box-none"
+          style={{
+            backgroundColor: isFailed ? 'rgba(15,15,16,0.58)' : 'rgba(15,15,16,0.24)',
+            inset: 0,
+            justifyContent: 'flex-end',
+            position: 'absolute',
+          }}
+        >
+          <View pointerEvents="box-none" style={{ paddingBottom: 12, paddingHorizontal: 12 }}>
+            {isUploading ? (
               <View
                 style={{
-                  width: screenWidth - 24,
-                  height: Math.min(screenHeight * 0.72, screenWidth * 1.3),
-                  borderRadius: 24,
+                  backgroundColor: 'rgba(255,255,255,0.16)',
+                  borderRadius: 999,
+                  height: 4,
+                  marginBottom: 10,
                   overflow: 'hidden',
-                  backgroundColor: '#000000',
                 }}
               >
-                <ReelVideo
-                  uri={mediaUri}
-                  shouldPlay={isViewerVideoPlaying}
-                  nativeControls
-                  contentFit="contain"
-                  style={{ width: '100%', height: '100%' }}
-                  {...(posterUri ? { posterUri } : {})}
+                <Animated.View
+                  style={[
+                    progressStyle,
+                    { backgroundColor: '#FF6B2C', borderRadius: 999, height: 4 },
+                  ]}
                 />
               </View>
-            ) : mediaUri ? (
-              <Image
-                key={`viewer-img-${clientMessageId}`}
-                recyclingKey={mediaUri}
-                transition={150}
-                source={{ uri: mediaUri }}
-                cachePolicy={cachePolicy}
-                contentFit="contain"
-                style={{
-                  width: screenWidth - 24,
-                  height: screenHeight * 0.78,
-                }}
-              />
             ) : null}
+            <View
+              style={{
+                alignItems: 'center',
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+              }}
+            >
+              <Text style={{ color: '#FFFFFF', flex: 1, fontSize: 12, fontWeight: '600' }}>
+                {isFailed
+                  ? message.media?.failureReason || uploadJob?.failureReason || 'Upload failed'
+                  : isCancelRequested
+                    ? 'Canceling'
+                    : stageLabel}
+              </Text>
+              {isFailed ? (
+                <TouchableOpacity
+                  accessibilityLabel="Retry upload"
+                  accessibilityRole="button"
+                  activeOpacity={0.86}
+                  onPress={handleRetry}
+                  style={{
+                    backgroundColor: 'rgba(255,255,255,0.14)',
+                    borderRadius: 999,
+                    marginLeft: 12,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                  }}
+                >
+                  <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>Retry</Text>
+                </TouchableOpacity>
+              ) : canCancel ? (
+                <TouchableOpacity
+                  accessibilityLabel="Cancel upload"
+                  accessibilityRole="button"
+                  activeOpacity={0.86}
+                  onPress={() => requestCancel(clientMessageId)}
+                  style={{
+                    backgroundColor: 'rgba(255,255,255,0.14)',
+                    borderRadius: 999,
+                    marginLeft: 12,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                  }}
+                >
+                  <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>Cancel</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </View>
         </View>
-      </Modal>
-    </>
+      ) : null}
+    </View>
   )
 }

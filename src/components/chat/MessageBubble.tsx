@@ -19,6 +19,7 @@ import { useChatStore } from '../../stores/chatStore'
 
 import { ChatMediaBubble } from './ChatMediaBubble'
 
+import type { ChatMediaViewerOpenPayload } from './ChatMediaViewer'
 import type { BubbleAnchor } from './MessageContextMenu'
 import type {
   ChatParticipant,
@@ -200,6 +201,7 @@ interface MessageBubbleProps {
   onToggleDetails?: () => void
   onPressReplyPreview?: () => void
   onOpenContextMenu?: (payload: MessageBubbleContextMenuPayload) => void
+  onOpenMedia?: (payload: ChatMediaViewerOpenPayload) => void
 }
 
 export interface MessageBubbleContextMenuPayload {
@@ -228,6 +230,7 @@ const MessageBubbleComponent = function MessageBubble({
   onToggleDetails,
   onPressReplyPreview,
   onOpenContextMenu,
+  onOpenMedia,
 }: MessageBubbleProps) {
   const resolvedConversationId = conversationId || message.conversationId
   const isMarkedSeen = useChatStore(
@@ -254,12 +257,15 @@ const MessageBubbleComponent = function MessageBubble({
   isExpandedRef.current = isExpanded
 
   const isFailed = message.status === 'FAILED'
-  const isSending = (message.id || message._id || '').startsWith('temp-') && !isFailed
+  const isPending = message.status === 'PENDING'
+  const isSending =
+    isPending || ((message.id || message._id || '').startsWith('temp-') && !isFailed)
   const hasReadReceipt = Array.isArray(message.readBy) && message.readBy.length > 0
   const isSeen = message.status === 'READ' || hasReadReceipt || isMarkedSeen
 
   const getStatusText = () => {
     if (isFailed) return 'Failed'
+    if (isPending) return 'Sending...'
     if (isSending) return 'Sending...'
     if (isSeen) return 'Read'
     if (!isSending) return 'Delivered'
@@ -552,7 +558,12 @@ const MessageBubbleComponent = function MessageBubble({
                     Tin nhắn đã thu hồi
                   </Text>
                 ) : isMedia ? (
-                  <ChatMediaBubble message={message} />
+                  <ChatMediaBubble
+                    delayLongPress={180}
+                    message={message}
+                    onLongPress={handleLongPress}
+                    {...(onOpenMedia ? { onOpenMedia } : {})}
+                  />
                 ) : (
                   <Text
                     className={cn(
@@ -645,6 +656,7 @@ export const MessageBubble = memo(MessageBubbleComponent, (prevProps, nextProps)
     prevProps.message.is_recalled === nextProps.message.is_recalled &&
     prevProps.isExpanded === nextProps.isExpanded &&
     prevProps.isContextMenuActive === nextProps.isContextMenuActive &&
+    prevProps.onOpenMedia === nextProps.onOpenMedia &&
     isReplyEqual
   )
 })

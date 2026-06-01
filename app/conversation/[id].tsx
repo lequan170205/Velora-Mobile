@@ -7,6 +7,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
+  Alert,
   Image,
   InteractionManager,
   type NativeScrollEvent,
@@ -37,6 +38,11 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import {
+  ChatMediaViewer,
+  type ChatMediaGalleryItem,
+  type ChatMediaViewerOpenPayload,
+} from '../../src/components/chat/ChatMediaViewer'
+import {
   MessageBubble,
   type MessageBubbleContextMenuPayload,
 } from '../../src/components/chat/MessageBubble'
@@ -46,6 +52,13 @@ import { queryKeys } from '../../src/constants/queryKeys'
 import { useChatMediaUploads } from '../../src/hooks/useChatMediaUploads'
 import { useRecallMessage } from '../../src/hooks/useMessageActions'
 import { trimMessagesCache, useMessages, useSendMessage } from '../../src/hooks/useMessages'
+import {
+  getMediaUploadStage,
+  getResolvedMediaPosterUri,
+  getResolvedMediaUri,
+  isRemoteMediaUri,
+} from '../../src/lib/chatMedia'
+import { saveChatMediaToLibrary } from '../../src/lib/chatMediaSave'
 import {
   getMessageIdentityKey,
   getMessageIdentityTokens,
@@ -286,6 +299,7 @@ interface MessageRowProps {
   onPressReplyPreview: (replyToId?: string) => void
   onReply: (message: Message) => void
   onOpenContextMenu: (payload: MessageBubbleContextMenuPayload) => void
+  onOpenMedia: (payload: ChatMediaViewerOpenPayload) => void
 }
 
 const MessageRow = memo(
@@ -299,6 +313,7 @@ const MessageRow = memo(
     onPressReplyPreview,
     onReply,
     onOpenContextMenu,
+    onOpenMedia,
   }: MessageRowProps) {
     const isExpanded = useMessageListUiStore(
       useCallback(
@@ -347,6 +362,7 @@ const MessageRow = memo(
           onPressReplyPreview={handlePressReplyPreview}
           onReply={handleReply}
           onOpenContextMenu={onOpenContextMenu}
+          onOpenMedia={onOpenMedia}
           conversationId={conversationId}
         />
       </View>
@@ -361,7 +377,8 @@ const MessageRow = memo(
     prevProps.onToggleDetails === nextProps.onToggleDetails &&
     prevProps.onPressReplyPreview === nextProps.onPressReplyPreview &&
     prevProps.onReply === nextProps.onReply &&
-    prevProps.onOpenContextMenu === nextProps.onOpenContextMenu,
+    prevProps.onOpenContextMenu === nextProps.onOpenContextMenu &&
+    prevProps.onOpenMedia === nextProps.onOpenMedia,
 )
 
 export default function ChatScreen() {
@@ -408,6 +425,10 @@ export default function ChatScreen() {
     (state) => state.clearConversation,
   )
   const [activeContextMenu, setActiveContextMenu] = useState<ActiveContextMenuState | null>(null)
+  const [mediaViewerPayload, setMediaViewerPayload] = useState<ChatMediaViewerOpenPayload | null>(
+    null,
+  )
+  const [savingMediaId, setSavingMediaId] = useState<string | null>(null)
 
   const listRef = useRef<FlashListRef<Message>>(null)
   const layoutByIdRef = useRef<Map<string, MessageLayout>>(new Map())
@@ -415,6 +436,7 @@ export default function ChatScreen() {
   const messageInputRef = useRef<MessageInputHandle>(null)
   const isScrollButtonVisible = useSharedValue(false)
   const isNearBottomRef = useRef(true)
+  const [isNearBottom, setIsNearBottom] = useState(true)
   const preservedKeyboardOffset = useSharedValue(0)
 
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation()
@@ -444,8 +466,11 @@ export default function ChatScreen() {
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const offsetY = Math.max(0, event.nativeEvent.contentOffset.y)
-      const isNearBottom = offsetY <= 50
-      isNearBottomRef.current = isNearBottom
+      const nextIsNearBottom = offsetY <= 50
+      if (nextIsNearBottom !== isNearBottomRef.current) {
+        isNearBottomRef.current = nextIsNearBottom
+        setIsNearBottom((current) => (current === nextIsNearBottom ? current : nextIsNearBottom))
+      }
 
       const shouldShowScrollButton = offsetY > 200
       if (shouldShowScrollButton !== isScrollButtonVisible.value) {
@@ -585,6 +610,39 @@ export default function ChatScreen() {
   layoutByIdRef.current = layoutById
   indexByIdRef.current = indexById
 
+  const mediaGalleryItems = useMemo<ChatMediaGalleryItem[]>(() => {
+    return orderedMessages.flatMap((message) => {
+      if (
+        (message.type !== 'image' && message.type !== 'video') ||
+        message.isRecalled === true ||
+        message.is_recalled === true
+      ) {
+        return []
+      }
+
+      const uri = getResolvedMediaUri(message.media)
+      if (!uri) {
+        return []
+      }
+
+      const mediaStage = getMediaUploadStage(message.media)
+      const posterUri = getResolvedMediaPosterUri(message.media)
+      return [
+        {
+          id: getMessageIdentityKey(message) ?? message.id,
+          canSave:
+            (mediaStage === null || mediaStage === 'ready') &&
+            message.status !== 'PENDING' &&
+            isRemoteMediaUri(uri),
+          message,
+          type: message.type,
+          uri,
+          ...(posterUri ? { posterUri } : {}),
+        },
+      ]
+    })
+  }, [orderedMessages])
+
   useEffect(() => {
     if (serverMessages.length === 0 || localOptimistic.length === 0) return
 
@@ -620,10 +678,12 @@ export default function ChatScreen() {
 
   useEffect(() => {
     isNearBottomRef.current = true
+    setIsNearBottom(true)
     isScrollButtonVisible.value = false
   }, [conversationId, isScrollButtonVisible])
 
   const isOtherUserTyping = activeTypers.some((typerId) => typerId !== user?.id)
+  const shouldShowTypingIndicator = isOtherUserTyping && isNearBottom
   const isInitialMessagesLoading = isLoading && orderedMessages.length === 0
   const getReplyScrollViewPosition = useCallback(() => 0.72, [])
 
@@ -682,6 +742,39 @@ export default function ChatScreen() {
     },
     [prepareContextMenuKeyboardPreservation],
   )
+
+  const handleOpenMedia = useCallback((payload: ChatMediaViewerOpenPayload) => {
+    setActiveContextMenu(null)
+    setMediaViewerPayload(payload)
+  }, [])
+
+  const closeMediaViewer = useCallback(() => {
+    setMediaViewerPayload(null)
+  }, [])
+
+  const handleSaveMedia = useCallback(async (item: ChatMediaGalleryItem) => {
+    if (!item.canSave) {
+      return
+    }
+
+    setSavingMediaId(item.id)
+    try {
+      await saveChatMediaToLibrary({
+        type: item.type,
+        uri: item.uri,
+        ...(item.message.media?.mimeType ? { mimeType: item.message.media.mimeType } : {}),
+      })
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+      Alert.alert('Saved', `${item.type === 'video' ? 'Video' : 'Photo'} saved to your library.`)
+    } catch (error) {
+      Alert.alert(
+        'Unable to save media',
+        error instanceof Error ? error.message : 'Please try again.',
+      )
+    } finally {
+      setSavingMediaId(null)
+    }
+  }, [])
 
   const closeActiveContextMenu = useCallback(() => {
     setActiveContextMenu(null)
@@ -767,6 +860,7 @@ export default function ChatScreen() {
 
   useEffect(() => {
     setActiveContextMenu(null)
+    setMediaViewerPayload(null)
     clearConversationInlinePlayback(conversationId)
     shouldRestoreComposerFocusRef.current = false
     preservedKeyboardOffset.value = 0
@@ -1061,11 +1155,11 @@ export default function ChatScreen() {
   const renderListHeader = useCallback(() => {
     return (
       <View>
-        {isOtherUserTyping ? <TypingIndicator displayName={displayName} /> : null}
+        {shouldShowTypingIndicator ? <TypingIndicator displayName={displayName} /> : null}
         <Animated.View style={listSpacerStyle} />
       </View>
     )
-  }, [isOtherUserTyping, displayName, listSpacerStyle])
+  }, [displayName, listSpacerStyle, shouldShowTypingIndicator])
 
   const renderItem = useCallback(
     ({ item }: ListRenderItemInfo<Message>) => {
@@ -1086,6 +1180,7 @@ export default function ChatScreen() {
           onPressReplyPreview={handleScrollToMessage}
           onReply={handleReply}
           onOpenContextMenu={handleOpenContextMenu}
+          onOpenMedia={handleOpenMedia}
         />
       )
     },
@@ -1095,6 +1190,7 @@ export default function ChatScreen() {
       handleScrollToMessage,
       handleToggleDetails,
       handleOpenContextMenu,
+      handleOpenMedia,
       participantsMap,
       user?.id,
     ],
@@ -1259,6 +1355,7 @@ export default function ChatScreen() {
                 ref={listRef}
                 inverted
                 data={orderedMessages}
+                extraData={layoutById}
                 renderItem={renderItem}
                 keyExtractor={keyExtractor}
                 getItemType={getItemType}
@@ -1338,7 +1435,31 @@ export default function ChatScreen() {
           onRecall={
             activeContextMenuData ? () => handleRecall(activeContextMenuData.message.id) : undefined
           }
+          onSave={
+            activeContextMenuData
+              ? () => {
+                  const item = mediaGalleryItems.find(
+                    (galleryItem) =>
+                      galleryItem.id === getMessageIdentityKey(activeContextMenuData.message),
+                  )
+                  if (item) {
+                    void handleSaveMedia(item)
+                  }
+                }
+              : undefined
+          }
           conversationId={activeContextMenuData?.conversationId}
+        />
+        <ChatMediaViewer
+          initialPayload={mediaViewerPayload}
+          isLoadingOlder={isFetchingNextPage}
+          items={mediaGalleryItems}
+          onLoadOlder={loadOlderMessages}
+          onRequestClose={closeMediaViewer}
+          onSave={(item) => {
+            void handleSaveMedia(item)
+          }}
+          savingMessageId={savingMediaId}
         />
       </View>
     </View>
