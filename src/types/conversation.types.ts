@@ -85,7 +85,7 @@ export interface Message {
   content: string
   media?: MessageMedia
   type: 'text' | 'image' | 'video' | 'file' | 'voice' | 'call'
-  status: 'SENT' | 'DELIVERED' | 'READ' | 'FAILED'
+  status: 'PENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED'
   readBy?: { userId: string; at: string }[]
   replyTo?: Message
   isDeleted?: boolean

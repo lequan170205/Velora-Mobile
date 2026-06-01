@@ -1,14 +1,22 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useMemo } from 'react'
 
 import type { InfiniteData, QueryClient } from '@tanstack/react-query'
 
 import { conversationApi } from '../api/conversation.api'
 import { queryKeys } from '../constants/queryKeys'
+import { getLocalMessagesPage } from '../database/messageRepository'
+import {
+  createPendingTextMessage,
+  upsertRemoteMessage,
+  upsertRemoteMessages,
+} from '../database/messageSync'
 import {
   upsertConversationSummaryInCache,
   upsertMessageIntoConversationCache,
 } from '../lib/chatMessageCache'
 import { createClientMessageId } from '../lib/clientMessageId'
+import { getMessageIdentityKey } from '../lib/messageIdentity'
 import { useSocket } from '../providers/SocketProvider'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
@@ -44,30 +52,131 @@ interface SendMessageVariables {
   clientMessageId?: string
 }
 
-export const MESSAGE_QUERY_STALE_TIME_MS = 60 * 1000
-export const MESSAGE_QUERY_GC_TIME_MS = 3 * 60 * 1000
+export const MESSAGE_QUERY_STALE_TIME_MS = 2 * 60 * 1000
+export const MESSAGE_QUERY_GC_TIME_MS = 15 * 60 * 1000
 export const MESSAGE_CACHE_WARMUP_LIMIT = 0
 export const MESSAGE_PAGE_LIMIT = 15
+export const MESSAGE_CACHE_RETAINED_PAGES = 8
 export const MESSAGE_PREFETCH_ENABLED = true
 
-export const getMessagesInfiniteQueryOptions = (conversationId: string) => ({
+const latestMessagesSyncedAtByConversation = new Map<string, number>()
+
+const markLatestMessagesSynced = (conversationId: string) => {
+  latestMessagesSyncedAtByConversation.set(conversationId, Date.now())
+}
+
+const shouldSyncLatestMessages = (conversationId: string, dataUpdatedAt?: number) => {
+  const lastSyncedAt = latestMessagesSyncedAtByConversation.get(conversationId) ?? 0
+  const latestKnownUpdateAt = Math.max(lastSyncedAt, dataUpdatedAt ?? 0)
+
+  return Date.now() - latestKnownUpdateAt >= MESSAGE_QUERY_STALE_TIME_MS
+}
+
+const getMessageCreatedAtMs = (message: Message) => {
+  const timestamp = new Date(message.createdAt).getTime()
+  return Number.isFinite(timestamp) ? timestamp : 0
+}
+
+const sortMessagesNewestFirst = (messages: Message[]) => {
+  return [...messages].sort(
+    (left, right) => getMessageCreatedAtMs(right) - getMessageCreatedAtMs(left),
+  )
+}
+
+const dedupeMessages = (messages: Message[]) => {
+  const messagesByKey = new Map<string, Message>()
+
+  for (const message of messages) {
+    const key = getMessageIdentityKey(message) ?? message.id ?? message._id
+    if (!key) continue
+
+    messagesByKey.set(key, message)
+  }
+
+  return Array.from(messagesByKey.values())
+}
+
+const getOldestMessage = (messages: Message[]) => {
+  if (!messages.length) return null
+
+  return messages.reduce((oldest, current) => {
+    return getMessageCreatedAtMs(current) < getMessageCreatedAtMs(oldest) ? current : oldest
+  }, messages[0])
+}
+
+const getCachedConversation = (
+  queryClient: QueryClient,
+  conversationId: string,
+): Conversation | null => {
+  const cachedData = queryClient.getQueryData<unknown>(queryKeys.conversations.all)
+
+  const conversations: Conversation[] = Array.isArray(cachedData)
+    ? cachedData
+    : (cachedData as { pages?: Conversation[][] })?.pages?.flat() || []
+
+  return conversations.find((conversation) => conversation.id === conversationId) ?? null
+}
+
+type MessagesQueryOptionsInput = {
+  conversation?: Conversation | null
+  conversationId: string
+  currentUser?: ReturnType<typeof useAuthStore.getState>['user'] | null
+}
+
+export const getMessagesInfiniteQueryOptions = ({
+  conversation,
+  conversationId,
+  currentUser,
+}: MessagesQueryOptionsInput) => ({
   queryKey: queryKeys.conversations.messages(conversationId),
-  queryFn: ({ pageParam = undefined }: { pageParam?: unknown }) =>
-    conversationApi.getMessages(conversationId, {
+
+  queryFn: async ({ pageParam = undefined }: { pageParam?: unknown }) => {
+    const cursor = pageParam ? String(pageParam) : undefined
+
+    const localPage = await getLocalMessagesPage({
+      conversation: conversation ?? null,
+      conversationId,
+      currentUser: currentUser ?? null,
+      ...(cursor ? { cursor } : {}),
       limit: MESSAGE_PAGE_LIMIT,
-      ...(pageParam ? { cursor: pageParam as string } : {}),
-    }),
-  getNextPageParam: (lastPage: Message[]) => {
-    if (!lastPage || lastPage.length === 0) return undefined
+    })
 
-    const oldestMessage = lastPage.reduce((oldest, current) => {
-      return new Date(current.createdAt).getTime() < new Date(oldest.createdAt).getTime()
-        ? current
-        : oldest
-    }, lastPage[0])
+    if (localPage.length >= MESSAGE_PAGE_LIMIT) {
+      return sortMessagesNewestFirst(localPage)
+    }
 
-    return oldestMessage.id
+    const remotePage = await conversationApi.getMessages(conversationId, {
+      limit: MESSAGE_PAGE_LIMIT,
+      ...(cursor ? { cursor } : {}),
+    })
+
+    if (!cursor) {
+      markLatestMessagesSynced(conversationId)
+    }
+
+    if (remotePage.length > 0) {
+      void upsertRemoteMessages({
+        conversation: conversation ?? null,
+        currentUser: currentUser ?? null,
+        messages: remotePage,
+      }).catch((error) => {
+        console.warn('[Messages] Failed to persist remote page locally', error)
+      })
+    }
+
+    return sortMessagesNewestFirst(dedupeMessages([...localPage, ...remotePage])).slice(
+      0,
+      MESSAGE_PAGE_LIMIT,
+    )
   },
+
+  getNextPageParam: (lastPage: Message[]) => {
+    if (!lastPage || lastPage.length < MESSAGE_PAGE_LIMIT) return undefined
+
+    const oldestMessage = getOldestMessage(lastPage)
+    return oldestMessage?.id
+  },
+
   initialPageParam: undefined as string | undefined,
   staleTime: MESSAGE_QUERY_STALE_TIME_MS,
   gcTime: MESSAGE_QUERY_GC_TIME_MS,
@@ -86,7 +195,13 @@ export const prefetchMessages = async (queryClient: QueryClient, conversationId:
     return
   }
 
-  await queryClient.prefetchInfiniteQuery(getMessagesInfiniteQueryOptions(conversationId))
+  await queryClient.prefetchInfiniteQuery(
+    getMessagesInfiniteQueryOptions({
+      conversation: getCachedConversation(queryClient, conversationId),
+      conversationId,
+      currentUser: useAuthStore.getState().user ?? null,
+    }),
+  )
 }
 
 export const prefetchMessagesForConversations = async (
@@ -108,24 +223,115 @@ export const trimMessagesCache = (queryClient: QueryClient, conversationId: stri
         return oldData
       }
 
-      const [latestPage = []] = oldData.pages
-      const [latestPageParam] = oldData.pageParams
-
-      if (oldData.pages.length === 1 && latestPage.length <= MESSAGE_PAGE_LIMIT) {
+      if (oldData.pages.length <= MESSAGE_CACHE_RETAINED_PAGES) {
         return oldData
       }
 
       return {
         ...oldData,
-        pages: [latestPage.slice(0, MESSAGE_PAGE_LIMIT)],
-        pageParams: [latestPageParam],
+        pages: oldData.pages.slice(0, MESSAGE_CACHE_RETAINED_PAGES),
+        pageParams: oldData.pageParams.slice(0, MESSAGE_CACHE_RETAINED_PAGES),
       }
     },
   )
 }
 
 export function useMessages(conversationId: string) {
-  return useInfiniteQuery(getMessagesInfiniteQueryOptions(conversationId))
+  const queryClient = useQueryClient()
+  const currentUser = useAuthStore((state) => state.user)
+
+  const conversation = useMemo(
+    () => getCachedConversation(queryClient, conversationId),
+    [queryClient, conversationId],
+  )
+
+  const query = useInfiniteQuery(
+    getMessagesInfiniteQueryOptions({
+      conversation,
+      conversationId,
+      currentUser,
+    }),
+  )
+
+  const hasLoadedMessagePages = Boolean(query.data?.pages.length)
+
+  useEffect(() => {
+    if (
+      !hasLoadedMessagePages ||
+      query.isFetching ||
+      !shouldSyncLatestMessages(conversationId, query.dataUpdatedAt)
+    ) {
+      return
+    }
+
+    let cancelled = false
+
+    const syncLatestMessages = async () => {
+      try {
+        const remotePage = await conversationApi.getMessages(conversationId, {
+          limit: MESSAGE_PAGE_LIMIT,
+        })
+        markLatestMessagesSynced(conversationId)
+
+        if (cancelled || remotePage.length === 0) {
+          return
+        }
+
+        await upsertRemoteMessages({
+          conversation: conversation ?? null,
+          currentUser: currentUser ?? null,
+          messages: remotePage,
+        })
+
+        if (cancelled) {
+          return
+        }
+
+        queryClient.setQueryData<InfiniteData<Message[]> | undefined>(
+          queryKeys.conversations.messages(conversationId),
+          (oldData) => {
+            if (!oldData?.pages?.length) {
+              return {
+                pages: [sortMessagesNewestFirst(remotePage)],
+                pageParams: [undefined],
+              }
+            }
+
+            const [firstPage = [], ...restPages] = oldData.pages
+
+            return {
+              ...oldData,
+              pages: [
+                sortMessagesNewestFirst(dedupeMessages([...remotePage, ...firstPage])).slice(
+                  0,
+                  MESSAGE_PAGE_LIMIT,
+                ),
+                ...restPages,
+              ],
+            }
+          },
+        )
+      } catch (error) {
+        console.warn('[Messages] Failed to sync latest messages', error)
+      }
+    }
+
+    void syncLatestMessages()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    conversation,
+    conversationId,
+    currentUser,
+    hasLoadedMessagePages,
+    query.dataUpdatedAt,
+    query.isFetching,
+    queryClient,
+  ])
+
+  return query
 }
 
 export function useSendMessage(conversationId: string) {
@@ -134,6 +340,11 @@ export function useSendMessage(conversationId: string) {
     useChatStore()
   const { user } = useAuthStore()
   const queryClient = useQueryClient()
+
+  const currentConversation = useMemo(
+    () => getCachedConversation(queryClient, conversationId),
+    [queryClient, conversationId],
+  )
 
   return useMutation({
     mutationFn: async (variables: SendMessageVariables) => {
@@ -185,18 +396,6 @@ export function useSendMessage(conversationId: string) {
 
       socket.emit('send_message', payload)
 
-      const refetchDelays = [800, 2500]
-      refetchDelays.forEach((delay) => {
-        setTimeout(() => {
-          queryClient.refetchQueries({
-            queryKey: queryKeys.conversations.messages(conversationId),
-          })
-          queryClient.refetchQueries({
-            queryKey: queryKeys.conversations.all,
-          })
-        }, delay)
-      })
-
       return payload
     },
     onMutate: async (variables: SendMessageVariables) => {
@@ -241,7 +440,20 @@ export function useSendMessage(conversationId: string) {
       }
 
       addOptimisticMessage(conversationId, tempMessage)
+
       if (type === 'text' && !media) {
+        void createPendingTextMessage({
+          clientMessageId: tempId,
+          content,
+          conversation: currentConversation ?? null,
+          conversationId,
+          currentUser: user,
+          replyPreview: replyPreview ?? null,
+          replyToId: replyToId ?? null,
+        }).catch((error) => {
+          console.warn('[Messages] Failed to persist pending text message locally', error)
+        })
+
         enqueueOfflineMessage({
           id: tempId,
           conversationId,
@@ -295,6 +507,14 @@ export function useSendMessage(conversationId: string) {
           updatedAt: result.updatedAt,
         })
       }
+
+      void upsertRemoteMessage({
+        conversation: currentConversation ?? null,
+        currentUser: user ?? null,
+        message: result,
+      }).catch((error) => {
+        console.warn('[Messages] Failed to persist confirmed message locally', error)
+      })
 
       if ((variables.type ?? 'text') === 'text' && !variables.media && result.clientMessageId) {
         useChatStore.getState().dequeueOfflineMessage(result.clientMessageId)

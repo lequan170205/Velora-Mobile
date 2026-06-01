@@ -6,6 +6,7 @@ import type { InfiniteData } from '@tanstack/react-query'
 
 import { authApi } from '../api/auth.api'
 import { queryKeys } from '../constants/queryKeys'
+import { applyMediaProcessingUpdate, upsertRemoteMessage } from '../database/messageSync'
 import {
   patchConversationMessagesInCache,
   patchMessagesAcrossConversationCaches,
@@ -255,6 +256,50 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       )
     }
 
+    const patchExistingMessageQuery = (message: Message) => {
+      queryClient.setQueryData<InfiniteData<Message[]> | Message[] | undefined>(
+        queryKeys.conversations.messages(message.conversationId),
+        (oldData) => {
+          if (!oldData) {
+            return oldData
+          }
+
+          if ('pages' in oldData) {
+            const exists = oldData.pages.some((page) =>
+              page.some((item) => isSameMessageIdentity(item, message)),
+            )
+
+            if (!exists) {
+              return oldData
+            }
+
+            return {
+              ...oldData,
+              pages: oldData.pages.map((page) =>
+                page.map((item) =>
+                  isSameMessageIdentity(item, message) ? mergeMessageRecords(item, message) : item,
+                ),
+              ),
+            }
+          }
+
+          if (Array.isArray(oldData)) {
+            const exists = oldData.some((item) => isSameMessageIdentity(item, message))
+
+            if (!exists) {
+              return oldData
+            }
+
+            return oldData.map((item) =>
+              isSameMessageIdentity(item, message) ? mergeMessageRecords(item, message) : item,
+            )
+          }
+
+          return oldData
+        },
+      )
+    }
+
     const getConversationActivityAt = (conversation: Partial<Conversation>) => {
       const value = conversation.lastMessageAt ?? conversation.updatedAt ?? conversation.createdAt
       return value ? new Date(value).getTime() : 0
@@ -402,6 +447,25 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    const persistSocketMessage = (
+      message: Message,
+      options?: {
+        incrementUnread?: boolean
+      },
+    ) => {
+      const currentUser = useAuthStore.getState().user
+
+      void upsertRemoteMessage({
+        currentUser: currentUser ?? null,
+        message,
+        ...(options?.incrementUnread !== undefined
+          ? { incrementUnread: options.incrementUnread }
+          : {}),
+      }).catch((error) => {
+        console.warn('[Socket] Failed to persist socket message locally', error)
+      })
+    }
+
     const patchMessageMediaFromProcessingEvent = (payload: {
       conversationId?: string
       fileKey?: string
@@ -423,6 +487,15 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       if (messageIds.size === 0 && !fileKey) {
         return
       }
+
+      void applyMediaProcessingUpdate({
+        media: payload.media,
+        ...(payload.conversationId ? { conversationId: payload.conversationId } : {}),
+        ...(fileKey ? { fileKey } : {}),
+        ...(messageIds.size > 0 ? { messageIds: Array.from(messageIds) } : {}),
+      }).catch((error) => {
+        console.error('[Socket] Failed to persist media processing update locally', error)
+      })
 
       const updateMessage = (message: Message) => {
         const matchesMessageId =
@@ -485,6 +558,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       const isPendingEcho =
         String((message as { status?: string }).status || '').toLowerCase() === 'sending'
 
+      persistSocketMessage(message, {
+        incrementUnread: !isOwnMessage,
+      })
+
       upsertConversationSummary(
         {
           id: conversationId,
@@ -502,9 +579,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!isOwnMessage) {
-        queryClient.refetchQueries({
-          queryKey: queryKeys.conversations.messages(conversationId),
-        })
         return
       }
 
@@ -521,6 +595,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     })
 
     newSocket.on('message_synced', (message: Message) => {
+      persistSocketMessage(message)
+
       upsertConversationSummary(
         {
           id: message.conversationId,
@@ -532,6 +608,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         },
         { allowPlaceholder: true },
       )
+
       upsertMessageQuery(message)
 
       if (userId && message.senderId === userId) {
@@ -542,10 +619,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         } else {
           reconcileOptimisticMessage(message)
         }
-      } else {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.conversations.messages(message.conversationId),
-        })
       }
     })
 
@@ -774,11 +847,13 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       },
     )
 
-    // New: Handle reaction updates
     newSocket.on('message_reaction_updated', (message: Message) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.conversations.messages(message.conversationId),
-      })
+      if (!message?.conversationId) {
+        return
+      }
+
+      persistSocketMessage(message)
+      patchExistingMessageQuery(message)
     })
 
     newSocket.on('user:online', ({ userId, lastSeenAt }) => {

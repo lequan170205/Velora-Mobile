@@ -15,6 +15,8 @@ const lockConversationNavigation = () => {
   conversationNavigationLockedUntil = Date.now() + CONVERSATION_NAVIGATION_LOCK_MS
 }
 
+export const navigationBypass = { targetId: null as string | null, timestamp: 0 }
+
 export function useConversationNavigation() {
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -38,6 +40,10 @@ export function useConversationNavigation() {
 
       lockConversationNavigation()
       prefetchConversation(conversationId)
+
+      navigationBypass.targetId = conversationId
+      navigationBypass.timestamp = Date.now()
+
       router.push(`/conversation/${conversationId}`)
       return true
     },
