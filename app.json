@@ -63,7 +63,34 @@
           "iosUrlScheme": "com.googleusercontent.apps.448991830808-ocr9rlrbmla6m5g2pr3c9ea59pson6su"
         }
       ],
-      "expo-video"
+      "expo-video",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Velora to access your media library.",
+          "savePhotosPermission": "Allow Velora to save photos and videos to your library.",
+          "granularPermissions": []
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "extraPods": [
+              {
+                "name": "simdjson",
+                "path": "../node_modules/@nozbe/simdjson",
+                "modular_headers": true
+              }
+            ]
+          },
+          "android": {
+            "packagingOptions": {
+              "pickFirst": ["**/libc++_shared.so"]
+            }
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
