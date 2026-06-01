@@ -112,6 +112,40 @@ const getMessageReplyPreview = (message: Partial<Message>) => {
   return message.replyPreview ?? message.reply_preview ?? null
 }
 
+const mergeReplyPreview = (
+  existingReplyPreview: string | ReplyPreviewData | null,
+  incomingReplyPreview: string | ReplyPreviewData | null,
+) => {
+  if (!incomingReplyPreview) {
+    return existingReplyPreview
+  }
+
+  if (!existingReplyPreview) {
+    return incomingReplyPreview
+  }
+
+  if (typeof existingReplyPreview === 'string' || typeof incomingReplyPreview === 'string') {
+    return incomingReplyPreview
+  }
+
+  if (incomingReplyPreview.thumbnailUri || !existingReplyPreview.thumbnailUri) {
+    return {
+      ...incomingReplyPreview,
+      ...(incomingReplyPreview.mediaWidth ? {} : { mediaWidth: existingReplyPreview.mediaWidth }),
+      ...(incomingReplyPreview.mediaHeight
+        ? {}
+        : { mediaHeight: existingReplyPreview.mediaHeight }),
+    }
+  }
+
+  return {
+    ...incomingReplyPreview,
+    thumbnailUri: existingReplyPreview.thumbnailUri,
+    ...(incomingReplyPreview.mediaWidth ? {} : { mediaWidth: existingReplyPreview.mediaWidth }),
+    ...(incomingReplyPreview.mediaHeight ? {} : { mediaHeight: existingReplyPreview.mediaHeight }),
+  }
+}
+
 const getMessageRecalledAt = (message: Partial<Message>) => {
   return toTimestamp(message.recalledAt ?? message.recalled_at ?? null) || null
 }
@@ -232,6 +266,7 @@ const findMessageByClientMessageId = async ({
 const prepareMessageRecord = ({
   content,
   createdAt,
+  existingReplyPreview,
   message,
   record,
   status,
@@ -239,6 +274,7 @@ const prepareMessageRecord = ({
 }: {
   content: string
   createdAt: number
+  existingReplyPreview?: string | ReplyPreviewData | null
   message: Message
   record: MessageModel
   status: MessageStatusValue
@@ -251,7 +287,10 @@ const prepareMessageRecord = ({
   record.status = status
   record.readBy = message.readBy ?? null
   record.replyToId = getMessageReplyToId(message)
-  record.replyPreview = getMessageReplyPreview(message)
+  record.replyPreview = mergeReplyPreview(
+    existingReplyPreview ?? null,
+    getMessageReplyPreview(message),
+  )
   record.reactions = message.reactions ?? null
   record.isDeleted = message.isDeleted ?? false
   record.isRecalled = message.isRecalled === true || message.is_recalled === true
@@ -693,6 +732,7 @@ export const upsertRemoteMessages = async ({
             prepareMessageRecord({
               content: preparedMessage.content,
               createdAt: preparedMessage.createdAt,
+              existingReplyPreview: record.replyPreview,
               message: normalizedMessage,
               record,
               status: normalizeMessageStatus(normalizedMessage.status),
@@ -712,6 +752,7 @@ export const upsertRemoteMessages = async ({
           prepareMessageRecord({
             content: preparedMessage.content,
             createdAt: preparedMessage.createdAt,
+            existingReplyPreview: pendingLocalRecord?.replyPreview ?? null,
             message: normalizedMessage,
             record,
             status: normalizeMessageStatus(normalizedMessage.status),

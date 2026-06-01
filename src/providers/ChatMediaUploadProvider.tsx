@@ -115,6 +115,38 @@ const sanitizeConfirmedMedia = (media?: MessageMedia | null): MessageMedia | und
   }
 }
 
+const mergeReplyPreview = (
+  remoteReplyPreview?: Message['replyPreview'],
+  localReplyPreview?: Message['replyPreview'],
+): Message['replyPreview'] | undefined => {
+  if (!remoteReplyPreview) {
+    return localReplyPreview
+  }
+
+  if (!localReplyPreview) {
+    return remoteReplyPreview
+  }
+
+  if (typeof remoteReplyPreview === 'string' || typeof localReplyPreview === 'string') {
+    return remoteReplyPreview
+  }
+
+  if (remoteReplyPreview.thumbnailUri || !localReplyPreview.thumbnailUri) {
+    return {
+      ...remoteReplyPreview,
+      ...(remoteReplyPreview.mediaWidth ? {} : { mediaWidth: localReplyPreview.mediaWidth }),
+      ...(remoteReplyPreview.mediaHeight ? {} : { mediaHeight: localReplyPreview.mediaHeight }),
+    }
+  }
+
+  return {
+    ...remoteReplyPreview,
+    thumbnailUri: localReplyPreview.thumbnailUri,
+    ...(remoteReplyPreview.mediaWidth ? {} : { mediaWidth: localReplyPreview.mediaWidth }),
+    ...(remoteReplyPreview.mediaHeight ? {} : { mediaHeight: localReplyPreview.mediaHeight }),
+  }
+}
+
 export function ChatMediaUploadProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient()
   const uploadTaskRef = useRef<UploadTask | null>(null)
@@ -456,6 +488,7 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
         signalType: 0,
         ...(job.replyToId ? { replyToId: job.replyToId } : {}),
       })
+      const mergedReplyPreview = mergeReplyPreview(savedMessage.replyPreview, job.replyPreview)
 
       const confirmedMessage: Message = {
         ...savedMessage,
@@ -470,9 +503,7 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
               reply_to_id: job.replyToId,
             }
           : {}),
-        ...(job.replyPreview && !savedMessage.replyPreview && !savedMessage.reply_preview
-          ? { replyPreview: job.replyPreview }
-          : {}),
+        ...(mergedReplyPreview ? { replyPreview: mergedReplyPreview } : {}),
       }
       const sanitizedConfirmedMedia = sanitizeConfirmedMedia(confirmedMessage.media)
 

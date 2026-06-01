@@ -41,6 +41,9 @@ export interface ReactionMap {
 export interface ReplyPreviewData {
   senderName: string
   content: string
+  thumbnailUri?: string
+  mediaWidth?: number
+  mediaHeight?: number
   type: 'text' | 'image' | 'video' | 'file' | 'call'
 }
 

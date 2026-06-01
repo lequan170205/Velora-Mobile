@@ -1,7 +1,10 @@
 import type { Message, MessageMedia } from '../types/conversation.types'
 
 type MessageLike = Partial<
-  Pick<Message, 'id' | '_id' | 'clientMessageId' | 'createdAt' | 'updatedAt' | 'media'>
+  Pick<
+    Message,
+    'id' | '_id' | 'clientMessageId' | 'createdAt' | 'updatedAt' | 'media' | 'replyPreview'
+  >
 > & {
   status?: string
 }
@@ -56,11 +59,13 @@ export const mergeMessageRecords = <T extends MessageLike>(existing: T, incoming
   }
 
   const mergedMedia = mergeMessageMedia(existing.media, incoming.media)
+  const mergedReplyPreview = mergeReplyPreview(existing.replyPreview, incoming.replyPreview)
 
   return {
     ...fallback,
     ...preferred,
     ...(mergedMedia ? { media: mergedMedia } : {}),
+    ...(mergedReplyPreview ? { replyPreview: mergedReplyPreview } : {}),
   }
 }
 
@@ -75,5 +80,37 @@ const mergeMessageMedia = (
   return {
     ...(existing ?? {}),
     ...(incoming ?? {}),
+  }
+}
+
+const mergeReplyPreview = (
+  existing?: Message['replyPreview'],
+  incoming?: Message['replyPreview'],
+): Message['replyPreview'] | undefined => {
+  if (!incoming) {
+    return existing
+  }
+
+  if (!existing) {
+    return incoming
+  }
+
+  if (typeof existing === 'string' || typeof incoming === 'string') {
+    return incoming
+  }
+
+  if (incoming.thumbnailUri || !existing.thumbnailUri) {
+    return {
+      ...incoming,
+      ...(incoming.mediaWidth ? {} : { mediaWidth: existing.mediaWidth }),
+      ...(incoming.mediaHeight ? {} : { mediaHeight: existing.mediaHeight }),
+    }
+  }
+
+  return {
+    ...incoming,
+    thumbnailUri: existing.thumbnailUri,
+    ...(incoming.mediaWidth ? {} : { mediaWidth: existing.mediaWidth }),
+    ...(incoming.mediaHeight ? {} : { mediaHeight: existing.mediaHeight }),
   }
 }

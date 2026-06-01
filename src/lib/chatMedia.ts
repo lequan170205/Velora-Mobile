@@ -67,6 +67,10 @@ export const getMediaPlaceholderLabel = (type: 'image' | 'video') => {
   return type === 'video' ? CHAT_VIDEO_PLACEHOLDER : CHAT_IMAGE_PLACEHOLDER
 }
 
+export const getChatMediaMaxWidth = (screenWidth: number) => {
+  return Math.max(196, Math.min(Math.floor(screenWidth * 0.62), 260))
+}
+
 export const calculateChatMediaDisplaySize = ({
   width,
   height,
@@ -78,21 +82,17 @@ export const calculateChatMediaDisplaySize = ({
 }) => {
   const normalizedWidth = width && width > 0 ? width : 200
   const normalizedHeight = height && height > 0 ? height : 200
-  const aspectRatio = normalizedWidth / normalizedHeight
-
   const maxHeight = 340
+  const widthScale = maxWidth / normalizedWidth
+  const heightScale = maxHeight / normalizedHeight
+  const scale = Math.min(widthScale, heightScale, 1)
 
-  let calculatedWidth = maxWidth
-  let calculatedHeight = maxWidth / aspectRatio
-
-  if (calculatedHeight > maxHeight) {
-    calculatedHeight = maxHeight
-    calculatedWidth = maxHeight * aspectRatio
-  }
+  const calculatedWidth = normalizedWidth * scale
+  const calculatedHeight = normalizedHeight * scale
 
   return {
-    displayWidth: Math.max(100, Math.round(calculatedWidth)),
-    displayHeight: Math.max(100, Math.round(calculatedHeight)),
+    displayWidth: Math.max(1, Math.round(calculatedWidth)),
+    displayHeight: Math.max(1, Math.round(calculatedHeight)),
   }
 }
 

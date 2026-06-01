@@ -6,7 +6,10 @@ import { Alert, useWindowDimensions } from 'react-native'
 import { createPendingMediaMessage } from '../database/messageSync'
 import {
   calculateChatMediaDisplaySize,
+  getChatMediaMaxWidth,
   getMediaPlaceholderLabel,
+  getResolvedMediaPosterUri,
+  getResolvedMediaUri,
   resolveAllowedChatMediaType,
 } from '../lib/chatMedia'
 import { upsertConversationSummaryInCache } from '../lib/chatMessageCache'
@@ -37,12 +40,29 @@ const getReplyPreview = ({
     return undefined
   }
 
+  let thumbnailUri: string | undefined
+  if (replyToMessage.type === 'video') {
+    thumbnailUri =
+      getResolvedMediaPosterUri(replyToMessage.media) ??
+      getResolvedMediaUri(replyToMessage.media) ??
+      undefined
+  } else if (replyToMessage.type === 'image') {
+    thumbnailUri = getResolvedMediaUri(replyToMessage.media) ?? undefined
+  }
+
+  const mediaWidth = replyToMessage.media?.width ?? replyToMessage.media?.displayWidth ?? undefined
+  const mediaHeight =
+    replyToMessage.media?.height ?? replyToMessage.media?.displayHeight ?? undefined
+
   return {
     senderName:
       replyToMessage.senderId === currentUserId
         ? 'You'
         : (replyToMessage.sender?.email?.split('@')[0] ?? 'User'),
     content: replyToMessage.content ?? '',
+    ...(thumbnailUri ? { thumbnailUri } : {}),
+    ...(mediaWidth ? { mediaWidth } : {}),
+    ...(mediaHeight ? { mediaHeight } : {}),
     type: (replyToMessage.type === 'voice' ? 'text' : replyToMessage.type) as
       | 'text'
       | 'image'
@@ -128,7 +148,7 @@ export function useChatMediaUploads(conversationId: string) {
         return
       }
 
-      const maxBubbleWidth = Math.max(196, Math.min(Math.floor(screenWidth * 0.62), 260))
+      const maxBubbleWidth = getChatMediaMaxWidth(screenWidth)
       const nextOptimisticMessages: Message[] = []
       const nextJobs: ChatMediaUploadJob[] = []
       let failedPreparationCount = 0

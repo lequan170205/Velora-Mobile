@@ -11,6 +11,7 @@ import {
   upsertRemoteMessage,
   upsertRemoteMessages,
 } from '../database/messageSync'
+import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../lib/chatMedia'
 import {
   upsertConversationSummaryInCache,
   upsertMessageIntoConversationCache,
@@ -75,6 +76,62 @@ const shouldSyncLatestMessages = (conversationId: string, dataUpdatedAt?: number
 const getMessageCreatedAtMs = (message: Message) => {
   const timestamp = new Date(message.createdAt).getTime()
   return Number.isFinite(timestamp) ? timestamp : 0
+}
+
+const getReplyPreviewThumbnailUri = (message?: Message | null) => {
+  if (!message || (message.type !== 'image' && message.type !== 'video')) {
+    return undefined
+  }
+
+  if (message.type === 'video') {
+    return (
+      getResolvedMediaPosterUri(message.media) ?? getResolvedMediaUri(message.media) ?? undefined
+    )
+  }
+
+  return getResolvedMediaUri(message.media) ?? undefined
+}
+
+const getReplyPreviewMediaSize = (message?: Message | null) => {
+  const mediaWidth = message?.media?.width ?? message?.media?.displayWidth ?? undefined
+  const mediaHeight = message?.media?.height ?? message?.media?.displayHeight ?? undefined
+
+  return {
+    ...(mediaWidth ? { mediaWidth } : {}),
+    ...(mediaHeight ? { mediaHeight } : {}),
+  }
+}
+
+const mergeReplyPreview = (
+  remoteReplyPreview?: Message['replyPreview'],
+  localReplyPreview?: Message['replyPreview'],
+): Message['replyPreview'] | undefined => {
+  if (!remoteReplyPreview) {
+    return localReplyPreview
+  }
+
+  if (!localReplyPreview) {
+    return remoteReplyPreview
+  }
+
+  if (typeof remoteReplyPreview === 'string' || typeof localReplyPreview === 'string') {
+    return remoteReplyPreview
+  }
+
+  if (remoteReplyPreview.thumbnailUri || !localReplyPreview.thumbnailUri) {
+    return {
+      ...remoteReplyPreview,
+      ...(remoteReplyPreview.mediaWidth ? {} : { mediaWidth: localReplyPreview.mediaWidth }),
+      ...(remoteReplyPreview.mediaHeight ? {} : { mediaHeight: localReplyPreview.mediaHeight }),
+    }
+  }
+
+  return {
+    ...remoteReplyPreview,
+    thumbnailUri: localReplyPreview.thumbnailUri,
+    ...(remoteReplyPreview.mediaWidth ? {} : { mediaWidth: localReplyPreview.mediaWidth }),
+    ...(remoteReplyPreview.mediaHeight ? {} : { mediaHeight: localReplyPreview.mediaHeight }),
+  }
 }
 
 const sortMessagesNewestFirst = (messages: Message[]) => {
@@ -408,12 +465,15 @@ export function useSendMessage(conversationId: string) {
 
       let replyPreview: Message['replyPreview'] | undefined = undefined
       if (replyToId && replyToMessage) {
+        const thumbnailUri = getReplyPreviewThumbnailUri(replyToMessage)
         replyPreview = {
           senderName:
             replyToMessage.senderId === user.id
               ? 'You'
               : (replyToMessage.sender?.email?.split('@')[0] ?? 'User'),
           content: replyToMessage.content ?? '',
+          ...(thumbnailUri ? { thumbnailUri } : {}),
+          ...getReplyPreviewMediaSize(replyToMessage),
           type: (replyToMessage.type === 'voice' ? 'text' : replyToMessage.type) as
             | 'text'
             | 'image'
@@ -483,7 +543,7 @@ export function useSendMessage(conversationId: string) {
         },
       )
 
-      return { tempId }
+      return { tempId, replyPreview }
     },
     onError: (_error, _variables, context) => {
       const { tempId } = context || {}
@@ -497,27 +557,37 @@ export function useSendMessage(conversationId: string) {
       }
 
       const tempId = context?.tempId
+      const replyPreview = mergeReplyPreview(result.replyPreview, context?.replyPreview)
+      const confirmedMessage: Message = {
+        ...result,
+        ...(replyPreview ? { replyPreview } : {}),
+      }
+
       if (tempId) {
-        useChatStore.getState().confirmMessage(tempId, result)
-        upsertMessageIntoConversationCache(queryClient, result)
+        useChatStore.getState().confirmMessage(tempId, confirmedMessage)
+        upsertMessageIntoConversationCache(queryClient, confirmedMessage)
         upsertConversationSummaryInCache(queryClient, {
-          id: result.conversationId,
-          lastMessage: result.content,
-          lastMessageAt: result.createdAt,
-          updatedAt: result.updatedAt,
+          id: confirmedMessage.conversationId,
+          lastMessage: confirmedMessage.content,
+          lastMessageAt: confirmedMessage.createdAt,
+          updatedAt: confirmedMessage.updatedAt,
         })
       }
 
       void upsertRemoteMessage({
         conversation: currentConversation ?? null,
         currentUser: user ?? null,
-        message: result,
+        message: confirmedMessage,
       }).catch((error) => {
         console.warn('[Messages] Failed to persist confirmed message locally', error)
       })
 
-      if ((variables.type ?? 'text') === 'text' && !variables.media && result.clientMessageId) {
-        useChatStore.getState().dequeueOfflineMessage(result.clientMessageId)
+      if (
+        (variables.type ?? 'text') === 'text' &&
+        !variables.media &&
+        confirmedMessage.clientMessageId
+      ) {
+        useChatStore.getState().dequeueOfflineMessage(confirmedMessage.clientMessageId)
       }
     },
   })

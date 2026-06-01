@@ -37,6 +37,38 @@ const SocketContext = createContext<SocketContextType>({
   requestPresence: () => {},
 })
 
+const mergeReplyPreview = (
+  remoteReplyPreview?: Message['replyPreview'],
+  localReplyPreview?: Message['replyPreview'],
+): Message['replyPreview'] | undefined => {
+  if (!remoteReplyPreview) {
+    return localReplyPreview
+  }
+
+  if (!localReplyPreview) {
+    return remoteReplyPreview
+  }
+
+  if (typeof remoteReplyPreview === 'string' || typeof localReplyPreview === 'string') {
+    return remoteReplyPreview
+  }
+
+  if (remoteReplyPreview.thumbnailUri || !localReplyPreview.thumbnailUri) {
+    return {
+      ...remoteReplyPreview,
+      ...(remoteReplyPreview.mediaWidth ? {} : { mediaWidth: localReplyPreview.mediaWidth }),
+      ...(remoteReplyPreview.mediaHeight ? {} : { mediaHeight: localReplyPreview.mediaHeight }),
+    }
+  }
+
+  return {
+    ...remoteReplyPreview,
+    thumbnailUri: localReplyPreview.thumbnailUri,
+    ...(remoteReplyPreview.mediaWidth ? {} : { mediaWidth: localReplyPreview.mediaWidth }),
+    ...(remoteReplyPreview.mediaHeight ? {} : { mediaHeight: localReplyPreview.mediaHeight }),
+  }
+}
+
 export const useSocket = () => useContext(SocketContext)
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
@@ -447,6 +479,32 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    const mergeMessageWithOptimisticReplyPreview = (message: Message) => {
+      const currentUser = useAuthStore.getState().user
+
+      if (!currentUser?.id || message.senderId !== currentUser.id) {
+        return message
+      }
+
+      const store = useChatStore.getState()
+      const pendingMsgs = store.optimisticMessages[message.conversationId] || []
+      const tempMessages = pendingMsgs.filter((pending) => pending.id.startsWith('temp-'))
+      const replyToId = message.replyToId ?? message.reply_to_id ?? null
+      const identityMatch = tempMessages.find((pending) => isSameMessageIdentity(pending, message))
+      const exactMatch = tempMessages.find(
+        (pending) =>
+          pending.senderId === message.senderId &&
+          pending.content === message.content &&
+          pending.type === message.type &&
+          (pending.replyToId ?? null) === replyToId,
+      )
+      const fallbackMatch = tempMessages.length === 1 ? tempMessages[0] : undefined
+      const match = identityMatch ?? exactMatch ?? fallbackMatch
+      const replyPreview = mergeReplyPreview(message.replyPreview, match?.replyPreview)
+
+      return replyPreview ? { ...message, replyPreview } : message
+    }
+
     const persistSocketMessage = (
       message: Message,
       options?: {
@@ -551,7 +609,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       patchMessagesAcrossConversationCaches(queryClient, updateMessage)
     }
 
-    newSocket.on('new_message', (message: Message) => {
+    newSocket.on('new_message', (incomingMessage: Message) => {
+      const message = mergeMessageWithOptimisticReplyPreview(incomingMessage)
       const currentUser = useAuthStore.getState().user
       const conversationId = message.conversationId
       const isOwnMessage = currentUser?.id === message.senderId
@@ -594,7 +653,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       upsertConversationSummary(conversation, { allowPlaceholder: true })
     })
 
-    newSocket.on('message_synced', (message: Message) => {
+    newSocket.on('message_synced', (incomingMessage: Message) => {
+      const message = mergeMessageWithOptimisticReplyPreview(incomingMessage)
       persistSocketMessage(message)
 
       upsertConversationSummary(

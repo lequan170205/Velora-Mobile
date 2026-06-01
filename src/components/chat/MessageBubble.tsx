@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'
 import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react'
-import { Image, Text, View, Pressable } from 'react-native'
+import { Image, Pressable, Text, View, useWindowDimensions } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
   interpolate,
@@ -14,6 +14,11 @@ import Animated, {
 } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 
+import {
+  calculateChatMediaDisplaySize,
+  getResolvedMediaPosterUri,
+  getResolvedMediaUri,
+} from '../../lib/chatMedia'
 import { cn } from '../../lib/cn'
 import { useChatStore } from '../../stores/chatStore'
 
@@ -58,7 +63,42 @@ const REPLY_PREVIEW_ICONS: Record<
 const URI_LIKE_PATTERN = /^(https?:\/\/|file:\/\/|content:\/\/|data:|blob:)/i
 const SWIPE_REPLY_TRIGGER_DISTANCE = 72
 
-const getReplyPreviewMeta = (replyPreview?: string | ReplyPreviewData) => {
+const getReplyPreviewThumbnailUri = (replyPreview?: Message['replyPreview'], replyTo?: Message) => {
+  if (typeof replyPreview !== 'string' && replyPreview?.thumbnailUri?.trim()) {
+    return replyPreview.thumbnailUri.trim()
+  }
+
+  if (!replyTo || (replyTo.type !== 'image' && replyTo.type !== 'video')) {
+    return null
+  }
+
+  if (replyTo.type === 'video') {
+    return getResolvedMediaPosterUri(replyTo.media) ?? getResolvedMediaUri(replyTo.media) ?? null
+  }
+
+  return getResolvedMediaUri(replyTo.media) ?? null
+}
+
+const getReplyPreviewMediaSize = (replyPreview?: Message['replyPreview'], replyTo?: Message) => {
+  if (typeof replyPreview !== 'string') {
+    const mediaWidth = replyPreview?.mediaWidth
+    const mediaHeight = replyPreview?.mediaHeight
+
+    if (mediaWidth || mediaHeight) {
+      return {
+        mediaWidth: mediaWidth ?? null,
+        mediaHeight: mediaHeight ?? null,
+      }
+    }
+  }
+
+  return {
+    mediaWidth: replyTo?.media?.width ?? replyTo?.media?.displayWidth ?? null,
+    mediaHeight: replyTo?.media?.height ?? replyTo?.media?.displayHeight ?? null,
+  }
+}
+
+const getReplyPreviewMeta = (replyPreview?: string | ReplyPreviewData, replyTo?: Message) => {
   if (!replyPreview) return null
 
   if (typeof replyPreview === 'string') {
@@ -66,6 +106,9 @@ const getReplyPreviewMeta = (replyPreview?: string | ReplyPreviewData) => {
       senderLabel: 'Original message',
       contentLabel: RECALLED_PREVIEW_MAP[replyPreview] ?? replyPreview,
       iconName: REPLY_PREVIEW_ICONS.text,
+      mediaWidth: null,
+      mediaHeight: null,
+      thumbnailUri: null,
       type: 'text' as const,
     }
   }
@@ -84,6 +127,8 @@ const getReplyPreviewMeta = (replyPreview?: string | ReplyPreviewData) => {
     senderLabel: replyPreview.senderName?.trim() || 'Original message',
     contentLabel,
     iconName: REPLY_PREVIEW_ICONS[replyPreview.type],
+    ...getReplyPreviewMediaSize(replyPreview, replyTo),
+    thumbnailUri: getReplyPreviewThumbnailUri(replyPreview, replyTo),
     type: replyPreview.type,
   }
 }
@@ -184,6 +229,13 @@ const areMediaEqual = (left?: Message['media'], right?: Message['media']) => {
   )
 }
 
+const areReplyTargetsEqual = (left?: Message['replyTo'], right?: Message['replyTo']) => {
+  if (left === right) return true
+  if (!left || !right) return !left && !right
+
+  return left.id === right.id && left.type === right.type && areMediaEqual(left.media, right.media)
+}
+
 interface MessageBubbleProps {
   message: Message
   timeLabel?: string
@@ -232,6 +284,7 @@ const MessageBubbleComponent = function MessageBubble({
   onOpenContextMenu,
   onOpenMedia,
 }: MessageBubbleProps) {
+  const { width: screenWidth } = useWindowDimensions()
   const resolvedConversationId = conversationId || message.conversationId
   const isMarkedSeen = useChatStore(
     useCallback(
@@ -404,9 +457,25 @@ const MessageBubbleComponent = function MessageBubble({
   }, [message.reactions])
 
   const replyPreviewMeta = useMemo(
-    () => getReplyPreviewMeta(message.replyPreview),
-    [message.replyPreview],
+    () => getReplyPreviewMeta(message.replyPreview, message.replyTo),
+    [message.replyPreview, message.replyTo],
   )
+  const replyPreviewMediaSize = useMemo(() => {
+    if (
+      !replyPreviewMeta?.thumbnailUri ||
+      (replyPreviewMeta.type !== 'image' && replyPreviewMeta.type !== 'video')
+    ) {
+      return null
+    }
+
+    const maxWidth = Math.max(156, Math.min(Math.floor(screenWidth * 0.48), 220))
+
+    return calculateChatMediaDisplaySize({
+      height: replyPreviewMeta.mediaHeight,
+      maxWidth,
+      width: replyPreviewMeta.mediaWidth,
+    })
+  }, [replyPreviewMeta, screenWidth])
   const senderDisplayName = useMemo(
     () => getSenderDisplayName({ isOwn, senderInfo }),
     [isOwn, senderInfo],
@@ -498,26 +567,94 @@ const MessageBubbleComponent = function MessageBubble({
             <Pressable
               onPress={onPressReplyPreview ?? null}
               disabled={!onPressReplyPreview}
-              className="max-w-full rounded-[22px] bg-surface-input px-4 py-3"
+              className={cn(
+                'max-w-full overflow-hidden rounded-[22px] bg-surface-input',
+                replyPreviewMeta.type === 'text' ? 'px-4 py-3' : 'p-2',
+              )}
             >
               {replyPreviewMeta.type === 'text' ? (
                 <Text className="text-[15px] leading-[24px] text-text-secondary" numberOfLines={3}>
                   {replyPreviewMeta.contentLabel}
                 </Text>
               ) : (
-                <View className="flex-row items-center">
-                  <MaterialIcons
-                    name={replyPreviewMeta.iconName}
-                    size={16}
-                    color="#8A8A8A"
-                    style={{ marginRight: 6 }}
-                  />
-                  <Text
-                    className="flex-1 text-[14px] leading-[21px] text-text-secondary"
-                    numberOfLines={2}
-                  >
-                    {replyPreviewMeta.contentLabel}
-                  </Text>
+                <View>
+                  {replyPreviewMeta.thumbnailUri &&
+                  (replyPreviewMeta.type === 'image' || replyPreviewMeta.type === 'video') &&
+                  replyPreviewMediaSize ? (
+                    <View
+                      style={{
+                        width: replyPreviewMediaSize.displayWidth,
+                        height: replyPreviewMediaSize.displayHeight,
+                        borderRadius: 16,
+                        overflow: 'hidden',
+                        backgroundColor: replyPreviewMeta.type === 'video' ? '#111111' : '#EFEFEF',
+                        alignSelf: 'flex-start',
+                      }}
+                    >
+                      <Image
+                        source={{ uri: replyPreviewMeta.thumbnailUri }}
+                        style={{
+                          width: replyPreviewMediaSize.displayWidth,
+                          height: replyPreviewMediaSize.displayHeight,
+                        }}
+                        resizeMode="contain"
+                      />
+                      {replyPreviewMeta.type === 'video' ? (
+                        <View
+                          pointerEvents="none"
+                          style={{
+                            position: 'absolute',
+                            left: 0,
+                            right: 0,
+                            top: 0,
+                            bottom: 0,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <View
+                            style={{
+                              width: 44,
+                              height: 44,
+                              borderRadius: 22,
+                              backgroundColor: 'rgba(12,12,13,0.58)',
+                              borderWidth: 1,
+                              borderColor: 'rgba(255,255,255,0.16)',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <MaterialIcons name="play-arrow" size={24} color="#FFFFFF" />
+                          </View>
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : (
+                    <View className="flex-row items-center px-2 py-1">
+                      <MaterialIcons
+                        name={replyPreviewMeta.iconName}
+                        size={16}
+                        color="#8A8A8A"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text
+                        className="flex-1 text-[14px] leading-[21px] text-text-secondary"
+                        numberOfLines={2}
+                      >
+                        {replyPreviewMeta.contentLabel}
+                      </Text>
+                    </View>
+                  )}
+
+                  {replyPreviewMeta.thumbnailUri &&
+                  (replyPreviewMeta.type === 'image' || replyPreviewMeta.type === 'video') ? (
+                    <Text
+                      className="px-1 pt-2 text-[13px] leading-[18px] text-text-secondary"
+                      numberOfLines={1}
+                    >
+                      {replyPreviewMeta.contentLabel}
+                    </Text>
+                  ) : null}
                 </View>
               )}
             </Pressable>
@@ -633,6 +770,9 @@ export const MessageBubble = memo(MessageBubbleComponent, (prevProps, nextProps)
     typeof prevReply === 'string' || typeof nextReply === 'string'
       ? prevReply === nextReply
       : prevReply?.content === nextReply?.content &&
+        prevReply?.mediaWidth === nextReply?.mediaWidth &&
+        prevReply?.mediaHeight === nextReply?.mediaHeight &&
+        prevReply?.thumbnailUri === nextReply?.thumbnailUri &&
         prevReply?.type === nextReply?.type &&
         prevReply?.senderName === nextReply?.senderName
 
@@ -654,6 +794,7 @@ export const MessageBubble = memo(MessageBubbleComponent, (prevProps, nextProps)
     prevProps.highlightToken === nextProps.highlightToken &&
     prevProps.message.isRecalled === nextProps.message.isRecalled &&
     prevProps.message.is_recalled === nextProps.message.is_recalled &&
+    areReplyTargetsEqual(prevProps.message.replyTo, nextProps.message.replyTo) &&
     prevProps.isExpanded === nextProps.isExpanded &&
     prevProps.isContextMenuActive === nextProps.isContextMenuActive &&
     prevProps.onOpenMedia === nextProps.onOpenMedia &&

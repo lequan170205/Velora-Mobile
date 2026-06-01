@@ -6,6 +6,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-na
 
 import {
   calculateChatMediaDisplaySize,
+  getChatMediaMaxWidth,
   getMediaUploadStage,
   getResolvedMediaUri,
   isRemoteMediaUri,
@@ -90,21 +91,33 @@ export function ChatMediaBubble({
   }, [progress, progressValue])
 
   const { displayWidth: mediaWidth, displayHeight: mediaHeight } = useMemo(() => {
-    const rawWidth =
-      message.media?.width ||
-      message.media?.displayWidth ||
-      uploadJob?.displayWidth ||
-      memoWidth ||
-      200
-    const rawHeight =
-      message.media?.height ||
-      message.media?.displayHeight ||
-      uploadJob?.displayHeight ||
-      memoHeight ||
-      200
-    const maxWidth = Math.max(196, Math.min(Math.floor(screenWidth * 0.65), 260))
+    const rawWidth = message.media?.width ?? uploadJob?.width ?? undefined
+    const rawHeight = message.media?.height ?? uploadJob?.height ?? undefined
+    const resolvedDisplayWidth =
+      message.media?.displayWidth ?? uploadJob?.displayWidth ?? memoWidth ?? undefined
+    const resolvedDisplayHeight =
+      message.media?.displayHeight ?? uploadJob?.displayHeight ?? memoHeight ?? undefined
 
-    return calculateChatMediaDisplaySize({ height: rawHeight, maxWidth, width: rawWidth })
+    if (rawWidth && rawHeight) {
+      return calculateChatMediaDisplaySize({
+        height: rawHeight,
+        maxWidth: getChatMediaMaxWidth(screenWidth),
+        width: rawWidth,
+      })
+    }
+
+    if (resolvedDisplayWidth && resolvedDisplayHeight) {
+      return {
+        displayWidth: resolvedDisplayWidth,
+        displayHeight: resolvedDisplayHeight,
+      }
+    }
+
+    return calculateChatMediaDisplaySize({
+      maxWidth: getChatMediaMaxWidth(screenWidth),
+      ...(rawWidth ? { width: rawWidth } : {}),
+      ...(rawHeight ? { height: rawHeight } : {}),
+    })
   }, [memoHeight, memoWidth, message.media, screenWidth, uploadJob])
 
   const mediaStage = uploadJob?.uploadStage ?? getMediaUploadStage(message.media)
@@ -167,7 +180,7 @@ export function ChatMediaBubble({
       <Image
         accessibilityLabel="Photo attachment"
         cachePolicy={cachePolicy}
-        contentFit="cover"
+        contentFit="contain"
         recyclingKey={mediaUri}
         source={{ uri: mediaUri }}
         style={{ backgroundColor: '#EFEFEF', height: mediaHeight, width: mediaWidth }}
@@ -192,7 +205,7 @@ export function ChatMediaBubble({
       <Image
         accessibilityLabel="Video attachment"
         cachePolicy={cachePolicy}
-        contentFit="cover"
+        contentFit="contain"
         recyclingKey={posterUri}
         source={{ uri: posterUri }}
         style={{ backgroundColor: '#0C0C0D', height: mediaHeight, width: mediaWidth }}
@@ -235,7 +248,7 @@ export function ChatMediaBubble({
         >
           {isInlineVideoActive && mediaUri ? (
             <ReelVideo
-              contentFit="cover"
+              contentFit="contain"
               key={`inline-video-${clientMessageId}-${mediaStage}`}
               muted={false}
               nativeControls={false}

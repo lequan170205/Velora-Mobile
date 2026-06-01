@@ -135,6 +135,9 @@ export const sanitizeReplyPreview = (value: unknown): MessageReplyPreview => {
 
   const senderName = sanitizeString(value.senderName)
   const content = sanitizeString(value.content)
+  const thumbnailUri = sanitizeString(value.thumbnailUri)
+  const mediaWidth = sanitizeNumber(value.mediaWidth)
+  const mediaHeight = sanitizeNumber(value.mediaHeight)
   const type = sanitizeString(value.type)
 
   if (!senderName || !content || !type || !REPLY_PREVIEW_TYPES.has(type)) {
@@ -144,6 +147,9 @@ export const sanitizeReplyPreview = (value: unknown): MessageReplyPreview => {
   return {
     senderName,
     content,
+    ...(thumbnailUri ? { thumbnailUri } : {}),
+    ...(mediaWidth !== null ? { mediaWidth } : {}),
+    ...(mediaHeight !== null ? { mediaHeight } : {}),
     type: type as ReplyPreviewData['type'],
   }
 }
