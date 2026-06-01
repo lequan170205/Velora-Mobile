@@ -1,12 +1,15 @@
+import { useQueryClient } from '@tanstack/react-query'
 import * as VideoThumbnails from 'expo-video-thumbnails'
 import { useCallback } from 'react'
 import { Alert, useWindowDimensions } from 'react-native'
 
+import { createPendingMediaMessage } from '../database/messageSync'
 import {
   calculateChatMediaDisplaySize,
   getMediaPlaceholderLabel,
   resolveAllowedChatMediaType,
 } from '../lib/chatMedia'
+import { upsertConversationSummaryInCache } from '../lib/chatMessageCache'
 import { createClientMessageId } from '../lib/clientMessageId'
 import { useAuthStore } from '../stores/authStore'
 import { useChatMediaUploadStore } from '../stores/chatMediaUploadStore'
@@ -15,6 +18,13 @@ import { useChatStore } from '../stores/chatStore'
 import type { ChatMediaUploadJob } from '../stores/chatMediaUploadStore'
 import type { Message } from '../types/conversation.types'
 import type { ImagePickerAsset } from 'expo-image-picker'
+
+interface FileSystemCleanupModule {
+  deleteAsync: (fileUri: string, options?: { idempotent?: boolean }) => Promise<void>
+}
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+const LegacyFileSystemCleanup = require('expo-file-system/legacy') as FileSystemCleanupModule
 
 const getReplyPreview = ({
   currentUserId,
@@ -44,34 +54,36 @@ const getReplyPreview = ({
 
 const buildOptimisticMessage = ({
   clientMessageId,
+  content,
   conversationId,
   currentUser,
-  type,
-  content,
-  fileUri,
-  fileType,
-  width,
-  height,
-  durationMs,
-  displayWidth,
   displayHeight,
-  replyToId,
+  displayWidth,
+  durationMs,
+  fileType,
+  fileUri,
+  height,
+  localPosterUri,
   replyPreview,
+  replyToId,
+  type,
+  width,
 }: {
   clientMessageId: string
+  content: string
   conversationId: string
   currentUser: NonNullable<ReturnType<typeof useAuthStore.getState>['user']>
-  type: 'image' | 'video'
-  content: string
-  fileUri: string
-  fileType: string
-  width?: number
-  height?: number
-  durationMs?: number
-  displayWidth: number
   displayHeight: number
-  replyToId?: string
+  displayWidth: number
+  durationMs?: number
+  fileType: string
+  fileUri: string
+  height?: number
+  localPosterUri?: string
   replyPreview?: Message['replyPreview']
+  replyToId?: string
+  type: 'image' | 'video'
+  width?: number
 }): Message => {
   const now = new Date().toISOString()
 
@@ -91,9 +103,10 @@ const buildOptimisticMessage = ({
       ...(width ? { width } : {}),
       ...(height ? { height } : {}),
       ...(durationMs ? { durationMs } : {}),
+      ...(localPosterUri ? { localPosterUri } : {}),
     },
     type,
-    status: 'SENT',
+    status: 'PENDING',
     createdAt: now,
     updatedAt: now,
     ...(replyToId ? { replyToId } : {}),
@@ -103,10 +116,10 @@ const buildOptimisticMessage = ({
 
 export function useChatMediaUploads(conversationId: string) {
   const { user } = useAuthStore()
+  const queryClient = useQueryClient()
   const replyToMessage = useChatStore((state) => state.replyToMessage)
   const setReplyToMessage = useChatStore((state) => state.setReplyToMessage)
   const addOptimisticMessages = useChatStore((state) => state.addOptimisticMessages)
-  const updateOptimisticMessage = useChatStore((state) => state.updateOptimisticMessage)
   const { width: screenWidth } = useWindowDimensions()
 
   const enqueueMediaAssets = useCallback(
@@ -118,7 +131,7 @@ export function useChatMediaUploads(conversationId: string) {
       const maxBubbleWidth = Math.max(196, Math.min(Math.floor(screenWidth * 0.62), 260))
       const nextOptimisticMessages: Message[] = []
       const nextJobs: ChatMediaUploadJob[] = []
-      const nextVideoPosterTasks: Promise<void>[] = []
+      let failedPreparationCount = 0
       const replyPreview = getReplyPreview({
         currentUserId: user.id,
         replyToMessage,
@@ -153,25 +166,69 @@ export function useChatMediaUploads(conversationId: string) {
         const assetWidth = asset.width && asset.width > 0 ? asset.width : null
         const assetHeight = asset.height && asset.height > 0 ? asset.height : null
         const assetDurationMs = asset.duration && asset.duration > 0 ? asset.duration : null
-
-        const optimisticMessage = buildOptimisticMessage({
-          clientMessageId,
-          conversationId,
-          currentUser: user,
-          type: kind,
-          content,
-          fileUri: asset.uri,
-          fileType,
+        const createdAt = new Date().toISOString()
+        const localPosterUri =
+          kind === 'video'
+            ? await VideoThumbnails.getThumbnailAsync(asset.uri, {
+                quality: 0.65,
+                time: asset.duration ? Math.floor(asset.duration / 2) : 2000,
+              })
+                .then((thumbnail) => thumbnail.uri)
+                .catch(() => null)
+            : null
+        const pendingMedia: NonNullable<Message['media']> = {
+          localFileUri: asset.uri,
           displayWidth: displaySize.displayWidth,
           displayHeight: displaySize.displayHeight,
+          mimeType: fileType,
+          uploadStage: 'queued',
           ...(assetWidth ? { width: assetWidth } : {}),
           ...(assetHeight ? { height: assetHeight } : {}),
           ...(assetDurationMs ? { durationMs: assetDurationMs } : {}),
-          ...(replyToId ? { replyToId } : {}),
-          ...(replyPreview ? { replyPreview } : {}),
-        })
+          ...(localPosterUri ? { localPosterUri } : {}),
+        }
 
-        nextOptimisticMessages.push(optimisticMessage)
+        try {
+          await createPendingMediaMessage({
+            clientMessageId,
+            content,
+            conversationId,
+            currentUser: user,
+            media: pendingMedia,
+            type: kind,
+            ...(replyToId ? { replyToId } : {}),
+            ...(replyPreview ? { replyPreview } : {}),
+          })
+        } catch (error) {
+          failedPreparationCount += 1
+          if (localPosterUri) {
+            void LegacyFileSystemCleanup.deleteAsync(localPosterUri, { idempotent: true }).catch(
+              () => undefined,
+            )
+          }
+          console.error('[ChatMediaUploads] Failed to create pending media message', error)
+          continue
+        }
+
+        nextOptimisticMessages.push(
+          buildOptimisticMessage({
+            clientMessageId,
+            content,
+            conversationId,
+            currentUser: user,
+            displayHeight: displaySize.displayHeight,
+            displayWidth: displaySize.displayWidth,
+            fileType,
+            fileUri: asset.uri,
+            type: kind,
+            ...(assetWidth ? { width: assetWidth } : {}),
+            ...(assetHeight ? { height: assetHeight } : {}),
+            ...(assetDurationMs ? { durationMs: assetDurationMs } : {}),
+            ...(localPosterUri ? { localPosterUri } : {}),
+            ...(replyToId ? { replyToId } : {}),
+            ...(replyPreview ? { replyPreview } : {}),
+          }),
+        )
 
         nextJobs.push({
           clientMessageId,
@@ -186,55 +243,45 @@ export function useChatMediaUploads(conversationId: string) {
           ...(assetWidth ? { width: assetWidth } : {}),
           ...(assetHeight ? { height: assetHeight } : {}),
           ...(assetDurationMs ? { durationMs: assetDurationMs } : {}),
+          ...(localPosterUri ? { localPosterUri } : {}),
           ...(replyToId ? { replyToId } : {}),
           ...(replyPreview ? { replyPreview } : {}),
           uploadStage: 'queued',
-          createdAt: optimisticMessage.createdAt,
+          createdAt,
           cleanupPending: false,
         })
-
-        if (kind === 'video') {
-          nextVideoPosterTasks.push(
-            VideoThumbnails.getThumbnailAsync(asset.uri, {
-              quality: 0.65,
-              time: asset.duration ? Math.floor(asset.duration / 2) : 2000,
-            })
-              .then((thumbnail) => {
-                useChatMediaUploadStore.getState().patchJob(clientMessageId, {
-                  localPosterUri: thumbnail.uri,
-                })
-                updateOptimisticMessage(conversationId, clientMessageId, (message) => ({
-                  ...message,
-                  media: {
-                    ...(message.media ?? {}),
-                    localPosterUri: thumbnail.uri,
-                  },
-                }))
-              })
-              .catch(() => undefined),
-          )
-        }
       }
 
       if (nextJobs.length === 0) {
+        if (failedPreparationCount > 0) {
+          Alert.alert('Could not attach media', 'Please try selecting the media again.')
+        }
         return
       }
 
       addOptimisticMessages(conversationId, nextOptimisticMessages)
       useChatMediaUploadStore.getState().enqueueJobs(nextJobs)
+      const lastQueuedJob = nextJobs[nextJobs.length - 1]
+      if (lastQueuedJob) {
+        upsertConversationSummaryInCache(queryClient, {
+          id: conversationId,
+          lastMessage: lastQueuedJob.content,
+          lastMessageAt: lastQueuedJob.createdAt,
+          updatedAt: lastQueuedJob.createdAt,
+        })
+      }
       setReplyToMessage(null)
-
-      if (nextVideoPosterTasks.length > 0) {
-        void Promise.allSettled(nextVideoPosterTasks)
+      if (failedPreparationCount > 0) {
+        Alert.alert('Some media were not attached', 'Please try selecting those items again.')
       }
     },
     [
       addOptimisticMessages,
       conversationId,
+      queryClient,
       replyToMessage,
       screenWidth,
       setReplyToMessage,
-      updateOptimisticMessage,
       user,
     ],
   )

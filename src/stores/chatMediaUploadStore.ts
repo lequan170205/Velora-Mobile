@@ -1,5 +1,6 @@
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { create } from 'zustand'
-import { subscribeWithSelector } from 'zustand/middleware'
+import { createJSONStorage, persist, subscribeWithSelector } from 'zustand/middleware'
 
 import type { AllowedChatMediaType } from '../lib/chatMedia'
 import type { Message, MessageMedia, MessageMediaUploadStage } from '../types/conversation.types'
@@ -35,6 +36,7 @@ export interface ChatMediaUploadJob {
   preparedMedia?: MessageMedia
   uploadStartedAt?: number
   lastProgressAt?: number
+  deliveryStartedAt?: number
   createdAt: string
   cleanupPending: boolean
 }
@@ -43,6 +45,7 @@ interface QueueSlice {
   jobsById: Record<string, ChatMediaUploadJob>
   queue: string[]
   activeJobId: string | null
+  cancelRequestById: Record<string, number>
   enqueueJobs: (jobs: ChatMediaUploadJob[]) => void
   setActiveJobId: (clientMessageId: string | null) => void
   patchJob: (clientMessageId: string, patch: Partial<ChatMediaUploadJob>) => void
@@ -52,7 +55,8 @@ interface QueueSlice {
     options?: { failureReason?: string },
   ) => void
   retryJob: (clientMessageId: string) => void
-  cancelJob: (clientMessageId: string) => void
+  requestCancel: (clientMessageId: string) => void
+  acknowledgeCancel: (clientMessageId: string) => void
   removeJob: (clientMessageId: string) => void
 }
 
@@ -81,6 +85,7 @@ const createQueueSlice: StateCreator<ChatMediaUploadStore, [], [], QueueSlice> =
   jobsById: {},
   queue: [],
   activeJobId: null,
+  cancelRequestById: {},
   enqueueJobs: (jobs) =>
     set((state) => {
       const nextJobsById = { ...state.jobsById }
@@ -160,6 +165,7 @@ const createQueueSlice: StateCreator<ChatMediaUploadStore, [], [], QueueSlice> =
         failureReason: _failureReason,
         uploadStartedAt: _uploadStartedAt,
         lastProgressAt: _lastProgressAt,
+        deliveryStartedAt: _deliveryStartedAt,
         ...restJob
       } = currentJob
 
@@ -175,22 +181,31 @@ const createQueueSlice: StateCreator<ChatMediaUploadStore, [], [], QueueSlice> =
         activeJobId: state.activeJobId === clientMessageId ? null : state.activeJobId,
       }
     }),
-  cancelJob: (clientMessageId) =>
+  requestCancel: (clientMessageId) =>
     set((state) => {
       const currentJob = state.jobsById[clientMessageId]
-      if (!currentJob) {
+      if (!currentJob || currentJob.deliveryStartedAt || currentJob.uploadStage === 'processing') {
         return state
       }
 
       return {
-        jobsById: {
-          ...state.jobsById,
-          [clientMessageId]: {
-            ...currentJob,
-            uploadStage: 'failed',
-            failureReason: 'Upload cancelled',
-          },
+        queue: state.queue.filter((queuedId) => queuedId !== clientMessageId),
+        cancelRequestById: {
+          ...state.cancelRequestById,
+          [clientMessageId]: Date.now(),
         },
+      }
+    }),
+  acknowledgeCancel: (clientMessageId) =>
+    set((state) => {
+      const nextJobsById = { ...state.jobsById }
+      const nextRequests = { ...state.cancelRequestById }
+      delete nextJobsById[clientMessageId]
+      delete nextRequests[clientMessageId]
+
+      return {
+        jobsById: nextJobsById,
+        cancelRequestById: nextRequests,
         queue: state.queue.filter((queuedId) => queuedId !== clientMessageId),
         activeJobId: state.activeJobId === clientMessageId ? null : state.activeJobId,
       }
@@ -202,10 +217,13 @@ const createQueueSlice: StateCreator<ChatMediaUploadStore, [], [], QueueSlice> =
       }
 
       const nextJobsById = { ...state.jobsById }
+      const nextRequests = { ...state.cancelRequestById }
       delete nextJobsById[clientMessageId]
+      delete nextRequests[clientMessageId]
 
       return {
         jobsById: nextJobsById,
+        cancelRequestById: nextRequests,
         queue: state.queue.filter((queuedId) => queuedId !== clientMessageId),
         activeJobId: state.activeJobId === clientMessageId ? null : state.activeJobId,
       }
@@ -255,12 +273,77 @@ const createLifecycleSlice: StateCreator<ChatMediaUploadStore, [], [], Lifecycle
     })),
 })
 
+const normalizeHydratedJob = (job: ChatMediaUploadJob): ChatMediaUploadJob => {
+  if (job.uploadStage === 'failed') {
+    return job
+  }
+
+  const {
+    deliveryStartedAt: _deliveryStartedAt,
+    failureReason: _failureReason,
+    lastProgressAt: _lastProgressAt,
+    uploadStartedAt: _uploadStartedAt,
+    ...restJob
+  } = job
+
+  return {
+    ...restJob,
+    uploadStage: 'queued',
+  }
+}
+
 export const useChatMediaUploadStore = create<ChatMediaUploadStore>()(
-  subscribeWithSelector((...args) => ({
-    ...createQueueSlice(...args),
-    ...createProgressSlice(...args),
-    ...createLifecycleSlice(...args),
-  })),
+  persist(
+    subscribeWithSelector((...args) => ({
+      ...createQueueSlice(...args),
+      ...createProgressSlice(...args),
+      ...createLifecycleSlice(...args),
+    })),
+    {
+      name: 'chat-media-upload-storage',
+      storage: createJSONStorage(() => AsyncStorage),
+      partialize: (state) => ({
+        cancelRequestById: state.cancelRequestById,
+        jobsById: state.jobsById,
+        queue: state.queue,
+      }),
+      merge: (persistedState, currentState) => {
+        const persisted = (persistedState || {}) as Record<string, unknown>
+        const persistedJobs =
+          (persisted.jobsById as Record<string, ChatMediaUploadJob> | undefined) ?? {}
+        const persistedQueue = (persisted.queue as string[] | undefined) ?? []
+        const cancelRequestById =
+          (persisted.cancelRequestById as Record<string, number> | undefined) ?? {}
+        const jobsById = Object.fromEntries(
+          Object.entries(persistedJobs).map(([clientMessageId, job]) => [
+            clientMessageId,
+            normalizeHydratedJob(job),
+          ]),
+        )
+        const queue = Array.from(
+          new Set(
+            [
+              ...persistedQueue,
+              ...Object.values(jobsById)
+                .filter(
+                  (job) => job.uploadStage !== 'failed' && !cancelRequestById[job.clientMessageId],
+                )
+                .map((job) => job.clientMessageId),
+            ].filter((clientMessageId) => jobsById[clientMessageId]),
+          ),
+        )
+
+        return {
+          ...currentState,
+          activeJobId: null,
+          cancelRequestById,
+          jobsById,
+          progressById: {},
+          queue,
+        }
+      },
+    },
+  ),
 )
 
 export const selectChatMediaUploadJob = (clientMessageId?: string | null) => {

@@ -4,13 +4,20 @@ import { AppState, Platform, unstable_batchedUpdates } from 'react-native'
 
 import { conversationApi } from '../api/conversation.api'
 import { mediaApi } from '../api/media.api'
+import { queryKeys } from '../constants/queryKeys'
+import {
+  deletePendingMediaMessage,
+  markMediaMessageFailed,
+  patchLocalMediaMessage,
+  upsertRemoteMessage,
+} from '../database/messageSync'
 import { getMediaPlaceholderLabel } from '../lib/chatMedia'
 import {
   patchConversationMessagesInCache,
   upsertConversationSummaryInCache,
   upsertMessageIntoConversationCache,
 } from '../lib/chatMessageCache'
-import { mergeMessageRecords } from '../lib/messageIdentity'
+import { useAuthStore } from '../stores/authStore'
 import { useChatMediaUploadStore } from '../stores/chatMediaUploadStore'
 import { useChatStore } from '../stores/chatStore'
 
@@ -114,6 +121,7 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
   const thumbnailTaskRef = useRef<UploadTask | null>(null)
   const processingJobIdRef = useRef<string | null>(null)
   const reconcileTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const localMediaMutationQueueRef = useRef<Map<string, Promise<void>>>(new Map())
 
   const activeJobId = useChatMediaUploadStore((state) => state.activeJobId)
   const queuedJobId = useChatMediaUploadStore((state) =>
@@ -121,6 +129,7 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
   )
   const appState = useChatMediaUploadStore((state) => state.appState)
   const reconcileVersion = useChatMediaUploadStore((state) => state.reconcileVersion)
+  const cancelRequestById = useChatMediaUploadStore((state) => state.cancelRequestById)
 
   const syncOptimisticMessageFromJob = useCallback((clientMessageId: string) => {
     const job = useChatMediaUploadStore.getState().jobsById[clientMessageId]
@@ -133,15 +142,14 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
       .updateOptimisticMessage(job.conversationId, clientMessageId, (message) => {
         const {
           failureReason: _previousFailureReason,
+          lastProgressAt: _previousLastProgressAt,
           uploadStage: _previousUploadStage,
           uploadStartedAt: _previousUploadStartedAt,
-          lastProgressAt: _previousLastProgressAt,
           ...restMedia
         } = message.media ?? {}
-
-        const resolvedWidth = job.width ?? restMedia.width
-        const resolvedHeight = job.height ?? restMedia.height
         const resolvedDurationMs = job.durationMs ?? restMedia.durationMs
+        const resolvedHeight = job.height ?? restMedia.height
+        const resolvedWidth = job.width ?? restMedia.width
         const nextMedia: MessageMedia = {
           ...restMedia,
           ...(job.preparedMedia ?? {}),
@@ -149,24 +157,24 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
           ...(job.thumbnailKey ? { thumbnailKey: job.thumbnailKey } : {}),
           ...(job.localPosterUri ? { localPosterUri: job.localPosterUri } : {}),
           localFileUri: job.fileUri,
-          displayWidth: job.displayWidth,
           displayHeight: job.displayHeight,
+          displayWidth: job.displayWidth,
           mimeType: job.fileType,
           uploadStage: job.uploadStage,
-          ...(resolvedWidth ? { width: resolvedWidth } : {}),
-          ...(resolvedHeight ? { height: resolvedHeight } : {}),
           ...(resolvedDurationMs ? { durationMs: resolvedDurationMs } : {}),
+          ...(resolvedHeight ? { height: resolvedHeight } : {}),
+          ...(resolvedWidth ? { width: resolvedWidth } : {}),
           ...(job.failureReason ? { failureReason: job.failureReason } : {}),
-          ...(job.uploadStartedAt ? { uploadStartedAt: job.uploadStartedAt } : {}),
           ...(job.lastProgressAt ? { lastProgressAt: job.lastProgressAt } : {}),
+          ...(job.uploadStartedAt ? { uploadStartedAt: job.uploadStartedAt } : {}),
         }
 
         return {
           ...message,
           content: job.content,
-          type: job.type,
-          status: job.uploadStage === 'failed' ? 'FAILED' : 'SENT',
           media: nextMedia,
+          status: job.uploadStage === 'failed' ? 'FAILED' : 'PENDING',
+          type: job.type,
         }
       })
   }, [])
@@ -185,24 +193,58 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
     [syncOptimisticMessageFromJob],
   )
 
+  const enqueueLocalMediaMutation = useCallback(
+    (clientMessageId: string, operation: () => Promise<void>) => {
+      const queue = localMediaMutationQueueRef.current
+      const previousMutation = queue.get(clientMessageId) ?? Promise.resolve()
+      const nextMutation = previousMutation.catch(() => undefined).then(operation)
+
+      queue.set(clientMessageId, nextMutation)
+      void nextMutation
+        .catch(() => undefined)
+        .then(() => {
+          if (queue.get(clientMessageId) === nextMutation) {
+            queue.delete(clientMessageId)
+          }
+        })
+
+      return nextMutation
+    },
+    [],
+  )
+
   const setJobStage = useCallback(
     (
       clientMessageId: string,
       uploadStage: ChatMediaUploadJob['uploadStage'],
-      options?: { failureReason?: string; syncOptimistic?: boolean },
+      options?: { failureReason?: string },
     ) => {
-      useChatMediaUploadStore
-        .getState()
-        .setJobStage(
-          clientMessageId,
-          uploadStage,
-          options?.failureReason ? { failureReason: options.failureReason } : undefined,
-        )
-      if (options?.syncOptimistic !== false) {
-        syncOptimisticMessageFromJob(clientMessageId)
+      const store = useChatMediaUploadStore.getState()
+      store.setJobStage(
+        clientMessageId,
+        uploadStage,
+        options?.failureReason ? { failureReason: options.failureReason } : undefined,
+      )
+      syncOptimisticMessageFromJob(clientMessageId)
+
+      const job = store.jobsById[clientMessageId]
+      if (job) {
+        void enqueueLocalMediaMutation(clientMessageId, () =>
+          patchLocalMediaMessage({
+            clientMessageId,
+            conversationId: job.conversationId,
+            mediaPatch: {
+              uploadStage,
+              ...(options?.failureReason ? { failureReason: options.failureReason } : {}),
+            },
+            ...(uploadStage !== 'failed' ? { clearFailureReason: true } : {}),
+          }),
+        ).catch((error) => {
+          console.error('[ChatMediaUpload] Failed to persist media upload stage', error)
+        })
       }
     },
-    [syncOptimisticMessageFromJob],
+    [enqueueLocalMediaMutation, syncOptimisticMessageFromJob],
   )
 
   const clearJobProgress = useCallback((clientMessageId: string) => {
@@ -225,7 +267,7 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
     const state = useChatMediaUploadStore.getState()
     const job = state.jobsById[clientMessageId]
 
-    if (!job || state.activeJobId !== clientMessageId) {
+    if (!job || state.activeJobId !== clientMessageId || state.cancelRequestById[clientMessageId]) {
       throw new Error('Upload aborted')
     }
 
@@ -249,11 +291,15 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
       trackProgress: boolean
     }) => {
       let finalUri = fileUri
+      let temporaryUploadUri: string | null = null
 
       if (finalUri.startsWith('ph://') || finalUri.startsWith('assets-library://')) {
         const fileExt = fileType.split('/')[1] || 'mp4'
         const docDir = LegacyFileSystem.documentDirectory
-        const baseDir = docDir?.endsWith('/') ? docDir : `${docDir}/`
+        if (!docDir) {
+          throw new Error('No local storage is available to prepare upload.')
+        }
+        const baseDir = docDir.endsWith('/') ? docDir : `${docDir}/`
 
         const tempPath = `${baseDir}temp_upload_${clientMessageId}.${fileExt}`
 
@@ -263,41 +309,50 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
         })
 
         finalUri = tempPath
+        temporaryUploadUri = tempPath
       }
 
-      const uploadTask = LegacyFileSystem.createUploadTask(
-        uploadUrl,
-        finalUri,
-        {
-          headers: { 'Content-Type': fileType },
-          httpMethod: 'PUT',
-          uploadType: LegacyFileSystem.FileSystemUploadType.BINARY_CONTENT,
-          ...(Platform.OS === 'ios'
-            ? { sessionType: LegacyFileSystem.FileSystemSessionType.BACKGROUND }
-            : {}),
-        },
-        trackProgress
-          ? (progress) => {
-              useChatMediaUploadStore.getState().setJobProgress(clientMessageId, progress)
-              useChatMediaUploadStore.getState().patchJob(clientMessageId, {
-                lastProgressAt: Date.now(),
-              })
-            }
-          : undefined,
-      )
+      try {
+        const uploadTask = LegacyFileSystem.createUploadTask(
+          uploadUrl,
+          finalUri,
+          {
+            headers: { 'Content-Type': fileType },
+            httpMethod: 'PUT',
+            uploadType: LegacyFileSystem.FileSystemUploadType.BINARY_CONTENT,
+            ...(Platform.OS === 'ios'
+              ? { sessionType: LegacyFileSystem.FileSystemSessionType.BACKGROUND }
+              : {}),
+          },
+          trackProgress
+            ? (progress) => {
+                useChatMediaUploadStore.getState().setJobProgress(clientMessageId, progress)
+                useChatMediaUploadStore.getState().patchJob(clientMessageId, {
+                  lastProgressAt: Date.now(),
+                })
+              }
+            : undefined,
+        )
 
-      if (kind === 'thumbnail') {
-        thumbnailTaskRef.current = uploadTask
-      } else {
-        uploadTaskRef.current = uploadTask
+        if (kind === 'thumbnail') {
+          thumbnailTaskRef.current = uploadTask
+        } else {
+          uploadTaskRef.current = uploadTask
+        }
+
+        const result = await uploadTask.uploadAsync()
+        if (!result || !isSuccessfulUpload(result.status)) {
+          throw new Error(`Upload failed with status ${result?.status ?? 'unknown'}`)
+        }
+
+        return result
+      } finally {
+        if (temporaryUploadUri) {
+          await LegacyFileSystem.deleteAsync(temporaryUploadUri, { idempotent: true }).catch(
+            () => undefined,
+          )
+        }
       }
-
-      const result = await uploadTask.uploadAsync()
-      if (!result || !isSuccessfulUpload(result.status)) {
-        throw new Error(`Upload failed with status ${result?.status ?? 'unknown'}`)
-      }
-
-      return result
     },
     [],
   )
@@ -337,7 +392,9 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
             purpose: 'chat_thumbnail',
           })
           thumbnailKey = thumbnailUpload.key
-          patchJob(clientMessageId, thumbnailKey ? { thumbnailKey } : {}, { syncOptimistic: false })
+          patchJob(clientMessageId, thumbnailKey ? { thumbnailKey } : {}, {
+            syncOptimistic: false,
+          })
 
           await runUploadTask({
             clientMessageId,
@@ -374,6 +431,22 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
       }
 
       job = requireRunnableJob(clientMessageId)
+      const localReadyMedia: MessageMedia = {
+        ...preparedMedia,
+        ...(job.fileUri ? { localFileUri: job.fileUri } : {}),
+        ...(job.localPosterUri ? { localPosterUri: job.localPosterUri } : {}),
+        uploadStage: preparedMedia?.status === 'processing' ? 'processing' : 'ready',
+      }
+
+      patchJob(clientMessageId, { deliveryStartedAt: Date.now() }, { syncOptimistic: false })
+      await enqueueLocalMediaMutation(clientMessageId, () =>
+        patchLocalMediaMessage({
+          clientMessageId,
+          conversationId: job.conversationId,
+          clearFailureReason: true,
+          mediaPatch: localReadyMedia,
+        }),
+      )
 
       const savedMessage = await conversationApi.sendMessage(job.conversationId, {
         clientMessageId,
@@ -384,22 +457,23 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
         ...(job.replyToId ? { replyToId: job.replyToId } : {}),
       })
 
-      const optimisticMessage =
-        useChatStore
-          .getState()
-          .optimisticMessages[
-            job.conversationId
-          ]?.find((message) => message.id === clientMessageId) ?? null
-
-      const confirmedMessage = optimisticMessage
-        ? (mergeMessageRecords(optimisticMessage, {
-            ...savedMessage,
-            media: preparedMedia,
-          }) as Message)
-        : ({
-            ...savedMessage,
-            media: preparedMedia,
-          } as Message)
+      const confirmedMessage: Message = {
+        ...savedMessage,
+        clientMessageId,
+        content: savedMessage.content ?? job.content,
+        media: savedMessage.media ?? preparedMedia,
+        status: savedMessage.status ?? 'SENT',
+        type: savedMessage.type ?? job.type,
+        ...(job.replyToId && !savedMessage.replyToId && !savedMessage.reply_to_id
+          ? {
+              replyToId: job.replyToId,
+              reply_to_id: job.replyToId,
+            }
+          : {}),
+        ...(job.replyPreview && !savedMessage.replyPreview && !savedMessage.reply_preview
+          ? { replyPreview: job.replyPreview }
+          : {}),
+      }
       const sanitizedConfirmedMedia = sanitizeConfirmedMedia(confirmedMessage.media)
 
       const sanitizedConfirmedMessage: Message = {
@@ -407,13 +481,33 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
         ...(sanitizedConfirmedMedia ? { media: sanitizedConfirmedMedia } : {}),
       }
 
-      upsertMessageIntoConversationCache(queryClient, sanitizedConfirmedMessage)
-      upsertConversationSummaryInCache(queryClient, {
-        id: sanitizedConfirmedMessage.conversationId,
-        lastMessage: sanitizedConfirmedMessage.content ?? getMediaPlaceholderLabel(job.type),
-        lastMessageAt: sanitizedConfirmedMessage.createdAt,
-        updatedAt: sanitizedConfirmedMessage.updatedAt,
-      })
+      try {
+        await upsertRemoteMessage({
+          currentUser: useAuthStore.getState().user ?? null,
+          message: sanitizedConfirmedMessage,
+        })
+      } catch (error) {
+        console.error('[ChatMediaUpload] Failed to persist confirmed media message locally', error)
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.conversations.messages(job.conversationId),
+        })
+      }
+
+      try {
+        upsertMessageIntoConversationCache(queryClient, sanitizedConfirmedMessage)
+        upsertConversationSummaryInCache(queryClient, {
+          id: sanitizedConfirmedMessage.conversationId,
+          lastMessage: sanitizedConfirmedMessage.content ?? getMediaPlaceholderLabel(job.type),
+          lastMessageAt: sanitizedConfirmedMessage.createdAt,
+          updatedAt: sanitizedConfirmedMessage.updatedAt,
+        })
+      } catch (error) {
+        console.error('[ChatMediaUpload] Failed to sync confirmed media message cache', error)
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.conversations.messages(job.conversationId),
+        })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.conversations.all })
+      }
 
       useChatStore.getState().confirmMessage(clientMessageId, sanitizedConfirmedMessage)
       clearJobProgress(clientMessageId)
@@ -428,6 +522,7 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
     [
       cleanupLocalPoster,
       clearJobProgress,
+      enqueueLocalMediaMutation,
       patchJob,
       queryClient,
       requireRunnableJob,
@@ -437,7 +532,7 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
   )
 
   const markJobsFailed = useCallback(
-    (jobs: ChatMediaUploadJob[], failureReason: string) => {
+    async (jobs: ChatMediaUploadJob[], failureReason: string) => {
       if (jobs.length === 0) {
         return
       }
@@ -465,13 +560,26 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
                     failureReason,
                     uploadStage: 'failed',
                   },
+                  status: 'FAILED',
                 }
               : message,
           )
         })
       })
+
+      await Promise.allSettled(
+        jobs.map((job) =>
+          enqueueLocalMediaMutation(job.clientMessageId, () =>
+            markMediaMessageFailed({
+              clientMessageId: job.clientMessageId,
+              conversationId: job.conversationId,
+              failureReason,
+            }),
+          ),
+        ),
+      )
     },
-    [clearJobProgress, queryClient, setJobStage],
+    [clearJobProgress, enqueueLocalMediaMutation, queryClient, setJobStage],
   )
 
   const markJobFailed = useCallback(
@@ -481,7 +589,7 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
         return
       }
 
-      markJobsFailed([job], failureReason)
+      await markJobsFailed([job], failureReason)
     },
     [markJobsFailed],
   )
@@ -515,6 +623,38 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
       }
     },
     [finalizeAndSendJob, markJobFailed, syncOptimisticMessageFromJob],
+  )
+
+  const cancelPendingJob = useCallback(
+    async (clientMessageId: string) => {
+      const store = useChatMediaUploadStore.getState()
+      const job = store.jobsById[clientMessageId]
+
+      if (!job || job.deliveryStartedAt) {
+        return
+      }
+
+      if (store.activeJobId === clientMessageId) {
+        await Promise.allSettled([
+          uploadTaskRef.current?.cancelAsync(),
+          thumbnailTaskRef.current?.cancelAsync(),
+        ])
+      }
+
+      await Promise.allSettled([
+        deletePendingMediaMessage({
+          clientMessageId,
+          conversationId: job.conversationId,
+        }),
+        cleanupLocalPoster(job),
+      ])
+
+      useChatStore.getState().removeOptimisticMessage(job.conversationId, clientMessageId)
+      clearJobProgress(clientMessageId)
+      useChatMediaUploadStore.getState().acknowledgeCancel(clientMessageId)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.conversations.all })
+    },
+    [cleanupLocalPoster, clearJobProgress, queryClient],
   )
 
   useEffect(() => {
@@ -552,6 +692,12 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
   }, [])
 
   useEffect(() => {
+    Object.keys(cancelRequestById).forEach((clientMessageId) => {
+      void cancelPendingJob(clientMessageId)
+    })
+  }, [cancelPendingJob, cancelRequestById])
+
+  useEffect(() => {
     if (!queuedJobId || activeJobId || appState !== 'active') {
       return
     }
@@ -585,7 +731,7 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
       }
     })
 
-    markJobsFailed(staleJobs, 'Upload timed out. Please retry.')
+    void markJobsFailed(staleJobs, 'Upload timed out. Please retry.')
   }, [appState, markJobsFailed, reconcileVersion])
 
   return <>{children}</>
