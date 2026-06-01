@@ -3,6 +3,10 @@ module.exports = function (api) {
 
   return {
     presets: [['babel-preset-expo', { jsxImportSource: 'nativewind' }]],
-    plugins: ['react-native-reanimated/plugin'],
+    plugins: [
+      ['@babel/plugin-transform-flow-strip-types', { allowDeclareFields: true }],
+      ['@babel/plugin-proposal-decorators', { legacy: true }],
+      'react-native-reanimated/plugin',
+    ],
   }
 }

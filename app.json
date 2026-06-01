@@ -20,8 +20,7 @@
         "NSCameraUsageDescription": "Velora uses the camera to record reels.",
         "NSMicrophoneUsageDescription": "Velora uses the microphone to record audio for reels."
       },
-      "bundleIdentifier": "com.yourcompany.velora",
-      "jsEngine": "jsc"
+      "bundleIdentifier": "com.quan.velora.dev"
     },
     "android": {
       "adaptiveIcon": {
