@@ -21,6 +21,7 @@ export const queryKeys = {
     contexts: () => ['reels', 'context'] as const,
     context: (id: string, params?: Record<string, unknown>) =>
       ['reels', 'context', id, params ?? {}] as const,
+    pendingCreated: () => ['reels', 'pending-created'] as const,
     detail: (id: string) => ['reels', id] as const,
     status: (id: string) => ['reels', id, 'status'] as const,
   },

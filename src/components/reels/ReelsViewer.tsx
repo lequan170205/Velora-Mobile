@@ -3,7 +3,7 @@ import { useIsFocused } from '@react-navigation/native'
 import { FlashList, type FlashListRef, type ListRenderItemInfo } from '@shopify/flash-list'
 import { useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   RefreshControl,
@@ -105,6 +105,8 @@ export function ReelsViewer({
   const listRef = useRef<FlashListRef<Reel> | null>(null)
   const handledRequestedReelIdRef = useRef<string | null>(null)
   const scrollOffsetYRef = useRef(0)
+  const isUserScrollingRef = useRef(false)
+  const wasFocusedRef = useRef(isFocused)
   const [viewportHeight, setViewportHeight] = useState(windowHeight)
   const [activeReelId, setActiveReelId] = useState<string | null>(null)
   const activeReelIdRef = useRef<string | null>(null)
@@ -115,7 +117,6 @@ export function ReelsViewer({
   const [contextNextCursor, setContextNextCursor] = useState<string | null>(null)
   const [isFetchingContextNextPage, setIsFetchingContextNextPage] = useState(false)
   const reelsRef = useRef<Reel[]>([])
-  const activeIndexRef = useRef(-1)
   const previousSelectedReelIdRef = useRef<string | undefined>(reelId)
   const shouldUseReelContext = mode === 'context' && Boolean(reelId)
   const shouldLoadPublicFeed = !shouldUseReelContext
@@ -200,10 +201,6 @@ export function ReelsViewer({
   }, [reels])
 
   useEffect(() => {
-    activeIndexRef.current = activeIndex
-  }, [activeIndex])
-
-  useEffect(() => {
     const previousSelectedReelId = previousSelectedReelIdRef.current
 
     if (reelId && previousSelectedReelId !== reelId) {
@@ -284,19 +281,19 @@ export function ReelsViewer({
 
   const handleLayout = (event: LayoutChangeEvent) => {
     const nextHeight = event.nativeEvent.layout.height
-    if (nextHeight > 0 && nextHeight !== viewportHeight) {
-      if (activeIndex >= 0) {
-        listRef.current?.scrollToOffset({
-          offset: activeIndex * nextHeight,
-          animated: false,
-        })
-      }
-      setViewportHeight(nextHeight)
+    if (!isFocused || nextHeight <= 0 || nextHeight === viewportHeight) {
+      return
     }
+
+    setViewportHeight(nextHeight)
   }
 
   const setActiveByOffset = useCallback(
     (offsetY: number) => {
+      if (!isFocused) {
+        return
+      }
+
       scrollOffsetYRef.current = offsetY
 
       if (reels.length === 0 || viewportHeight <= 0) {
@@ -320,7 +317,7 @@ export function ReelsViewer({
       activeReelIdRef.current = nextReelId
       setActiveReelId(nextReelId)
     },
-    [reels, viewportHeight],
+    [isFocused, reels, viewportHeight],
   )
 
   useEffect(() => {
@@ -331,54 +328,49 @@ export function ReelsViewer({
     setActiveByOffset(scrollOffsetYRef.current)
   }, [activeReelId, reels, setActiveByOffset])
 
-  useEffect(() => {
-    if (!isFocused || reels.length === 0 || viewportHeight <= 0) {
+  useLayoutEffect(() => {
+    const wasFocused = wasFocusedRef.current
+    wasFocusedRef.current = isFocused
+
+    if (!isFocused || wasFocused || !activeReelIdRef.current) {
       return
     }
 
-    const currentIndex = activeIndexRef.current
-    const activeReelIndex = activeReelIdRef.current
-      ? reels.findIndex((item) => item.id === activeReelIdRef.current)
-      : -1
-    const offsetIndex = Math.round(scrollOffsetYRef.current / viewportHeight)
-    const nextIndex = Math.max(
-      0,
-      Math.min(
-        reels.length - 1,
-        activeReelIndex >= 0 ? activeReelIndex : currentIndex >= 0 ? currentIndex : offsetIndex,
-      ),
+    const activeReelIndex = reelsRef.current.findIndex(
+      (item) => item.id === activeReelIdRef.current,
     )
-    const nextReelId = reels[nextIndex]?.id ?? null
+    if (activeReelIndex < 0) {
+      return
+    }
 
-    requestAnimationFrame(() => {
-      scrollOffsetYRef.current = nextIndex * viewportHeight
-      activeReelIdRef.current = nextReelId
-      setActiveReelId(nextReelId)
-      listRef.current?.scrollToOffset({
-        offset: nextIndex * viewportHeight,
-        animated: false,
-      })
+    const scrollPromise = listRef.current?.scrollToIndex({
+      index: activeReelIndex,
+      animated: false,
+      viewPosition: 0,
     })
-  }, [isFocused, reels, viewportHeight])
+    void scrollPromise?.catch(() => undefined)
+  }, [isFocused])
 
   const handleMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    setActiveByOffset(event.nativeEvent.contentOffset.y)
+    if (isUserScrollingRef.current) {
+      setActiveByOffset(event.nativeEvent.contentOffset.y)
+    }
+
+    isUserScrollingRef.current = false
   }
 
   const handleScrollEndDrag = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const velocityY = event.nativeEvent.velocity?.y ?? 0
 
-    if (Math.abs(velocityY) < 0.05) {
+    if (isUserScrollingRef.current && Math.abs(velocityY) < 0.05) {
       setActiveByOffset(event.nativeEvent.contentOffset.y)
+      isUserScrollingRef.current = false
     }
   }
 
-  const handleScroll = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      setActiveByOffset(event.nativeEvent.contentOffset.y)
-    },
-    [setActiveByOffset],
-  )
+  const handleScrollBeginDrag = () => {
+    isUserScrollingRef.current = true
+  }
 
   const fetchNextContextPage = useCallback(async () => {
     if (
@@ -470,7 +462,9 @@ export function ReelsViewer({
   const handleReelDeleted = useCallback(
     (deletedReelId: string) => {
       const currentReels = reelsRef.current
-      const currentActiveIndex = activeIndexRef.current
+      const currentActiveIndex = activeReelIdRef.current
+        ? currentReels.findIndex((item) => item.id === activeReelIdRef.current)
+        : -1
 
       setDeletedReelIds((current) => {
         const next = new Set(current)
@@ -636,6 +630,7 @@ export function ReelsViewer({
         contentContainerStyle={reels.length === 0 ? { flexGrow: 1 } : undefined}
         initialScrollIndex={initialScrollIndex}
         pagingEnabled
+        decelerationRate="fast"
         alwaysBounceVertical={shouldAllowRefresh}
         bounces={shouldAllowRefresh && (activeIndex <= 0 || isActiveRefetching)}
         disableIntervalMomentum
@@ -652,8 +647,7 @@ export function ReelsViewer({
         snapToAlignment="start"
         drawDistance={viewportHeight * 2}
         maxItemsInRecyclePool={4}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
+        onScrollBeginDrag={handleScrollBeginDrag}
         onScrollEndDrag={handleScrollEndDrag}
         onMomentumScrollEnd={handleMomentumScrollEnd}
         onEndReachedThreshold={0.45}

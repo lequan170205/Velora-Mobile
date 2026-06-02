@@ -230,6 +230,75 @@ const shouldUpsertCreatedReelIntoList = (reel: Reel, params: Partial<ListReelsPa
   return params.visibility === reel.visibility || reel.visibility === 'public'
 }
 
+const mergePendingCreatedReels = (current: Reel[] | undefined, reel: Reel) => {
+  const pendingReels = current ?? []
+  const existingIndex = pendingReels.findIndex((item) => item.id === reel.id)
+
+  if (existingIndex === -1) {
+    return [reel, ...pendingReels]
+  }
+
+  return pendingReels.map((item) => (item.id === reel.id ? { ...item, ...reel } : item))
+}
+
+const mergePendingCreatedReelsIntoResponse = (
+  response: ListReelsResponse,
+  pendingReels: Reel[] | undefined,
+  params: Partial<ListReelsParams>,
+  shouldPrepend: boolean,
+) => {
+  if (!shouldPrepend || !pendingReels?.length) {
+    return response
+  }
+
+  const matchingPendingReels = pendingReels.filter((reel) =>
+    shouldUpsertCreatedReelIntoList(reel, params),
+  )
+
+  if (matchingPendingReels.length === 0) {
+    return response
+  }
+
+  const pendingById = new Map(matchingPendingReels.map((reel) => [reel.id, reel]))
+  const serverItems = response.items.map((item) => {
+    const pendingReel = pendingById.get(item.id)
+
+    if (!pendingReel) {
+      return item
+    }
+
+    pendingById.delete(item.id)
+    return { ...pendingReel, ...item }
+  })
+
+  return {
+    ...response,
+    items: [...pendingById.values(), ...serverItems],
+  }
+}
+
+const mergePendingCreatedReelsIntoContext = (
+  context: ReelContextResponse,
+  pendingReels: Reel[] | undefined,
+) => {
+  if (!pendingReels?.length) {
+    return context
+  }
+
+  const pendingById = new Map(pendingReels.map((reel) => [reel.id, reel]))
+  const items = context.items.map((item) => {
+    const pendingReel = pendingById.get(item.id)
+    return pendingReel ? { ...pendingReel, ...item } : item
+  })
+  const selectedPendingReel = pendingById.get(context.selectedId)
+
+  if (selectedPendingReel && !items.some((item) => item.id === selectedPendingReel.id)) {
+    items.splice(Math.min(context.selectedIndex, items.length), 0, selectedPendingReel)
+  }
+
+  return { ...context, items }
+}
+
 const normalizeListParams = (params: Omit<ListReelsParams, 'cursor'> = {}) => ({
   ...(params.limit ? { limit: params.limit } : {}),
   ...(params.userId ? { userId: params.userId } : {}),
@@ -246,6 +315,7 @@ export function useReelsFeed(
   params: Omit<ListReelsParams, 'cursor'> = {},
   options: { enabled?: boolean } = {},
 ) {
+  const queryClient = useQueryClient()
   const normalizedParams =
     Object.keys(params).length > 0 ? normalizeListParams(params) : { limit: DEFAULT_REELS_LIMIT }
 
@@ -253,11 +323,19 @@ export function useReelsFeed(
     queryKey: queryKeys.reels.list(normalizedParams),
     enabled: options.enabled ?? true,
     initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam }) =>
-      reelsApi.list({
+    queryFn: async ({ pageParam }) => {
+      const response = await reelsApi.list({
         ...normalizedParams,
         ...(pageParam ? { cursor: pageParam } : {}),
-      }),
+      })
+
+      return mergePendingCreatedReelsIntoResponse(
+        response,
+        queryClient.getQueryData<Reel[]>(queryKeys.reels.pendingCreated()),
+        normalizedParams,
+        !pageParam,
+      )
+    },
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     staleTime: REELS_QUERY_STALE_TIME_MS,
   })
@@ -283,16 +361,21 @@ export function useReelContext(
   params: ReelContextParams = {},
   options: { enabled?: boolean } = {},
 ) {
+  const queryClient = useQueryClient()
   const normalizedParams = normalizeContextParams(params)
 
   return useQuery({
     queryKey: queryKeys.reels.context(id || 'unknown', normalizedParams),
-    queryFn: () => {
+    queryFn: async () => {
       if (!id) {
         throw new Error('Missing reel id')
       }
 
-      return reelsApi.getContext(id, normalizedParams)
+      const context = await reelsApi.getContext(id, normalizedParams)
+      return mergePendingCreatedReelsIntoContext(
+        context,
+        queryClient.getQueryData<Reel[]>(queryKeys.reels.pendingCreated()),
+      )
     },
     enabled: Boolean(id) && (options.enabled ?? true),
     staleTime: REELS_QUERY_STALE_TIME_MS,
@@ -332,6 +415,9 @@ export function useReelProcessingStatus(reel?: Reel | null, options: { enabled?:
     queryClient.setQueriesData<ReelContextData>({ queryKey: queryKeys.reels.contexts() }, (data) =>
       updateReelInContextData(data, nextReel),
     )
+    queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(), (current) =>
+      mergePendingCreatedReels(current, nextReel),
+    )
 
     if (isTerminalReelStatus(query.data.status)) {
       void queryClient.invalidateQueries({
@@ -342,6 +428,9 @@ export function useReelProcessingStatus(reel?: Reel | null, options: { enabled?:
         queryKey: queryKeys.reels.contexts(),
         refetchType: 'none',
       })
+      queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(), (current) =>
+        current?.filter((item) => item.id !== nextReel.id),
+      )
     }
   }, [query.data, queryClient, reel])
 
@@ -394,10 +483,16 @@ export function useCreateReel() {
               throw visibilityError
             })
 
-      return { ...visibleReel, localThumbnailUri }
+      return {
+        ...visibleReel,
+        ...(localThumbnailUri ? { localThumbnailUri } : {}),
+      }
     },
     onSuccess: (createdReel) => {
       queryClient.setQueryData(queryKeys.reels.detail(createdReel.id), createdReel)
+      queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(), (current) =>
+        mergePendingCreatedReels(current, createdReel),
+      )
       queryClient
         .getQueriesData<ReelsInfiniteData>({ queryKey: queryKeys.reels.lists() })
         .forEach(([queryKey, data]) => {
@@ -443,6 +538,9 @@ export function useDeleteReel() {
     mutationFn: (id: string) => reelsApi.delete(id),
     onSuccess: (_, id) => {
       queryClient.removeQueries({ queryKey: queryKeys.reels.detail(id) })
+      queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(), (current) =>
+        current?.filter((item) => item.id !== id),
+      )
       queryClient.setQueriesData<ReelsInfiniteData>({ queryKey: queryKeys.reels.lists() }, (data) =>
         removeReelFromInfiniteData(data, id),
       )

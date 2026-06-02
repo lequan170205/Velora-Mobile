@@ -545,6 +545,7 @@ export default function ProfileScreen() {
   const renderReelItem = useCallback(
     ({ item, index }: { item: Reel; index: number }) => {
       const playbackBadge = getPlaybackBadge(item.status)
+      const thumbnailUri = item.thumbnailUrl ?? item.localThumbnailUri
 
       return (
         <Pressable
@@ -561,9 +562,9 @@ export default function ProfileScreen() {
             marginRight: (index + 1) % 3 === 0 ? 0 : 2,
           }}
         >
-          {item.thumbnailUrl ? (
+          {thumbnailUri ? (
             <Image
-              source={{ uri: item.thumbnailUrl }}
+              source={{ uri: thumbnailUri }}
               style={{ width: '100%', height: '100%' }}
               contentFit="cover"
             />

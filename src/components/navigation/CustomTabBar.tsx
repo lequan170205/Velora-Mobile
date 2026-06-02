@@ -215,7 +215,7 @@ export const CustomTabBarSurface = React.memo(function CustomTabBarSurface({
   const shouldUseDockedLayout = forceDockedLayout || isReelsActive
   const [isDockedLayout, setIsDockedLayout] = useState(shouldUseDockedLayout)
 
-  const wrapperHeight = isDockedLayout ? PILL_H + bottomInset : PILL_H + bottomInset + FLOAT_LIFT
+  const wrapperHeight = PILL_H + bottomInset
 
   const activeIndexPosition = useSharedValue(activeIndex)
   const pressProgress = useSharedValue(0)
@@ -354,12 +354,12 @@ export const CustomTabBarSurface = React.memo(function CustomTabBarSurface({
         return
       }
 
+      prepareLayoutForIndex(nextIndex)
       const didSelect = onTabSelect(nextIndex, tab.name)
       if (didSelect === false) {
+        prepareLayoutForIndex(activeIndex)
         return
       }
-
-      prepareLayoutForIndex(nextIndex)
     },
     [activeIndex, onTabSelect, prepareLayoutForIndex],
   )
@@ -401,7 +401,7 @@ export const CustomTabBarSurface = React.memo(function CustomTabBarSurface({
         styles.wrapper,
         {
           height: wrapperHeight,
-          marginTop: isDockedLayout ? 0 : -wrapperHeight,
+          marginTop: 0,
           paddingBottom: bottomInset,
         },
       ]}
@@ -523,7 +523,7 @@ const styles = StyleSheet.create({
   wrapper: {
     alignItems: 'center',
     justifyContent: 'flex-end',
-    overflow: 'hidden',
+    overflow: 'visible',
     position: 'relative',
     width: '100%',
   },

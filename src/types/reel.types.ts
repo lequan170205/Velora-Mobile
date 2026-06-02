@@ -23,6 +23,7 @@ export interface Reel {
   viewCount: number
   thumbnailKey?: string
   thumbnailUrl?: string
+  localThumbnailUri?: string
   processingStage?: string
   processingMessage?: string
   processingProgress?: number
