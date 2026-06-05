@@ -40,3 +40,9 @@ export class DatabaseManager {
 
 export const databaseManager = DatabaseManager.getInstance()
 export const database = databaseManager.database
+
+export const resetLocalDatabase = async () => {
+  await database.write(async () => {
+    await database.unsafeResetDatabase()
+  })
+}

@@ -291,6 +291,7 @@ const TypingIndicator = ({ displayName }: { displayName: string }) => {
 
 interface MessageRowProps {
   message: Message
+  repliedMessage?: Message | null
   layout: MessageLayout
   isOwn: boolean
   senderInfo?: ChatParticipant | Message['sender'] | null
@@ -305,6 +306,7 @@ interface MessageRowProps {
 const MessageRow = memo(
   function MessageRow({
     message,
+    repliedMessage,
     layout,
     isOwn,
     senderInfo,
@@ -337,8 +339,8 @@ const MessageRow = memo(
     }, [message, onReply])
 
     const handlePressReplyPreview = useCallback(() => {
-      onPressReplyPreview(message.replyToId)
-    }, [message.replyToId, onPressReplyPreview])
+      onPressReplyPreview(message.replyToId ?? message.reply_to_id)
+    }, [message.replyToId, message.reply_to_id, onPressReplyPreview])
 
     return (
       <View>
@@ -349,6 +351,7 @@ const MessageRow = memo(
         ) : null}
         <MessageBubble
           message={message}
+          repliedMessage={repliedMessage ?? null}
           timeLabel={layout.timeLabel}
           isOwn={isOwn}
           showAvatar={layout.showAvatar}
@@ -370,6 +373,7 @@ const MessageRow = memo(
   },
   (prevProps, nextProps) =>
     prevProps.message === nextProps.message &&
+    prevProps.repliedMessage === nextProps.repliedMessage &&
     prevProps.layout === nextProps.layout &&
     prevProps.isOwn === nextProps.isOwn &&
     prevProps.senderInfo === nextProps.senderInfo &&
@@ -437,6 +441,7 @@ export default function ChatScreen() {
   const isScrollButtonVisible = useSharedValue(false)
   const isNearBottomRef = useRef(true)
   const [isNearBottom, setIsNearBottom] = useState(true)
+  const [messageViewportHeight, setMessageViewportHeight] = useState(0)
   const preservedKeyboardOffset = useSharedValue(0)
 
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation()
@@ -595,8 +600,11 @@ export default function ChatScreen() {
       })
 
       nextLayoutById.set(item.id, nextLayout)
-      nextMessageById.set(item.id, item)
-      nextIndexById.set(item.id, index)
+      const itemIdentityTokens = getMessageIdentityTokens(item)
+      for (const token of itemIdentityTokens) {
+        nextMessageById.set(token, item)
+        nextIndexById.set(token, index)
+      }
     }
 
     return {
@@ -685,7 +693,22 @@ export default function ChatScreen() {
   const isOtherUserTyping = activeTypers.some((typerId) => typerId !== user?.id)
   const shouldShowTypingIndicator = isOtherUserTyping && isNearBottom
   const isInitialMessagesLoading = isLoading && orderedMessages.length === 0
-  const getReplyScrollViewPosition = useCallback(() => 0.72, [])
+  const getReplyScrollViewPosition = useCallback(() => {
+    const DEFAULT_VIEW_POSITION = 0.72
+    const state = KeyboardController.state()
+    const activeKeyboardHeight = Math.abs(state.height || 0)
+
+    if (!isComposerFocusedRef.current || activeKeyboardHeight <= 0 || messageViewportHeight <= 0) {
+      return DEFAULT_VIEW_POSITION
+    }
+
+    const visibleViewportRatio = Math.max(
+      0.58,
+      Math.min(1, (messageViewportHeight - activeKeyboardHeight) / messageViewportHeight),
+    )
+
+    return Math.max(0.42, DEFAULT_VIEW_POSITION * visibleViewportRatio)
+  }, [messageViewportHeight])
 
   const prepareContextMenuKeyboardPreservation = useCallback(() => {
     const state = KeyboardController.state()
@@ -1103,6 +1126,17 @@ export default function ChatScreen() {
     [runReplyScroll],
   )
 
+  const handleMessageViewportLayout = useCallback(
+    (event: { nativeEvent: { layout: { height: number } } }) => {
+      const nextHeight = event.nativeEvent.layout.height
+
+      setMessageViewportHeight((currentHeight) => {
+        return Math.abs(currentHeight - nextHeight) < 1 ? currentHeight : nextHeight
+      })
+    },
+    [],
+  )
+
   const activeContextMenuMessageId = activeContextMenu?.message.id ?? null
   const activeContextMenuMessage = activeContextMenu?.message ?? null
   const activeContextMenuAnchor = activeContextMenu?.anchor ?? null
@@ -1168,10 +1202,13 @@ export default function ChatScreen() {
       const layout = layoutByIdRef.current.get(item.id) ?? DEFAULT_MESSAGE_LAYOUT
       const isOwn = item.senderId === user?.id
       const sender = item.sender ?? participantsMap.get(item.senderId)
+      const replyToId = item.replyToId ?? item.reply_to_id
+      const repliedMessage = replyToId ? (messageById.get(replyToId) ?? null) : null
 
       return (
         <MessageRow
           message={item}
+          repliedMessage={repliedMessage}
           layout={layout}
           isOwn={isOwn}
           senderInfo={sender ?? null}
@@ -1191,6 +1228,7 @@ export default function ChatScreen() {
       handleToggleDetails,
       handleOpenContextMenu,
       handleOpenMedia,
+      messageById,
       participantsMap,
       user?.id,
     ],
@@ -1295,7 +1333,10 @@ export default function ChatScreen() {
           ) : null}
         </View>
 
-        <View style={{ flex: 1, overflow: 'hidden', backgroundColor: 'transparent' }}>
+        <View
+          style={{ flex: 1, overflow: 'hidden', backgroundColor: 'transparent' }}
+          onLayout={handleMessageViewportLayout}
+        >
           <Animated.View style={[{ flex: 1 }, keyboardWrapperStyle]}>
             <View className="flex-1">
               {isFetchingNextPage && !isInitialMessagesLoading ? (

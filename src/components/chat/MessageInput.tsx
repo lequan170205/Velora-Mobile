@@ -5,6 +5,7 @@ import * as ImagePicker from 'expo-image-picker'
 import React, { memo, useCallback, useImperativeHandle, useRef, useState } from 'react'
 import {
   Alert,
+  Image,
   Keyboard,
   Platform,
   Pressable,
@@ -27,6 +28,8 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+
+import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../lib/chatMedia'
 
 import {
   AttachmentLauncherSheet,
@@ -64,6 +67,36 @@ const BRAND_DARK = '#D85A21'
 const TEXT_PRIMARY = '#161616'
 const TEXT_MUTED = '#A6A6A6'
 const ACCESSORY_SLOT_WIDTH = 164
+const VIDEO_FILE_URI_PATTERN = /\.(mp4|m4v|mov|webm)(?:[?#].*)?$/i
+
+const getComposerReplyThumbnailUri = (
+  replyTo?: Message | null,
+  replyPreviewData?: ReplyPreviewData | null,
+) => {
+  const previewThumbnailUri = replyPreviewData?.thumbnailUri?.trim()
+
+  if (replyPreviewData?.type === 'video') {
+    if (previewThumbnailUri && !VIDEO_FILE_URI_PATTERN.test(previewThumbnailUri)) {
+      return previewThumbnailUri
+    }
+
+    return getResolvedMediaPosterUri(replyTo?.media) ?? null
+  }
+
+  if (replyPreviewData?.type === 'image') {
+    return previewThumbnailUri || getResolvedMediaUri(replyTo?.media) || null
+  }
+
+  if (replyTo?.type === 'video') {
+    return getResolvedMediaPosterUri(replyTo.media) ?? null
+  }
+
+  if (replyTo?.type === 'image') {
+    return getResolvedMediaUri(replyTo.media) ?? null
+  }
+
+  return null
+}
 
 const ComposerIconButton = memo(function ComposerIconButton({
   accessibilityLabel,
@@ -388,6 +421,8 @@ const MessageInputComponent = function MessageInput(
         : replyTo?.content
   const replySenderLabel = replyPreviewData?.senderName ?? replyTo?.sender?.email ?? 'Replying to'
   const replyInitial = (replyPreviewText?.trim().charAt(0) || '?').toUpperCase()
+  const replyThumbnailUri = getComposerReplyThumbnailUri(replyTo, replyPreviewData)
+  const isReplyVideo = replyPreviewData?.type === 'video' || replyTo?.type === 'video'
   const bottomInset = Math.max(insets.bottom, 8)
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation()
   const ACTIVE_PADDING = 8 // The tight spacing you want when focused
@@ -457,21 +492,57 @@ const MessageInputComponent = function MessageInput(
             overflow: 'hidden',
           }}
         >
-          <View
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: 14,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: '#FF6B2C22',
-              marginRight: 10,
-            }}
-          >
-            <Text style={{ fontSize: 12, fontWeight: '800', color: BRAND_DARK }}>
-              {replyInitial}
-            </Text>
-          </View>
+          {replyThumbnailUri ? (
+            <View
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                overflow: 'hidden',
+                backgroundColor: isReplyVideo ? '#111111' : '#EFEFEF',
+                marginRight: 10,
+              }}
+            >
+              <Image
+                source={{ uri: replyThumbnailUri }}
+                resizeMode="cover"
+                style={{ width: 36, height: 36 }}
+              />
+              {isReplyVideo ? (
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    bottom: 0,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: 'rgba(0,0,0,0.18)',
+                  }}
+                >
+                  <Ionicons name="play" size={16} color="#FFFFFF" />
+                </View>
+              ) : null}
+            </View>
+          ) : (
+            <View
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 14,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#FF6B2C22',
+                marginRight: 10,
+              }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: '800', color: BRAND_DARK }}>
+                {replyInitial}
+              </Text>
+            </View>
+          )}
 
           <View style={{ flex: 1 }}>
             <Text

@@ -32,6 +32,8 @@ import Animated, {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { authApi } from '../../src/api/auth.api'
+import { queryKeys } from '../../src/constants/queryKeys'
+import { resetLocalDatabase } from '../../src/database/DatabaseManager'
 import { useFriends } from '../../src/hooks/useFriends'
 import { useUpdateAvatar } from '../../src/hooks/useProfile'
 import { useReelsFeed } from '../../src/hooks/useReels'
@@ -44,8 +46,13 @@ import type { FriendSummary } from '../../src/types/friend.types'
 import type { Reel, ReelVisibility } from '../../src/types/reel.types'
 
 const PROFILE_REELS_LIMIT = 24
-type SheetMode = 'settings' | 'clear-cache' | 'sign-out' | null
-type DeferredSheetAction = 'clear-cache' | 'edit-profile' | 'sign-out' | null
+type SheetMode = 'settings' | 'clear-cache' | 'clear-local-database' | 'sign-out' | null
+type DeferredSheetAction =
+  | 'clear-cache'
+  | 'clear-local-database'
+  | 'edit-profile'
+  | 'sign-out'
+  | null
 const RFC_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const getMemberSince = (createdAt?: string) => {
@@ -286,6 +293,7 @@ export default function ProfileScreen() {
   const [isSheetVisible, setIsSheetVisible] = useState(false)
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
   const [isClearingCache, setIsClearingCache] = useState(false)
+  const [isClearingLocalDatabase, setIsClearingLocalDatabase] = useState(false)
   const [isSigningOut, setIsSigningOut] = useState(false)
   const sheetBackdropOpacity = useSharedValue(0)
   const sheetTranslateY = useSharedValue(48)
@@ -313,7 +321,7 @@ export default function ProfileScreen() {
     lastName: user?.lastName,
   })
   const memberSinceLabel = getMemberSince(user?.createdAt)
-  const isSheetBusy = isClearingCache || isSigningOut
+  const isSheetBusy = isClearingCache || isClearingLocalDatabase || isSigningOut
 
   useEffect(() => {
     return () => {
@@ -403,6 +411,29 @@ export default function ProfileScreen() {
 
       if (action === 'edit-profile') {
         router.push('/account')
+        return
+      }
+
+      if (action === 'clear-local-database') {
+        try {
+          queryClient.removeQueries({ queryKey: queryKeys.conversations.all })
+          await resetLocalDatabase()
+
+          if (isMountedRef.current) {
+            setFeedbackMessage('Local database cleared')
+          }
+        } catch (error) {
+          console.error('[Profile] Failed to clear local database', error)
+
+          if (isMountedRef.current) {
+            setFeedbackMessage('Failed to clear local database')
+          }
+        } finally {
+          if (isMountedRef.current) {
+            setIsClearingLocalDatabase(false)
+          }
+        }
+
         return
       }
 
@@ -523,6 +554,15 @@ export default function ProfileScreen() {
 
     setIsClearingCache(true)
     closeSheet('clear-cache')
+  }, [closeSheet, isSheetBusy])
+
+  const handleClearLocalDatabaseConfirmed = useCallback(() => {
+    if (isSheetBusy) {
+      return
+    }
+
+    setIsClearingLocalDatabase(true)
+    closeSheet('clear-local-database')
   }, [closeSheet, isSheetBusy])
 
   const handleSignOutConfirmed = useCallback(() => {
@@ -982,6 +1022,15 @@ export default function ProfileScreen() {
                         }}
                       />
                       <SheetActionRow
+                        icon="storage"
+                        label="Clear local database"
+                        description="Delete the on-device message database."
+                        isDestructive
+                        onPress={() => {
+                          setSheetMode('clear-local-database')
+                        }}
+                      />
+                      <SheetActionRow
                         icon="logout"
                         label="Sign out"
                         description="End the current session on this device."
@@ -1037,6 +1086,56 @@ export default function ProfileScreen() {
                     >
                       <Text className="text-center font-medium text-white">
                         {isClearingCache ? 'Clearing...' : 'Clear'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </>
+              ) : null}
+
+              {sheetMode === 'clear-local-database' ? (
+                <>
+                  <View className="mt-3 flex-row items-start justify-between">
+                    <View className="flex-1 pr-4">
+                      <Text className="font-heading text-xl text-text-primary">
+                        Clear local database?
+                      </Text>
+                      <Text className="mt-2 text-base2 leading-6 text-text-secondary">
+                        This deletes the on-device message database. Conversations will sync again
+                        from the server when you reopen them.
+                      </Text>
+                    </View>
+
+                    <Pressable
+                      className="h-11 w-11 items-center justify-center rounded-full bg-surface-muted"
+                      disabled={isSheetBusy}
+                      onPress={() => {
+                        closeSheet()
+                      }}
+                    >
+                      <MaterialIcons name="close" size={20} color="#161616" />
+                    </Pressable>
+                  </View>
+
+                  <View className="mt-6 flex-row">
+                    <Pressable
+                      className="mr-3 flex-1 rounded-full border border-border-light bg-surface-muted py-3"
+                      disabled={isSheetBusy}
+                      onPress={() => {
+                        setSheetMode('settings')
+                      }}
+                    >
+                      <Text className="text-center font-medium text-text-primary">Back</Text>
+                    </Pressable>
+
+                    <Pressable
+                      className="flex-1 rounded-full bg-[#FF3B30] py-3"
+                      disabled={isSheetBusy}
+                      onPress={() => {
+                        void handleClearLocalDatabaseConfirmed()
+                      }}
+                    >
+                      <Text className="text-center font-medium text-white">
+                        {isClearingLocalDatabase ? 'Clearing...' : 'Delete'}
                       </Text>
                     </Pressable>
                   </View>

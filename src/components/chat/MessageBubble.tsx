@@ -1,6 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'
-import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react'
+import * as VideoThumbnails from 'expo-video-thumbnails'
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Image, Pressable, Text, View, useWindowDimensions } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
@@ -21,6 +22,7 @@ import {
 } from '../../lib/chatMedia'
 import { cn } from '../../lib/cn'
 import { useChatStore } from '../../stores/chatStore'
+import { ReelVideo } from '../reels/ReelVideo'
 
 import { ChatMediaBubble } from './ChatMediaBubble'
 
@@ -61,11 +63,18 @@ const REPLY_PREVIEW_ICONS: Record<
 }
 
 const URI_LIKE_PATTERN = /^(https?:\/\/|file:\/\/|content:\/\/|data:|blob:)/i
+const VIDEO_FILE_URI_PATTERN = /\.(mp4|m4v|mov|webm)(?:[?#].*)?$/i
 const SWIPE_REPLY_TRIGGER_DISTANCE = 72
+const generatedReplyVideoThumbnailCache = new Map<string, string | null>()
 
 const getReplyPreviewThumbnailUri = (replyPreview?: Message['replyPreview'], replyTo?: Message) => {
   if (typeof replyPreview !== 'string' && replyPreview?.thumbnailUri?.trim()) {
-    return replyPreview.thumbnailUri.trim()
+    const thumbnailUri = replyPreview.thumbnailUri.trim()
+    if (replyPreview.type === 'video' && VIDEO_FILE_URI_PATTERN.test(thumbnailUri)) {
+      return null
+    }
+
+    return thumbnailUri
   }
 
   if (!replyTo || (replyTo.type !== 'image' && replyTo.type !== 'video')) {
@@ -73,7 +82,7 @@ const getReplyPreviewThumbnailUri = (replyPreview?: Message['replyPreview'], rep
   }
 
   if (replyTo.type === 'video') {
-    return getResolvedMediaPosterUri(replyTo.media) ?? getResolvedMediaUri(replyTo.media) ?? null
+    return getResolvedMediaPosterUri(replyTo.media) ?? null
   }
 
   return getResolvedMediaUri(replyTo.media) ?? null
@@ -229,7 +238,10 @@ const areMediaEqual = (left?: Message['media'], right?: Message['media']) => {
   )
 }
 
-const areReplyTargetsEqual = (left?: Message['replyTo'], right?: Message['replyTo']) => {
+const areReplyTargetsEqual = (
+  left?: Message['replyTo'] | null,
+  right?: Message['replyTo'] | null,
+) => {
   if (left === right) return true
   if (!left || !right) return !left && !right
 
@@ -238,6 +250,7 @@ const areReplyTargetsEqual = (left?: Message['replyTo'], right?: Message['replyT
 
 interface MessageBubbleProps {
   message: Message
+  repliedMessage?: Message | null
   timeLabel?: string
   isOwn: boolean
   isGroupedTop?: boolean
@@ -267,6 +280,7 @@ export interface MessageBubbleContextMenuPayload {
 
 const MessageBubbleComponent = function MessageBubble({
   message,
+  repliedMessage,
   timeLabel = '',
   isOwn,
   isGroupedTop,
@@ -308,6 +322,7 @@ const MessageBubbleComponent = function MessageBubble({
 
   const senderInfo = senderInfoProp ?? message.sender ?? null
   isExpandedRef.current = isExpanded
+  const [generatedReplyThumbnailUri, setGeneratedReplyThumbnailUri] = useState<string | null>(null)
 
   const isFailed = message.status === 'FAILED'
   const isPending = message.status === 'PENDING'
@@ -456,13 +471,70 @@ const MessageBubbleComponent = function MessageBubble({
     return summary
   }, [message.reactions])
 
+  const resolvedReplyTarget = repliedMessage ?? message.replyTo
   const replyPreviewMeta = useMemo(
-    () => getReplyPreviewMeta(message.replyPreview, message.replyTo),
-    [message.replyPreview, message.replyTo],
+    () => getReplyPreviewMeta(message.replyPreview, resolvedReplyTarget),
+    [message.replyPreview, resolvedReplyTarget],
   )
-  const replyPreviewMediaSize = useMemo(() => {
+  const repliedVideoUri =
+    resolvedReplyTarget?.type === 'video' ? getResolvedMediaUri(resolvedReplyTarget.media) : null
+
+  useEffect(() => {
     if (
-      !replyPreviewMeta?.thumbnailUri ||
+      replyPreviewMeta?.type !== 'video' ||
+      replyPreviewMeta.thumbnailUri ||
+      !repliedVideoUri ||
+      !URI_LIKE_PATTERN.test(repliedVideoUri)
+    ) {
+      setGeneratedReplyThumbnailUri(null)
+      return
+    }
+
+    const cachedThumbnailUri = generatedReplyVideoThumbnailCache.get(repliedVideoUri)
+    if (cachedThumbnailUri !== undefined) {
+      setGeneratedReplyThumbnailUri(cachedThumbnailUri)
+      return
+    }
+
+    let cancelled = false
+
+    void VideoThumbnails.getThumbnailAsync(repliedVideoUri, {
+      quality: 0.55,
+      time: 1000,
+    })
+      .then((result) => {
+        if (cancelled) {
+          return
+        }
+
+        generatedReplyVideoThumbnailCache.set(repliedVideoUri, result.uri)
+        setGeneratedReplyThumbnailUri(result.uri)
+      })
+      .catch(() => {
+        if (cancelled) {
+          return
+        }
+
+        generatedReplyVideoThumbnailCache.set(repliedVideoUri, null)
+        setGeneratedReplyThumbnailUri(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [repliedVideoUri, replyPreviewMeta?.thumbnailUri, replyPreviewMeta?.type])
+
+  const resolvedReplyPreviewThumbnailUri =
+    replyPreviewMeta?.thumbnailUri ?? generatedReplyThumbnailUri
+  const replyPreviewMediaSize = useMemo(() => {
+    if (!replyPreviewMeta) {
+      return null
+    }
+
+    const hasRenderableVideoFallback = replyPreviewMeta.type === 'video' && Boolean(repliedVideoUri)
+
+    if (
+      (!resolvedReplyPreviewThumbnailUri && !hasRenderableVideoFallback) ||
       (replyPreviewMeta.type !== 'image' && replyPreviewMeta.type !== 'video')
     ) {
       return null
@@ -475,7 +547,7 @@ const MessageBubbleComponent = function MessageBubble({
       maxWidth,
       width: replyPreviewMeta.mediaWidth,
     })
-  }, [replyPreviewMeta, screenWidth])
+  }, [replyPreviewMeta, repliedVideoUri, resolvedReplyPreviewThumbnailUri, screenWidth])
   const senderDisplayName = useMemo(
     () => getSenderDisplayName({ isOwn, senderInfo }),
     [isOwn, senderInfo],
@@ -578,8 +650,9 @@ const MessageBubbleComponent = function MessageBubble({
                 </Text>
               ) : (
                 <View>
-                  {replyPreviewMeta.thumbnailUri &&
-                  (replyPreviewMeta.type === 'image' || replyPreviewMeta.type === 'video') &&
+                  {((resolvedReplyPreviewThumbnailUri &&
+                    (replyPreviewMeta.type === 'image' || replyPreviewMeta.type === 'video')) ||
+                    (replyPreviewMeta.type === 'video' && repliedVideoUri)) &&
                   replyPreviewMediaSize ? (
                     <View
                       style={{
@@ -591,14 +664,32 @@ const MessageBubbleComponent = function MessageBubble({
                         alignSelf: 'flex-start',
                       }}
                     >
-                      <Image
-                        source={{ uri: replyPreviewMeta.thumbnailUri }}
-                        style={{
-                          width: replyPreviewMediaSize.displayWidth,
-                          height: replyPreviewMediaSize.displayHeight,
-                        }}
-                        resizeMode="contain"
-                      />
+                      {replyPreviewMeta.type === 'video' && repliedVideoUri ? (
+                        <ReelVideo
+                          contentFit="contain"
+                          loop={false}
+                          muted
+                          nativeControls={false}
+                          shouldPlay={false}
+                          style={{
+                            width: replyPreviewMediaSize.displayWidth,
+                            height: replyPreviewMediaSize.displayHeight,
+                          }}
+                          uri={repliedVideoUri}
+                          {...(resolvedReplyPreviewThumbnailUri
+                            ? { posterUri: resolvedReplyPreviewThumbnailUri }
+                            : {})}
+                        />
+                      ) : resolvedReplyPreviewThumbnailUri ? (
+                        <Image
+                          source={{ uri: resolvedReplyPreviewThumbnailUri }}
+                          style={{
+                            width: replyPreviewMediaSize.displayWidth,
+                            height: replyPreviewMediaSize.displayHeight,
+                          }}
+                          resizeMode="contain"
+                        />
+                      ) : null}
                       {replyPreviewMeta.type === 'video' ? (
                         <View
                           pointerEvents="none"
@@ -646,7 +737,8 @@ const MessageBubbleComponent = function MessageBubble({
                     </View>
                   )}
 
-                  {replyPreviewMeta.thumbnailUri &&
+                  {(resolvedReplyPreviewThumbnailUri ||
+                    (replyPreviewMeta.type === 'video' && repliedVideoUri)) &&
                   (replyPreviewMeta.type === 'image' || replyPreviewMeta.type === 'video') ? (
                     <Text
                       className="px-1 pt-2 text-[13px] leading-[18px] text-text-secondary"
@@ -795,6 +887,7 @@ export const MessageBubble = memo(MessageBubbleComponent, (prevProps, nextProps)
     prevProps.message.isRecalled === nextProps.message.isRecalled &&
     prevProps.message.is_recalled === nextProps.message.is_recalled &&
     areReplyTargetsEqual(prevProps.message.replyTo, nextProps.message.replyTo) &&
+    areReplyTargetsEqual(prevProps.repliedMessage, nextProps.repliedMessage) &&
     prevProps.isExpanded === nextProps.isExpanded &&
     prevProps.isContextMenuActive === nextProps.isContextMenuActive &&
     prevProps.onOpenMedia === nextProps.onOpenMedia &&

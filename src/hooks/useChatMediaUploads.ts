@@ -42,10 +42,7 @@ const getReplyPreview = ({
 
   let thumbnailUri: string | undefined
   if (replyToMessage.type === 'video') {
-    thumbnailUri =
-      getResolvedMediaPosterUri(replyToMessage.media) ??
-      getResolvedMediaUri(replyToMessage.media) ??
-      undefined
+    thumbnailUri = getResolvedMediaPosterUri(replyToMessage.media) ?? undefined
   } else if (replyToMessage.type === 'image') {
     thumbnailUri = getResolvedMediaUri(replyToMessage.media) ?? undefined
   }

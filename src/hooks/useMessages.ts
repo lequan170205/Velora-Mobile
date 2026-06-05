@@ -84,9 +84,7 @@ const getReplyPreviewThumbnailUri = (message?: Message | null) => {
   }
 
   if (message.type === 'video') {
-    return (
-      getResolvedMediaPosterUri(message.media) ?? getResolvedMediaUri(message.media) ?? undefined
-    )
+    return getResolvedMediaPosterUri(message.media) ?? undefined
   }
 
   return getResolvedMediaUri(message.media) ?? undefined
