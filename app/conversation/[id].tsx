@@ -18,6 +18,7 @@ import {
   useColorScheme,
   View,
 } from 'react-native'
+import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import {
   KeyboardController,
   useReanimatedKeyboardAnimation,
@@ -25,15 +26,17 @@ import {
 import Animated, {
   FadeIn,
   FadeOut,
+  type SharedValue,
+  Extrapolation,
+  interpolate,
   useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
   withDelay,
   withRepeat,
   withSequence,
   withTiming,
   withSpring,
-  interpolate,
-  Extrapolation,
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -83,6 +86,7 @@ const EMPTY_MESSAGES: Message[] = []
 const EMPTY_TYPERS: string[] = []
 const renderableOptimisticMessagesCache = new WeakMap<Message[], Message[]>()
 const ANCHOR_MEDIA_VIEWER_WINDOW_RADIUS = 4
+const TIMESTAMP_REVEAL_MAX_OFFSET = 64
 const isPersistedServerMessageId = (messageId?: string | null) =>
   Boolean(messageId && !messageId.startsWith('temp-'))
 const getOrderDebugSample = (messages: Message[], replyTargetId?: string | null) => {
@@ -211,6 +215,9 @@ interface MessageRowProps {
   repliedMessage?: Message | null
   layout: MessageLayout
   isOwn: boolean
+  timestampRevealGesture?: ReturnType<typeof Gesture.Pan>
+  timestampRevealOffset: SharedValue<number>
+  timestampRevealProgress: SharedValue<number>
   senderInfo?: ChatParticipant | Message['sender'] | null
   conversationId: string
   onToggleDetails: (messageId: string) => void
@@ -226,6 +233,9 @@ const MessageRow = memo(
     repliedMessage,
     layout,
     isOwn,
+    timestampRevealGesture,
+    timestampRevealOffset,
+    timestampRevealProgress,
     senderInfo,
     conversationId,
     onToggleDetails,
@@ -270,6 +280,9 @@ const MessageRow = memo(
           message={message}
           repliedMessage={repliedMessage ?? null}
           timeLabel={layout.timeLabel}
+          timestampRevealGesture={timestampRevealGesture}
+          timestampRevealOffset={timestampRevealOffset}
+          timestampRevealProgress={timestampRevealProgress}
           isOwn={isOwn}
           showAvatar={layout.showAvatar}
           senderInfo={senderInfo ?? null}
@@ -293,6 +306,9 @@ const MessageRow = memo(
     prevProps.repliedMessage === nextProps.repliedMessage &&
     prevProps.layout === nextProps.layout &&
     prevProps.isOwn === nextProps.isOwn &&
+    prevProps.timestampRevealGesture === nextProps.timestampRevealGesture &&
+    prevProps.timestampRevealOffset === nextProps.timestampRevealOffset &&
+    prevProps.timestampRevealProgress === nextProps.timestampRevealProgress &&
     prevProps.senderInfo === nextProps.senderInfo &&
     prevProps.conversationId === nextProps.conversationId &&
     prevProps.onToggleDetails === nextProps.onToggleDetails &&
@@ -376,11 +392,15 @@ export default function ChatScreen() {
   const pendingOwnSendBottomScrollRef = useRef<PendingOwnSendBottomScrollMode>('none')
   const isScrollButtonVisible = useSharedValue(false)
   const isNearBottomRef = useRef(true)
+  const timestampRevealOffset = useSharedValue(0)
   const [isNearBottom, setIsNearBottom] = useState(true)
   const [messageViewportHeight, setMessageViewportHeight] = useState(0)
   const preservedKeyboardOffset = useSharedValue(0)
 
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation()
+  const timestampRevealProgress = useDerivedValue(() =>
+    Math.min(Math.abs(timestampRevealOffset.value) / TIMESTAMP_REVEAL_MAX_OFFSET, 1),
+  )
 
   const keyboardWrapperStyle = useAnimatedStyle(() => {
     const liveKeyboardOffset = Math.abs(keyboardHeight.value)
@@ -462,6 +482,38 @@ export default function ChatScreen() {
       transform: [{ scale: withTiming(isScrollButtonVisible.value ? 1 : 0.8, { duration: 200 }) }],
     }
   })
+  const timestampRevealGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-14, 9999])
+        .failOffsetY([-8, 8])
+        .maxPointers(1)
+        .onUpdate((event) => {
+          'worklet'
+          const clampedOffset = Math.max(
+            -TIMESTAMP_REVEAL_MAX_OFFSET,
+            Math.min(0, event.translationX),
+          )
+          timestampRevealOffset.value = clampedOffset
+        })
+        .onEnd(() => {
+          'worklet'
+          timestampRevealOffset.value = withSpring(0, {
+            mass: 0.9,
+            damping: 18,
+            stiffness: 220,
+          })
+        })
+        .onFinalize(() => {
+          'worklet'
+          timestampRevealOffset.value = withSpring(0, {
+            mass: 0.9,
+            damping: 18,
+            stiffness: 220,
+          })
+        }),
+    [timestampRevealOffset],
+  )
   const typingTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const replyHighlightTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const replyJumpSettleTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
@@ -852,6 +904,7 @@ export default function ChatScreen() {
     clearConversationInlinePlayback(conversationId)
     shouldRestoreComposerFocusRef.current = false
     preservedKeyboardOffset.value = 0
+    timestampRevealOffset.value = 0
     anchorBottomLoadArmedRef.current = false
     pendingAnchorScrollTargetIdRef.current = null
     pendingReturnToLatestRef.current = false
@@ -870,6 +923,7 @@ export default function ChatScreen() {
     clearAnchor,
     preservedKeyboardOffset,
     resetConversationUi,
+    timestampRevealOffset,
   ])
 
   useEffect(() => {
@@ -1017,12 +1071,17 @@ export default function ChatScreen() {
   const handleReply = useCallback(
     (message: Message) => {
       setReplyToMessage(message)
+      timestampRevealOffset.value = withSpring(0, {
+        mass: 0.9,
+        damping: 18,
+        stiffness: 220,
+      })
 
       requestAnimationFrame(() => {
         messageInputRef.current?.focus()
       })
     },
-    [setReplyToMessage],
+    [setReplyToMessage, timestampRevealOffset],
   )
 
   const handleCancelReply = useCallback(() => {
@@ -1380,6 +1439,9 @@ export default function ChatScreen() {
           repliedMessage={repliedMessage}
           layout={layout}
           isOwn={isOwn}
+          timestampRevealGesture={timestampRevealGesture}
+          timestampRevealOffset={timestampRevealOffset}
+          timestampRevealProgress={timestampRevealProgress}
           senderInfo={sender ?? null}
           conversationId={conversationId}
           onToggleDetails={handleToggleDetails}
@@ -1399,6 +1461,9 @@ export default function ChatScreen() {
       handleOpenMedia,
       messageById,
       participantsMap,
+      timestampRevealGesture,
+      timestampRevealOffset,
+      timestampRevealProgress,
       user?.id,
     ],
   )
@@ -1517,108 +1582,114 @@ export default function ChatScreen() {
         >
           <Animated.View style={[{ flex: 1 }, keyboardWrapperStyle]}>
             <View className="flex-1">
-              {currentIsFetchingOlder && !isInitialMessagesLoading ? (
-                <Animated.View
-                  style={[
-                    loadingIndicatorStyle,
-                    {
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      zIndex: 20,
-                      alignItems: 'center',
-                    },
-                  ]}
-                  pointerEvents="none"
-                >
-                  {Platform.OS === 'android' ? (
-                    <View
-                      className="flex-row items-center justify-center rounded-full bg-surface-card px-3.5 py-2 border border-border-light"
-                      style={{ elevation: 4 }}
+              <GestureDetector gesture={timestampRevealGesture}>
+                <View className="flex-1">
+                  {currentIsFetchingOlder && !isInitialMessagesLoading ? (
+                    <Animated.View
+                      style={[
+                        loadingIndicatorStyle,
+                        {
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          zIndex: 20,
+                          alignItems: 'center',
+                        },
+                      ]}
+                      pointerEvents="none"
                     >
-                      <ActivityIndicator size="small" color="#FF6B2C" />
-                    </View>
-                  ) : (
-                    <View
-                      style={{
-                        borderRadius: 24,
-                        shadowColor: '#000',
-                        shadowOffset: { width: 0, height: 4 },
-                        shadowOpacity: 0.12,
-                        shadowRadius: 12,
-                      }}
-                    >
-                      <View style={{ borderRadius: 24, overflow: 'hidden' }}>
-                        <BlurView
-                          intensity={65}
-                          tint={isDark ? 'dark' : 'light'}
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            paddingHorizontal: 14,
-                            paddingVertical: 8,
-                            backgroundColor: isDark
-                              ? 'rgba(30, 30, 30, 0.4)'
-                              : 'rgba(255, 255, 255, 0.4)',
-                          }}
+                      {Platform.OS === 'android' ? (
+                        <View
+                          className="flex-row items-center justify-center rounded-full bg-surface-card px-3.5 py-2 border border-border-light"
+                          style={{ elevation: 4 }}
                         >
                           <ActivityIndicator size="small" color="#FF6B2C" />
-                        </BlurView>
-                      </View>
-                    </View>
-                  )}
-                </Animated.View>
-              ) : null}
-              <FlashList
-                ref={listRef}
-                inverted
-                data={orderedMessages}
-                extraData={layoutById}
-                renderItem={renderItem}
-                keyExtractor={keyExtractor}
-                getItemType={getItemType}
-                contentContainerStyle={{
-                  paddingBottom: 20,
-                }}
-                onEndReached={currentOlderLoader}
-                onEndReachedThreshold={0.2}
-                onScroll={handleScroll}
-                onScrollBeginDrag={handleScrollBeginDrag}
-                onScrollEndDrag={handleScrollEndDrag}
-                onMomentumScrollEnd={handleMomentumScrollEnd}
-                scrollEventThrottle={16}
-                keyboardDismissMode="none"
-                keyboardShouldPersistTaps="handled"
-                ListHeaderComponent={renderListHeader}
-                ListEmptyComponent={isInitialMessagesLoading ? <MessageListLoadingState /> : null}
-                showsVerticalScrollIndicator={false}
-                removeClippedSubviews={false}
-              />
-              <Animated.View
-                pointerEvents="box-none"
-                style={[
-                  scrollButtonStyle,
-                  {
-                    position: 'absolute',
-                    right: 16,
-                    bottom: 120,
-                    zIndex: 40,
-                  },
-                ]}
-              >
-                <TouchableOpacity
-                  className="h-11 w-11 items-center justify-center rounded-full bg-surface-card border border-border-light"
-                  onPress={handleScrollAffordancePress}
-                  activeOpacity={0.8}
-                  style={{
-                    borderCurve: 'continuous',
-                    boxShadow: '0 14px 26px rgba(93, 74, 53, 0.12)',
-                  }}
-                >
-                  <MaterialIcons name="keyboard-arrow-down" size={24} color="#161514" />
-                </TouchableOpacity>
-              </Animated.View>
+                        </View>
+                      ) : (
+                        <View
+                          style={{
+                            borderRadius: 24,
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 4 },
+                            shadowOpacity: 0.12,
+                            shadowRadius: 12,
+                          }}
+                        >
+                          <View style={{ borderRadius: 24, overflow: 'hidden' }}>
+                            <BlurView
+                              intensity={65}
+                              tint={isDark ? 'dark' : 'light'}
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                paddingHorizontal: 14,
+                                paddingVertical: 8,
+                                backgroundColor: isDark
+                                  ? 'rgba(30, 30, 30, 0.4)'
+                                  : 'rgba(255, 255, 255, 0.4)',
+                              }}
+                            >
+                              <ActivityIndicator size="small" color="#FF6B2C" />
+                            </BlurView>
+                          </View>
+                        </View>
+                      )}
+                    </Animated.View>
+                  ) : null}
+                  <FlashList
+                    ref={listRef}
+                    inverted
+                    data={orderedMessages}
+                    extraData={layoutById}
+                    renderItem={renderItem}
+                    keyExtractor={keyExtractor}
+                    getItemType={getItemType}
+                    contentContainerStyle={{
+                      paddingBottom: 20,
+                    }}
+                    onEndReached={currentOlderLoader}
+                    onEndReachedThreshold={0.2}
+                    onScroll={handleScroll}
+                    onScrollBeginDrag={handleScrollBeginDrag}
+                    onScrollEndDrag={handleScrollEndDrag}
+                    onMomentumScrollEnd={handleMomentumScrollEnd}
+                    scrollEventThrottle={16}
+                    keyboardDismissMode="none"
+                    keyboardShouldPersistTaps="handled"
+                    ListHeaderComponent={renderListHeader}
+                    ListEmptyComponent={
+                      isInitialMessagesLoading ? <MessageListLoadingState /> : null
+                    }
+                    showsVerticalScrollIndicator={false}
+                    removeClippedSubviews={false}
+                  />
+                  <Animated.View
+                    pointerEvents="box-none"
+                    style={[
+                      scrollButtonStyle,
+                      {
+                        position: 'absolute',
+                        right: 16,
+                        bottom: 120,
+                        zIndex: 40,
+                      },
+                    ]}
+                  >
+                    <TouchableOpacity
+                      className="h-11 w-11 items-center justify-center rounded-full bg-surface-card border border-border-light"
+                      onPress={handleScrollAffordancePress}
+                      activeOpacity={0.8}
+                      style={{
+                        borderCurve: 'continuous',
+                        boxShadow: '0 14px 26px rgba(93, 74, 53, 0.12)',
+                      }}
+                    >
+                      <MaterialIcons name="keyboard-arrow-down" size={24} color="#161514" />
+                    </TouchableOpacity>
+                  </Animated.View>
+                </View>
+              </GestureDetector>
               <Animated.View
                 pointerEvents="box-none"
                 style={{
