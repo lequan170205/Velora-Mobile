@@ -118,6 +118,7 @@ const mergeReplyPreview = (
   if (remoteReplyPreview.thumbnailUri || !localReplyPreview.thumbnailUri) {
     return {
       ...remoteReplyPreview,
+      ...(remoteReplyPreview.senderId ? {} : { senderId: localReplyPreview.senderId }),
       ...(remoteReplyPreview.mediaWidth ? {} : { mediaWidth: localReplyPreview.mediaWidth }),
       ...(remoteReplyPreview.mediaHeight ? {} : { mediaHeight: localReplyPreview.mediaHeight }),
     }
@@ -126,6 +127,7 @@ const mergeReplyPreview = (
   return {
     ...remoteReplyPreview,
     thumbnailUri: localReplyPreview.thumbnailUri,
+    ...(remoteReplyPreview.senderId ? {} : { senderId: localReplyPreview.senderId }),
     ...(remoteReplyPreview.mediaWidth ? {} : { mediaWidth: localReplyPreview.mediaWidth }),
     ...(remoteReplyPreview.mediaHeight ? {} : { mediaHeight: localReplyPreview.mediaHeight }),
   }
@@ -495,6 +497,7 @@ export function useSendMessage(conversationId: string) {
             resolvedReplyToMessage.senderId === user.id
               ? 'You'
               : (resolvedReplyToMessage.sender?.email?.split('@')[0] ?? 'User'),
+          senderId: resolvedReplyToMessage.senderId,
           content: resolvedReplyToMessage.content ?? '',
           ...(thumbnailUri ? { thumbnailUri } : {}),
           ...getReplyPreviewMediaSize(resolvedReplyToMessage),

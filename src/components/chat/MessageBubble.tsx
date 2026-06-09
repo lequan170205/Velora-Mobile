@@ -21,6 +21,7 @@ import {
   getResolvedMediaUri,
 } from '../../lib/chatMedia'
 import { cn } from '../../lib/cn'
+import { useAuthStore } from '../../stores/authStore'
 import { useChatStore } from '../../stores/chatStore'
 import { ReelVideo } from '../reels/ReelVideo'
 
@@ -107,7 +108,15 @@ const getReplyPreviewMediaSize = (replyPreview?: Message['replyPreview'], replyT
   }
 }
 
-const getReplyPreviewMeta = (replyPreview?: string | ReplyPreviewData, replyTo?: Message) => {
+const getReplyPreviewMeta = ({
+  currentUserId,
+  replyPreview,
+  replyTo,
+}: {
+  currentUserId: string | null
+  replyPreview: string | ReplyPreviewData | undefined
+  replyTo: Message | undefined
+}) => {
   if (!replyPreview) return null
 
   if (typeof replyPreview === 'string') {
@@ -132,8 +141,14 @@ const getReplyPreviewMeta = (replyPreview?: string | ReplyPreviewData, replyTo?:
         ? REPLY_PREVIEW_FALLBACK_LABELS[replyPreview.type]
         : normalizedContent
 
+  const resolvedSenderId = replyPreview.senderId ?? replyTo?.senderId
+  const senderLabel =
+    currentUserId && resolvedSenderId === currentUserId
+      ? 'You'
+      : (replyPreview.senderName?.trim() ?? '') || 'Original message'
+
   return {
-    senderLabel: replyPreview.senderName?.trim() || 'Original message',
+    senderLabel,
     contentLabel,
     iconName: REPLY_PREVIEW_ICONS[replyPreview.type],
     ...getReplyPreviewMediaSize(replyPreview, replyTo),
@@ -299,6 +314,7 @@ const MessageBubbleComponent = function MessageBubble({
   onOpenMedia,
 }: MessageBubbleProps) {
   const { width: screenWidth } = useWindowDimensions()
+  const currentUserId = useAuthStore((state) => state.user?.id ?? null)
   const resolvedConversationId = conversationId || message.conversationId
   const isMarkedSeen = useChatStore(
     useCallback(
@@ -473,8 +489,13 @@ const MessageBubbleComponent = function MessageBubble({
 
   const resolvedReplyTarget = repliedMessage ?? message.replyTo
   const replyPreviewMeta = useMemo(
-    () => getReplyPreviewMeta(message.replyPreview, resolvedReplyTarget),
-    [message.replyPreview, resolvedReplyTarget],
+    () =>
+      getReplyPreviewMeta({
+        currentUserId,
+        replyPreview: message.replyPreview,
+        replyTo: resolvedReplyTarget,
+      }),
+    [currentUserId, message.replyPreview, resolvedReplyTarget],
   )
   const repliedVideoUri =
     resolvedReplyTarget?.type === 'video' ? getResolvedMediaUri(resolvedReplyTarget.media) : null
@@ -866,6 +887,7 @@ export const MessageBubble = memo(MessageBubbleComponent, (prevProps, nextProps)
         prevReply?.mediaHeight === nextReply?.mediaHeight &&
         prevReply?.thumbnailUri === nextReply?.thumbnailUri &&
         prevReply?.type === nextReply?.type &&
+        prevReply?.senderId === nextReply?.senderId &&
         prevReply?.senderName === nextReply?.senderName
 
   return (

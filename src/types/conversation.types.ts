@@ -40,6 +40,7 @@ export interface ReactionMap {
 
 export interface ReplyPreviewData {
   senderName: string
+  senderId?: string
   content: string
   thumbnailUri?: string
   mediaWidth?: number

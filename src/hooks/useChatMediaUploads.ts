@@ -56,6 +56,7 @@ const getReplyPreview = ({
       replyToMessage.senderId === currentUserId
         ? 'You'
         : (replyToMessage.sender?.email?.split('@')[0] ?? 'User'),
+    senderId: replyToMessage.senderId,
     content: replyToMessage.content ?? '',
     ...(thumbnailUri ? { thumbnailUri } : {}),
     ...(mediaWidth ? { mediaWidth } : {}),

@@ -116,6 +116,25 @@ const getRenderableOptimisticMessages = (messages?: Message[]) => {
   return nextMessages
 }
 
+const backfillReplyPreviewSenderId = (message: Message, replyTo?: Message | null) => {
+  if (
+    !message.replyPreview ||
+    typeof message.replyPreview === 'string' ||
+    message.replyPreview.senderId ||
+    !replyTo?.senderId
+  ) {
+    return message
+  }
+
+  return {
+    ...message,
+    replyPreview: {
+      ...message.replyPreview,
+      senderId: replyTo.senderId,
+    },
+  }
+}
+
 const LoadingBubble = ({
   align = 'left',
   widthClassName,
@@ -1270,10 +1289,12 @@ export default function ChatScreen() {
       const sender = item.sender ?? participantsMap.get(item.senderId)
       const replyToId = item.replyToId ?? item.reply_to_id
       const repliedMessage = replyToId ? (messageById.get(replyToId) ?? null) : null
+      const resolvedReplyTarget = repliedMessage ?? item.replyTo ?? null
+      const normalizedMessage = backfillReplyPreviewSenderId(item, resolvedReplyTarget)
 
       return (
         <MessageRow
-          message={item}
+          message={normalizedMessage}
           repliedMessage={repliedMessage}
           layout={layout}
           isOwn={isOwn}

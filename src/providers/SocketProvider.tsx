@@ -58,6 +58,7 @@ const mergeReplyPreview = (
   if (remoteReplyPreview.thumbnailUri || !localReplyPreview.thumbnailUri) {
     return {
       ...remoteReplyPreview,
+      ...(remoteReplyPreview.senderId ? {} : { senderId: localReplyPreview.senderId }),
       ...(remoteReplyPreview.mediaWidth ? {} : { mediaWidth: localReplyPreview.mediaWidth }),
       ...(remoteReplyPreview.mediaHeight ? {} : { mediaHeight: localReplyPreview.mediaHeight }),
     }
@@ -66,6 +67,7 @@ const mergeReplyPreview = (
   return {
     ...remoteReplyPreview,
     thumbnailUri: localReplyPreview.thumbnailUri,
+    ...(remoteReplyPreview.senderId ? {} : { senderId: localReplyPreview.senderId }),
     ...(remoteReplyPreview.mediaWidth ? {} : { mediaWidth: localReplyPreview.mediaWidth }),
     ...(remoteReplyPreview.mediaHeight ? {} : { mediaHeight: localReplyPreview.mediaHeight }),
   }
@@ -542,6 +544,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           resolvedReplyTarget.senderId === currentUser?.id
             ? 'You'
             : (resolvedReplyTarget.sender?.email?.split('@')[0] ?? 'User'),
+        senderId: resolvedReplyTarget.senderId,
         content: resolvedReplyTarget.content ?? '',
         ...(replyPreviewThumbnailUri ? { thumbnailUri: replyPreviewThumbnailUri } : {}),
         ...getReplyPreviewMediaSize(resolvedReplyTarget),

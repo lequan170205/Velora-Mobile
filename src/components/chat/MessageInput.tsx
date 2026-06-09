@@ -30,6 +30,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../lib/chatMedia'
+import { useAuthStore } from '../../stores/authStore'
 
 import {
   AttachmentLauncherSheet,
@@ -96,6 +97,30 @@ const getComposerReplyThumbnailUri = (
   }
 
   return null
+}
+
+const getReplySenderLabel = ({
+  currentUserId,
+  replyPreviewData,
+  replyTo,
+}: {
+  currentUserId: string | null
+  replyPreviewData: ReplyPreviewData | null
+  replyTo: Message | null | undefined
+}) => {
+  if (replyPreviewData) {
+    if (currentUserId && replyPreviewData.senderId === currentUserId) {
+      return 'You'
+    }
+
+    return replyPreviewData.senderName?.trim() || 'Replying to'
+  }
+
+  if (currentUserId && replyTo?.senderId === currentUserId) {
+    return 'You'
+  }
+
+  return replyTo?.sender?.email?.split('@')[0] || 'Replying to'
 }
 
 const ComposerIconButton = memo(function ComposerIconButton({
@@ -409,6 +434,7 @@ const MessageInputComponent = function MessageInput(
 
   const showCharCounter = text.length > 800
   const counterColor = text.length > 950 ? '#E11D48' : TEXT_MUTED
+  const currentUserId = useAuthStore((state) => state.user?.id ?? null)
   const replyPreviewData =
     replyTo?.replyPreview && typeof replyTo.replyPreview !== 'string'
       ? (replyTo.replyPreview as ReplyPreviewData)
@@ -419,7 +445,7 @@ const MessageInputComponent = function MessageInput(
       : replyPreviewData
         ? replyPreviewData.content
         : replyTo?.content
-  const replySenderLabel = replyPreviewData?.senderName ?? replyTo?.sender?.email ?? 'Replying to'
+  const replySenderLabel = getReplySenderLabel({ currentUserId, replyPreviewData, replyTo })
   const replyInitial = (replyPreviewText?.trim().charAt(0) || '?').toUpperCase()
   const replyThumbnailUri = getComposerReplyThumbnailUri(replyTo, replyPreviewData)
   const isReplyVideo = replyPreviewData?.type === 'video' || replyTo?.type === 'video'

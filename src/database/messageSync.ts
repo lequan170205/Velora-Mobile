@@ -131,6 +131,7 @@ const mergeReplyPreview = (
   if (incomingReplyPreview.thumbnailUri || !existingReplyPreview.thumbnailUri) {
     return {
       ...incomingReplyPreview,
+      ...(incomingReplyPreview.senderId ? {} : { senderId: existingReplyPreview.senderId }),
       ...(incomingReplyPreview.mediaWidth ? {} : { mediaWidth: existingReplyPreview.mediaWidth }),
       ...(incomingReplyPreview.mediaHeight
         ? {}
@@ -141,6 +142,7 @@ const mergeReplyPreview = (
   return {
     ...incomingReplyPreview,
     thumbnailUri: existingReplyPreview.thumbnailUri,
+    ...(incomingReplyPreview.senderId ? {} : { senderId: existingReplyPreview.senderId }),
     ...(incomingReplyPreview.mediaWidth ? {} : { mediaWidth: existingReplyPreview.mediaWidth }),
     ...(incomingReplyPreview.mediaHeight ? {} : { mediaHeight: existingReplyPreview.mediaHeight }),
   }

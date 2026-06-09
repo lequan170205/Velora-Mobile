@@ -134,6 +134,7 @@ export const sanitizeReplyPreview = (value: unknown): MessageReplyPreview => {
   }
 
   const senderName = sanitizeString(value.senderName)
+  const senderId = sanitizeString(value.senderId)
   const content = sanitizeString(value.content)
   const thumbnailUri = sanitizeString(value.thumbnailUri)
   const mediaWidth = sanitizeNumber(value.mediaWidth)
@@ -146,6 +147,7 @@ export const sanitizeReplyPreview = (value: unknown): MessageReplyPreview => {
 
   return {
     senderName,
+    ...(senderId ? { senderId } : {}),
     content,
     ...(thumbnailUri ? { thumbnailUri } : {}),
     ...(mediaWidth !== null ? { mediaWidth } : {}),
