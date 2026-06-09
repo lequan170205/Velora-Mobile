@@ -14,6 +14,7 @@ import {
 import { getMediaPlaceholderLabel } from '../lib/chatMedia'
 import {
   patchConversationMessagesInCache,
+  patchExistingMessageAcrossConversationCaches,
   upsertConversationSummaryInCache,
   upsertMessageIntoConversationCache,
 } from '../lib/chatMessageCache'
@@ -526,6 +527,7 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
 
       try {
         upsertMessageIntoConversationCache(queryClient, sanitizedConfirmedMessage)
+        patchExistingMessageAcrossConversationCaches(queryClient, sanitizedConfirmedMessage)
         upsertConversationSummaryInCache(queryClient, {
           id: sanitizedConfirmedMessage.conversationId,
           lastMessage: sanitizedConfirmedMessage.content ?? getMediaPlaceholderLabel(job.type),

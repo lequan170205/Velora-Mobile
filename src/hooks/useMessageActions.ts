@@ -1,10 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Alert } from 'react-native'
 
-import type { InfiniteData } from '@tanstack/react-query'
-
 import { conversationApi } from '../api/conversation.api'
 import { queryKeys } from '../constants/queryKeys'
+import { patchConversationMessageCollectionsInCache } from '../lib/chatMessageCache'
 import { useAuthStore } from '../stores/authStore'
 
 import type { Message } from '../types/conversation.types'
@@ -15,30 +14,8 @@ function mergeMessageReactionsIntoCache(
   messageId: string,
   reactions: Message['reactions'],
 ) {
-  queryClient.setQueryData(
-    queryKeys.conversations.messages(conversationId),
-    (oldData: InfiniteData<Message[]> | Message[] | undefined) => {
-      if (!oldData) return oldData
-
-      if ('pages' in oldData) {
-        return {
-          ...oldData,
-          pages: (oldData as InfiniteData<Message[]>).pages.map((page: Message[]) =>
-            page.map((msg: Message) =>
-              msg.id === messageId ? { ...msg, reactions: reactions || {} } : msg,
-            ),
-          ),
-        }
-      }
-
-      if (Array.isArray(oldData)) {
-        return (oldData as Message[]).map((msg: Message) =>
-          msg.id === messageId ? { ...msg, reactions: reactions || {} } : msg,
-        )
-      }
-
-      return oldData
-    },
+  patchConversationMessageCollectionsInCache(queryClient, conversationId, (msg) =>
+    msg.id === messageId ? { ...msg, reactions: reactions || {} } : msg,
   )
 }
 
@@ -47,39 +24,18 @@ function mergeRecalledMessageIntoCache(
   conversationId: string,
   message: Message,
 ) {
-  queryClient.setQueryData(
-    queryKeys.conversations.messages(conversationId),
-    (oldData: InfiniteData<Message[]> | Message[] | undefined) => {
-      if (!oldData) return oldData
-
-      const applyRecall = (msg: Message) =>
-        msg.id === message.id
-          ? {
-              ...msg,
-              ...message,
-              isRecalled: true,
-              recalledAt: message.recalledAt || new Date().toISOString(),
-              is_recalled: true,
-              recalled_at: message.recalledAt || new Date().toISOString(),
-              reactions: {},
-            }
-          : msg
-
-      if ('pages' in oldData) {
-        return {
-          ...oldData,
-          pages: (oldData as InfiniteData<Message[]>).pages.map((page: Message[]) =>
-            page.map(applyRecall),
-          ),
+  patchConversationMessageCollectionsInCache(queryClient, conversationId, (msg) =>
+    msg.id === message.id
+      ? {
+          ...msg,
+          ...message,
+          isRecalled: true,
+          recalledAt: message.recalledAt || new Date().toISOString(),
+          is_recalled: true,
+          recalled_at: message.recalledAt || new Date().toISOString(),
+          reactions: {},
         }
-      }
-
-      if (Array.isArray(oldData)) {
-        return (oldData as Message[]).map(applyRecall)
-      }
-
-      return oldData
-    },
+      : msg,
   )
 }
 
@@ -93,48 +49,17 @@ export function useRecallMessage(conversationId: string) {
     },
     onMutate: async (messageId) => {
       const now = new Date().toISOString()
-      queryClient.setQueryData(
-        queryKeys.conversations.messages(conversationId),
-        (oldData: InfiniteData<Message[]> | Message[] | undefined) => {
-          if (!oldData) return oldData
-
-          if ('pages' in oldData) {
-            return {
-              ...oldData,
-              pages: (oldData as InfiniteData<Message[]>).pages.map((page: Message[]) =>
-                page.map((msg: Message) =>
-                  msg.id === messageId
-                    ? {
-                        ...msg,
-                        isRecalled: true,
-                        recalledAt: now,
-                        is_recalled: true,
-                        recalled_at: now,
-                        reactions: {},
-                      }
-                    : msg,
-                ),
-              ),
+      patchConversationMessageCollectionsInCache(queryClient, conversationId, (msg) =>
+        msg.id === messageId
+          ? {
+              ...msg,
+              isRecalled: true,
+              recalledAt: now,
+              is_recalled: true,
+              recalled_at: now,
+              reactions: {},
             }
-          }
-
-          if (Array.isArray(oldData)) {
-            return (oldData as Message[]).map((msg: Message) =>
-              msg.id === messageId
-                ? {
-                    ...msg,
-                    isRecalled: true,
-                    recalledAt: now,
-                    is_recalled: true,
-                    recalled_at: now,
-                    reactions: {},
-                  }
-                : msg,
-            )
-          }
-
-          return oldData
-        },
+          : msg,
       )
     },
     onError: (error) => {
@@ -150,6 +75,9 @@ export function useRecallMessage(conversationId: string) {
       )
       queryClient.invalidateQueries({
         queryKey: queryKeys.conversations.messages(conversationId),
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.conversations.messagesAroundRoot(conversationId),
       })
     },
     onSuccess: ({ conversationId: currentConversationId, message }) => {
@@ -183,58 +111,27 @@ export function useAddReaction() {
       if (!user) return
 
       const now = new Date().toISOString()
-      queryClient.setQueryData(
-        queryKeys.conversations.messages(conversationId),
-        (oldData: InfiniteData<Message[]> | Message[] | undefined) => {
-          if (!oldData) return oldData
+      patchConversationMessageCollectionsInCache(queryClient, conversationId, (msg) => {
+        if (msg.id !== messageId) {
+          return msg
+        }
 
-          // Handle paginated data (pages array)
-          if ('pages' in oldData) {
-            return {
-              ...oldData,
-              pages: (oldData as InfiniteData<Message[]>).pages.map((page: Message[]) =>
-                page.map((msg: Message) => {
-                  if (msg.id === messageId) {
-                    // New map structure
-                    const reactionsMap = msg.reactions || {}
-                    return {
-                      ...msg,
-                      reactions: {
-                        ...reactionsMap,
-                        [user.id]: { emoji, createdAt: now },
-                      },
-                    }
-                  }
-                  return msg
-                }),
-              ),
-            }
-          }
-
-          // Handle regular array data
-          if (Array.isArray(oldData)) {
-            return (oldData as Message[]).map((msg: Message) => {
-              if (msg.id === messageId) {
-                const reactionsMap = msg.reactions || {}
-                return {
-                  ...msg,
-                  reactions: {
-                    ...reactionsMap,
-                    [user.id]: { emoji, createdAt: now },
-                  },
-                }
-              }
-              return msg
-            })
-          }
-
-          return oldData
-        },
-      )
+        const reactionsMap = msg.reactions || {}
+        return {
+          ...msg,
+          reactions: {
+            ...reactionsMap,
+            [user.id]: { emoji, createdAt: now },
+          },
+        }
+      })
     },
     onError: (_err, vars) => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.conversations.messages(vars.conversationId),
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.conversations.messagesAroundRoot(vars.conversationId),
       })
     },
     onSuccess: ({ messageId, conversationId, message }) => {
@@ -265,51 +162,25 @@ export function useRemoveReaction() {
     onMutate: async ({ messageId, conversationId }) => {
       if (!user) return
 
-      queryClient.setQueryData(
-        queryKeys.conversations.messages(conversationId),
-        (oldData: InfiniteData<Message[]> | Message[] | undefined) => {
-          if (!oldData) return oldData
+      patchConversationMessageCollectionsInCache(queryClient, conversationId, (msg) => {
+        if (msg.id !== messageId) {
+          return msg
+        }
 
-          if ('pages' in oldData) {
-            return {
-              ...oldData,
-              pages: (oldData as InfiniteData<Message[]>).pages.map((page: Message[]) =>
-                page.map((msg: Message) => {
-                  if (msg.id === messageId) {
-                    const reactionsMap = msg.reactions || {}
-                    const { [user.id]: _removed, ...remainingReactions } = reactionsMap
-                    return {
-                      ...msg,
-                      reactions: remainingReactions,
-                    }
-                  }
-                  return msg
-                }),
-              ),
-            }
-          }
-
-          if (Array.isArray(oldData)) {
-            return (oldData as Message[]).map((msg: Message) => {
-              if (msg.id === messageId) {
-                const reactionsMap = msg.reactions || {}
-                const { [user.id]: _removed, ...remainingReactions } = reactionsMap
-                return {
-                  ...msg,
-                  reactions: remainingReactions,
-                }
-              }
-              return msg
-            })
-          }
-
-          return oldData
-        },
-      )
+        const reactionsMap = msg.reactions || {}
+        const { [user.id]: _removed, ...remainingReactions } = reactionsMap
+        return {
+          ...msg,
+          reactions: remainingReactions,
+        }
+      })
     },
     onError: (_err, vars) => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.conversations.messages(vars.conversationId),
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.conversations.messagesAroundRoot(vars.conversationId),
       })
     },
     onSuccess: ({ messageId, conversationId, message }) => {

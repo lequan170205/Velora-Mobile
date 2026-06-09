@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons'
 import { useIsFocused } from '@react-navigation/native'
 import { useQueryClient } from '@tanstack/react-query'
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Alert, FlatList, Image, ScrollView, View } from 'react-native'
+import { ActivityIndicator, Alert, AppState, FlatList, Image, ScrollView, View } from 'react-native'
 import Animated, { FadeInDown } from 'react-native-reanimated'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
@@ -151,6 +151,20 @@ export default function ConversationsScreen() {
 
     requestPresence(presenceUserIds)
   }, [isConnected, presenceUserIds, requestPresence])
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState !== 'active' || !isFocused) {
+        return
+      }
+
+      void refetch()
+    })
+
+    return () => {
+      subscription.remove()
+    }
+  }, [isFocused, refetch])
 
   useEffect(() => {
     if (!isFocused) {

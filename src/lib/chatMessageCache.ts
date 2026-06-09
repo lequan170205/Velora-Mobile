@@ -10,6 +10,28 @@ import {
 
 import type { Conversation, Message } from '../types/conversation.types'
 
+type AnchoredMessagesCollection = {
+  messages: Message[]
+}
+
+type MessagesCollection =
+  | InfiniteData<Message[]>
+  | Message[]
+  | AnchoredMessagesCollection
+  | undefined
+
+const isInfiniteMessagesCollection = (
+  value: MessagesCollection,
+): value is InfiniteData<Message[]> => {
+  return Boolean(value && typeof value === 'object' && 'pages' in value)
+}
+
+const isAnchoredMessagesCollection = (
+  value: MessagesCollection,
+): value is AnchoredMessagesCollection => {
+  return Boolean(value && typeof value === 'object' && 'messages' in value && !('pages' in value))
+}
+
 const getConversationActivityAt = (conversation: Partial<Conversation>) => {
   const value = conversation.lastMessageAt ?? conversation.updatedAt ?? conversation.createdAt
   return value ? new Date(value).getTime() : 0
@@ -19,6 +41,22 @@ const sortConversations = (conversations: Conversation[]) => {
   return [...conversations].sort(
     (left, right) => getConversationActivityAt(right) - getConversationActivityAt(left),
   )
+}
+
+const mapMessagesIfChanged = (messages: Message[], updater: (message: Message) => Message) => {
+  let hasChanges = false
+
+  const nextMessages = messages.map((message) => {
+    const nextMessage = updater(message)
+
+    if (nextMessage !== message) {
+      hasChanges = true
+    }
+
+    return nextMessage
+  })
+
+  return hasChanges ? nextMessages : messages
 }
 
 export const upsertConversationSummaryInCache = (
@@ -61,22 +99,37 @@ export const patchConversationMessagesInCache = (
   conversationId: string,
   updater: (message: Message) => Message,
 ) => {
-  queryClient.setQueryData<InfiniteData<Message[]> | Message[] | undefined>(
+  queryClient.setQueryData<MessagesCollection>(
     queryKeys.conversations.messages(conversationId),
     (oldData) => {
       if (!oldData) {
         return oldData
       }
 
-      if ('pages' in oldData) {
+      if (isInfiniteMessagesCollection(oldData)) {
+        let hasChanges = false
+        const nextPages = oldData.pages.map((page) => {
+          const nextPage = mapMessagesIfChanged(page, updater)
+          if (nextPage !== page) {
+            hasChanges = true
+          }
+
+          return nextPage
+        })
+
+        if (!hasChanges) {
+          return oldData
+        }
+
         return {
           ...oldData,
-          pages: oldData.pages.map((page) => page.map(updater)),
+          pages: nextPages,
         }
       }
 
       if (Array.isArray(oldData)) {
-        return oldData.map(updater)
+        const nextMessages = mapMessagesIfChanged(oldData, updater)
+        return nextMessages === oldData ? oldData : nextMessages
       }
 
       return oldData
@@ -84,41 +137,119 @@ export const patchConversationMessagesInCache = (
   )
 }
 
+export const patchConversationAnchoredMessagesInCache = (
+  queryClient: QueryClient,
+  conversationId: string,
+  updater: (message: Message) => Message,
+) => {
+  const anchorQueries = queryClient.getQueriesData<MessagesCollection>({
+    queryKey: queryKeys.conversations.messagesAroundRoot(conversationId),
+  })
+
+  for (const [queryKey] of anchorQueries) {
+    if (!Array.isArray(queryKey) || queryKey.length !== 4 || queryKey[2] !== 'messagesAround') {
+      continue
+    }
+
+    queryClient.setQueryData<MessagesCollection>(queryKey, (oldData) => {
+      if (!oldData) {
+        return oldData
+      }
+
+      if (isAnchoredMessagesCollection(oldData)) {
+        const nextMessages = mapMessagesIfChanged(oldData.messages, updater)
+        return nextMessages === oldData.messages ? oldData : { ...oldData, messages: nextMessages }
+      }
+
+      return oldData
+    })
+  }
+}
+
+export const patchConversationMessageCollectionsInCache = (
+  queryClient: QueryClient,
+  conversationId: string,
+  updater: (message: Message) => Message,
+) => {
+  patchConversationMessagesInCache(queryClient, conversationId, updater)
+  patchConversationAnchoredMessagesInCache(queryClient, conversationId, updater)
+}
+
 export const patchMessagesAcrossConversationCaches = (
   queryClient: QueryClient,
   updater: (message: Message) => Message,
 ) => {
-  const allQueries = queryClient.getQueriesData<InfiniteData<Message[]> | Message[] | undefined>({
+  const allQueries = queryClient.getQueriesData<MessagesCollection>({
     queryKey: ['conversations'],
   })
 
   for (const [queryKey] of allQueries) {
-    if (!Array.isArray(queryKey) || queryKey.length !== 3 || queryKey[2] !== 'messages') {
+    if (!Array.isArray(queryKey)) {
       continue
     }
 
-    queryClient.setQueryData(
-      queryKey,
-      (oldData: InfiniteData<Message[]> | Message[] | undefined) => {
-        if (!oldData) {
+    const isLatestMessagesQuery = queryKey.length === 3 && queryKey[2] === 'messages'
+    const isAnchoredMessagesQuery = queryKey.length === 4 && queryKey[2] === 'messagesAround'
+
+    if (!isLatestMessagesQuery && !isAnchoredMessagesQuery) {
+      continue
+    }
+
+    queryClient.setQueryData(queryKey as readonly unknown[], (oldData: MessagesCollection) => {
+      if (!oldData) {
+        return oldData
+      }
+
+      if (isInfiniteMessagesCollection(oldData)) {
+        let hasChanges = false
+        const nextPages = oldData.pages.map((page) => {
+          const nextPage = mapMessagesIfChanged(page, updater)
+          if (nextPage !== page) {
+            hasChanges = true
+          }
+
+          return nextPage
+        })
+
+        if (!hasChanges) {
           return oldData
         }
 
-        if ('pages' in oldData) {
-          return {
-            ...oldData,
-            pages: oldData.pages.map((page) => page.map(updater)),
-          }
+        return {
+          ...oldData,
+          pages: nextPages,
+        }
+      }
+
+      if (Array.isArray(oldData)) {
+        const nextMessages = mapMessagesIfChanged(oldData, updater)
+        return nextMessages === oldData ? oldData : nextMessages
+      }
+
+      if (isAnchoredMessagesCollection(oldData)) {
+        const nextMessages = mapMessagesIfChanged(oldData.messages, updater)
+        if (nextMessages === oldData.messages) {
+          return oldData
         }
 
-        if (Array.isArray(oldData)) {
-          return oldData.map(updater)
+        return {
+          ...oldData,
+          messages: nextMessages,
         }
+      }
 
-        return oldData
-      },
-    )
+      return oldData
+    })
   }
+}
+
+export const patchExistingMessageAcrossConversationCaches = (
+  queryClient: QueryClient,
+  message: Message,
+) => {
+  patchConversationMessageCollectionsInCache(queryClient, message.conversationId, (candidate) =>
+    isSameMessageIdentity(candidate, message) ? mergeMessageRecords(candidate, message) : candidate,
+  )
 }
 
 export const upsertMessageIntoConversationCache = (queryClient: QueryClient, message: Message) => {

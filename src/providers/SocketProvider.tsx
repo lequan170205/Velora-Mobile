@@ -7,8 +7,10 @@ import type { InfiniteData } from '@tanstack/react-query'
 import { authApi } from '../api/auth.api'
 import { queryKeys } from '../constants/queryKeys'
 import { applyMediaProcessingUpdate, upsertRemoteMessage } from '../database/messageSync'
+import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../lib/chatMedia'
 import {
-  patchConversationMessagesInCache,
+  patchConversationMessageCollectionsInCache,
+  patchExistingMessageAcrossConversationCaches,
   patchMessagesAcrossConversationCaches,
 } from '../lib/chatMessageCache'
 import { isSameMessageIdentity, mergeMessageRecords } from '../lib/messageIdentity'
@@ -66,6 +68,28 @@ const mergeReplyPreview = (
     thumbnailUri: localReplyPreview.thumbnailUri,
     ...(remoteReplyPreview.mediaWidth ? {} : { mediaWidth: localReplyPreview.mediaWidth }),
     ...(remoteReplyPreview.mediaHeight ? {} : { mediaHeight: localReplyPreview.mediaHeight }),
+  }
+}
+
+const getReplyPreviewThumbnailUri = (message?: Message | null) => {
+  if (!message || (message.type !== 'image' && message.type !== 'video')) {
+    return undefined
+  }
+
+  if (message.type === 'video') {
+    return getResolvedMediaPosterUri(message.media) ?? undefined
+  }
+
+  return getResolvedMediaUri(message.media) ?? undefined
+}
+
+const getReplyPreviewMediaSize = (message?: Message | null) => {
+  const mediaWidth = message?.media?.width ?? message?.media?.displayWidth ?? undefined
+  const mediaHeight = message?.media?.height ?? message?.media?.displayHeight ?? undefined
+
+  return {
+    ...(mediaWidth ? { mediaWidth } : {}),
+    ...(mediaHeight ? { mediaHeight } : {}),
   }
 }
 
@@ -288,50 +312,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       )
     }
 
-    const patchExistingMessageQuery = (message: Message) => {
-      queryClient.setQueryData<InfiniteData<Message[]> | Message[] | undefined>(
-        queryKeys.conversations.messages(message.conversationId),
-        (oldData) => {
-          if (!oldData) {
-            return oldData
-          }
-
-          if ('pages' in oldData) {
-            const exists = oldData.pages.some((page) =>
-              page.some((item) => isSameMessageIdentity(item, message)),
-            )
-
-            if (!exists) {
-              return oldData
-            }
-
-            return {
-              ...oldData,
-              pages: oldData.pages.map((page) =>
-                page.map((item) =>
-                  isSameMessageIdentity(item, message) ? mergeMessageRecords(item, message) : item,
-                ),
-              ),
-            }
-          }
-
-          if (Array.isArray(oldData)) {
-            const exists = oldData.some((item) => isSameMessageIdentity(item, message))
-
-            if (!exists) {
-              return oldData
-            }
-
-            return oldData.map((item) =>
-              isSameMessageIdentity(item, message) ? mergeMessageRecords(item, message) : item,
-            )
-          }
-
-          return oldData
-        },
-      )
-    }
-
     const getConversationActivityAt = (conversation: Partial<Conversation>) => {
       const value = conversation.lastMessageAt ?? conversation.updatedAt ?? conversation.createdAt
       return value ? new Date(value).getTime() : 0
@@ -505,6 +485,83 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       return replyPreview ? { ...message, replyPreview } : message
     }
 
+    const hydrateReplyContextFromLocalState = (message: Message) => {
+      const replyToId = message.replyToId ?? message.reply_to_id ?? null
+
+      if (!replyToId) {
+        return message
+      }
+
+      const messagesQueryData = queryClient.getQueryData<InfiniteData<Message[]> | Message[]>(
+        queryKeys.conversations.messages(message.conversationId),
+      )
+
+      const findReplyTarget = (messages: Message[]) => {
+        return (
+          messages.find(
+            (candidate) =>
+              candidate.id === replyToId ||
+              candidate._id === replyToId ||
+              candidate.clientMessageId === replyToId,
+          ) ?? null
+        )
+      }
+
+      const cachedReplyTarget =
+        messagesQueryData && 'pages' in messagesQueryData
+          ? (messagesQueryData.pages
+              .flat()
+              .find(
+                (candidate) =>
+                  candidate.id === replyToId ||
+                  candidate._id === replyToId ||
+                  candidate.clientMessageId === replyToId,
+              ) ?? null)
+          : Array.isArray(messagesQueryData)
+            ? findReplyTarget(messagesQueryData)
+            : null
+
+      const optimisticReplyTarget =
+        useChatStore
+          .getState()
+          .optimisticMessages[
+            message.conversationId
+          ]?.find((candidate) => candidate.id === replyToId || candidate._id === replyToId || candidate.clientMessageId === replyToId) ??
+        null
+
+      const resolvedReplyTarget = message.replyTo ?? cachedReplyTarget ?? optimisticReplyTarget
+
+      if (!resolvedReplyTarget) {
+        return message
+      }
+
+      const currentUser = useAuthStore.getState().user
+      const replyPreviewThumbnailUri = getReplyPreviewThumbnailUri(resolvedReplyTarget)
+      const localReplyPreview: Message['replyPreview'] = {
+        senderName:
+          resolvedReplyTarget.senderId === currentUser?.id
+            ? 'You'
+            : (resolvedReplyTarget.sender?.email?.split('@')[0] ?? 'User'),
+        content: resolvedReplyTarget.content ?? '',
+        ...(replyPreviewThumbnailUri ? { thumbnailUri: replyPreviewThumbnailUri } : {}),
+        ...getReplyPreviewMediaSize(resolvedReplyTarget),
+        type: (resolvedReplyTarget.type === 'voice' ? 'text' : resolvedReplyTarget.type) as
+          | 'text'
+          | 'image'
+          | 'video'
+          | 'file'
+          | 'call',
+      }
+
+      const replyPreview = mergeReplyPreview(message.replyPreview, localReplyPreview)
+
+      return {
+        ...message,
+        ...(message.replyTo ? {} : { replyTo: resolvedReplyTarget }),
+        ...(replyPreview ? { replyPreview } : {}),
+      }
+    }
+
     const persistSocketMessage = (
       message: Message,
       options?: {
@@ -602,7 +659,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (payload.conversationId) {
-        patchConversationMessagesInCache(queryClient, payload.conversationId, updateMessage)
+        patchConversationMessageCollectionsInCache(
+          queryClient,
+          payload.conversationId,
+          updateMessage,
+        )
         return
       }
 
@@ -610,7 +671,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     }
 
     newSocket.on('new_message', (incomingMessage: Message) => {
-      const message = mergeMessageWithOptimisticReplyPreview(incomingMessage)
+      const message = hydrateReplyContextFromLocalState(
+        mergeMessageWithOptimisticReplyPreview(incomingMessage),
+      )
       const currentUser = useAuthStore.getState().user
       const conversationId = message.conversationId
       const isOwnMessage = currentUser?.id === message.senderId
@@ -637,6 +700,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         upsertMessageQuery(message)
       }
 
+      patchExistingMessageAcrossConversationCaches(queryClient, message)
+
       if (!isOwnMessage) {
         return
       }
@@ -654,7 +719,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     })
 
     newSocket.on('message_synced', (incomingMessage: Message) => {
-      const message = mergeMessageWithOptimisticReplyPreview(incomingMessage)
+      const message = hydrateReplyContextFromLocalState(
+        mergeMessageWithOptimisticReplyPreview(incomingMessage),
+      )
       persistSocketMessage(message)
 
       upsertConversationSummary(
@@ -670,6 +737,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       )
 
       upsertMessageQuery(message)
+      patchExistingMessageAcrossConversationCaches(queryClient, message)
 
       if (userId && message.senderId === userId) {
         const store = useChatStore.getState()
@@ -743,67 +811,60 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       queryClient.invalidateQueries({
         queryKey: queryKeys.conversations.messages(conversationId),
       })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.conversations.messagesAroundRoot(conversationId),
+      })
     })
 
     newSocket.on(
       'message_recalled',
-      ({ messageId, recalledAt }: { messageId: string; recalledAt?: string }) => {
+      ({
+        conversationId,
+        messageId,
+        recalledAt,
+      }: {
+        conversationId?: string
+        messageId: string
+        recalledAt?: string
+      }) => {
         const now = recalledAt || new Date().toISOString()
-        const allQueries = queryClient.getQueriesData<
-          InfiniteData<Message[]> | Message[] | undefined
-        >({ queryKey: ['conversations'] })
+        const conversationIds = new Set<string>()
 
-        for (const [queryKey] of allQueries) {
-          if (!Array.isArray(queryKey) || queryKey.length !== 3 || queryKey[2] !== 'messages')
-            continue
+        if (conversationId) {
+          conversationIds.add(conversationId)
+        } else {
+          const queries = queryClient.getQueriesData<
+            InfiniteData<Message[]> | Message[] | undefined
+          >({
+            queryKey: ['conversations'],
+          })
 
-          queryClient.setQueryData(
-            queryKey,
-            (oldData: InfiniteData<Message[]> | Message[] | undefined) => {
-              if (!oldData) return oldData
+          for (const [queryKey] of queries) {
+            if (!Array.isArray(queryKey) || typeof queryKey[1] !== 'string') {
+              continue
+            }
 
-              let updated = false
-              let newData = oldData
+            if (
+              (queryKey.length === 3 && queryKey[2] === 'messages') ||
+              (queryKey.length === 4 && queryKey[2] === 'messagesAround')
+            ) {
+              conversationIds.add(queryKey[1])
+            }
+          }
+        }
 
-              if ('pages' in oldData) {
-                newData = {
-                  ...oldData,
-                  pages: (oldData as InfiniteData<Message[]>).pages.map((page: Message[]) =>
-                    page.map((msg: Message) => {
-                      if (msg.id === messageId) {
-                        updated = true
-                        return {
-                          ...msg,
-                          isRecalled: true,
-                          recalledAt: now,
-                          is_recalled: true,
-                          recalled_at: now,
-                          reactions: {}, // Clear reactions on recall
-                        }
-                      }
-                      return msg
-                    }),
-                  ),
+        for (const nextConversationId of conversationIds) {
+          patchConversationMessageCollectionsInCache(queryClient, nextConversationId, (msg) =>
+            msg.id === messageId
+              ? {
+                  ...msg,
+                  isRecalled: true,
+                  recalledAt: now,
+                  is_recalled: true,
+                  recalled_at: now,
+                  reactions: {},
                 }
-              } else if (Array.isArray(oldData)) {
-                newData = (oldData as Message[]).map((msg: Message) => {
-                  if (msg.id === messageId) {
-                    updated = true
-                    return {
-                      ...msg,
-                      isRecalled: true,
-                      recalledAt: now,
-                      is_recalled: true,
-                      recalled_at: now,
-                      reactions: {}, // Clear reactions on recall
-                    }
-                  }
-                  return msg
-                })
-              }
-
-              return updated ? newData : oldData
-            },
+              : msg,
           )
         }
       },
@@ -850,59 +911,41 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-        const allQueries = queryClient.getQueriesData<
+        const allConversationIds = new Set<string>()
+        const latestQueries = queryClient.getQueriesData<
           InfiniteData<Message[]> | Message[] | undefined
-        >({ queryKey: ['conversations'] })
+        >({
+          queryKey: ['conversations'],
+        })
 
-        for (const [queryKey] of allQueries) {
-          if (!Array.isArray(queryKey) || queryKey.length !== 3 || queryKey[2] !== 'messages')
+        for (const [queryKey] of latestQueries) {
+          if (!Array.isArray(queryKey) || typeof queryKey[1] !== 'string') {
             continue
+          }
 
-          queryClient.setQueryData(
-            queryKey,
-            (oldData: InfiniteData<Message[]> | Message[] | undefined) => {
-              if (!oldData) return oldData
+          if (
+            (queryKey.length === 3 && queryKey[2] === 'messages') ||
+            (queryKey.length === 4 && queryKey[2] === 'messagesAround')
+          ) {
+            allConversationIds.add(queryKey[1])
+          }
+        }
 
-              let updated = false
-              let newData = oldData
+        for (const conversationId of allConversationIds) {
+          patchConversationMessageCollectionsInCache(queryClient, conversationId, (msg) => {
+            if (!messageIds.includes(msg.id) || !msg.replyPreview) {
+              return msg
+            }
 
-              if ('pages' in oldData) {
-                newData = {
-                  ...oldData,
-                  pages: (oldData as InfiniteData<Message[]>).pages.map((page: Message[]) =>
-                    page.map((msg: Message) => {
-                      if (messageIds.includes(msg.id) && msg.replyPreview) {
-                        updated = true
-                        const updatedPreview =
-                          typeof msg.replyPreview === 'object'
-                            ? {
-                                ...msg.replyPreview,
-                                content: payload.previewContent || 'Tin nhắn đã thu hồi',
-                              }
-                            : payload.previewContent || 'Tin nhắn đã thu hồi'
-                        return { ...msg, replyPreview: updatedPreview }
-                      }
-                      return msg
-                    }),
-                  ),
-                }
-              } else if (Array.isArray(oldData)) {
-                newData = (oldData as Message[]).map((msg: Message) => {
-                  if (messageIds.includes(msg.id) && msg.replyPreview) {
-                    updated = true
-                    const updatedPreview =
-                      typeof msg.replyPreview === 'object'
-                        ? { ...msg.replyPreview, content: 'Tin nhắn đã thu hồi' }
-                        : 'Tin nhắn đã thu hồi'
-                    return { ...msg, replyPreview: updatedPreview }
+            const updatedPreview =
+              typeof msg.replyPreview === 'object'
+                ? {
+                    ...msg.replyPreview,
+                    content: payload.previewContent || 'Tin nhắn đã thu hồi',
                   }
-                  return msg
-                })
-              }
-
-              return updated ? newData : oldData
-            },
-          )
+                : payload.previewContent || 'Tin nhắn đã thu hồi'
+            return { ...msg, replyPreview: updatedPreview }
+          })
         }
       },
     )
@@ -913,7 +956,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }
 
       persistSocketMessage(message)
-      patchExistingMessageQuery(message)
+      patchExistingMessageAcrossConversationCaches(queryClient, message)
     })
 
     newSocket.on('user:online', ({ userId, lastSeenAt }) => {
@@ -938,59 +981,24 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
       useChatStore.getState().markMessagesAsSeen(conversationId, readByUserId)
 
-      queryClient.setQueryData(
-        queryKeys.conversations.messages(conversationId),
-        (oldData: InfiniteData<Message[]> | Message[] | undefined) => {
-          if (!oldData) return oldData
+      patchConversationMessageCollectionsInCache(queryClient, conversationId, (msg) => {
+        if (msg.senderId !== currentUserId || msg.status === 'READ') {
+          return msg
+        }
 
-          const seenAt = at || new Date().toISOString()
-
-          if ('pages' in oldData) {
-            return {
-              ...oldData,
-              pages: (oldData as InfiniteData<Message[]>).pages.map((page: Message[]) =>
-                page.map((msg: Message) => {
-                  if (msg.senderId === currentUserId && msg.status !== 'READ') {
-                    const nextReadBy = Array.isArray(msg.readBy) ? msg.readBy : []
-                    const alreadyMarked = nextReadBy.some((entry) => entry.userId === readByUserId)
-                    useChatStore.getState().setMessageAsSeen(conversationId, msg.id)
-                    return {
-                      ...msg,
-                      status: 'READ',
-                      seenAt,
-                      readBy: alreadyMarked
-                        ? nextReadBy
-                        : [...nextReadBy, { userId: readByUserId, at: seenAt }],
-                    }
-                  }
-                  return msg
-                }),
-              ),
-            }
-          }
-
-          if (Array.isArray(oldData)) {
-            return (oldData as Message[]).map((msg: Message) => {
-              if (msg.senderId === currentUserId && msg.status !== 'READ') {
-                const nextReadBy = Array.isArray(msg.readBy) ? msg.readBy : []
-                const alreadyMarked = nextReadBy.some((entry) => entry.userId === readByUserId)
-                useChatStore.getState().setMessageAsSeen(conversationId, msg.id)
-                return {
-                  ...msg,
-                  status: 'READ',
-                  seenAt,
-                  readBy: alreadyMarked
-                    ? nextReadBy
-                    : [...nextReadBy, { userId: readByUserId, at: seenAt }],
-                }
-              }
-              return msg
-            })
-          }
-
-          return oldData
-        },
-      )
+        const seenAt = at || new Date().toISOString()
+        const nextReadBy = Array.isArray(msg.readBy) ? msg.readBy : []
+        const alreadyMarked = nextReadBy.some((entry) => entry.userId === readByUserId)
+        useChatStore.getState().setMessageAsSeen(conversationId, msg.id)
+        return {
+          ...msg,
+          status: 'READ',
+          seenAt,
+          readBy: alreadyMarked
+            ? nextReadBy
+            : [...nextReadBy, { userId: readByUserId, at: seenAt }],
+        }
+      })
     })
 
     newSocket.on('call:incoming', (_payload) => {})

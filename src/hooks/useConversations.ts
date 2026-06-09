@@ -6,6 +6,9 @@ import { queryKeys } from '../constants/queryKeys'
 export const getConversationsQueryOptions = () => ({
   queryKey: queryKeys.conversations.all,
   queryFn: () => conversationApi.getAll(),
+  staleTime: 0,
+  refetchOnMount: 'always' as const,
+  refetchOnReconnect: true,
 })
 
 export function useConversations() {

@@ -50,6 +50,7 @@ interface SendMessageVariables {
   media?: Message['media']
   type?: Message['type']
   replyToId?: string
+  replyToMessage?: Message | null
   clientMessageId?: string
 }
 
@@ -66,11 +67,9 @@ const markLatestMessagesSynced = (conversationId: string) => {
   latestMessagesSyncedAtByConversation.set(conversationId, Date.now())
 }
 
-const shouldSyncLatestMessages = (conversationId: string, dataUpdatedAt?: number) => {
+const shouldSyncLatestMessages = (conversationId: string) => {
   const lastSyncedAt = latestMessagesSyncedAtByConversation.get(conversationId) ?? 0
-  const latestKnownUpdateAt = Math.max(lastSyncedAt, dataUpdatedAt ?? 0)
-
-  return Date.now() - latestKnownUpdateAt >= MESSAGE_QUERY_STALE_TIME_MS
+  return Date.now() - lastSyncedAt >= MESSAGE_QUERY_STALE_TIME_MS
 }
 
 const getMessageCreatedAtMs = (message: Message) => {
@@ -133,9 +132,15 @@ const mergeReplyPreview = (
 }
 
 const sortMessagesNewestFirst = (messages: Message[]) => {
-  return [...messages].sort(
-    (left, right) => getMessageCreatedAtMs(right) - getMessageCreatedAtMs(left),
-  )
+  return [...messages].sort((left, right) => {
+    const delta = getMessageCreatedAtMs(right) - getMessageCreatedAtMs(left)
+
+    if (delta !== 0) {
+      return delta
+    }
+
+    return (right.id || right._id || '').localeCompare(left.id || left._id || '')
+  })
 }
 
 const dedupeMessages = (messages: Message[]) => {
@@ -155,7 +160,21 @@ const getOldestMessage = (messages: Message[]) => {
   if (!messages.length) return null
 
   return messages.reduce((oldest, current) => {
-    return getMessageCreatedAtMs(current) < getMessageCreatedAtMs(oldest) ? current : oldest
+    const currentCreatedAtMs = getMessageCreatedAtMs(current)
+    const oldestCreatedAtMs = getMessageCreatedAtMs(oldest)
+
+    if (currentCreatedAtMs < oldestCreatedAtMs) {
+      return current
+    }
+
+    if (currentCreatedAtMs > oldestCreatedAtMs) {
+      return oldest
+    }
+
+    const currentId = current.id || current._id || ''
+    const oldestId = oldest.id || oldest._id || ''
+
+    return currentId.localeCompare(oldestId) < 0 ? current : oldest
   }, messages[0])
 }
 
@@ -196,33 +215,45 @@ export const getMessagesInfiniteQueryOptions = ({
       limit: MESSAGE_PAGE_LIMIT,
     })
 
-    if (localPage.length >= MESSAGE_PAGE_LIMIT) {
+    if (!cursor && localPage.length >= MESSAGE_PAGE_LIMIT) {
       return sortMessagesNewestFirst(localPage)
     }
 
-    const remotePage = await conversationApi.getMessages(conversationId, {
-      limit: MESSAGE_PAGE_LIMIT,
-      ...(cursor ? { cursor } : {}),
-    })
-
-    if (!cursor) {
-      markLatestMessagesSynced(conversationId)
-    }
-
-    if (remotePage.length > 0) {
-      void upsertRemoteMessages({
-        conversation: conversation ?? null,
-        currentUser: currentUser ?? null,
-        messages: remotePage,
-      }).catch((error) => {
-        console.warn('[Messages] Failed to persist remote page locally', error)
+    try {
+      const remotePage = await conversationApi.getMessages(conversationId, {
+        limit: MESSAGE_PAGE_LIMIT,
+        ...(cursor ? { cursor } : {}),
       })
-    }
 
-    return sortMessagesNewestFirst(dedupeMessages([...localPage, ...remotePage])).slice(
-      0,
-      MESSAGE_PAGE_LIMIT,
-    )
+      if (!cursor) {
+        markLatestMessagesSynced(conversationId)
+      }
+
+      if (remotePage.length > 0) {
+        void upsertRemoteMessages({
+          conversation: conversation ?? null,
+          currentUser: currentUser ?? null,
+          messages: remotePage,
+        }).catch((error) => {
+          console.warn('[Messages] Failed to persist remote page locally', error)
+        })
+      }
+
+      if (cursor) {
+        return sortMessagesNewestFirst(remotePage)
+      }
+
+      return sortMessagesNewestFirst(dedupeMessages([...localPage, ...remotePage])).slice(
+        0,
+        MESSAGE_PAGE_LIMIT,
+      )
+    } catch (error) {
+      if (localPage.length > 0) {
+        return sortMessagesNewestFirst(localPage)
+      }
+
+      throw error
+    }
   },
 
   getNextPageParam: (lastPage: Message[]) => {
@@ -311,11 +342,7 @@ export function useMessages(conversationId: string) {
   const hasLoadedMessagePages = Boolean(query.data?.pages.length)
 
   useEffect(() => {
-    if (
-      !hasLoadedMessagePages ||
-      query.isFetching ||
-      !shouldSyncLatestMessages(conversationId, query.dataUpdatedAt)
-    ) {
+    if (!hasLoadedMessagePages || query.isFetching || !shouldSyncLatestMessages(conversationId)) {
       return
     }
 
@@ -357,10 +384,7 @@ export function useMessages(conversationId: string) {
             return {
               ...oldData,
               pages: [
-                sortMessagesNewestFirst(dedupeMessages([...remotePage, ...firstPage])).slice(
-                  0,
-                  MESSAGE_PAGE_LIMIT,
-                ),
+                sortMessagesNewestFirst(dedupeMessages([...remotePage, ...firstPage])),
                 ...restPages,
               ],
             }
@@ -381,7 +405,6 @@ export function useMessages(conversationId: string) {
     conversationId,
     currentUser,
     hasLoadedMessagePages,
-    query.dataUpdatedAt,
     query.isFetching,
     queryClient,
   ])
@@ -403,9 +426,10 @@ export function useSendMessage(conversationId: string) {
 
   return useMutation({
     mutationFn: async (variables: SendMessageVariables) => {
-      const { content, media, replyToId } = variables
+      const { content, media, replyToId, replyToMessage: replyTargetFromVariables } = variables
       const resolvedClientMessageId = ensureClientMessageId(variables)
       const type = variables.type ?? 'text'
+      const resolvedReplyToId = replyToId ?? replyTargetFromVariables?.id
 
       if (type !== 'text' || media) {
         return conversationApi.sendMessage(conversationId, {
@@ -414,7 +438,7 @@ export function useSendMessage(conversationId: string) {
           media,
           type,
           signalType: 0,
-          ...(replyToId ? { replyToId } : {}),
+          ...(resolvedReplyToId ? { replyToId: resolvedReplyToId } : {}),
         })
       }
 
@@ -447,7 +471,7 @@ export function useSendMessage(conversationId: string) {
         clientMessageId: resolvedClientMessageId,
       }
 
-      if (replyToId) payload.replyToId = replyToId
+      if (resolvedReplyToId) payload.replyToId = resolvedReplyToId
 
       socket.emit('send_message', payload)
 
@@ -460,19 +484,21 @@ export function useSendMessage(conversationId: string) {
       const now = new Date().toISOString()
       const tempId = ensureClientMessageId(variables)
       const type = variables.type ?? 'text'
+      const resolvedReplyToMessage = variables.replyToMessage ?? replyToMessage
+      const resolvedReplyToId = replyToId ?? resolvedReplyToMessage?.id
 
       let replyPreview: Message['replyPreview'] | undefined = undefined
-      if (replyToId && replyToMessage) {
-        const thumbnailUri = getReplyPreviewThumbnailUri(replyToMessage)
+      if (resolvedReplyToId && resolvedReplyToMessage) {
+        const thumbnailUri = getReplyPreviewThumbnailUri(resolvedReplyToMessage)
         replyPreview = {
           senderName:
-            replyToMessage.senderId === user.id
+            resolvedReplyToMessage.senderId === user.id
               ? 'You'
-              : (replyToMessage.sender?.email?.split('@')[0] ?? 'User'),
-          content: replyToMessage.content ?? '',
+              : (resolvedReplyToMessage.sender?.email?.split('@')[0] ?? 'User'),
+          content: resolvedReplyToMessage.content ?? '',
           ...(thumbnailUri ? { thumbnailUri } : {}),
-          ...getReplyPreviewMediaSize(replyToMessage),
-          type: (replyToMessage.type === 'voice' ? 'text' : replyToMessage.type) as
+          ...getReplyPreviewMediaSize(resolvedReplyToMessage),
+          type: (resolvedReplyToMessage.type === 'voice' ? 'text' : resolvedReplyToMessage.type) as
             | 'text'
             | 'image'
             | 'video'
@@ -490,10 +516,11 @@ export function useSendMessage(conversationId: string) {
         content,
         ...(media ? { media } : {}),
         type,
-        status: 'SENT',
+        status: 'PENDING',
         createdAt: now,
         updatedAt: now,
-        ...(replyToId && { replyToId }),
+        ...(resolvedReplyToId ? { replyToId: resolvedReplyToId } : {}),
+        ...(resolvedReplyToMessage ? { replyTo: resolvedReplyToMessage } : {}),
         ...(replyPreview && { replyPreview }),
       }
 
@@ -507,7 +534,7 @@ export function useSendMessage(conversationId: string) {
           conversationId,
           currentUser: user,
           replyPreview: replyPreview ?? null,
-          replyToId: replyToId ?? null,
+          replyToId: resolvedReplyToId ?? null,
         }).catch((error) => {
           console.warn('[Messages] Failed to persist pending text message locally', error)
         })
@@ -516,7 +543,7 @@ export function useSendMessage(conversationId: string) {
           id: tempId,
           conversationId,
           content,
-          ...(replyToId ? { replyToId } : {}),
+          ...(resolvedReplyToId ? { replyToId: resolvedReplyToId } : {}),
         })
       }
 
