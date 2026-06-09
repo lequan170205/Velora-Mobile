@@ -14,6 +14,7 @@ import {
   patchMessagesAcrossConversationCaches,
 } from '../lib/chatMessageCache'
 import { isSameMessageIdentity, mergeMessageRecords } from '../lib/messageIdentity'
+import { getReplyPreviewSenderName } from '../lib/replyPreview'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
 
@@ -538,12 +539,20 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }
 
       const currentUser = useAuthStore.getState().user
+      const cachedConversations = queryClient.getQueryData<unknown>(queryKeys.conversations.all)
+      const conversations: Conversation[] = Array.isArray(cachedConversations)
+        ? cachedConversations
+        : (cachedConversations as { pages?: Conversation[][] })?.pages?.flat() || []
+      const currentConversation =
+        conversations.find((conversation) => conversation.id === message.conversationId) ?? null
       const replyPreviewThumbnailUri = getReplyPreviewThumbnailUri(resolvedReplyTarget)
       const localReplyPreview: Message['replyPreview'] = {
-        senderName:
-          resolvedReplyTarget.senderId === currentUser?.id
-            ? 'You'
-            : (resolvedReplyTarget.sender?.email?.split('@')[0] ?? 'User'),
+        senderName: getReplyPreviewSenderName({
+          conversation: currentConversation,
+          currentUserId: currentUser?.id ?? null,
+          senderEmail: resolvedReplyTarget.sender?.email ?? null,
+          senderId: resolvedReplyTarget.senderId,
+        }),
         senderId: resolvedReplyTarget.senderId,
         content: resolvedReplyTarget.content ?? '',
         ...(replyPreviewThumbnailUri ? { thumbnailUri: replyPreviewThumbnailUri } : {}),

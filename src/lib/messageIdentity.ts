@@ -38,6 +38,30 @@ export const isSameMessageIdentity = (left?: MessageLike | null, right?: Message
   return getMessageIdentityTokens(left).some((token) => rightTokens.has(token))
 }
 
+export const mergeMessageCollectionByIdentity = <T extends MessageLike>(messages: T[]) => {
+  const mergedMessages: T[] = []
+
+  for (const message of messages) {
+    const existingIndex = mergedMessages.findIndex((candidate) =>
+      isSameMessageIdentity(candidate, message),
+    )
+
+    if (existingIndex === -1) {
+      mergedMessages.push(message)
+      continue
+    }
+
+    const existingMessage = mergedMessages[existingIndex]
+    if (!existingMessage) {
+      continue
+    }
+
+    mergedMessages[existingIndex] = mergeMessageRecords(existingMessage, message)
+  }
+
+  return mergedMessages
+}
+
 export const mergeMessageRecords = <T extends MessageLike>(existing: T, incoming: T): T => {
   const existingHasStableId = Boolean(existing.id && !isTempId(existing.id))
   const incomingHasStableId = Boolean(incoming.id && !isTempId(incoming.id))

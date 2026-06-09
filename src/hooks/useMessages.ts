@@ -17,7 +17,8 @@ import {
   upsertMessageIntoConversationCache,
 } from '../lib/chatMessageCache'
 import { createClientMessageId } from '../lib/clientMessageId'
-import { getMessageIdentityKey } from '../lib/messageIdentity'
+import { getMessageIdentityKey, mergeMessageCollectionByIdentity } from '../lib/messageIdentity'
+import { getReplyPreviewSenderName } from '../lib/replyPreview'
 import { useSocket } from '../providers/SocketProvider'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
@@ -146,16 +147,11 @@ const sortMessagesNewestFirst = (messages: Message[]) => {
 }
 
 const dedupeMessages = (messages: Message[]) => {
-  const messagesByKey = new Map<string, Message>()
-
-  for (const message of messages) {
-    const key = getMessageIdentityKey(message) ?? message.id ?? message._id
-    if (!key) continue
-
-    messagesByKey.set(key, message)
-  }
-
-  return Array.from(messagesByKey.values())
+  return mergeMessageCollectionByIdentity(
+    messages.filter((message) =>
+      Boolean(getMessageIdentityKey(message) ?? message.id ?? message._id),
+    ),
+  )
 }
 
 const getOldestMessage = (messages: Message[]) => {
@@ -493,10 +489,12 @@ export function useSendMessage(conversationId: string) {
       if (resolvedReplyToId && resolvedReplyToMessage) {
         const thumbnailUri = getReplyPreviewThumbnailUri(resolvedReplyToMessage)
         replyPreview = {
-          senderName:
-            resolvedReplyToMessage.senderId === user.id
-              ? 'You'
-              : (resolvedReplyToMessage.sender?.email?.split('@')[0] ?? 'User'),
+          senderName: getReplyPreviewSenderName({
+            conversation: currentConversation ?? null,
+            currentUserId: user.id,
+            senderEmail: resolvedReplyToMessage.sender?.email ?? null,
+            senderId: resolvedReplyToMessage.senderId,
+          }),
           senderId: resolvedReplyToMessage.senderId,
           content: resolvedReplyToMessage.content ?? '',
           ...(thumbnailUri ? { thumbnailUri } : {}),

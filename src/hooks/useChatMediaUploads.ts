@@ -3,6 +3,7 @@ import * as VideoThumbnails from 'expo-video-thumbnails'
 import { useCallback } from 'react'
 import { Alert, useWindowDimensions } from 'react-native'
 
+import { queryKeys } from '../constants/queryKeys'
 import { createPendingMediaMessage } from '../database/messageSync'
 import {
   calculateChatMediaDisplaySize,
@@ -14,12 +15,13 @@ import {
 } from '../lib/chatMedia'
 import { upsertConversationSummaryInCache } from '../lib/chatMessageCache'
 import { createClientMessageId } from '../lib/clientMessageId'
+import { getReplyPreviewSenderName } from '../lib/replyPreview'
 import { useAuthStore } from '../stores/authStore'
 import { useChatMediaUploadStore } from '../stores/chatMediaUploadStore'
 import { useChatStore } from '../stores/chatStore'
 
 import type { ChatMediaUploadJob } from '../stores/chatMediaUploadStore'
-import type { Message } from '../types/conversation.types'
+import type { Conversation, Message } from '../types/conversation.types'
 import type { ImagePickerAsset } from 'expo-image-picker'
 
 interface FileSystemCleanupModule {
@@ -30,9 +32,11 @@ interface FileSystemCleanupModule {
 const LegacyFileSystemCleanup = require('expo-file-system/legacy') as FileSystemCleanupModule
 
 const getReplyPreview = ({
+  conversation,
   currentUserId,
   replyToMessage,
 }: {
+  conversation?: Conversation | null
   currentUserId: string
   replyToMessage?: Message | null
 }) => {
@@ -52,10 +56,12 @@ const getReplyPreview = ({
     replyToMessage.media?.height ?? replyToMessage.media?.displayHeight ?? undefined
 
   return {
-    senderName:
-      replyToMessage.senderId === currentUserId
-        ? 'You'
-        : (replyToMessage.sender?.email?.split('@')[0] ?? 'User'),
+    senderName: getReplyPreviewSenderName({
+      conversation: conversation ?? null,
+      currentUserId,
+      senderEmail: replyToMessage.sender?.email ?? null,
+      senderId: replyToMessage.senderId,
+    }),
     senderId: replyToMessage.senderId,
     content: replyToMessage.content ?? '',
     ...(thumbnailUri ? { thumbnailUri } : {}),
@@ -135,6 +141,12 @@ const buildOptimisticMessage = ({
 export function useChatMediaUploads(conversationId: string) {
   const { user } = useAuthStore()
   const queryClient = useQueryClient()
+  const cachedConversationsData = queryClient.getQueryData<unknown>(queryKeys.conversations.all)
+  const cachedConversations: Conversation[] = Array.isArray(cachedConversationsData)
+    ? cachedConversationsData
+    : (cachedConversationsData as { pages?: Conversation[][] })?.pages?.flat() || []
+  const currentConversation =
+    cachedConversations.find((conversation) => conversation.id === conversationId) ?? null
   const replyToMessage = useChatStore((state) => state.replyToMessage)
   const setReplyToMessage = useChatStore((state) => state.setReplyToMessage)
   const addOptimisticMessages = useChatStore((state) => state.addOptimisticMessages)
@@ -151,6 +163,7 @@ export function useChatMediaUploads(conversationId: string) {
       const nextJobs: ChatMediaUploadJob[] = []
       let failedPreparationCount = 0
       const replyPreview = getReplyPreview({
+        conversation: currentConversation,
         currentUserId: user.id,
         replyToMessage,
       })
@@ -296,6 +309,7 @@ export function useChatMediaUploads(conversationId: string) {
     [
       addOptimisticMessages,
       conversationId,
+      currentConversation,
       queryClient,
       replyToMessage,
       screenWidth,

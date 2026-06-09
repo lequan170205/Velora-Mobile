@@ -464,6 +464,7 @@ export default function ChatScreen() {
   })
   const typingTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const replyHighlightTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
+  const replyJumpSettleTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const isComposerFocusedRef = useRef(false)
   const shouldRestoreComposerFocusRef = useRef(false)
   const pendingAnchorScrollTargetIdRef = useRef<string | null>(null)
@@ -1078,6 +1079,13 @@ export default function ChatScreen() {
     [conversationId, toggleExpandedMessage],
   )
 
+  const clearReplyJumpSettleTimeout = useCallback(() => {
+    if (replyJumpSettleTimeoutRef.current) {
+      clearTimeout(replyJumpSettleTimeoutRef.current)
+      replyJumpSettleTimeoutRef.current = null
+    }
+  }, [])
+
   const scheduleMessageHighlight = useCallback(
     (messageId: string) => {
       if (replyHighlightTimeoutRef.current) {
@@ -1092,6 +1100,20 @@ export default function ChatScreen() {
     [bumpHighlightToken, conversationId],
   )
 
+  const settlePendingReplyJump = useCallback(
+    (messageId: string) => {
+      clearReplyJumpSettleTimeout()
+
+      replyJumpSettleTimeoutRef.current = setTimeout(() => {
+        if (pendingAnchorScrollTargetIdRef.current === messageId) {
+          pendingAnchorScrollTargetIdRef.current = null
+        }
+        replyJumpSettleTimeoutRef.current = null
+      }, 450)
+    },
+    [clearReplyJumpSettleTimeout],
+  )
+
   const scrollToMessageById = useCallback(
     (messageId: string) => {
       const index = indexByIdRef.current.get(messageId)
@@ -1099,24 +1121,85 @@ export default function ChatScreen() {
         return false
       }
 
-      void listRef.current?.scrollToIndex({
-        index,
-        animated: true,
-        viewPosition: getReplyScrollViewPosition(),
-      })
-      scheduleMessageHighlight(messageId)
+      const performScroll = (retryCount = 0) => {
+        const scrollPromise = listRef.current?.scrollToIndex({
+          index,
+          animated: true,
+          viewPosition: getReplyScrollViewPosition(),
+        })
+
+        if (!scrollPromise) {
+          return
+        }
+
+        void scrollPromise
+          .then(() => {
+            scheduleMessageHighlight(messageId)
+
+            if (pendingAnchorScrollTargetIdRef.current === messageId) {
+              settlePendingReplyJump(messageId)
+            }
+          })
+          .catch(() => {
+            if (retryCount > 0) {
+              if (!isPersistedServerMessageId(messageId)) {
+                return
+              }
+
+              pendingReturnToLatestRef.current = false
+              pendingAnchorScrollTargetIdRef.current = messageId
+              anchorBottomLoadArmedRef.current = false
+
+              void resolveAnchorTarget(messageId).then((started) => {
+                if (!started) {
+                  if (pendingAnchorScrollTargetIdRef.current === messageId) {
+                    pendingAnchorScrollTargetIdRef.current = null
+                  }
+                  return
+                }
+
+                setTimelineMode('anchor')
+              })
+              return
+            }
+
+            clearReplyJumpSettleTimeout()
+
+            const fallbackLayout = listRef.current?.getLayout(Math.max(0, index - 1))
+            if (fallbackLayout) {
+              void listRef.current?.scrollToOffset({
+                offset: Math.max(0, fallbackLayout.y),
+                animated: false,
+              })
+            }
+
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                if (indexByIdRef.current.has(messageId)) {
+                  performScroll(retryCount + 1)
+                }
+              })
+            })
+          })
+      }
+
+      performScroll()
       return true
     },
-    [getReplyScrollViewPosition, scheduleMessageHighlight],
+    [
+      clearReplyJumpSettleTimeout,
+      getReplyScrollViewPosition,
+      resolveAnchorTarget,
+      scheduleMessageHighlight,
+      settlePendingReplyJump,
+    ],
   )
 
   const runReplyScroll = useCallback(
     (messageId: string) => {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          if (scrollToMessageById(messageId)) {
-            pendingAnchorScrollTargetIdRef.current = null
-          }
+          scrollToMessageById(messageId)
         })
       })
     },
@@ -1258,14 +1341,13 @@ export default function ChatScreen() {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
       if (socket?.connected) socket.emit('typing_stop', conversationId)
       if (replyHighlightTimeoutRef.current) clearTimeout(replyHighlightTimeoutRef.current)
+      clearReplyJumpSettleTimeout()
 
-      setTimeout(() => {
-        const messagesQueryKey = queryKeys.conversations.messages(conversationId)
-        void queryClient.cancelQueries({ queryKey: messagesQueryKey, exact: true })
-        trimMessagesCache(queryClient, conversationId)
-      }, 300)
+      const messagesQueryKey = queryKeys.conversations.messages(conversationId)
+      void queryClient.cancelQueries({ queryKey: messagesQueryKey, exact: true })
+      trimMessagesCache(queryClient, conversationId)
     }
-  }, [queryClient, socket, conversationId])
+  }, [clearReplyJumpSettleTimeout, conversationId, queryClient, socket])
 
   const currentOlderLoader =
     timelineMode === 'anchor' ? () => void loadAnchorOlder('edge') : loadOlderMessages

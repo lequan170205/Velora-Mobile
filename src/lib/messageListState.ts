@@ -1,7 +1,7 @@
 import {
   getMessageIdentityKey,
   getMessageIdentityTokens,
-  mergeMessageRecords,
+  mergeMessageCollectionByIdentity,
 } from './messageIdentity'
 
 import type { Message } from '../types/conversation.types'
@@ -148,19 +148,9 @@ export const sortMessagesNewestFirstStable = (messages: Message[]) => {
 }
 
 export const mergeMessageCollectionsNewestFirst = (existing: Message[], incoming: Message[]) => {
-  const mergedByIdentity = new Map<string, Message>()
-
-  for (const message of sortMessagesCanonicalNewestFirst([...existing, ...incoming])) {
-    const identityKey = getMessageIdentityKey(message)
-    if (!identityKey) {
-      continue
-    }
-
-    const current = mergedByIdentity.get(identityKey)
-    mergedByIdentity.set(identityKey, current ? mergeMessageRecords(current, message) : message)
-  }
-
-  return sortMessagesCanonicalNewestFirst(Array.from(mergedByIdentity.values()))
+  return sortMessagesCanonicalNewestFirst(
+    mergeMessageCollectionByIdentity(sortMessagesCanonicalNewestFirst([...existing, ...incoming])),
+  )
 }
 
 export const buildMessageListState = ({
@@ -213,24 +203,9 @@ export const buildMessageListState = ({
     return getVirtualTime(right) - getVirtualTime(left)
   })
 
-  const dedupedIndexByIdentity = new Map<string, number>()
-  const dedupedMessages: Message[] = []
-
-  for (const message of combinedMessages) {
-    const identityKey = getMessageIdentityKey(message)
-    if (!identityKey) continue
-
-    const existingIndex = dedupedIndexByIdentity.get(identityKey)
-    if (existingIndex === undefined) {
-      dedupedIndexByIdentity.set(identityKey, dedupedMessages.length)
-      dedupedMessages.push(message)
-    } else {
-      const existingMessage = dedupedMessages[existingIndex]
-      if (!existingMessage) continue
-
-      dedupedMessages[existingIndex] = mergeMessageRecords(existingMessage, message)
-    }
-  }
+  const dedupedMessages = mergeMessageCollectionByIdentity(
+    combinedMessages.filter((message) => Boolean(getMessageIdentityKey(message))),
+  )
 
   const FIVE_MINS = 5 * 60 * 1000
   const nextLayoutById = new Map<string, MessageLayout>()
