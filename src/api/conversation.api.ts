@@ -7,6 +7,21 @@ import type {
   Message,
 } from '../types/conversation.types'
 
+export interface AnchorWindowResponse {
+  targetMessageId: string
+  messages: Message[]
+  hasOlder: boolean
+  hasNewer: boolean
+  oldestCursor?: string
+  newestCursor?: string
+}
+
+export interface AnchorExpansionResponse {
+  messages: Message[]
+  hasMore: boolean
+  nextCursor?: string
+}
+
 interface CreateConversationResponse {
   id: string
 }
@@ -43,6 +58,58 @@ export const conversationApi = {
   },
   getMessages: async (id: string, params: { page?: number; limit?: number; cursor?: string }) => {
     const response = await apiClient.get<Message[]>(`/conversations/${id}/messages`, { params })
+
+    return response.data
+  },
+  getMessagesAround: async (
+    id: string,
+    messageId: string,
+    params: { before?: number; after?: number; signal?: AbortSignal },
+  ) => {
+    const response = await apiClient.get<AnchorWindowResponse>(
+      `/conversations/${id}/messages/around/${messageId}`,
+      {
+        params: {
+          ...(params.before ? { before: params.before } : {}),
+          ...(params.after ? { after: params.after } : {}),
+        },
+        ...(params.signal ? { signal: params.signal } : {}),
+      },
+    )
+
+    return response.data
+  },
+  getMessagesAnchorOlder: async (
+    id: string,
+    params: { cursor: string; limit?: number; signal?: AbortSignal },
+  ) => {
+    const response = await apiClient.get<AnchorExpansionResponse>(
+      `/conversations/${id}/messages/anchor/older`,
+      {
+        params: {
+          cursor: params.cursor,
+          ...(params.limit ? { limit: params.limit } : {}),
+        },
+        ...(params.signal ? { signal: params.signal } : {}),
+      },
+    )
+
+    return response.data
+  },
+  getMessagesAnchorNewer: async (
+    id: string,
+    params: { cursor: string; limit?: number; signal?: AbortSignal },
+  ) => {
+    const response = await apiClient.get<AnchorExpansionResponse>(
+      `/conversations/${id}/messages/anchor/newer`,
+      {
+        params: {
+          cursor: params.cursor,
+          ...(params.limit ? { limit: params.limit } : {}),
+        },
+        ...(params.signal ? { signal: params.signal } : {}),
+      },
+    )
 
     return response.data
   },

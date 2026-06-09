@@ -41,7 +41,7 @@ import type { ImagePickerAsset } from 'expo-image-picker'
 import type { SharedValue } from 'react-native-reanimated'
 
 interface MessageInputProps {
-  onSend: (text: string, replyToId?: string) => void
+  onSend: (text: string, replyTo?: Message | null) => void
   onSendMedia?: (assets: ImagePickerAsset[]) => void | Promise<void>
   onChangeText?: (text: string) => void
   onFocusChange?: (focused: boolean) => void
@@ -313,7 +313,7 @@ const MessageInputComponent = function MessageInput(
 
     sendLockRef.current = true
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    onSend(message, replyTo?.id)
+    onSend(message, replyTo ?? null)
     textRef.current = ''
     setText('')
     setHasText(false)
@@ -325,7 +325,7 @@ const MessageInputComponent = function MessageInput(
     setTimeout(() => {
       sendLockRef.current = false
     }, 300)
-  }, [hasTextProgress, onCancelReply, onChangeText, onSend, replyTo?.id])
+  }, [hasTextProgress, onCancelReply, onChangeText, onSend, replyTo])
   // ↑ `text` is intentionally excluded — we read from textRef instead.
 
   const handleTextChange = useCallback(

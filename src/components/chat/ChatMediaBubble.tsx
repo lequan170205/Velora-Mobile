@@ -1,8 +1,13 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { Image } from 'expo-image'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Pressable, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
+import Animated, {
+  useAnimatedRef,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated'
 
 import {
   calculateChatMediaDisplaySize,
@@ -51,7 +56,7 @@ export function ChatMediaBubble({
   onOpenMedia,
 }: ChatMediaBubbleProps) {
   const { width: screenWidth } = useWindowDimensions()
-  const mediaRef = useRef<View>(null)
+  const mediaRef = useAnimatedRef<View>()
   const clientMessageId = message.clientMessageId ?? message.id
   const uploadJob = useChatMediaUploadStore((state) => state.jobsById[clientMessageId] ?? null)
   const progress = useChatMediaUploadStore(
@@ -152,12 +157,10 @@ export function ChatMediaBubble({
       setActiveMessage(message.conversationId, null)
     }
 
-    mediaRef.current?.measureInWindow((x, y, width, height) => {
-      onOpenMedia({
-        autoplayVideo,
-        messageId: clientMessageId,
-        sourceFrame: { height, width, x, y },
-      })
+    onOpenMedia({
+      autoplayVideo,
+      messageId: clientMessageId,
+      sourceRef: mediaRef,
     })
   }
 
@@ -226,7 +229,7 @@ export function ChatMediaBubble({
     )
 
   return (
-    <View
+    <Animated.View
       collapsable={false}
       ref={mediaRef}
       style={{
@@ -402,6 +405,6 @@ export function ChatMediaBubble({
           </View>
         </View>
       ) : null}
-    </View>
+    </Animated.View>
   )
 }

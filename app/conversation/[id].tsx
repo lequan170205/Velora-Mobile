@@ -38,7 +38,6 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import {
-  ChatMediaViewer,
   type ChatMediaGalleryItem,
   type ChatMediaViewerOpenPayload,
 } from '../../src/components/chat/ChatMediaViewer'
@@ -49,6 +48,7 @@ import {
 import { MessageContextMenu } from '../../src/components/chat/MessageContextMenu'
 import { MessageInput, type MessageInputHandle } from '../../src/components/chat/MessageInput'
 import { queryKeys } from '../../src/constants/queryKeys'
+import { useAnchoredMessages } from '../../src/hooks/useAnchoredMessages'
 import { useChatMediaUploads } from '../../src/hooks/useChatMediaUploads'
 import { useRecallMessage } from '../../src/hooks/useMessageActions'
 import { trimMessagesCache, useMessages, useSendMessage } from '../../src/hooks/useMessages'
@@ -59,12 +59,15 @@ import {
   isRemoteMediaUri,
 } from '../../src/lib/chatMedia'
 import { saveChatMediaToLibrary } from '../../src/lib/chatMediaSave'
+import { getMessageIdentityKey } from '../../src/lib/messageIdentity'
 import {
-  getMessageIdentityKey,
-  getMessageIdentityTokens,
-  mergeMessageRecords,
-} from '../../src/lib/messageIdentity'
+  buildMessageListState,
+  DEFAULT_MESSAGE_LAYOUT,
+  sortMessagesCanonicalNewestFirst,
+  type MessageLayout,
+} from '../../src/lib/messageListState'
 import { formatLastSeenLabel } from '../../src/lib/presence'
+import { useChatMediaViewer } from '../../src/providers/ChatMediaViewerProvider'
 import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useChatStore } from '../../src/stores/chatStore'
@@ -74,129 +77,24 @@ import { useMessageListUiStore } from '../../src/stores/messageListUiStore'
 import type { ChatParticipant, Conversation, Message } from '../../src/types/conversation.types'
 import type { ImagePickerAsset } from 'expo-image-picker'
 
-type MessageLayout = {
-  showDateSeparator: boolean
-  separatorLabel: string
-  isGroupedTop: boolean
-  isGroupedBottom: boolean
-  showAvatar: boolean
-  timeLabel: string
-}
-
 type ActiveContextMenuState = MessageBubbleContextMenuPayload
-
-const DEFAULT_MESSAGE_LAYOUT: MessageLayout = {
-  showDateSeparator: false,
-  separatorLabel: '',
-  isGroupedTop: false,
-  isGroupedBottom: false,
-  showAvatar: false,
-  timeLabel: '',
-}
-
-const createdAtTimestampCache = new Map<string, number>()
-const createdAtDayStartCache = new Map<string, number>()
-const createdAtTimeLabelCache = new Map<string, string>()
-
-const getMessageCreatedAtMs = (dateString?: string) => {
-  if (!dateString) return 0
-
-  const cachedTimestamp = createdAtTimestampCache.get(dateString)
-  if (cachedTimestamp !== undefined) {
-    return cachedTimestamp
-  }
-
-  const nextTimestamp = new Date(dateString).getTime()
-  const normalizedTimestamp = Number.isFinite(nextTimestamp) ? nextTimestamp : 0
-  createdAtTimestampCache.set(dateString, normalizedTimestamp)
-
-  return normalizedTimestamp
-}
-
-const getMessageDayStartMs = (dateString?: string) => {
-  if (!dateString) return 0
-
-  const cachedDayStart = createdAtDayStartCache.get(dateString)
-  if (cachedDayStart !== undefined) {
-    return cachedDayStart
-  }
-
-  const createdAtMs = getMessageCreatedAtMs(dateString)
-  if (!createdAtMs) {
-    createdAtDayStartCache.set(dateString, 0)
-    return 0
-  }
-
-  const nextDayStart = new Date(createdAtMs)
-  nextDayStart.setHours(0, 0, 0, 0)
-
-  const normalizedDayStart = nextDayStart.getTime()
-  createdAtDayStartCache.set(dateString, normalizedDayStart)
-
-  return normalizedDayStart
-}
-
-const getMessageTimeLabel = (dateString?: string) => {
-  if (!dateString) return ''
-
-  const cachedTimeLabel = createdAtTimeLabelCache.get(dateString)
-  if (cachedTimeLabel !== undefined) {
-    return cachedTimeLabel
-  }
-
-  const createdAtMs = getMessageCreatedAtMs(dateString)
-  if (!createdAtMs) {
-    createdAtTimeLabelCache.set(dateString, '')
-    return ''
-  }
-
-  const nextTimeLabel = new Date(createdAtMs).toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-
-  createdAtTimeLabelCache.set(dateString, nextTimeLabel)
-  return nextTimeLabel
-}
-
-const buildSeparatorLabel = (dayStartMs: number) => {
-  if (!dayStartMs) return ''
-
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-
-  const todayDayStartMs = today.getTime()
-  const yesterdayDayStartMs = todayDayStartMs - 24 * 60 * 60 * 1000
-
-  if (dayStartMs === todayDayStartMs) return 'Today'
-  if (dayStartMs === yesterdayDayStartMs) return 'Yesterday'
-
-  return new Date(dayStartMs).toLocaleDateString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  })
-}
-
-const getStableLayout = (previousLayout: MessageLayout | undefined, nextLayout: MessageLayout) => {
-  if (
-    previousLayout &&
-    previousLayout.showDateSeparator === nextLayout.showDateSeparator &&
-    previousLayout.separatorLabel === nextLayout.separatorLabel &&
-    previousLayout.isGroupedTop === nextLayout.isGroupedTop &&
-    previousLayout.isGroupedBottom === nextLayout.isGroupedBottom &&
-    previousLayout.showAvatar === nextLayout.showAvatar &&
-    previousLayout.timeLabel === nextLayout.timeLabel
-  ) {
-    return previousLayout
-  }
-
-  return nextLayout
-}
 
 const EMPTY_MESSAGES: Message[] = []
 const EMPTY_TYPERS: string[] = []
 const renderableOptimisticMessagesCache = new WeakMap<Message[], Message[]>()
+const ANCHOR_MEDIA_VIEWER_WINDOW_RADIUS = 4
+const isPersistedServerMessageId = (messageId?: string | null) =>
+  Boolean(messageId && !messageId.startsWith('temp-'))
+const getOrderDebugSample = (messages: Message[], replyTargetId?: string | null) => {
+  return messages.slice(0, 5).map((message, index) => ({
+    index,
+    id: message.id,
+    createdAt: message.createdAt,
+    clientMessageId: message.clientMessageId ?? null,
+    isReplyTarget: (replyTargetId ? message.id === replyTargetId : false) || false,
+  }))
+}
+
 const getRenderableOptimisticMessages = (messages?: Message[]) => {
   if (!messages?.length) {
     return EMPTY_MESSAGES
@@ -385,6 +283,9 @@ const MessageRow = memo(
     prevProps.onOpenMedia === nextProps.onOpenMedia,
 )
 
+type TimelineMode = 'latest' | 'anchor'
+type PendingOwnSendBottomScrollMode = 'none' | 'animated' | 'already-scrolled'
+
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const conversationId = id as string
@@ -414,11 +315,28 @@ export default function ChatScreen() {
     ),
   )
   const queryClient = useQueryClient()
+  const cachedData = queryClient.getQueryData<unknown>(queryKeys.conversations.all)
+  const allConversations: Conversation[] = Array.isArray(cachedData)
+    ? (cachedData as Conversation[])
+    : (cachedData as { pages?: Conversation[][] })?.pages?.flat() || []
+  const currentConversation = allConversations.find((c: Conversation) => c?.id === conversationId)
 
   const { socket, isConnected, requestPresence } = useSocket()
 
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useMessages(conversationId)
+  const {
+    activeAnchorTargetId,
+    anchorData,
+    clearAnchor,
+    isResolvingAnchor,
+    loadAnchorNewer,
+    loadAnchorOlder,
+    resolveAnchorTarget,
+  } = useAnchoredMessages({
+    conversation: currentConversation ?? null,
+    conversationId,
+  })
   const { mutate: sendMessage } = useSendMessage(conversationId)
   const { enqueueMediaAssets } = useChatMediaUploads(conversationId)
   const { mutate: recallMessage } = useRecallMessage(conversationId)
@@ -428,16 +346,15 @@ export default function ChatScreen() {
   const clearConversationInlinePlayback = useChatVideoPlaybackStore(
     (state) => state.clearConversation,
   )
+  const { closeViewer: closeMediaViewer, openViewer: openMediaViewer } = useChatMediaViewer()
   const [activeContextMenu, setActiveContextMenu] = useState<ActiveContextMenuState | null>(null)
-  const [mediaViewerPayload, setMediaViewerPayload] = useState<ChatMediaViewerOpenPayload | null>(
-    null,
-  )
-  const [savingMediaId, setSavingMediaId] = useState<string | null>(null)
+  const [timelineMode, setTimelineMode] = useState<TimelineMode>('latest')
 
   const listRef = useRef<FlashListRef<Message>>(null)
   const layoutByIdRef = useRef<Map<string, MessageLayout>>(new Map())
   const indexByIdRef = useRef<Map<string, number>>(new Map())
   const messageInputRef = useRef<MessageInputHandle>(null)
+  const pendingOwnSendBottomScrollRef = useRef<PendingOwnSendBottomScrollMode>('none')
   const isScrollButtonVisible = useSharedValue(false)
   const isNearBottomRef = useRef(true)
   const [isNearBottom, setIsNearBottom] = useState(true)
@@ -472,6 +389,7 @@ export default function ChatScreen() {
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const offsetY = Math.max(0, event.nativeEvent.contentOffset.y)
       const nextIsNearBottom = offsetY <= 50
+
       if (nextIsNearBottom !== isNearBottomRef.current) {
         isNearBottomRef.current = nextIsNearBottom
         setIsNearBottom((current) => (current === nextIsNearBottom ? current : nextIsNearBottom))
@@ -485,6 +403,40 @@ export default function ChatScreen() {
     [isScrollButtonVisible],
   )
 
+  const maybeLoadAnchorNewerAtBottom = useCallback(() => {
+    if (!anchorBottomLoadArmedRef.current) {
+      return
+    }
+
+    anchorBottomLoadArmedRef.current = false
+
+    if (
+      timelineMode !== 'anchor' ||
+      pendingAnchorScrollTargetIdRef.current ||
+      !isNearBottomRef.current ||
+      !anchorData?.hasNewer ||
+      anchorData.isFetchingNewer
+    ) {
+      return
+    }
+
+    void loadAnchorNewer('bottom')
+  }, [anchorData?.hasNewer, anchorData?.isFetchingNewer, loadAnchorNewer, timelineMode])
+
+  const handleScrollBeginDrag = useCallback(() => {
+    if (timelineMode === 'anchor') {
+      anchorBottomLoadArmedRef.current = true
+    }
+  }, [timelineMode])
+
+  const handleScrollEndDrag = useCallback(() => {
+    maybeLoadAnchorNewerAtBottom()
+  }, [maybeLoadAnchorNewerAtBottom])
+
+  const handleMomentumScrollEnd = useCallback(() => {
+    maybeLoadAnchorNewerAtBottom()
+  }, [maybeLoadAnchorNewerAtBottom])
+
   const scrollButtonStyle = useAnimatedStyle(() => {
     return {
       opacity: withTiming(isScrollButtonVisible.value ? 1 : 0, { duration: 200 }),
@@ -495,10 +447,20 @@ export default function ChatScreen() {
   const replyHighlightTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const isComposerFocusedRef = useRef(false)
   const shouldRestoreComposerFocusRef = useRef(false)
+  const pendingAnchorScrollTargetIdRef = useRef<string | null>(null)
+  const pendingReturnToLatestRef = useRef(false)
+  const anchorBottomLoadArmedRef = useRef(false)
 
   const serverMessages = useMemo(() => {
     return (data?.pages.flat() as Message[]) || EMPTY_MESSAGES
   }, [data])
+  const activeServerMessages = useMemo(
+    () =>
+      sortMessagesCanonicalNewestFirst(
+        timelineMode === 'anchor' ? (anchorData?.messages ?? EMPTY_MESSAGES) : serverMessages,
+      ),
+    [anchorData?.messages, serverMessages, timelineMode],
+  )
 
   const [transitionDone, setTransitionDone] = useState(false)
   const [presenceTick, setPresenceTick] = useState(() => Date.now())
@@ -510,116 +472,47 @@ export default function ChatScreen() {
     return () => handle.cancel()
   }, [])
 
-  const { orderedMessages, layoutById, messageById, indexById } = useMemo(() => {
-    const serverIdentityTokens = new Set<string>()
-    for (const message of serverMessages) {
-      for (const token of getMessageIdentityTokens(message)) {
-        serverIdentityTokens.add(token)
-      }
-    }
-
-    const pendingMessages: Message[] = []
-    for (const message of localOptimistic) {
-      if (!message) continue
-
-      const hasServerMatch = getMessageIdentityTokens(message).some((token) =>
-        serverIdentityTokens.has(token),
-      )
-      if (!hasServerMatch) {
-        pendingMessages.push(message)
-      }
-    }
-
-    const combinedMessages = [...pendingMessages, ...serverMessages]
-    const getVirtualTime = (msg: Message) => {
-      let time = getMessageCreatedAtMs(msg.createdAt)
-      const isSending = (msg.id || msg._id || '').startsWith('temp-') && msg.status !== 'FAILED'
-
-      if (isSending) {
-        time += 10000000000000
-      }
-
-      return time
-    }
-
-    combinedMessages.sort((left, right) => getVirtualTime(right) - getVirtualTime(left))
-
-    const dedupedIndexByIdentity = new Map<string, number>()
-    const dedupedMessages: Message[] = []
-
-    for (const message of combinedMessages) {
-      const identityKey = getMessageIdentityKey(message)
-      if (!identityKey) continue
-
-      const existingIndex = dedupedIndexByIdentity.get(identityKey)
-      if (existingIndex === undefined) {
-        dedupedIndexByIdentity.set(identityKey, dedupedMessages.length)
-        dedupedMessages.push(message)
-      } else {
-        const existingMessage = dedupedMessages[existingIndex]
-        if (!existingMessage) continue
-
-        dedupedMessages[existingIndex] = mergeMessageRecords(existingMessage, message)
-      }
-    }
-
-    const FIVE_MINS = 5 * 60 * 1000
-    const previousLayoutById = layoutByIdRef.current
-    const nextLayoutById = new Map<string, MessageLayout>()
-    const nextMessageById = new Map<string, Message>()
-    const nextIndexById = new Map<string, number>()
-
-    for (let index = 0; index < dedupedMessages.length; index += 1) {
-      const item = dedupedMessages[index]
-      if (!item) continue
-
-      const previousMessage = dedupedMessages[index + 1]
-      const nextMessage = dedupedMessages[index - 1]
-
-      const itemTime = getMessageCreatedAtMs(item.createdAt)
-      const itemDay = getMessageDayStartMs(item.createdAt)
-      const prevTime = previousMessage ? getMessageCreatedAtMs(previousMessage.createdAt) : 0
-      const prevDay = previousMessage ? getMessageDayStartMs(previousMessage.createdAt) : 0
-      const nextTime = nextMessage ? getMessageCreatedAtMs(nextMessage.createdAt) : 0
-      const nextDay = nextMessage ? getMessageDayStartMs(nextMessage.createdAt) : 0
-
-      const showDateSeparator = !previousMessage || itemDay !== prevDay
-      const isNextDay = !!nextMessage && itemDay !== nextDay
-
-      const nextLayout = getStableLayout(previousLayoutById.get(item.id), {
-        showDateSeparator,
-        separatorLabel: showDateSeparator ? buildSeparatorLabel(itemDay) : '',
-        isGroupedTop:
-          previousMessage?.senderId === item.senderId &&
-          itemTime - prevTime < FIVE_MINS &&
-          !showDateSeparator,
-        isGroupedBottom:
-          nextMessage?.senderId === item.senderId && nextTime - itemTime < FIVE_MINS && !isNextDay,
-        showAvatar: nextMessage?.senderId !== item.senderId || isNextDay,
-        timeLabel: getMessageTimeLabel(item.createdAt),
-      })
-
-      nextLayoutById.set(item.id, nextLayout)
-      const itemIdentityTokens = getMessageIdentityTokens(item)
-      for (const token of itemIdentityTokens) {
-        nextMessageById.set(token, item)
-        nextIndexById.set(token, index)
-      }
-    }
-
-    return {
-      orderedMessages: dedupedMessages,
-      layoutById: nextLayoutById,
-      messageById: nextMessageById,
-      indexById: nextIndexById,
-    }
-  }, [localOptimistic, serverMessages])
+  const { orderedMessages, layoutById, messageById, indexById } = useMemo(
+    () =>
+      buildMessageListState({
+        localOptimistic: timelineMode === 'latest' ? localOptimistic : EMPTY_MESSAGES,
+        previousLayoutById: layoutByIdRef.current,
+        serverMessages: activeServerMessages,
+      }),
+    [activeServerMessages, localOptimistic, timelineMode],
+  )
 
   layoutByIdRef.current = layoutById
   indexByIdRef.current = indexById
 
+  useEffect(() => {
+    if (!__DEV__) {
+      return
+    }
+
+    const replyTargetId = pendingAnchorScrollTargetIdRef.current ?? activeAnchorTargetId ?? null
+    const latestSourceSample = getOrderDebugSample(
+      sortMessagesCanonicalNewestFirst(serverMessages),
+      replyTargetId,
+    )
+    const anchorSourceSample = getOrderDebugSample(
+      sortMessagesCanonicalNewestFirst(anchorData?.messages ?? EMPTY_MESSAGES),
+      replyTargetId,
+    )
+    const flashListSample = getOrderDebugSample(orderedMessages, replyTargetId)
+
+    // eslint-disable-next-line no-console
+    console.log('[ReplyJumpOrder]', {
+      anchorTargetId: activeAnchorTargetId,
+      mode: timelineMode,
+      anchorSourceSample,
+      latestSourceSample,
+      flashListSample,
+    })
+  }, [activeAnchorTargetId, anchorData?.messages, orderedMessages, serverMessages, timelineMode])
+
   const mediaGalleryItems = useMemo<ChatMediaGalleryItem[]>(() => {
-    return orderedMessages.flatMap((message) => {
+    return [...orderedMessages].reverse().flatMap((message) => {
       if (
         (message.type !== 'image' && message.type !== 'video') ||
         message.isRecalled === true ||
@@ -692,7 +585,8 @@ export default function ChatScreen() {
 
   const isOtherUserTyping = activeTypers.some((typerId) => typerId !== user?.id)
   const shouldShowTypingIndicator = isOtherUserTyping && isNearBottom
-  const isInitialMessagesLoading = isLoading && orderedMessages.length === 0
+  const isInitialMessagesLoading =
+    (timelineMode === 'latest' ? isLoading : isResolvingAnchor) && orderedMessages.length === 0
   const getReplyScrollViewPosition = useCallback(() => {
     const DEFAULT_VIEW_POSITION = 0.72
     const state = KeyboardController.state()
@@ -766,21 +660,31 @@ export default function ChatScreen() {
     [prepareContextMenuKeyboardPreservation],
   )
 
-  const handleOpenMedia = useCallback((payload: ChatMediaViewerOpenPayload) => {
-    setActiveContextMenu(null)
-    setMediaViewerPayload(payload)
-  }, [])
+  let displayName = 'Unknown'
+  let avatarUrl: string | undefined = undefined
+  let otherUserId: string | undefined = undefined
 
-  const closeMediaViewer = useCallback(() => {
-    setMediaViewerPayload(null)
-  }, [])
+  if (currentConversation) {
+    if (!currentConversation.isGroup) {
+      const otherUser = currentConversation.participants?.find(
+        (p: ChatParticipant) => p.id !== user?.id,
+      )
+      if (otherUser) {
+        displayName = otherUser.name || otherUser.email || 'Unknown'
+        avatarUrl = otherUser.picture
+        otherUserId = otherUser.id
+      }
+    } else {
+      displayName = currentConversation.name || 'Group Chat'
+      avatarUrl = currentConversation.picture
+    }
+  }
 
   const handleSaveMedia = useCallback(async (item: ChatMediaGalleryItem) => {
     if (!item.canSave) {
       return
     }
 
-    setSavingMediaId(item.id)
     try {
       await saveChatMediaToLibrary({
         type: item.type,
@@ -794,10 +698,40 @@ export default function ChatScreen() {
         'Unable to save media',
         error instanceof Error ? error.message : 'Please try again.',
       )
-    } finally {
-      setSavingMediaId(null)
     }
   }, [])
+
+  const handleOpenMedia = useCallback(
+    (payload: ChatMediaViewerOpenPayload) => {
+      setActiveContextMenu(null)
+
+      const sourceIndex = mediaGalleryItems.findIndex((item) => item.id === payload.messageId)
+      if (sourceIndex < 0) {
+        return
+      }
+
+      const viewerItems =
+        timelineMode === 'anchor'
+          ? mediaGalleryItems.slice(
+              Math.max(0, sourceIndex - ANCHOR_MEDIA_VIEWER_WINDOW_RADIUS),
+              Math.min(
+                mediaGalleryItems.length,
+                sourceIndex + ANCHOR_MEDIA_VIEWER_WINDOW_RADIUS + 1,
+              ),
+            )
+          : mediaGalleryItems
+
+      openMediaViewer({
+        autoplayVideo: payload.autoplayVideo,
+        conversationTitle: displayName,
+        items: viewerItems,
+        messageId: payload.messageId,
+        onSave: handleSaveMedia,
+        ...(payload.sourceRef ? { sourceRef: payload.sourceRef } : {}),
+      })
+    },
+    [displayName, handleSaveMedia, mediaGalleryItems, openMediaViewer, timelineMode],
+  )
 
   const closeActiveContextMenu = useCallback(() => {
     setActiveContextMenu(null)
@@ -844,8 +778,8 @@ export default function ChatScreen() {
     return () => clearTimeout(timer)
   }, [clearConversationUnread, conversationId, socket, socket?.connected, transitionDone])
 
-  const scrollToBottom = useCallback(() => {
-    listRef.current?.scrollToOffset({ offset: 0, animated: true })
+  const scrollToBottom = useCallback((animated = true) => {
+    listRef.current?.scrollToOffset({ offset: 0, animated })
   }, [])
 
   const handleComposerFocusChange = useCallback(
@@ -881,25 +815,49 @@ export default function ChatScreen() {
     void fetchNextPage()
   }, [fetchNextPage, hasNextPage, isFetchingNextPage, isInitialMessagesLoading])
 
+  const returnToLatestTimeline = useCallback(
+    async (shouldScrollToBottom = true) => {
+      anchorBottomLoadArmedRef.current = false
+      pendingAnchorScrollTargetIdRef.current = null
+      pendingReturnToLatestRef.current = shouldScrollToBottom
+      setTimelineMode('latest')
+      await clearAnchor()
+    },
+    [clearAnchor],
+  )
+
   useEffect(() => {
     setActiveContextMenu(null)
-    setMediaViewerPayload(null)
+    closeMediaViewer()
     clearConversationInlinePlayback(conversationId)
     shouldRestoreComposerFocusRef.current = false
     preservedKeyboardOffset.value = 0
+    anchorBottomLoadArmedRef.current = false
+    pendingAnchorScrollTargetIdRef.current = null
+    pendingReturnToLatestRef.current = false
+    setTimelineMode('latest')
+    void clearAnchor()
 
     return () => {
+      closeMediaViewer()
       clearConversationInlinePlayback(conversationId)
       resetConversationUi(conversationId)
     }
   }, [
+    closeMediaViewer,
     clearConversationInlinePlayback,
     conversationId,
+    clearAnchor,
     preservedKeyboardOffset,
     resetConversationUi,
   ])
 
   useEffect(() => {
+    if (timelineMode !== 'latest') {
+      prevNewestMessageId.current = newestMessageId
+      return
+    }
+
     if (newestMessageId && newestMessageId !== prevNewestMessageId.current) {
       const isInitialAutoScroll = prevNewestMessageId.current === undefined
       const isMyMessage = newestSenderId === user?.id
@@ -907,11 +865,21 @@ export default function ChatScreen() {
       const shouldAutoScroll = isMyMessage || isNearBottomRef.current || isInitialAutoScroll
 
       if (shouldAutoScroll) {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
+        if (pendingReturnToLatestRef.current) {
+          // Returning to latest owns this scroll; do not issue a competing command.
+        } else if (isMyMessage && pendingOwnSendBottomScrollRef.current !== 'none') {
+          const nextScrollMode = pendingOwnSendBottomScrollRef.current
+          pendingOwnSendBottomScrollRef.current = 'none'
+          if (nextScrollMode === 'animated') {
             scrollToBottom()
+          }
+        } else {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              scrollToBottom()
+            })
           })
-        })
+        }
       }
 
       if (socket?.connected && shouldAutoScroll) {
@@ -927,14 +895,9 @@ export default function ChatScreen() {
     newestSenderId,
     scrollToBottom,
     socket,
+    timelineMode,
     user?.id,
   ])
-
-  const cachedData = queryClient.getQueryData<unknown>(queryKeys.conversations.all)
-  const allConversations: Conversation[] = Array.isArray(cachedData)
-    ? (cachedData as Conversation[])
-    : (cachedData as { pages?: Conversation[][] })?.pages?.flat() || []
-  const currentConversation = allConversations.find((c: Conversation) => c?.id === conversationId)
 
   const participantsMap = useMemo(() => {
     const map = new Map<string, ChatParticipant>()
@@ -943,26 +906,6 @@ export default function ChatScreen() {
     })
     return map
   }, [currentConversation?.participants])
-
-  let displayName = 'Unknown'
-  let avatarUrl: string | undefined = undefined
-  let otherUserId: string | undefined = undefined
-
-  if (currentConversation) {
-    if (!currentConversation.isGroup) {
-      const otherUser = currentConversation.participants?.find(
-        (p: ChatParticipant) => p.id !== user?.id,
-      )
-      if (otherUser) {
-        displayName = otherUser.name || otherUser.email || 'Unknown'
-        avatarUrl = otherUser.picture
-        otherUserId = otherUser.id
-      }
-    } else {
-      displayName = currentConversation.name || 'Group Chat'
-      avatarUrl = currentConversation.picture
-    }
-  }
 
   const isOnline = otherUserId ? onlineUsers.has(otherUserId) : false
   const lastSeenAt = otherUserId ? (lastSeenByUserId[otherUserId] ?? null) : null
@@ -1000,9 +943,28 @@ export default function ChatScreen() {
 
   const handleSendMedia = useCallback(
     async (assets: ImagePickerAsset[]) => {
+      isNearBottomRef.current = true
+      setIsNearBottom(true)
+      isScrollButtonVisible.value = false
+      pendingOwnSendBottomScrollRef.current = 'already-scrolled'
+
+      if (timelineMode === 'anchor') {
+        void returnToLatestTimeline()
+      } else {
+        requestAnimationFrame(() => {
+          scrollToBottom()
+        })
+      }
+
       await enqueueMediaAssets(assets)
     },
-    [enqueueMediaAssets],
+    [
+      enqueueMediaAssets,
+      isScrollButtonVisible,
+      returnToLatestTimeline,
+      scrollToBottom,
+      timelineMode,
+    ],
   )
 
   const handleTyping = useCallback(
@@ -1048,15 +1010,38 @@ export default function ChatScreen() {
   }, [setReplyToMessage])
 
   const handleSendText = useCallback(
-    (text: string, replyToId?: string) => {
-      sendMessage({ content: text, ...(replyToId ? { replyToId } : {}) })
+    (text: string, replyTo?: Message | null) => {
+      isNearBottomRef.current = true
+      setIsNearBottom(true)
+      isScrollButtonVisible.value = false
+
+      sendMessage({
+        content: text,
+        ...(replyTo?.id ? { replyToId: replyTo.id } : {}),
+        ...(replyTo ? { replyToMessage: replyTo } : {}),
+      })
+
+      if (timelineMode === 'anchor') {
+        pendingOwnSendBottomScrollRef.current = 'animated'
+        void returnToLatestTimeline(false)
+      } else {
+        pendingOwnSendBottomScrollRef.current = 'animated'
+      }
+
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current)
         typingTimeoutRef.current = null
       }
       socket?.emit('typing_stop', conversationId)
     },
-    [sendMessage, socket, conversationId],
+    [
+      conversationId,
+      isScrollButtonVisible,
+      returnToLatestTimeline,
+      sendMessage,
+      socket,
+      timelineMode,
+    ],
   )
 
   const handleRecall = useCallback(
@@ -1110,7 +1095,9 @@ export default function ChatScreen() {
     (messageId: string) => {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          scrollToMessageById(messageId)
+          if (scrollToMessageById(messageId)) {
+            pendingAnchorScrollTargetIdRef.current = null
+          }
         })
       })
     },
@@ -1118,12 +1105,51 @@ export default function ChatScreen() {
   )
 
   const handleScrollToMessage = useCallback(
-    (replyToId?: string) => {
+    async (replyToId?: string) => {
       if (!replyToId) return
 
-      runReplyScroll(replyToId)
+      if (scrollToMessageById(replyToId)) {
+        return
+      }
+
+      if (pendingAnchorScrollTargetIdRef.current === replyToId && isResolvingAnchor) {
+        return
+      }
+
+      if (
+        timelineMode === 'anchor' &&
+        activeAnchorTargetId === replyToId &&
+        (isResolvingAnchor || Boolean(anchorData))
+      ) {
+        pendingReturnToLatestRef.current = false
+        pendingAnchorScrollTargetIdRef.current = replyToId
+        return
+      }
+
+      if (!isPersistedServerMessageId(replyToId)) {
+        return
+      }
+
+      pendingReturnToLatestRef.current = false
+      pendingAnchorScrollTargetIdRef.current = replyToId
+      anchorBottomLoadArmedRef.current = false
+
+      const started = await resolveAnchorTarget(replyToId)
+      if (!started) {
+        pendingAnchorScrollTargetIdRef.current = null
+        return
+      }
+
+      setTimelineMode('anchor')
     },
-    [runReplyScroll],
+    [
+      activeAnchorTargetId,
+      anchorData,
+      isResolvingAnchor,
+      resolveAnchorTarget,
+      scrollToMessageById,
+      timelineMode,
+    ],
   )
 
   const handleMessageViewportLayout = useCallback(
@@ -1173,6 +1199,42 @@ export default function ChatScreen() {
   ])
 
   useEffect(() => {
+    if (
+      timelineMode === 'anchor' &&
+      activeAnchorTargetId &&
+      !isResolvingAnchor &&
+      !anchorData &&
+      !pendingReturnToLatestRef.current
+    ) {
+      pendingAnchorScrollTargetIdRef.current = null
+      setTimelineMode('latest')
+      void clearAnchor()
+    }
+  }, [activeAnchorTargetId, anchorData, clearAnchor, isResolvingAnchor, timelineMode])
+
+  useEffect(() => {
+    const pendingAnchorTargetId = pendingAnchorScrollTargetIdRef.current
+
+    if (
+      timelineMode === 'anchor' &&
+      pendingAnchorTargetId &&
+      indexByIdRef.current.has(pendingAnchorTargetId)
+    ) {
+      runReplyScroll(pendingAnchorTargetId)
+      return
+    }
+
+    if (timelineMode === 'latest' && pendingReturnToLatestRef.current) {
+      pendingReturnToLatestRef.current = false
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          scrollToBottom()
+        })
+      })
+    }
+  }, [orderedMessages, runReplyScroll, scrollToBottom, timelineMode])
+
+  useEffect(() => {
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
       if (socket?.connected) socket.emit('typing_stop', conversationId)
@@ -1186,6 +1248,10 @@ export default function ChatScreen() {
     }
   }, [queryClient, socket, conversationId])
 
+  const currentOlderLoader =
+    timelineMode === 'anchor' ? () => void loadAnchorOlder('edge') : loadOlderMessages
+  const currentIsFetchingOlder =
+    timelineMode === 'anchor' ? (anchorData?.isFetchingOlder ?? false) : isFetchingNextPage
   const renderListHeader = useCallback(() => {
     return (
       <View>
@@ -1249,7 +1315,7 @@ export default function ChatScreen() {
   const isDark = colorScheme === 'dark'
 
   const loadingIndicatorStyle = useAnimatedStyle(() => {
-    const isVisible = isFetchingNextPage && !isInitialMessagesLoading
+    const isVisible = currentIsFetchingOlder && !isInitialMessagesLoading
     return {
       transform: [
         {
@@ -1269,6 +1335,15 @@ export default function ChatScreen() {
       opacity: withTiming(isVisible ? 1 : 0, { duration: 150 }),
     }
   })
+
+  const handleScrollAffordancePress = useCallback(() => {
+    if (timelineMode === 'anchor') {
+      void returnToLatestTimeline()
+      return
+    }
+
+    scrollToBottom()
+  }, [returnToLatestTimeline, scrollToBottom, timelineMode])
 
   return (
     <View className="flex-1 bg-bg-primary" style={{ paddingTop: insets.top }}>
@@ -1339,7 +1414,7 @@ export default function ChatScreen() {
         >
           <Animated.View style={[{ flex: 1 }, keyboardWrapperStyle]}>
             <View className="flex-1">
-              {isFetchingNextPage && !isInitialMessagesLoading ? (
+              {currentIsFetchingOlder && !isInitialMessagesLoading ? (
                 <Animated.View
                   style={[
                     loadingIndicatorStyle,
@@ -1403,9 +1478,12 @@ export default function ChatScreen() {
                 contentContainerStyle={{
                   paddingBottom: 20,
                 }}
-                onEndReached={loadOlderMessages}
+                onEndReached={currentOlderLoader}
                 onEndReachedThreshold={0.2}
                 onScroll={handleScroll}
+                onScrollBeginDrag={handleScrollBeginDrag}
+                onScrollEndDrag={handleScrollEndDrag}
+                onMomentumScrollEnd={handleMomentumScrollEnd}
                 scrollEventThrottle={16}
                 keyboardDismissMode="none"
                 keyboardShouldPersistTaps="handled"
@@ -1428,7 +1506,7 @@ export default function ChatScreen() {
               >
                 <TouchableOpacity
                   className="h-11 w-11 items-center justify-center rounded-full bg-surface-card border border-border-light"
-                  onPress={scrollToBottom}
+                  onPress={handleScrollAffordancePress}
                   activeOpacity={0.8}
                   style={{
                     borderCurve: 'continuous',
@@ -1490,17 +1568,6 @@ export default function ChatScreen() {
               : undefined
           }
           conversationId={activeContextMenuData?.conversationId}
-        />
-        <ChatMediaViewer
-          initialPayload={mediaViewerPayload}
-          isLoadingOlder={isFetchingNextPage}
-          items={mediaGalleryItems}
-          onLoadOlder={loadOlderMessages}
-          onRequestClose={closeMediaViewer}
-          onSave={(item) => {
-            void handleSaveMedia(item)
-          }}
-          savingMessageId={savingMediaId}
         />
       </View>
     </View>

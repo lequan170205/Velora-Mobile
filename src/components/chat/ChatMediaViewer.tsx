@@ -3,19 +3,18 @@ import { Image } from 'expo-image'
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
-  Modal,
+  BackHandler,
+  FlatList,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
+  UIManager,
   useWindowDimensions,
   View,
 } from 'react-native'
-import {
-  FlatList,
-  Gesture,
-  GestureDetector,
-  GestureHandlerRootView,
-} from 'react-native-gesture-handler'
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler'
+import PagerView, { type PagerViewOnPageSelectedEvent } from 'react-native-pager-view'
 import Animated, {
   Extrapolation,
   interpolate,
@@ -29,10 +28,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { scheduleOnRN } from 'react-native-worklets'
 
 import { formatDurationLabel } from '../../lib/reels'
-import { ReelVideo } from '../reels/ReelVideo'
+import { AppVideoPlayer } from '../video/AppVideoPlayer'
 
 import type { Message } from '../../types/conversation.types'
 import type { ListRenderItemInfo } from 'react-native'
+import type { AnimatedRef } from 'react-native-reanimated'
 
 export interface MediaSourceFrame {
   height: number
@@ -44,7 +44,13 @@ export interface MediaSourceFrame {
 export interface ChatMediaViewerOpenPayload {
   autoplayVideo: boolean
   messageId: string
-  sourceFrame: MediaSourceFrame
+  sourceRef?: AnimatedRef<View> | null
+}
+
+export interface ChatMediaViewerPresentationPayload {
+  autoplayVideo: boolean
+  messageId: string
+  sourceFrame?: MediaSourceFrame
 }
 
 export interface ChatMediaGalleryItem {
@@ -58,12 +64,10 @@ export interface ChatMediaGalleryItem {
 
 interface ChatMediaViewerProps {
   conversationTitle?: string
-  initialPayload: ChatMediaViewerOpenPayload | null
-  isLoadingOlder?: boolean
+  initialPayload: ChatMediaViewerPresentationPayload | null
   items: ChatMediaGalleryItem[]
-  onLoadOlder?: () => void
   onRequestClose: () => void
-  onSave?: (item: ChatMediaGalleryItem) => void
+  onSave?: (item: ChatMediaGalleryItem) => Promise<void> | void
   savingMessageId?: string | null
 }
 
@@ -78,7 +82,6 @@ const HERO_CLOSE_SPRING_CONFIG = {
   mass: 0.78,
   stiffness: 320,
 } as const
-const DISMISS_RETURN_SPRING_CONFIG = { damping: 22, stiffness: 220, mass: 0.8 } as const
 const DISMISS_EXIT_SPRING_CONFIG = {
   damping: 50,
   overshootClamping: true,
@@ -86,6 +89,17 @@ const DISMISS_EXIT_SPRING_CONFIG = {
 } as const
 const DISMISS_DISTANCE_THRESHOLD = 132
 const DISMISS_VELOCITY_THRESHOLD = 980
+const HERO_CONTENT_SWAP_PROGRESS = 0.985
+const HAS_NATIVE_PAGER_VIEW =
+  (Platform.OS === 'android' || Platform.OS === 'ios') &&
+  typeof UIManager.getViewManagerConfig === 'function' &&
+  Boolean(UIManager.getViewManagerConfig('RNCViewPager'))
+
+const rubberBand = (distance: number, dimension: number) => {
+  'worklet'
+  const constant = 0.55
+  return (1.0 - 1.0 / ((distance * constant) / dimension + 1.0)) * dimension
+}
 
 const formatShort = (ts?: number | string) => {
   if (!ts) return ''
@@ -304,14 +318,13 @@ function ZoomableImage({
       Gesture.Tap()
         .enabled(isActive)
         .numberOfTaps(1)
-        .requireExternalGestureToFail(doubleTapGesture)
         .onEnd(() => {
           'worklet'
           const nextValue = chromeVisible.value === 1 ? 0 : 1
-          chromeVisible.value = withSpring(nextValue, { damping: 24, stiffness: 260, mass: 0.9 })
+          chromeVisible.value = withTiming(nextValue, { duration: 140 })
           scheduleOnRN(setIsChromeVisible, nextValue === 1)
         }),
-    [chromeVisible, doubleTapGesture, isActive, setIsChromeVisible],
+    [chromeVisible, isActive, setIsChromeVisible],
   )
   const composedGesture = useMemo(
     () =>
@@ -337,9 +350,11 @@ function ZoomableImage({
           accessibilityLabel="Media photo"
           cachePolicy="memory-disk"
           contentFit="contain"
+          {...(item.posterUri ? { placeholder: { uri: item.posterUri } } : {})}
           recyclingKey={item.uri}
           source={{ uri: item.uri }}
           style={styles.page}
+          transition={0}
         />
       </Animated.View>
     </GestureDetector>
@@ -347,40 +362,69 @@ function ZoomableImage({
 }
 
 const GalleryPage = memo(function GalleryPage({
-  item,
+  shouldRenderMedia,
   chromeVisible,
+  controlsBottomInset,
+  item,
   isActive,
+  isChromeVisible,
+  isMuted,
   isTransitionComplete,
   shouldAutoplay,
   isZoomed,
   screenHeight,
   screenWidth,
   setIsChromeVisible,
+  onMutedChange,
   onZoomChange,
 }: {
-  item: ChatMediaGalleryItem
+  shouldRenderMedia: boolean
   chromeVisible: { value: number }
+  controlsBottomInset: number
+  item: ChatMediaGalleryItem
   isActive: boolean
+  isChromeVisible: boolean
   isTransitionComplete: boolean
   isZoomed: boolean
   screenHeight: number
   screenWidth: number
+  isMuted: boolean
+  onMutedChange: (muted: boolean) => void
   setIsChromeVisible: (visible: boolean) => void
   shouldAutoplay: boolean
   onZoomChange: (zoomed: boolean) => void
 }) {
+  if (!shouldRenderMedia) {
+    if (item.posterUri) {
+      return (
+        <Image
+          cachePolicy="memory-disk"
+          contentFit="contain"
+          source={{ uri: item.posterUri }}
+          style={styles.page}
+          transition={0}
+        />
+      )
+    }
+
+    return <View style={styles.page} />
+  }
   if (item.type === 'video') {
     return (
-      <View style={styles.page}>
-        <ReelVideo
-          contentFit="contain"
-          nativeControls
-          shouldPlay={isActive && isTransitionComplete && shouldAutoplay}
-          uri={item.uri}
-          {...(item.posterUri ? { posterUri: item.posterUri } : {})}
-          style={styles.page}
-        />
-      </View>
+      <AppVideoPlayer
+        autoPlay={shouldAutoplay}
+        contentFit="contain"
+        controlsBottomInset={controlsBottomInset}
+        controlsVisible={isChromeVisible}
+        isActive={isActive && isTransitionComplete}
+        muted={isMuted}
+        onControlsVisibilityChange={setIsChromeVisible}
+        onMutedChange={onMutedChange}
+        resetOnInactive={isTransitionComplete}
+        style={styles.page}
+        uri={item.uri}
+        {...(item.posterUri ? { posterUri: item.posterUri } : {})}
+      />
     )
   }
 
@@ -401,9 +445,7 @@ const GalleryPage = memo(function GalleryPage({
 export function ChatMediaViewer({
   conversationTitle,
   initialPayload,
-  isLoadingOlder = false,
   items,
-  onLoadOlder,
   onRequestClose,
   onSave,
   savingMessageId,
@@ -412,6 +454,8 @@ export function ChatMediaViewer({
   const { height: screenHeight, width: screenWidth } = useWindowDimensions()
   const reduceMotion = useReducedMotion()
   const listRef = useRef<FlatList<ChatMediaGalleryItem>>(null)
+  const pagerRef = useRef<PagerView>(null)
+  const lastChromeResetItemIdRef = useRef<string | null>(null)
   const openedPayloadIdRef = useRef<string | null>(null)
   const backdropOpacity = useSharedValue(1)
   const chromeVisible = useSharedValue(1)
@@ -420,12 +464,16 @@ export function ChatMediaViewer({
   const transitionProgress = useSharedValue(0)
   const [activeItemId, setActiveItemId] = useState<string | null>(null)
   const [isChromeVisible, setIsChromeVisible] = useState(true)
+  const [isClosing, setIsClosing] = useState(false)
   const [isTransitionComplete, setIsTransitionComplete] = useState(false)
+  const [bottomBarHeight, setBottomBarHeight] = useState(0)
+  const [isVideoMuted, setIsVideoMuted] = useState(false)
   const [isZoomed, setIsZoomed] = useState(false)
   const sourceItemIndex = initialPayload
     ? items.findIndex((item) => item.id === initialPayload.messageId)
     : -1
   const initialMessageId = initialPayload?.messageId ?? null
+  const initialAutoplayVideo = initialPayload?.autoplayVideo ?? false
   const isVisible = Boolean(initialPayload && sourceItemIndex >= 0)
   const activeIndex = useMemo(() => {
     if (activeItemId) {
@@ -453,6 +501,7 @@ export function ChatMediaViewer({
     openedPayloadIdRef.current = initialMessageId
     setActiveItemId(initialMessageId)
     setIsChromeVisible(true)
+    setIsClosing(false)
     setIsZoomed(false)
     setIsTransitionComplete(Boolean(reduceMotion))
     backdropOpacity.value = 1
@@ -460,22 +509,17 @@ export function ChatMediaViewer({
     dismissTranslateX.value = 0
     dismissTranslateY.value = 0
     transitionProgress.value = reduceMotion ? 1 : 0
-    const frameId = requestAnimationFrame(() => {
-      listRef.current?.scrollToIndex({ animated: false, index: sourceItemIndex })
-      if (reduceMotion) {
-        return
-      }
-      transitionProgress.value = withSpring(1, HERO_OPEN_SPRING_CONFIG, (finished) => {
-        'worklet'
-        if (finished) {
-          scheduleOnRN(setIsTransitionComplete, true)
-        }
-      })
-    })
 
-    return () => {
-      cancelAnimationFrame(frameId)
+    if (reduceMotion) {
+      return
     }
+
+    transitionProgress.value = withSpring(1, HERO_OPEN_SPRING_CONFIG, (finished) => {
+      'worklet'
+      if (finished) {
+        scheduleOnRN(setIsTransitionComplete, true)
+      }
+    })
   }, [
     backdropOpacity,
     chromeVisible,
@@ -489,28 +533,54 @@ export function ChatMediaViewer({
   ])
 
   useEffect(() => {
-    if (!isVisible || activeIndex < 0 || activeIndex >= items.length) {
+    if (!isVisible || !isTransitionComplete || activeIndex < 0 || activeIndex >= items.length) {
       return
     }
 
     const frameId = requestAnimationFrame(() => {
+      if (HAS_NATIVE_PAGER_VIEW) {
+        pagerRef.current?.setPageWithoutAnimation(activeIndex)
+        return
+      }
+
       listRef.current?.scrollToIndex({ animated: false, index: activeIndex })
     })
 
     return () => {
       cancelAnimationFrame(frameId)
     }
-  }, [activeIndex, isVisible, items.length])
+  }, [activeIndex, isTransitionComplete, isVisible, items.length])
 
   useEffect(() => {
-    if (activeItem?.type === 'video' && !isChromeVisible) {
-      chromeVisible.value = 1
+    if (!isVisible) {
+      lastChromeResetItemIdRef.current = null
+      return
+    }
+
+    const nextActiveItemId = activeItem?.id ?? null
+
+    if (!nextActiveItemId || lastChromeResetItemIdRef.current === nextActiveItemId) {
+      return
+    }
+
+    lastChromeResetItemIdRef.current = nextActiveItemId
+
+    if (activeItem?.type === 'video') {
+      chromeVisible.value = withTiming(1, { duration: 140 })
       setIsChromeVisible(true)
     }
-  }, [activeItem?.type, chromeVisible, isChromeVisible])
+  }, [activeItem?.id, activeItem?.type, chromeVisible, isVisible])
+
+  const handleChromeVisibilityChange = useCallback(
+    (visible: boolean) => {
+      chromeVisible.value = withTiming(visible ? 1 : 0, { duration: 140 })
+      setIsChromeVisible(visible)
+    },
+    [chromeVisible],
+  )
 
   const sourceItem = sourceItemIndex >= 0 ? items[sourceItemIndex] : null
-  const sourceFrame = initialPayload?.sourceFrame
+  const sourceFrame = initialPayload?.sourceFrame ?? null
   const targetFrame = useMemo(() => {
     if (!sourceFrame || !sourceItem) {
       return null
@@ -518,31 +588,20 @@ export function ChatMediaViewer({
 
     const contentWidth = sourceItem.message.media?.width ?? sourceFrame.width
     const contentHeight = sourceItem.message.media?.height ?? sourceFrame.height
-    const top = insets.top + 64
-    const bottom = insets.bottom + 76
     return getContainedRect({
       contentHeight,
       contentWidth,
-      height: Math.max(1, screenHeight - top - bottom),
-      top,
+      height: Math.max(1, screenHeight),
+      top: 0,
       width: screenWidth,
     })
-  }, [insets.bottom, insets.top, screenHeight, screenWidth, sourceFrame, sourceItem])
+  }, [screenHeight, screenWidth, sourceFrame, sourceItem])
 
-  const animatedPaddingStyle = useAnimatedStyle(() => {
-    const paddingTop = interpolate(chromeVisible.value, [0, 1], [0, insets.top + 64])
-    const paddingBottom = interpolate(chromeVisible.value, [0, 1], [0, insets.bottom + 76])
-
-    return {
-      paddingTop,
-      paddingBottom,
-    }
-  })
   const backdropStyle = useAnimatedStyle(() => ({
     opacity: interpolate(transitionProgress.value, [0, 1], [0, 1]) * backdropOpacity.value,
   }))
   const pageContentStyle = useAnimatedStyle(() => ({
-    opacity: transitionProgress.value === 1 ? 1 : 0,
+    opacity: transitionProgress.value >= HERO_CONTENT_SWAP_PROGRESS ? 1 : 0,
   }))
   const chromeStyle = useAnimatedStyle(() => ({
     opacity: chromeVisible.value,
@@ -597,7 +656,7 @@ export function ChatMediaViewer({
       borderRadius: interpolate(transitionProgress.value, [0, 1], [12, 0]),
       height: sourceFrame.height,
       left: sourceFrame.x,
-      opacity: transitionProgress.value === 1 ? 0 : 1,
+      opacity: transitionProgress.value >= HERO_CONTENT_SWAP_PROGRESS ? 0 : 1,
       position: 'absolute' as const,
       top: sourceFrame.y,
       transform: [
@@ -618,6 +677,8 @@ export function ChatMediaViewer({
   })
 
   const close = useCallback(() => {
+    setIsClosing(true)
+
     if (!initialPayload || reduceMotion || activeItem?.id !== initialPayload.messageId) {
       onRequestClose()
       return
@@ -631,23 +692,41 @@ export function ChatMediaViewer({
       }
     })
   }, [activeItem?.id, initialPayload, onRequestClose, reduceMotion, transitionProgress])
+
+  useEffect(() => {
+    if (!isVisible) {
+      return
+    }
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      close()
+      return true
+    })
+
+    return () => {
+      subscription.remove()
+    }
+  }, [close, isVisible])
+
+  const pagerNativeGesture = useMemo(() => Gesture.Native(), [])
   const dismissGesture = useMemo(
     () =>
       Gesture.Pan()
         .enabled(!isZoomed && isTransitionComplete)
         .failOffsetX([-8, 8])
         .activeOffsetY([-12, 12])
+        .simultaneousWithExternalGesture(pagerNativeGesture)
         .onUpdate((event) => {
           'worklet'
-          if (chromeVisible.value !== 1) {
-            chromeVisible.value = 1
-            scheduleOnRN(setIsChromeVisible, true)
-          }
+          const nextTranslateX =
+            Math.sign(event.translationX) * rubberBand(Math.abs(event.translationX), screenWidth)
+          const nextTranslateY =
+            Math.sign(event.translationY) * rubberBand(Math.abs(event.translationY), screenHeight)
 
-          dismissTranslateX.value = event.translationX * 0.95
-          dismissTranslateY.value = event.translationY * 0.95
+          dismissTranslateX.value = nextTranslateX
+          dismissTranslateY.value = nextTranslateY
           backdropOpacity.value = interpolate(
-            Math.abs(event.translationY),
+            Math.abs(nextTranslateY),
             [0, screenHeight / 2],
             [1, 0],
             Extrapolation.CLAMP,
@@ -664,16 +743,19 @@ export function ChatMediaViewer({
           const shouldDismiss = shouldDismissDown || shouldDismissUp
 
           if (shouldDismiss) {
+            scheduleOnRN(setIsClosing, true)
+            chromeVisible.value = withTiming(0, { duration: 100 })
             backdropOpacity.value = withTiming(0, { duration: 150 })
 
             if (isActiveOriginal) {
               transitionProgress.value = withSpring(0, HERO_CLOSE_SPRING_CONFIG, (finished) => {
                 'worklet'
                 if (finished) {
+                  scheduleOnRN(setIsChromeVisible, false)
+                  scheduleOnRN(setIsTransitionComplete, false)
                   scheduleOnRN(onRequestClose)
                 }
               })
-              scheduleOnRN(setIsTransitionComplete, false)
             } else {
               const targetY =
                 event.translationY > 0 || event.velocityY > 0
@@ -694,6 +776,7 @@ export function ChatMediaViewer({
                 (finished) => {
                   'worklet'
                   if (finished) {
+                    scheduleOnRN(setIsChromeVisible, false)
                     scheduleOnRN(onRequestClose)
                   }
                 },
@@ -724,61 +807,89 @@ export function ChatMediaViewer({
       isTransitionComplete,
       isZoomed,
       onRequestClose,
+      pagerNativeGesture,
       screenHeight,
+      screenWidth,
       setIsChromeVisible,
+      setIsClosing,
       isActiveOriginal,
       transitionProgress,
     ],
   )
+  const pagerContentGesture = useMemo(
+    () => Gesture.Simultaneous(dismissGesture, pagerNativeGesture),
+    [dismissGesture, pagerNativeGesture],
+  )
 
+  const handlePageSelected = useCallback(
+    (event: PagerViewOnPageSelectedEvent) => {
+      const nextIndex = Math.max(0, Math.min(event.nativeEvent.position, items.length - 1))
+      setActiveItemId(items[nextIndex]?.id ?? null)
+      setIsZoomed(false)
+    },
+    [items],
+  )
   const handleMomentumScrollEnd = useCallback(
     (event: { nativeEvent: { contentOffset: { x: number } } }) => {
       const rawNextIndex = Math.round(event.nativeEvent.contentOffset.x / screenWidth)
       const nextIndex = Math.max(0, Math.min(rawNextIndex, items.length - 1))
       setActiveItemId(items[nextIndex]?.id ?? null)
       setIsZoomed(false)
-      if (nextIndex >= items.length - 2) {
-        onLoadOlder?.()
-      }
     },
-    [items, onLoadOlder, screenWidth],
+    [items, screenWidth],
   )
-  const renderItem = useCallback(
-    ({ item, index }: ListRenderItemInfo<ChatMediaGalleryItem>) => (
-      <Animated.View style={[{ height: screenHeight, width: screenWidth }, animatedPaddingStyle]}>
+
+  const controlsBottomInset =
+    isChromeVisible && bottomBarHeight > 0 ? bottomBarHeight : insets.bottom + 18
+
+  const renderGalleryPageContent = useCallback(
+    (item: ChatMediaGalleryItem, index: number) => (
+      <View collapsable={false} key={item.id} style={{ height: screenHeight, width: screenWidth }}>
         <GalleryPage
+          shouldRenderMedia={Math.abs(index - activeIndex) <= 1}
           chromeVisible={chromeVisible}
-          isActive={index === activeIndex}
+          controlsBottomInset={controlsBottomInset}
+          isActive={!isClosing && index === activeIndex}
+          isChromeVisible={isChromeVisible}
+          isMuted={isVideoMuted}
           isTransitionComplete={isTransitionComplete}
           isZoomed={isZoomed}
           item={item}
           screenHeight={screenHeight}
           screenWidth={screenWidth}
-          setIsChromeVisible={setIsChromeVisible}
+          setIsChromeVisible={handleChromeVisibilityChange}
+          onMutedChange={setIsVideoMuted}
           onZoomChange={setIsZoomed}
-          shouldAutoplay={Boolean(
-            initialPayload?.autoplayVideo && item.id === initialPayload.messageId,
-          )}
+          shouldAutoplay={Boolean(initialAutoplayVideo && item.type === 'video')}
         />
-      </Animated.View>
+      </View>
     ),
     [
       activeIndex,
       chromeVisible,
-      initialPayload,
+      controlsBottomInset,
+      handleChromeVisibilityChange,
+      initialAutoplayVideo,
+      isClosing,
+      isVideoMuted,
+      isChromeVisible,
       isTransitionComplete,
       isZoomed,
       screenHeight,
       screenWidth,
-      animatedPaddingStyle,
     ],
+  )
+  const renderGalleryPage = useCallback(
+    ({ item, index }: ListRenderItemInfo<ChatMediaGalleryItem>) =>
+      renderGalleryPageContent(item, index),
+    [renderGalleryPageContent],
   )
 
   if (!isVisible || !initialPayload || !sourceItem) {
     return null
   }
 
-  const heroUri = sourceItem.type === 'video' ? sourceItem.posterUri : sourceItem.uri
+  const heroUri = sourceItem.posterUri ?? sourceItem.uri
   const durationLabel =
     activeItem?.type === 'video' ? formatDurationLabel(activeItem.message.media?.durationMs) : null
   const senderName = getSenderName(activeItem?.message)
@@ -786,34 +897,52 @@ export function ChatMediaViewer({
   const avatarInitials = getAvatarInitials(senderName)
 
   return (
-    <Modal animationType="none" onRequestClose={close} statusBarTranslucent transparent visible>
+    <Animated.View style={[StyleSheet.absoluteFill, { zIndex: 9999 }]}>
       <GestureHandlerRootView style={styles.root}>
         <Animated.View style={[styles.backdrop, backdropStyle]} />
-        <GestureDetector gesture={dismissGesture}>
-          <Animated.View style={[styles.page, pageContentStyle, dismissibleContentStyle]}>
-            <FlatList
-              data={items}
-              decelerationRate="fast"
-              getItemLayout={(_, index) => ({
-                index,
-                length: screenWidth,
-                offset: screenWidth * index,
-              })}
-              horizontal
-              initialScrollIndex={sourceItemIndex}
-              keyExtractor={(item) => item.id}
-              onMomentumScrollEnd={handleMomentumScrollEnd}
-              pagingEnabled
-              ref={listRef}
-              renderItem={renderItem}
-              scrollEnabled={!isZoomed && isTransitionComplete}
-              showsHorizontalScrollIndicator={false}
-            />
-          </Animated.View>
-        </GestureDetector>
+        <Animated.View style={[styles.page, pageContentStyle, dismissibleContentStyle]}>
+          {HAS_NATIVE_PAGER_VIEW ? (
+            <GestureDetector gesture={pagerContentGesture}>
+              <Animated.View style={styles.page}>
+                <PagerView
+                  initialPage={sourceItemIndex}
+                  onPageSelected={handlePageSelected}
+                  overdrag
+                  ref={pagerRef}
+                  scrollEnabled={!isZoomed && isTransitionComplete}
+                  style={styles.page}
+                >
+                  {items.map((item, index) => renderGalleryPageContent(item, index))}
+                </PagerView>
+              </Animated.View>
+            </GestureDetector>
+          ) : (
+            <GestureDetector gesture={dismissGesture}>
+              <FlatList
+                data={items}
+                decelerationRate="fast"
+                getItemLayout={(_, index) => ({
+                  index,
+                  length: screenWidth,
+                  offset: screenWidth * index,
+                })}
+                horizontal
+                initialScrollIndex={sourceItemIndex}
+                keyExtractor={(item) => item.id}
+                onMomentumScrollEnd={handleMomentumScrollEnd}
+                pagingEnabled
+                ref={listRef}
+                renderItem={renderGalleryPage}
+                scrollEnabled={!isZoomed && isTransitionComplete}
+                showsHorizontalScrollIndicator={false}
+                style={styles.page}
+              />
+            </GestureDetector>
+          )}
+        </Animated.View>
 
         <Animated.View
-          pointerEvents={isTransitionComplete ? 'auto' : 'none'}
+          pointerEvents={isTransitionComplete && isChromeVisible ? 'auto' : 'none'}
           style={[styles.topBar, { paddingTop: insets.top }, pageContentStyle, chromeStyle]}
         >
           <Pressable
@@ -871,6 +1000,10 @@ export function ChatMediaViewer({
         </Animated.View>
 
         <Animated.View
+          onLayout={(event) => {
+            const nextHeight = event.nativeEvent.layout.height
+            setBottomBarHeight((current) => (current === nextHeight ? current : nextHeight))
+          }}
           pointerEvents="none"
           style={[
             styles.bottomBar,
@@ -900,19 +1033,17 @@ export function ChatMediaViewer({
               <Text style={styles.durationBadgeText}>{durationLabel}</Text>
             </View>
           ) : null}
-
-          {isLoadingOlder ? (
-            <ActivityIndicator
-              color="rgba(255,255,255,0.7)"
-              size="small"
-              style={{ marginLeft: 8 }}
-            />
-          ) : null}
         </Animated.View>
 
         <Animated.View pointerEvents="none" style={[styles.hero, heroStyle]}>
           {heroUri ? (
-            <Image contentFit="contain" source={{ uri: heroUri }} style={styles.page} />
+            <Image
+              cachePolicy="memory-disk"
+              contentFit="contain"
+              source={{ uri: heroUri }}
+              style={styles.page}
+              transition={0}
+            />
           ) : (
             <View style={styles.heroFallback}>
               <MaterialIcons color="#D4D4D8" name="videocam" size={30} />
@@ -920,7 +1051,7 @@ export function ChatMediaViewer({
           )}
         </Animated.View>
       </GestureHandlerRootView>
-    </Modal>
+    </Animated.View>
   )
 }
 

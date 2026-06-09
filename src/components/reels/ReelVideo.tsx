@@ -1,5 +1,13 @@
 import { Image } from 'expo-image'
-import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import React, {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { StyleSheet } from 'react-native'
 
 import type { StyleProp, ViewStyle } from 'react-native'
@@ -68,6 +76,7 @@ interface ExpoVideoModule {
   ) => {
     loop: boolean
     muted: boolean
+    bufferedPosition: number
     bufferOptions: VideoBufferOptions
     currentTime: number
     duration: number
@@ -198,8 +207,11 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
   ref,
 ) {
   const [hasRenderedFrame, setHasRenderedFrame] = useState(false)
+  const hasCalledReadyRef = useRef(false)
+  const isBufferingRef = useRef(false)
   const { VideoView: VideoViewComponent, useVideoPlayer } = expoVideoModule as ExpoVideoModule
-  const player = useVideoPlayer(buildExpoVideoSource(uri), (videoPlayer) => {
+  const videoSource = useMemo(() => buildExpoVideoSource(uri), [uri])
+  const player = useVideoPlayer(videoSource, (videoPlayer) => {
     videoPlayer.loop = loop
     videoPlayer.muted = muted
     videoPlayer.bufferOptions = REEL_BUFFER_OPTIONS
@@ -233,15 +245,26 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
     [player],
   )
 
+  const notifyReady = useCallback(() => {
+    if (hasCalledReadyRef.current) {
+      return
+    }
+
+    hasCalledReadyRef.current = true
+    onReady?.()
+  }, [onReady])
+
   useEffect(() => {
     setHasRenderedFrame(false)
+    hasCalledReadyRef.current = false
+    isBufferingRef.current = false
   }, [uri])
 
   useEffect(() => {
     if (shouldPlay && hasRenderedFrame) {
-      onReady?.()
+      notifyReady()
     }
-  }, [hasRenderedFrame, onReady, shouldPlay])
+  }, [hasRenderedFrame, notifyReady, shouldPlay])
 
   useEffect(() => {
     player.loop = loop
@@ -265,6 +288,15 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
 
   useEffect(() => {
     const statusSubscription = player.addListener('statusChange', ({ status, error }) => {
+      isBufferingRef.current = status === 'loading'
+
+      onProgress?.({
+        bufferedPosition: player.bufferedPosition,
+        currentTime: player.currentTime,
+        duration: player.duration,
+        isBuffering: isBufferingRef.current,
+      })
+
       if (status === 'error' || error) {
         onError?.()
       }
@@ -276,6 +308,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
           bufferedPosition,
           currentTime,
           duration: player.duration,
+          isBuffering: isBufferingRef.current,
         })
       },
     )
@@ -289,7 +322,12 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
   return (
     <>
       {posterUri && !hasRenderedFrame ? (
-        <Image source={{ uri: posterUri }} style={posterStyle.fill} />
+        <Image
+          contentFit={contentFit}
+          source={{ uri: posterUri }}
+          style={posterStyle.fill}
+          transition={0}
+        />
       ) : null}
       <VideoViewComponent
         player={player}
@@ -297,11 +335,14 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
         nativeControls={nativeControls}
         onFirstFrameRender={() => {
           setHasRenderedFrame(true)
+          isBufferingRef.current = false
           onProgress?.({
             currentTime: player.currentTime,
             duration: player.duration,
+            bufferedPosition: player.bufferedPosition,
+            isBuffering: false,
           })
-          onReady?.()
+          notifyReady()
         }}
         surfaceType="textureView"
         style={style}
@@ -422,7 +463,12 @@ export const ReelVideo = forwardRef<ReelVideoHandle, ReelVideoProps>(
     }
 
     return props.posterUri ? (
-      <Image source={{ uri: props.posterUri }} style={posterStyle.fill} />
+      <Image
+        contentFit={props.contentFit ?? 'cover'}
+        source={{ uri: props.posterUri }}
+        style={posterStyle.fill}
+        transition={0}
+      />
     ) : null
   },
 )

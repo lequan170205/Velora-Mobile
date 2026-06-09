@@ -3,6 +3,9 @@ export const queryKeys = {
     all: ['conversations'] as const,
     detail: (id: string) => ['conversations', id] as const,
     messages: (id: string) => ['conversations', id, 'messages'] as const,
+    messagesAroundRoot: (id: string) => ['conversations', id, 'messagesAround'] as const,
+    messagesAround: (id: string, anchorMessageId: string) =>
+      ['conversations', id, 'messagesAround', anchorMessageId] as const,
     members: (id: string) => ['conversations', id, 'members'] as const,
   },
   friends: {
