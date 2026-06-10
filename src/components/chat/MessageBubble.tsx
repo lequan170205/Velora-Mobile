@@ -23,7 +23,6 @@ import {
 } from '../../lib/chatMedia'
 import { cn } from '../../lib/cn'
 import { useAuthStore } from '../../stores/authStore'
-import { useChatStore } from '../../stores/chatStore'
 import { ReelVideo } from '../reels/ReelVideo'
 
 import { ChatMediaBubble } from './ChatMediaBubble'
@@ -269,6 +268,8 @@ interface MessageBubbleProps {
   message: Message
   repliedMessage?: Message | null
   timeLabel?: string
+  primaryStatusLabel: string | null
+  readReceiptParticipants: ChatParticipant[]
   timestampRevealGesture: ReturnType<typeof Gesture.Pan> | undefined
   timestampRevealOffset?: SharedValue<number>
   timestampRevealProgress?: SharedValue<number>
@@ -302,6 +303,8 @@ const MessageBubbleComponent = function MessageBubble({
   message,
   repliedMessage,
   timeLabel = '',
+  primaryStatusLabel,
+  readReceiptParticipants,
   timestampRevealGesture,
   timestampRevealOffset,
   timestampRevealProgress,
@@ -324,18 +327,6 @@ const MessageBubbleComponent = function MessageBubble({
   const { width: screenWidth } = useWindowDimensions()
   const currentUserId = useAuthStore((state) => state.user?.id ?? null)
   const resolvedConversationId = conversationId || message.conversationId
-  const isMarkedSeen = useChatStore(
-    useCallback(
-      (state) => {
-        if (!resolvedConversationId || !message.id) {
-          return false
-        }
-
-        return state.seenMessages[resolvedConversationId]?.has(message.id) ?? false
-      },
-      [message.id, resolvedConversationId],
-    ),
-  )
   const progress = useSharedValue(0)
   const highlightProgress = useSharedValue(0)
   const swipeOffsetX = useSharedValue(0)
@@ -347,22 +338,8 @@ const MessageBubbleComponent = function MessageBubble({
   const senderInfo = senderInfoProp ?? message.sender ?? null
   isExpandedRef.current = isExpanded
   const [generatedReplyThumbnailUri, setGeneratedReplyThumbnailUri] = useState<string | null>(null)
-
-  const isFailed = message.status === 'FAILED'
-  const isPending = message.status === 'PENDING'
-  const isSending =
-    isPending || ((message.id || message._id || '').startsWith('temp-') && !isFailed)
-  const hasReadReceipt = Array.isArray(message.readBy) && message.readBy.length > 0
-  const isSeen = message.status === 'READ' || hasReadReceipt || isMarkedSeen
-
-  const getStatusText = () => {
-    if (isFailed) return 'Failed'
-    if (isPending) return 'Sending...'
-    if (isSending) return 'Sending...'
-    if (isSeen) return 'Read'
-    if (!isSending) return 'Delivered'
-    return 'Sent'
-  }
+  const primaryMetaVisible = Boolean(primaryStatusLabel || readReceiptParticipants[0])
+  const primaryMetaProgress = useSharedValue(primaryMetaVisible ? 1 : 0)
 
   useEffect(() => {
     progress.value = withTiming(isExpanded ? 1 : 0, { duration: 250 })
@@ -377,6 +354,12 @@ const MessageBubbleComponent = function MessageBubble({
       withDelay(140, withTiming(0, { duration: 260 })),
     )
   }, [highlightProgress, highlightToken])
+
+  useEffect(() => {
+    primaryMetaProgress.value = withTiming(primaryMetaVisible ? 1 : 0, {
+      duration: primaryMetaVisible ? 180 : 140,
+    })
+  }, [primaryMetaProgress, primaryMetaVisible])
 
   const toggleDetails = () => {
     if (onToggleDetails) onToggleDetails()
@@ -485,6 +468,14 @@ const MessageBubbleComponent = function MessageBubble({
     }
   })
 
+  const primaryMetaRowStyle = useAnimatedStyle(() => ({
+    height: interpolate(primaryMetaProgress.value, [0, 1], [0, 18]),
+    marginTop: interpolate(primaryMetaProgress.value, [0, 1], [0, 4]),
+    opacity: primaryMetaProgress.value,
+    overflow: 'hidden',
+    transform: [{ translateY: interpolate(primaryMetaProgress.value, [0, 1], [-2, 0]) }],
+  }))
+
   const swipeIndicatorStyle = useAnimatedStyle(() => {
     const currentTranslation = Math.abs(swipeOffsetX.value)
     const progress = Math.min(currentTranslation / SWIPE_REPLY_TRIGGER_DISTANCE, 1)
@@ -502,6 +493,11 @@ const MessageBubbleComponent = function MessageBubble({
   const senderName = senderInfo && 'name' in senderInfo ? senderInfo.name : undefined
   const fallbackInitial =
     senderName?.charAt(0).toUpperCase() || senderInfo?.email?.charAt(0).toUpperCase() || '?'
+  const primaryReceiptParticipant = readReceiptParticipants[0] ?? null
+  const primaryReceiptInitial =
+    primaryReceiptParticipant?.name?.charAt(0).toUpperCase() ||
+    primaryReceiptParticipant?.email?.charAt(0).toUpperCase() ||
+    '?'
 
   const reactionSummary = useMemo(() => {
     const summary: Record<string, number> = {}
@@ -893,6 +889,30 @@ const MessageBubbleComponent = function MessageBubble({
               </View>
             )}
 
+            <Animated.View style={primaryMetaRowStyle}>
+              {primaryStatusLabel || primaryReceiptParticipant ? (
+                <View className="self-end flex-row items-center gap-1 px-1">
+                  {primaryStatusLabel ? (
+                    <Text className="text-[11px] text-text-muted">{primaryStatusLabel}</Text>
+                  ) : null}
+                  {primaryReceiptParticipant ? (
+                    primaryReceiptParticipant.picture ? (
+                      <Image
+                        source={{ uri: primaryReceiptParticipant.picture }}
+                        className="h-4 w-4 rounded-full"
+                      />
+                    ) : (
+                      <View className="h-4 w-4 items-center justify-center rounded-full bg-surface-muted">
+                        <Text className="text-[8px] font-medium text-text-primary">
+                          {primaryReceiptInitial}
+                        </Text>
+                      </View>
+                    )
+                  ) : null}
+                </View>
+              ) : null}
+            </Animated.View>
+
             <View
               style={{
                 height: isExpanded ? 20 : 0,
@@ -904,18 +924,7 @@ const MessageBubbleComponent = function MessageBubble({
                 <View
                   className={cn('flex-row items-center', isOwn ? 'justify-end' : 'justify-start')}
                 >
-                  <Text className="px-1 text-[11px] text-text-muted">
-                    {timeLabel}
-                    {isOwn && ` • ${getStatusText()}`}
-                  </Text>
-                  {isOwn && isSeen && !isSending && (
-                    <MaterialIcons
-                      name="done-all"
-                      size={12}
-                      color="#FF6B2C"
-                      style={{ marginLeft: 2 }}
-                    />
-                  )}
+                  <Text className="px-1 text-[11px] text-text-muted">{timeLabel}</Text>
                 </View>
               </Animated.View>
             </View>
@@ -962,6 +971,8 @@ export const MessageBubble = memo(MessageBubbleComponent, (prevProps, nextProps)
     areReactionsEqual(prevProps.message.reactions, nextProps.message.reactions) &&
     prevProps.isOwn === nextProps.isOwn &&
     prevProps.showAvatar === nextProps.showAvatar &&
+    prevProps.primaryStatusLabel === nextProps.primaryStatusLabel &&
+    prevProps.readReceiptParticipants === nextProps.readReceiptParticipants &&
     areSenderInfosEqual(prevProps.senderInfo, nextProps.senderInfo) &&
     prevProps.timeLabel === nextProps.timeLabel &&
     prevProps.isGroupedTop === nextProps.isGroupedTop &&

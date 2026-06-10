@@ -84,6 +84,7 @@ type ActiveContextMenuState = MessageBubbleContextMenuPayload
 
 const EMPTY_MESSAGES: Message[] = []
 const EMPTY_TYPERS: string[] = []
+const EMPTY_READ_RECEIPT_PARTICIPANTS: ChatParticipant[] = []
 const renderableOptimisticMessagesCache = new WeakMap<Message[], Message[]>()
 const ANCHOR_MEDIA_VIEWER_WINDOW_RADIUS = 4
 const TIMESTAMP_REVEAL_MAX_OFFSET = 64
@@ -215,6 +216,8 @@ interface MessageRowProps {
   repliedMessage?: Message | null
   layout: MessageLayout
   isOwn: boolean
+  primaryStatusLabel: string | null
+  readReceiptParticipants: ChatParticipant[]
   timestampRevealGesture?: ReturnType<typeof Gesture.Pan>
   timestampRevealOffset: SharedValue<number>
   timestampRevealProgress: SharedValue<number>
@@ -233,6 +236,8 @@ const MessageRow = memo(
     repliedMessage,
     layout,
     isOwn,
+    primaryStatusLabel,
+    readReceiptParticipants,
     timestampRevealGesture,
     timestampRevealOffset,
     timestampRevealProgress,
@@ -280,6 +285,8 @@ const MessageRow = memo(
           message={message}
           repliedMessage={repliedMessage ?? null}
           timeLabel={layout.timeLabel}
+          primaryStatusLabel={primaryStatusLabel}
+          readReceiptParticipants={readReceiptParticipants}
           timestampRevealGesture={timestampRevealGesture}
           timestampRevealOffset={timestampRevealOffset}
           timestampRevealProgress={timestampRevealProgress}
@@ -306,6 +313,8 @@ const MessageRow = memo(
     prevProps.repliedMessage === nextProps.repliedMessage &&
     prevProps.layout === nextProps.layout &&
     prevProps.isOwn === nextProps.isOwn &&
+    prevProps.primaryStatusLabel === nextProps.primaryStatusLabel &&
+    prevProps.readReceiptParticipants === nextProps.readReceiptParticipants &&
     prevProps.timestampRevealGesture === nextProps.timestampRevealGesture &&
     prevProps.timestampRevealOffset === nextProps.timestampRevealOffset &&
     prevProps.timestampRevealProgress === nextProps.timestampRevealProgress &&
@@ -320,6 +329,29 @@ const MessageRow = memo(
 
 type TimelineMode = 'latest' | 'anchor'
 type PendingOwnSendBottomScrollMode = 'none' | 'animated' | 'already-scrolled'
+
+const getPrimaryStatusLabel = ({
+  hasPlacedReadReceipt,
+  message,
+}: {
+  hasPlacedReadReceipt: boolean
+  message: Message
+}) => {
+  const normalizedStatus = String(message.status ?? '').toUpperCase()
+  const isTempOptimistic =
+    normalizedStatus !== 'FAILED' &&
+    (Boolean(message.id?.startsWith('temp-')) || Boolean(message._id?.startsWith('temp-')))
+
+  if (normalizedStatus === 'FAILED') return 'Failed'
+  if (normalizedStatus === 'PENDING' || isTempOptimistic) return 'Sending...'
+  if (normalizedStatus === 'READ') {
+    return hasPlacedReadReceipt ? null : 'Delivered'
+  }
+  if (normalizedStatus === 'SENT') return 'Sent'
+  if (normalizedStatus === 'DELIVERED') return 'Delivered'
+
+  return null
+}
 
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -980,6 +1012,95 @@ export default function ChatScreen() {
     })
     return map
   }, [currentConversation?.participants])
+  const otherParticipant = useMemo(() => {
+    if (currentConversation?.isGroup) {
+      return null
+    }
+
+    return (
+      currentConversation?.participants?.find((participant) => participant.id !== user?.id) ?? null
+    )
+  }, [currentConversation?.isGroup, currentConversation?.participants, user?.id])
+  const {
+    latestOutgoingIdentityKey: _latestOutgoingIdentityKey,
+    primaryStatusByIdentityKey,
+    readReceiptsByIdentityKey,
+  } = useMemo(() => {
+    const primaryStatusMap = new Map<string, string>()
+    const readReceiptMap = new Map<string, ChatParticipant[]>()
+
+    if (!user?.id) {
+      return {
+        latestOutgoingIdentityKey: null,
+        primaryStatusByIdentityKey: primaryStatusMap,
+        readReceiptsByIdentityKey: readReceiptMap,
+      }
+    }
+
+    const latestOutgoingMessage =
+      orderedMessages.find((message) => message.senderId === user.id) ?? null
+    const nextLatestOutgoingIdentityKey = getMessageIdentityKey(latestOutgoingMessage)
+
+    let readReceiptIdentityKey: string | null = null
+    let isReceiptAnchoredToOtherParticipantActivity = false
+
+    if (!currentConversation?.isGroup && otherParticipant) {
+      const newestReadOutgoingMessage =
+        orderedMessages.find((message) => {
+          if (message.senderId !== user.id) {
+            return false
+          }
+
+          const messageIdentityKey = getMessageIdentityKey(message)
+          if (!messageIdentityKey || !Array.isArray(message.readBy)) {
+            return false
+          }
+
+          return message.readBy.some((entry) => entry.userId === otherParticipant.id)
+        }) ?? null
+      const newestOtherParticipantMessage =
+        orderedMessages.find((message) => message.senderId === otherParticipant.id) ?? null
+      const newestReadOutgoingIndex = newestReadOutgoingMessage
+        ? orderedMessages.indexOf(newestReadOutgoingMessage)
+        : -1
+      const newestOtherParticipantIndex = newestOtherParticipantMessage
+        ? orderedMessages.indexOf(newestOtherParticipantMessage)
+        : -1
+      const shouldAnchorToOtherParticipantActivity =
+        newestOtherParticipantIndex >= 0 &&
+        (newestReadOutgoingIndex === -1 || newestOtherParticipantIndex < newestReadOutgoingIndex)
+      const receiptAnchorMessage = shouldAnchorToOtherParticipantActivity
+        ? newestOtherParticipantMessage
+        : newestReadOutgoingMessage
+      isReceiptAnchoredToOtherParticipantActivity =
+        Boolean(receiptAnchorMessage) && receiptAnchorMessage?.senderId === otherParticipant.id
+
+      readReceiptIdentityKey = getMessageIdentityKey(receiptAnchorMessage)
+      if (readReceiptIdentityKey) {
+        readReceiptMap.set(readReceiptIdentityKey, [otherParticipant])
+      }
+    }
+
+    if (
+      latestOutgoingMessage &&
+      nextLatestOutgoingIdentityKey &&
+      !isReceiptAnchoredToOtherParticipantActivity
+    ) {
+      const primaryStatusLabel = getPrimaryStatusLabel({
+        hasPlacedReadReceipt: nextLatestOutgoingIdentityKey === readReceiptIdentityKey,
+        message: latestOutgoingMessage,
+      })
+      if (primaryStatusLabel) {
+        primaryStatusMap.set(nextLatestOutgoingIdentityKey, primaryStatusLabel)
+      }
+    }
+
+    return {
+      latestOutgoingIdentityKey: nextLatestOutgoingIdentityKey,
+      primaryStatusByIdentityKey: primaryStatusMap,
+      readReceiptsByIdentityKey: readReceiptMap,
+    }
+  }, [currentConversation?.isGroup, orderedMessages, otherParticipant, user?.id])
 
   const isOnline = otherUserId ? onlineUsers.has(otherUserId) : false
   const lastSeenAt = otherUserId ? (lastSeenByUserId[otherUserId] ?? null) : null
@@ -1420,6 +1541,14 @@ export default function ChatScreen() {
       </View>
     )
   }, [displayName, listSpacerStyle, shouldShowTypingIndicator])
+  const listExtraData = useMemo(
+    () => ({
+      layoutById,
+      primaryStatusByIdentityKey,
+      readReceiptsByIdentityKey,
+    }),
+    [layoutById, primaryStatusByIdentityKey, readReceiptsByIdentityKey],
+  )
 
   const renderItem = useCallback(
     ({ item }: ListRenderItemInfo<Message>) => {
@@ -1428,10 +1557,17 @@ export default function ChatScreen() {
       const layout = layoutByIdRef.current.get(item.id) ?? DEFAULT_MESSAGE_LAYOUT
       const isOwn = item.senderId === user?.id
       const sender = item.sender ?? participantsMap.get(item.senderId)
+      const messageIdentityKey = getMessageIdentityKey(item)
       const replyToId = item.replyToId ?? item.reply_to_id
       const repliedMessage = replyToId ? (messageById.get(replyToId) ?? null) : null
       const resolvedReplyTarget = repliedMessage ?? item.replyTo ?? null
       const normalizedMessage = backfillReplyPreviewSenderId(item, resolvedReplyTarget)
+      const primaryStatusLabel = messageIdentityKey
+        ? (primaryStatusByIdentityKey.get(messageIdentityKey) ?? null)
+        : null
+      const readReceiptParticipants = messageIdentityKey
+        ? (readReceiptsByIdentityKey.get(messageIdentityKey) ?? EMPTY_READ_RECEIPT_PARTICIPANTS)
+        : EMPTY_READ_RECEIPT_PARTICIPANTS
 
       return (
         <MessageRow
@@ -1439,6 +1575,8 @@ export default function ChatScreen() {
           repliedMessage={repliedMessage}
           layout={layout}
           isOwn={isOwn}
+          primaryStatusLabel={primaryStatusLabel}
+          readReceiptParticipants={readReceiptParticipants}
           timestampRevealGesture={timestampRevealGesture}
           timestampRevealOffset={timestampRevealOffset}
           timestampRevealProgress={timestampRevealProgress}
@@ -1461,6 +1599,8 @@ export default function ChatScreen() {
       handleOpenMedia,
       messageById,
       participantsMap,
+      primaryStatusByIdentityKey,
+      readReceiptsByIdentityKey,
       timestampRevealGesture,
       timestampRevealOffset,
       timestampRevealProgress,
@@ -1641,7 +1781,7 @@ export default function ChatScreen() {
                     ref={listRef}
                     inverted
                     data={orderedMessages}
-                    extraData={layoutById}
+                    extraData={listExtraData}
                     renderItem={renderItem}
                     keyExtractor={keyExtractor}
                     getItemType={getItemType}
