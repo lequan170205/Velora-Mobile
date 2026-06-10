@@ -187,10 +187,7 @@ export const buildMessageListState = ({
     const normalizedStatus = String(msg.status ?? '').toUpperCase()
     const isLocalOptimistic =
       normalizedStatus !== 'FAILED' &&
-      (Boolean(msg.id?.startsWith('temp-')) ||
-        Boolean(msg._id?.startsWith('temp-')) ||
-        normalizedStatus === 'PENDING' ||
-        normalizedStatus === 'SENDING')
+      (Boolean(msg.id?.startsWith('temp-')) || Boolean(msg._id?.startsWith('temp-')))
 
     if (isLocalOptimistic) {
       time += 10000000000000
@@ -200,7 +197,12 @@ export const buildMessageListState = ({
   }
 
   combinedMessages.sort((left, right) => {
-    return getVirtualTime(right) - getVirtualTime(left)
+    const virtualDelta = getVirtualTime(right) - getVirtualTime(left)
+    if (virtualDelta !== 0) {
+      return virtualDelta
+    }
+
+    return (right.id || right._id || '').localeCompare(left.id || left._id || '')
   })
 
   const dedupedMessages = mergeMessageCollectionByIdentity(
