@@ -584,13 +584,39 @@ export function useSendMessage(conversationId: string) {
 
       const tempId = context?.tempId
       const replyPreview = mergeReplyPreview(result.replyPreview, context?.replyPreview)
-      const confirmedMessage: Message = {
+      let confirmedMessage: Message = {
         ...result,
         ...(replyPreview ? { replyPreview } : {}),
       }
 
       if (tempId) {
-        useChatStore.getState().confirmMessage(tempId, confirmedMessage)
+        const store = useChatStore.getState()
+        const pendingMsgs = store.optimisticMessages[confirmedMessage.conversationId] || []
+        const optimisticMatch = pendingMsgs.find((m) => m.id === tempId)
+
+        if (
+          optimisticMatch &&
+          Array.isArray(optimisticMatch.readBy) &&
+          optimisticMatch.readBy.length > 0
+        ) {
+          const existingReadBy = Array.isArray(confirmedMessage.readBy)
+            ? [...confirmedMessage.readBy]
+            : []
+
+          optimisticMatch.readBy.forEach((optRead) => {
+            if (!existingReadBy.some((r) => r.userId === optRead.userId)) {
+              existingReadBy.push(optRead)
+            }
+          })
+
+          confirmedMessage = {
+            ...confirmedMessage,
+            readBy: existingReadBy,
+            status: existingReadBy.length > 0 ? 'READ' : confirmedMessage.status,
+          }
+        }
+
+        store.confirmMessage(tempId, confirmedMessage)
         upsertMessageIntoConversationCache(queryClient, confirmedMessage)
         upsertConversationSummaryInCache(queryClient, {
           id: confirmedMessage.conversationId,

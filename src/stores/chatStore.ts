@@ -36,7 +36,12 @@ interface ChatState {
   clearOnlineUsers: () => void
   enqueueOfflineMessage: (message: OfflineMessage) => void
   dequeueOfflineMessage: (id: string) => void
-  markMessagesAsSeen: (conversationId: string, userId: string) => void
+  markOptimisticMessagesAsReadBy: (
+    conversationId: string,
+    currentUserId: string,
+    readByUserId: string,
+    at: string,
+  ) => void
   setMessageAsSeen: (conversationId: string, messageId: string) => void
   isMessageSeen: (conversationId: string, messageId: string) => boolean
   setReplyToMessage: (message: Message | null) => void
@@ -262,17 +267,49 @@ export const useChatStore = create<ChatState>()(
           offlineQueue: state.offlineQueue.filter((msg) => msg.id !== id),
         })),
 
-      markMessagesAsSeen: (conversationId, userId) =>
+      markOptimisticMessagesAsReadBy: (conversationId, currentUserId, readByUserId, at) =>
         set((state) => {
           const msgs = state.optimisticMessages[conversationId] || []
+          const seenAtTimestamp = Date.parse(at)
+          let changed = false
+
+          const nextMessages = msgs.map((message) => {
+            if (message.senderId !== currentUserId) {
+              return message
+            }
+
+            const messageCreatedAtTimestamp = Date.parse(message.createdAt)
+            if (
+              Number.isFinite(seenAtTimestamp) &&
+              Number.isFinite(messageCreatedAtTimestamp) &&
+              messageCreatedAtTimestamp > seenAtTimestamp
+            ) {
+              return message
+            }
+
+            const nextReadBy = Array.isArray(message.readBy) ? [...message.readBy] : []
+            const alreadyMarked = nextReadBy.some((entry) => entry.userId === readByUserId)
+
+            if (alreadyMarked) {
+              return message
+            }
+
+            changed = true
+            return {
+              ...message,
+              status: 'READ' as const,
+              readBy: [...nextReadBy, { userId: readByUserId, at }],
+            }
+          })
+
+          if (!changed) {
+            return state
+          }
+
           return {
             optimisticMessages: {
               ...state.optimisticMessages,
-              [conversationId]: msgs.map((m) =>
-                m.senderId !== userId && m.status !== 'READ'
-                  ? { ...m, status: 'READ' as const }
-                  : m,
-              ),
+              [conversationId]: nextMessages,
             },
           }
         }),

@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { FlashList, type FlashListRef, type ListRenderItemInfo } from '@shopify/flash-list'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -338,19 +338,21 @@ const getPrimaryStatusLabel = ({
   message: Message
 }) => {
   const normalizedStatus = String(message.status ?? '').toUpperCase()
+
+  if (normalizedStatus === 'FAILED') return 'Failed'
+
+  if (hasPlacedReadReceipt) return null
+
   const isTempOptimistic =
     normalizedStatus !== 'FAILED' &&
     (Boolean(message.id?.startsWith('temp-')) || Boolean(message._id?.startsWith('temp-')))
 
-  if (normalizedStatus === 'FAILED') return 'Failed'
   if (normalizedStatus === 'PENDING' || isTempOptimistic) return 'Sending...'
-  if (normalizedStatus === 'READ') {
-    return hasPlacedReadReceipt ? null : 'Delivered'
-  }
+  if (normalizedStatus === 'READ') return null
   if (normalizedStatus === 'SENT') return 'Sent'
-  if (normalizedStatus === 'DELIVERED') return 'Delivered'
+  if (normalizedStatus === 'DELIVERED') return 'Sent'
 
-  return null
+  return 'Sent'
 }
 
 export default function ChatScreen() {
@@ -382,11 +384,24 @@ export default function ChatScreen() {
     ),
   )
   const queryClient = useQueryClient()
-  const cachedData = queryClient.getQueryData<unknown>(queryKeys.conversations.all)
-  const allConversations: Conversation[] = Array.isArray(cachedData)
-    ? (cachedData as Conversation[])
-    : (cachedData as { pages?: Conversation[][] })?.pages?.flat() || []
-  const currentConversation = allConversations.find((c: Conversation) => c?.id === conversationId)
+
+  const { data: conversationsCacheData } = useQuery({
+    queryKey: queryKeys.conversations.all,
+    queryFn: () => Promise.resolve(null),
+    enabled: false,
+  })
+
+  const allConversations = useMemo(() => {
+    if (!conversationsCacheData) return []
+    if (Array.isArray(conversationsCacheData)) {
+      return conversationsCacheData as Conversation[]
+    }
+    return (conversationsCacheData as { pages?: Conversation[][] })?.pages?.flat() || []
+  }, [conversationsCacheData])
+
+  const currentConversation = useMemo(() => {
+    return allConversations.find((c: Conversation) => c?.id === conversationId)
+  }, [allConversations, conversationId])
 
   const { socket, isConnected, requestPresence } = useSocket()
 
@@ -1042,9 +1057,9 @@ export default function ChatScreen() {
     const nextLatestOutgoingIdentityKey = getMessageIdentityKey(latestOutgoingMessage)
 
     let readReceiptIdentityKey: string | null = null
-    let isReceiptAnchoredToOtherParticipantActivity = false
-
     if (!currentConversation?.isGroup && otherParticipant) {
+      // Receipt avatar follows the newest other-participant activity unless
+      // the latest confirmed read frontier on our outgoing messages is newer.
       const newestReadOutgoingMessage =
         orderedMessages.find((message) => {
           if (message.senderId !== user.id) {
@@ -1072,8 +1087,6 @@ export default function ChatScreen() {
       const receiptAnchorMessage = shouldAnchorToOtherParticipantActivity
         ? newestOtherParticipantMessage
         : newestReadOutgoingMessage
-      isReceiptAnchoredToOtherParticipantActivity =
-        Boolean(receiptAnchorMessage) && receiptAnchorMessage?.senderId === otherParticipant.id
 
       readReceiptIdentityKey = getMessageIdentityKey(receiptAnchorMessage)
       if (readReceiptIdentityKey) {
@@ -1081,10 +1094,12 @@ export default function ChatScreen() {
       }
     }
 
+    // Only suppress the latest outgoing status when the receipt avatar is
+    // anchored to that exact message, not merely elsewhere in the thread.
     if (
       latestOutgoingMessage &&
       nextLatestOutgoingIdentityKey &&
-      !isReceiptAnchoredToOtherParticipantActivity
+      nextLatestOutgoingIdentityKey !== readReceiptIdentityKey
     ) {
       const primaryStatusLabel = getPrimaryStatusLabel({
         hasPlacedReadReceipt: nextLatestOutgoingIdentityKey === readReceiptIdentityKey,

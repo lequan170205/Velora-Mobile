@@ -975,16 +975,21 @@ export const applyReadReceiptUpdate = async ({
   readByUserId: string
 }) => {
   const messagesCollection = database.get<MessageModel>(TABLES.messages)
+  const seenAt = at ?? new Date().toISOString()
+  const seenAtTimestamp = toTimestamp(seenAt) || Date.now()
   const records = await messagesCollection
-    .query(Q.where('conversation_id', conversationId), Q.where('sender_id', currentUserId))
+    .query(
+      Q.where('conversation_id', conversationId),
+      Q.where('sender_id', currentUserId),
+      Q.where('created_at', Q.lte(seenAtTimestamp)),
+    )
     .fetch()
 
   if (records.length === 0) {
     return
   }
 
-  const seenAt = at ?? new Date().toISOString()
-  const nextUpdatedAt = toTimestamp(seenAt) || Date.now()
+  const nextUpdatedAt = seenAtTimestamp
 
   await database.write(async () => {
     const operations = records.map((record) =>

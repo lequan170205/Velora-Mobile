@@ -6,7 +6,11 @@ import type { InfiniteData } from '@tanstack/react-query'
 
 import { authApi } from '../api/auth.api'
 import { queryKeys } from '../constants/queryKeys'
-import { applyMediaProcessingUpdate, upsertRemoteMessage } from '../database/messageSync'
+import {
+  applyMediaProcessingUpdate,
+  applyReadReceiptUpdate,
+  upsertRemoteMessage,
+} from '../database/messageSync'
 import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../lib/chatMedia'
 import {
   patchConversationMessageCollectionsInCache,
@@ -731,9 +735,38 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     })
 
     newSocket.on('message_synced', (incomingMessage: Message) => {
-      const message = hydrateReplyContextFromLocalState(
+      const store = useChatStore.getState()
+      const pendingMsgs = store.optimisticMessages[incomingMessage.conversationId] || []
+
+      const optimisticMatch = pendingMsgs.find(
+        (m) =>
+          m.id === incomingMessage.clientMessageId ||
+          m.clientMessageId === incomingMessage.clientMessageId,
+      )
+
+      let message = hydrateReplyContextFromLocalState(
         mergeMessageWithOptimisticReplyPreview(incomingMessage),
       )
+
+      if (
+        optimisticMatch &&
+        Array.isArray(optimisticMatch.readBy) &&
+        optimisticMatch.readBy.length > 0
+      ) {
+        const existingReadBy = Array.isArray(message.readBy) ? [...message.readBy] : []
+
+        optimisticMatch.readBy.forEach((optRead) => {
+          if (!existingReadBy.some((r) => r.userId === optRead.userId)) {
+            existingReadBy.push(optRead)
+          }
+        })
+
+        message = {
+          ...message,
+          readBy: existingReadBy,
+          status: existingReadBy.length > 0 ? 'READ' : message.status,
+        }
+      }
       persistSocketMessage(message)
 
       upsertConversationSummary(
@@ -991,25 +1024,47 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       const currentUserId = userId
       if (!currentUserId) return
 
-      useChatStore.getState().markMessagesAsSeen(conversationId, readByUserId)
+      const seenAt = at || new Date().toISOString()
+      const seenAtTimestamp = Date.parse(seenAt)
+      const store = useChatStore.getState()
+      store.markOptimisticMessagesAsReadBy(conversationId, currentUserId, readByUserId, seenAt)
 
       patchConversationMessageCollectionsInCache(queryClient, conversationId, (msg) => {
-        if (msg.senderId !== currentUserId || msg.status === 'READ') {
+        if (msg.senderId !== currentUserId) {
           return msg
         }
 
-        const seenAt = at || new Date().toISOString()
-        const nextReadBy = Array.isArray(msg.readBy) ? msg.readBy : []
+        const messageCreatedAtTimestamp = Date.parse(msg.createdAt)
+        if (
+          Number.isFinite(seenAtTimestamp) &&
+          Number.isFinite(messageCreatedAtTimestamp) &&
+          messageCreatedAtTimestamp > seenAtTimestamp
+        ) {
+          return msg
+        }
+
+        const nextReadBy = Array.isArray(msg.readBy) ? [...msg.readBy] : []
         const alreadyMarked = nextReadBy.some((entry) => entry.userId === readByUserId)
+
+        if (alreadyMarked) {
+          return msg
+        }
+
         useChatStore.getState().setMessageAsSeen(conversationId, msg.id)
         return {
           ...msg,
           status: 'READ',
-          seenAt,
-          readBy: alreadyMarked
-            ? nextReadBy
-            : [...nextReadBy, { userId: readByUserId, at: seenAt }],
+          readBy: [...nextReadBy, { userId: readByUserId, at: seenAt }],
         }
+      })
+
+      void applyReadReceiptUpdate({
+        at: seenAt,
+        conversationId,
+        currentUserId,
+        readByUserId,
+      }).catch((error) => {
+        console.warn('[Socket] Failed to persist read receipt update locally', error)
       })
     })
 

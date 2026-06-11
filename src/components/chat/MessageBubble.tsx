@@ -469,7 +469,7 @@ const MessageBubbleComponent = function MessageBubble({
   })
 
   const primaryMetaRowStyle = useAnimatedStyle(() => ({
-    height: interpolate(primaryMetaProgress.value, [0, 1], [0, 18]),
+    height: interpolate(primaryMetaProgress.value, [0, 1], [0, 24]),
     marginTop: interpolate(primaryMetaProgress.value, [0, 1], [0, 4]),
     opacity: primaryMetaProgress.value,
     overflow: 'hidden',
@@ -662,273 +662,274 @@ const MessageBubbleComponent = function MessageBubble({
   return (
     <View className={cn('w-full px-4', isGroupedBottom ? 'mb-[2px]' : 'mb-3')}>
       <View className="flex-1 relative">
-        <Animated.View
-          style={contentRevealStyle}
-          className={cn('flex-row items-end', isOwn ? 'justify-end' : 'justify-start')}
-        >
-          {!isOwn && (
-            <View className="w-8 mr-2.5 items-center justify-end pb-0.5">
-              {showAvatar &&
-                (picture ? (
-                  <Image source={{ uri: picture }} className="w-8 h-8 rounded-full" />
-                ) : (
-                  <View className="w-8 h-8 rounded-full bg-surface-muted items-center justify-center">
-                    <Text className="text-text-primary text-[10px] font-medium">
-                      {fallbackInitial}
+        <Animated.View style={contentRevealStyle} className="flex-col w-full">
+          <View className={cn('flex-row items-end', isOwn ? 'justify-end' : 'justify-start')}>
+            {!isOwn && (
+              <View className="w-8 mr-2.5 items-center justify-end pb-0.5">
+                {showAvatar &&
+                  (picture ? (
+                    <Image source={{ uri: picture }} className="w-8 h-8 rounded-full" />
+                  ) : (
+                    <View className="w-8 h-8 rounded-full bg-surface-muted items-center justify-center">
+                      <Text className="text-text-primary text-[10px] font-medium">
+                        {fallbackInitial}
+                      </Text>
+                    </View>
+                  ))}
+              </View>
+            )}
+
+            <View className={cn('max-w-[78%]', isOwn ? 'items-end' : 'items-start')}>
+              {replyPreviewMeta ? (
+                <View className={cn('mb-1 mt-2', isOwn ? 'items-end' : 'items-start')}>
+                  <View className="mb-1 flex-row items-center px-1">
+                    <MaterialIcons name="reply" size={15} color="#A6A6A6" />
+                    <Text className="ml-1.5 text-[12px] font-medium text-text-muted">
+                      {senderDisplayName} replied to {replyPreviewMeta.senderLabel}
                     </Text>
                   </View>
-                ))}
-            </View>
-          )}
 
-          <View className={cn('max-w-[78%]', isOwn ? 'items-end' : 'items-start')}>
-            {replyPreviewMeta ? (
-              <View className={cn('mb-1 mt-2', isOwn ? 'items-end' : 'items-start')}>
-                <View className="mb-1 flex-row items-center px-1">
-                  <MaterialIcons name="reply" size={15} color="#A6A6A6" />
-                  <Text className="ml-1.5 text-[12px] font-medium text-text-muted">
-                    {senderDisplayName} replied to {replyPreviewMeta.senderLabel}
-                  </Text>
-                </View>
-
-                <Pressable
-                  onPress={onPressReplyPreview ?? null}
-                  disabled={!onPressReplyPreview}
-                  className={cn(
-                    'max-w-full overflow-hidden rounded-[22px] bg-surface-input',
-                    replyPreviewMeta.type === 'text' ? 'px-4 py-3' : 'p-2',
-                  )}
-                >
-                  {replyPreviewMeta.type === 'text' ? (
-                    <Text
-                      className="text-[15px] leading-[24px] text-text-secondary"
-                      numberOfLines={3}
-                    >
-                      {replyPreviewMeta.contentLabel}
-                    </Text>
-                  ) : (
-                    <View>
-                      {((resolvedReplyPreviewThumbnailUri &&
-                        (replyPreviewMeta.type === 'image' || replyPreviewMeta.type === 'video')) ||
-                        (replyPreviewMeta.type === 'video' && repliedVideoUri)) &&
-                      replyPreviewMediaSize ? (
-                        <View
-                          style={{
-                            width: replyPreviewMediaSize.displayWidth,
-                            height: replyPreviewMediaSize.displayHeight,
-                            borderRadius: 16,
-                            overflow: 'hidden',
-                            backgroundColor:
-                              replyPreviewMeta.type === 'video' ? '#111111' : '#EFEFEF',
-                            alignSelf: 'flex-start',
-                          }}
-                        >
-                          {replyPreviewMeta.type === 'video' && repliedVideoUri ? (
-                            <ReelVideo
-                              contentFit="contain"
-                              loop={false}
-                              muted
-                              nativeControls={false}
-                              shouldPlay={false}
-                              style={{
-                                width: replyPreviewMediaSize.displayWidth,
-                                height: replyPreviewMediaSize.displayHeight,
-                              }}
-                              uri={repliedVideoUri}
-                              {...(resolvedReplyPreviewThumbnailUri
-                                ? { posterUri: resolvedReplyPreviewThumbnailUri }
-                                : {})}
-                            />
-                          ) : resolvedReplyPreviewThumbnailUri ? (
-                            <Image
-                              source={{ uri: resolvedReplyPreviewThumbnailUri }}
-                              style={{
-                                width: replyPreviewMediaSize.displayWidth,
-                                height: replyPreviewMediaSize.displayHeight,
-                              }}
-                              resizeMode="contain"
-                            />
-                          ) : null}
-                          {replyPreviewMeta.type === 'video' ? (
-                            <View
-                              pointerEvents="none"
-                              style={{
-                                position: 'absolute',
-                                left: 0,
-                                right: 0,
-                                top: 0,
-                                bottom: 0,
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}
-                            >
-                              <View
+                  <Pressable
+                    onPress={onPressReplyPreview ?? null}
+                    disabled={!onPressReplyPreview}
+                    className={cn(
+                      'max-w-full overflow-hidden rounded-[22px] bg-surface-input',
+                      replyPreviewMeta.type === 'text' ? 'px-4 py-3' : 'p-2',
+                    )}
+                  >
+                    {replyPreviewMeta.type === 'text' ? (
+                      <Text
+                        className="text-[15px] leading-[24px] text-text-secondary"
+                        numberOfLines={3}
+                      >
+                        {replyPreviewMeta.contentLabel}
+                      </Text>
+                    ) : (
+                      <View>
+                        {((resolvedReplyPreviewThumbnailUri &&
+                          (replyPreviewMeta.type === 'image' ||
+                            replyPreviewMeta.type === 'video')) ||
+                          (replyPreviewMeta.type === 'video' && repliedVideoUri)) &&
+                        replyPreviewMediaSize ? (
+                          <View
+                            style={{
+                              width: replyPreviewMediaSize.displayWidth,
+                              height: replyPreviewMediaSize.displayHeight,
+                              borderRadius: 16,
+                              overflow: 'hidden',
+                              backgroundColor:
+                                replyPreviewMeta.type === 'video' ? '#111111' : '#EFEFEF',
+                              alignSelf: 'flex-start',
+                            }}
+                          >
+                            {replyPreviewMeta.type === 'video' && repliedVideoUri ? (
+                              <ReelVideo
+                                contentFit="contain"
+                                loop={false}
+                                muted
+                                nativeControls={false}
+                                shouldPlay={false}
                                 style={{
-                                  width: 44,
-                                  height: 44,
-                                  borderRadius: 22,
-                                  backgroundColor: 'rgba(12,12,13,0.58)',
-                                  borderWidth: 1,
-                                  borderColor: 'rgba(255,255,255,0.16)',
+                                  width: replyPreviewMediaSize.displayWidth,
+                                  height: replyPreviewMediaSize.displayHeight,
+                                }}
+                                uri={repliedVideoUri}
+                                {...(resolvedReplyPreviewThumbnailUri
+                                  ? { posterUri: resolvedReplyPreviewThumbnailUri }
+                                  : {})}
+                              />
+                            ) : resolvedReplyPreviewThumbnailUri ? (
+                              <Image
+                                source={{ uri: resolvedReplyPreviewThumbnailUri }}
+                                style={{
+                                  width: replyPreviewMediaSize.displayWidth,
+                                  height: replyPreviewMediaSize.displayHeight,
+                                }}
+                                resizeMode="contain"
+                              />
+                            ) : null}
+                            {replyPreviewMeta.type === 'video' ? (
+                              <View
+                                pointerEvents="none"
+                                style={{
+                                  position: 'absolute',
+                                  left: 0,
+                                  right: 0,
+                                  top: 0,
+                                  bottom: 0,
                                   alignItems: 'center',
                                   justifyContent: 'center',
                                 }}
                               >
-                                <MaterialIcons name="play-arrow" size={24} color="#FFFFFF" />
+                                <View
+                                  style={{
+                                    width: 44,
+                                    height: 44,
+                                    borderRadius: 22,
+                                    backgroundColor: 'rgba(12,12,13,0.58)',
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(255,255,255,0.16)',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                  }}
+                                >
+                                  <MaterialIcons name="play-arrow" size={24} color="#FFFFFF" />
+                                </View>
                               </View>
-                            </View>
-                          ) : null}
-                        </View>
-                      ) : (
-                        <View className="flex-row items-center px-2 py-1">
-                          <MaterialIcons
-                            name={replyPreviewMeta.iconName}
-                            size={16}
-                            color="#8A8A8A"
-                            style={{ marginRight: 6 }}
-                          />
+                            ) : null}
+                          </View>
+                        ) : (
+                          <View className="flex-row items-center px-2 py-1">
+                            <MaterialIcons
+                              name={replyPreviewMeta.iconName}
+                              size={16}
+                              color="#8A8A8A"
+                              style={{ marginRight: 6 }}
+                            />
+                            <Text
+                              className="flex-1 text-[14px] leading-[21px] text-text-secondary"
+                              numberOfLines={2}
+                            >
+                              {replyPreviewMeta.contentLabel}
+                            </Text>
+                          </View>
+                        )}
+
+                        {(resolvedReplyPreviewThumbnailUri ||
+                          (replyPreviewMeta.type === 'video' && repliedVideoUri)) &&
+                        (replyPreviewMeta.type === 'image' || replyPreviewMeta.type === 'video') ? (
                           <Text
-                            className="flex-1 text-[14px] leading-[21px] text-text-secondary"
-                            numberOfLines={2}
+                            className="px-1 pt-2 text-[13px] leading-[18px] text-text-secondary"
+                            numberOfLines={1}
                           >
                             {replyPreviewMeta.contentLabel}
                           </Text>
-                        </View>
-                      )}
+                        ) : null}
+                      </View>
+                    )}
+                  </Pressable>
+                </View>
+              ) : null}
 
-                      {(resolvedReplyPreviewThumbnailUri ||
-                        (replyPreviewMeta.type === 'video' && repliedVideoUri)) &&
-                      (replyPreviewMeta.type === 'image' || replyPreviewMeta.type === 'video') ? (
-                        <Text
-                          className="px-1 pt-2 text-[13px] leading-[18px] text-text-secondary"
-                          numberOfLines={1}
-                        >
-                          {replyPreviewMeta.contentLabel}
-                        </Text>
-                      ) : null}
+              <GestureDetector gesture={swipeGesture}>
+                <View className="flex-row items-center">
+                  <Animated.View style={[bubbleWrapStyle, { flexShrink: 0 }]}>
+                    <View ref={bubbleRef} collapsable={false} className="relative">
+                      <Animated.View
+                        pointerEvents="none"
+                        className={cn(
+                          'absolute top-1/2 -mt-[18px] h-9 w-9 items-center justify-center rounded-full border border-border-light bg-surface-card',
+                          isOwn ? '-left-11' : '-right-11',
+                        )}
+                        style={swipeIndicatorStyle}
+                      >
+                        <MaterialIcons name="reply" size={16} color="#FF6B2C" />
+                      </Animated.View>
+
+                      <Pressable
+                        onPress={isMedia ? undefined : toggleDetails}
+                        {...(!isRecalled
+                          ? {
+                              onLongPress: handleLongPress,
+                              delayLongPress: 180,
+                            }
+                          : null)}
+                        className={bubbleClassName}
+                      >
+                        {isRecalled ? (
+                          <Text
+                            className={cn(
+                              'font-sans text-base italic leading-[22px]',
+                              isOwn ? 'text-white/60' : 'text-text-muted',
+                            )}
+                          >
+                            Tin nhắn đã thu hồi
+                          </Text>
+                        ) : isMedia ? (
+                          <ChatMediaBubble
+                            delayLongPress={180}
+                            message={message}
+                            onLongPress={handleLongPress}
+                            {...(onOpenMedia ? { onOpenMedia } : {})}
+                          />
+                        ) : (
+                          <Text
+                            className={cn(
+                              'font-sans text-base leading-[22px]',
+                              isOwn ? 'text-white' : 'text-text-primary',
+                            )}
+                          >
+                            {message.content}
+                          </Text>
+                        )}
+                      </Pressable>
                     </View>
+                  </Animated.View>
+                </View>
+              </GestureDetector>
+
+              {hasReactions && (
+                <View
+                  className={cn(
+                    'flex-row flex-wrap gap-1 mt-1',
+                    isOwn ? 'justify-end' : 'justify-start',
                   )}
-                </Pressable>
-              </View>
-            ) : null}
-
-            <GestureDetector gesture={swipeGesture}>
-              <View className="flex-row items-center">
-                <Animated.View style={[bubbleWrapStyle, { flexShrink: 0 }]}>
-                  <View ref={bubbleRef} collapsable={false} className="relative">
-                    <Animated.View
-                      pointerEvents="none"
-                      className={cn(
-                        'absolute top-1/2 -mt-[18px] h-9 w-9 items-center justify-center rounded-full border border-border-light bg-surface-card',
-                        isOwn ? '-left-11' : '-right-11',
-                      )}
-                      style={swipeIndicatorStyle}
-                    >
-                      <MaterialIcons name="reply" size={16} color="#FF6B2C" />
-                    </Animated.View>
-
+                >
+                  {Object.entries(reactionSummary).map(([emoji, count]) => (
                     <Pressable
-                      onPress={isMedia ? undefined : toggleDetails}
-                      {...(!isRecalled
-                        ? {
-                            onLongPress: handleLongPress,
-                            delayLongPress: 180,
-                          }
-                        : null)}
-                      className={bubbleClassName}
-                    >
-                      {isRecalled ? (
-                        <Text
-                          className={cn(
-                            'font-sans text-base italic leading-[22px]',
-                            isOwn ? 'text-white/60' : 'text-text-muted',
-                          )}
-                        >
-                          Tin nhắn đã thu hồi
-                        </Text>
-                      ) : isMedia ? (
-                        <ChatMediaBubble
-                          delayLongPress={180}
-                          message={message}
-                          onLongPress={handleLongPress}
-                          {...(onOpenMedia ? { onOpenMedia } : {})}
-                        />
-                      ) : (
-                        <Text
-                          className={cn(
-                            'font-sans text-base leading-[22px]',
-                            isOwn ? 'text-white' : 'text-text-primary',
-                          )}
-                        >
-                          {message.content}
-                        </Text>
+                      key={emoji}
+                      onPress={() => onReactionPress?.(emoji)}
+                      className={cn(
+                        'flex-row items-center rounded-full px-2 py-1 bg-surface-input',
                       )}
+                    >
+                      <Text className="text-xs">{emoji}</Text>
+                      <Text className={cn('text-xs ml-0.5 text-text-muted')}>{count}</Text>
                     </Pressable>
+                  ))}
+                </View>
+              )}
+
+              <View
+                style={{
+                  height: isExpanded ? 20 : 0,
+                  marginTop: isExpanded ? 4 : 0,
+                  overflow: 'hidden',
+                }}
+              >
+                <Animated.View style={animatedStyle}>
+                  <View
+                    className={cn('flex-row items-center', isOwn ? 'justify-end' : 'justify-start')}
+                  >
+                    <Text className="px-1 text-[11px] text-text-muted">{timeLabel}</Text>
                   </View>
                 </Animated.View>
               </View>
-            </GestureDetector>
-
-            {hasReactions && (
-              <View
-                className={cn(
-                  'flex-row flex-wrap gap-1 mt-1',
-                  isOwn ? 'justify-end' : 'justify-start',
-                )}
-              >
-                {Object.entries(reactionSummary).map(([emoji, count]) => (
-                  <Pressable
-                    key={emoji}
-                    onPress={() => onReactionPress?.(emoji)}
-                    className={cn('flex-row items-center rounded-full px-2 py-1 bg-surface-input')}
-                  >
-                    <Text className="text-xs">{emoji}</Text>
-                    <Text className={cn('text-xs ml-0.5 text-text-muted')}>{count}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            )}
-
-            <Animated.View style={primaryMetaRowStyle}>
-              {primaryStatusLabel || primaryReceiptParticipant ? (
-                <View className="self-end flex-row items-center gap-1 px-1">
-                  {primaryStatusLabel ? (
-                    <Text className="text-[11px] text-text-muted">{primaryStatusLabel}</Text>
-                  ) : null}
-                  {primaryReceiptParticipant ? (
-                    primaryReceiptParticipant.picture ? (
-                      <Image
-                        source={{ uri: primaryReceiptParticipant.picture }}
-                        className="h-4 w-4 rounded-full"
-                      />
-                    ) : (
-                      <View className="h-4 w-4 items-center justify-center rounded-full bg-surface-muted">
-                        <Text className="text-[8px] font-medium text-text-primary">
-                          {primaryReceiptInitial}
-                        </Text>
-                      </View>
-                    )
-                  ) : null}
-                </View>
-              ) : null}
-            </Animated.View>
-
-            <View
-              style={{
-                height: isExpanded ? 20 : 0,
-                marginTop: isExpanded ? 4 : 0,
-                overflow: 'hidden',
-              }}
-            >
-              <Animated.View style={animatedStyle}>
-                <View
-                  className={cn('flex-row items-center', isOwn ? 'justify-end' : 'justify-start')}
-                >
-                  <Text className="px-1 text-[11px] text-text-muted">{timeLabel}</Text>
-                </View>
-              </Animated.View>
             </View>
           </View>
+
+          <Animated.View style={primaryMetaRowStyle} className="w-full">
+            {primaryStatusLabel || primaryReceiptParticipant ? (
+              <View className="flex-row justify-end items-center gap-1 px-1">
+                {primaryReceiptParticipant ? (
+                  primaryReceiptParticipant.picture ? (
+                    <Image
+                      source={{ uri: primaryReceiptParticipant.picture }}
+                      className="h-4 w-4 rounded-full"
+                    />
+                  ) : (
+                    <View className="h-4 w-4 items-center justify-center rounded-full bg-surface-muted">
+                      <Text className="text-[8px] font-medium text-text-primary">
+                        {primaryReceiptInitial}
+                      </Text>
+                    </View>
+                  )
+                ) : primaryStatusLabel ? (
+                  <Text className="text-[11px] text-text-muted">{primaryStatusLabel}</Text>
+                ) : null}
+              </View>
+            ) : null}
+          </Animated.View>
         </Animated.View>
 
         <Animated.View
