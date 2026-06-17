@@ -70,6 +70,7 @@ import {
   type MessageLayout,
 } from '../../src/lib/messageListState'
 import { formatLastSeenLabel } from '../../src/lib/presence'
+import { useCall } from '../../src/providers/CallProvider'
 import { useChatMediaViewer } from '../../src/providers/ChatMediaViewerProvider'
 import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
@@ -361,6 +362,7 @@ export default function ChatScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const { user } = useAuthStore()
+  const { startVoiceCall } = useCall()
   const localOptimistic = useChatStore(
     useCallback(
       (state) => getRenderableOptimisticMessages(state.optimisticMessages[conversationId]),
@@ -798,6 +800,26 @@ export default function ChatScreen() {
       avatarUrl = currentConversation.picture
     }
   }
+
+  const handleStartVoiceCall = useCallback(() => {
+    if (!otherUserId || currentConversation?.isGroup) {
+      return
+    }
+
+    void startVoiceCall({
+      conversationId,
+      peerUserId: otherUserId,
+      ...(displayName ? { peerName: displayName } : {}),
+      ...(avatarUrl ? { peerAvatarUrl: avatarUrl } : {}),
+    })
+  }, [
+    avatarUrl,
+    conversationId,
+    currentConversation?.isGroup,
+    displayName,
+    otherUserId,
+    startVoiceCall,
+  ])
 
   const handleSaveMedia = useCallback(async (item: ChatMediaGalleryItem) => {
     if (!item.canSave) {
@@ -1715,6 +1737,18 @@ export default function ChatScreen() {
                 <Text className="mt-0.5 text-xs2 text-text-muted">Team room</Text>
               )}
             </View>
+
+            {!currentConversation?.isGroup && otherUserId ? (
+              <TouchableOpacity
+                onPress={handleStartVoiceCall}
+                className="h-11 w-11 items-center justify-center rounded-full bg-surface-input"
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                accessibilityRole="button"
+                accessibilityLabel={`Call ${displayName}`}
+              >
+                <MaterialIcons name="call" size={22} color="#161616" />
+              </TouchableOpacity>
+            ) : null}
           </View>
 
           {!isConnected ? (

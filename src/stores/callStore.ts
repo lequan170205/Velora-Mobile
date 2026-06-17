@@ -1,52 +1,35 @@
 import { create } from 'zustand'
 
-interface CallState {
-  isActive: boolean
-  callId: string | null // Thêm dòng này
-  duration: number
-  callerName: string
-  avatarUrl: string | null
-  isVideo: boolean
-  timerInterval: ReturnType<typeof setInterval> | null
+import type { CallUiState } from '../types/call.types'
 
-  startCall: (id: string, name: string, isVideo: boolean, avatar?: string) => void
-  endCall: () => void
-  tick: () => void
+interface CallStore extends CallUiState {
+  patch: (patch: Partial<CallUiState>) => void
+  setDurationSec: (durationSec: number) => void
+  reset: () => void
 }
 
-export const useCallStore = create<CallState>((set, get) => ({
-  isActive: false,
+const initialState: CallUiState = {
+  phase: 'idle',
+  direction: null,
   callId: null,
-  duration: 0,
-  callerName: '',
-  avatarUrl: null,
-  isVideo: false,
-  timerInterval: null,
+  conversationId: null,
+  peerUserId: null,
+  peerName: null,
+  peerAvatarUrl: null,
+  callType: null,
+  muted: false,
+  hasMicPermission: null,
+  error: null,
+  durationSec: 0,
+  remoteAudioState: 'idle',
+}
 
-  startCall: (id, name, isVideo, avatar) => {
-    const currentInterval = get().timerInterval
-    if (currentInterval) clearInterval(currentInterval)
+export const useCallStore = create<CallStore>((set) => ({
+  ...initialState,
 
-    const interval = setInterval(() => {
-      get().tick()
-    }, 1000)
+  patch: (patch) => set((state) => ({ ...state, ...patch })),
 
-    set({
-      isActive: true,
-      callId: id, // Lưu lại ID
-      duration: 0,
-      callerName: name,
-      isVideo,
-      avatarUrl: avatar || null,
-      timerInterval: interval,
-    })
-  },
+  setDurationSec: (durationSec) => set(() => ({ durationSec })),
 
-  endCall: () => {
-    const currentInterval = get().timerInterval
-    if (currentInterval) clearInterval(currentInterval)
-    set({ isActive: false, callId: null, duration: 0, timerInterval: null })
-  },
-
-  tick: () => set((state) => ({ duration: state.duration + 1 })),
+  reset: () => set(() => initialState),
 }))

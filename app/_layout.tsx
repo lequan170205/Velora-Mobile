@@ -4,19 +4,21 @@ import { MaterialIcons } from '@expo/vector-icons'
 import { Inter_400Regular, Inter_500Medium, useFonts } from '@expo-google-fonts/inter'
 import { SpaceGrotesk_600SemiBold, SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk'
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet'
-import { Stack, useRouter } from 'expo-router'
+import { Stack, usePathname, useRouter } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
-import { useEffect } from 'react'
-import { Platform, Text, TouchableOpacity, View } from 'react-native'
+import { useEffect, useRef } from 'react'
+import { Alert, Platform, Text, TouchableOpacity, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { PaperProvider } from 'react-native-paper'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { IncomingCallModal } from '../src/components/call/IncomingCallModal'
 import { paperTheme } from '../src/constants/paperTheme'
 import { colors } from '../src/constants/theme'
 import { AuthProvider } from '../src/providers/AuthProvider'
+import { CallProvider, useCall } from '../src/providers/CallProvider'
 import { ChatMediaUploadProvider } from '../src/providers/ChatMediaUploadProvider'
 import { ChatMediaViewerProvider } from '../src/providers/ChatMediaViewerProvider'
 import { QueryProvider } from '../src/providers/QueryProvider'
@@ -27,39 +29,84 @@ import { useCallStore } from '../src/stores/callStore'
 SplashScreen.preventAutoHideAsync()
 
 function ActiveCallBanner() {
-  const { isActive, duration, callId } = useCallStore()
+  const { phase, durationSec, callId } = useCallStore()
+  const pathname = usePathname()
   const router = useRouter()
   const insets = useSafeAreaInsets()
 
-  if (!isActive) return null
+  if (phase !== 'active' || !callId || pathname.startsWith('/call/')) {
+    return null
+  }
 
   const formatDuration = (secs: number) => {
-    const m = Math.floor(secs / 60)
-    const s = secs % 60
-    return `${m}:${s < 10 ? '0' : ''}${s}`
+    const minutes = Math.floor(secs / 60)
+    const seconds = secs % 60
+    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`
   }
 
   return (
     <TouchableOpacity
-      // NativeWind limitation: kept as inline — runtime computed from safe area insets
       style={{
         bottom:
           Platform.OS === 'ios' ? insets.bottom + 64 : insets.bottom > 0 ? insets.bottom + 84 : 90,
       }}
-      className="absolute left-5 right-5 flex-row items-center justify-between px-4 py-3 bg-surface-card border border-call-green rounded-xl z-[9999]"
+      className="absolute left-5 right-5 flex-row items-center justify-between rounded-xl border border-call-green bg-surface-card px-4 py-3 z-[9999]"
       activeOpacity={0.9}
       onPress={() => {
-        if (callId) router.push(`/call/${callId}` as never)
+        router.push(`/call/${callId}` as never)
       }}
     >
       <View className="flex-row items-center gap-3">
-        <View className="w-7 h-7 rounded-full bg-call-green items-center justify-center">
+        <View className="h-7 w-7 items-center justify-center rounded-full bg-call-green">
           <MaterialIcons name="call" size={16} color="#ffffff" />
         </View>
-        <Text className="text-text-primary font-medium text-md">Cuộc gọi đang diễn ra...</Text>
+        <Text className="text-md font-medium text-text-primary">Call in progress...</Text>
       </View>
-      <Text className="text-call-green font-semibold text-md">{formatDuration(duration)}</Text>
+      <Text className="text-md font-semibold text-call-green">{formatDuration(durationSec)}</Text>
     </TouchableOpacity>
+  )
+}
+
+function CallUiOverlays() {
+  const { phase, peerName, callType, error } = useCallStore()
+  const { acceptIncomingCall, rejectIncomingCall, dismissCallError } = useCall()
+  const lastPresentedErrorRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!error || lastPresentedErrorRef.current === error) {
+      return
+    }
+
+    lastPresentedErrorRef.current = error
+    Alert.alert('Call', error, [
+      {
+        text: 'OK',
+        onPress: dismissCallError,
+      },
+    ])
+  }, [dismissCallError, error])
+
+  useEffect(() => {
+    if (!error) {
+      lastPresentedErrorRef.current = null
+    }
+  }, [error])
+
+  return (
+    <>
+      <IncomingCallModal
+        visible={phase === 'incoming_ringing'}
+        callerName={peerName || 'Unknown'}
+        type={callType ?? 'VOICE'}
+        onAccept={() => {
+          void acceptIncomingCall()
+        }}
+        onReject={() => {
+          void rejectIncomingCall()
+        }}
+      />
+      <ActiveCallBanner />
+    </>
   )
 }
 
@@ -77,7 +124,7 @@ export default function RootLayout() {
     }
   }, [loaded, error])
 
-  const hydrateAuth = useAuthStore((s) => s.hydrateAuth)
+  const hydrateAuth = useAuthStore((state) => state.hydrateAuth)
 
   useEffect(() => {
     hydrateAuth()
@@ -97,45 +144,47 @@ export default function RootLayout() {
               <QueryProvider>
                 <AuthProvider>
                   <SocketProvider>
-                    <ChatMediaUploadProvider>
-                      <ChatMediaViewerProvider>
-                        <Stack
-                          screenOptions={{
-                            headerShown: false,
-                            contentStyle: { backgroundColor: colors.bg.secondary },
-                            freezeOnBlur: true,
-                          }}
-                        >
-                          <Stack.Screen name="(tabs)" />
-                          <Stack.Screen name="(auth)" />
-                          <Stack.Screen
-                            name="reels/[id]/index"
-                            options={{
-                              animation: 'slide_from_right',
-                              animationDuration: 220,
-                              freezeOnBlur: false,
+                    <CallProvider>
+                      <ChatMediaUploadProvider>
+                        <ChatMediaViewerProvider>
+                          <Stack
+                            screenOptions={{
+                              headerShown: false,
+                              contentStyle: { backgroundColor: colors.bg.secondary },
+                              freezeOnBlur: true,
                             }}
-                          />
-                          <Stack.Screen
-                            name="conversation/[id]"
-                            options={{
-                              animation: 'slide_from_right',
-                              animationDuration: 250,
-                            }}
-                          />
-                          <Stack.Screen
-                            name="reels/create"
-                            options={{ presentation: 'fullScreenModal' }}
-                          />
-                          <Stack.Screen
-                            name="call/[id]"
-                            options={{ presentation: 'fullScreenModal' }}
-                          />
-                        </Stack>
+                          >
+                            <Stack.Screen name="(tabs)" />
+                            <Stack.Screen name="(auth)" />
+                            <Stack.Screen
+                              name="reels/[id]/index"
+                              options={{
+                                animation: 'slide_from_right',
+                                animationDuration: 220,
+                                freezeOnBlur: false,
+                              }}
+                            />
+                            <Stack.Screen
+                              name="conversation/[id]"
+                              options={{
+                                animation: 'slide_from_right',
+                                animationDuration: 250,
+                              }}
+                            />
+                            <Stack.Screen
+                              name="reels/create"
+                              options={{ presentation: 'fullScreenModal' }}
+                            />
+                            <Stack.Screen
+                              name="call/[id]"
+                              options={{ presentation: 'fullScreenModal' }}
+                            />
+                          </Stack>
 
-                        <ActiveCallBanner />
-                      </ChatMediaViewerProvider>
-                    </ChatMediaUploadProvider>
+                          <CallUiOverlays />
+                        </ChatMediaViewerProvider>
+                      </ChatMediaUploadProvider>
+                    </CallProvider>
                   </SocketProvider>
                 </AuthProvider>
               </QueryProvider>

@@ -1068,8 +1068,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       })
     })
 
-    newSocket.on('call:incoming', (_payload) => {})
-
     setSocket(newSocket)
 
     return () => {
