@@ -7,7 +7,7 @@ import { BottomSheetModalProvider } from '@gorhom/bottom-sheet'
 import { Stack, usePathname, useRouter } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Alert, Platform, Text, TouchableOpacity, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
@@ -29,12 +29,32 @@ import { useCallStore } from '../src/stores/callStore'
 SplashScreen.preventAutoHideAsync()
 
 function ActiveCallBanner() {
-  const { phase, durationSec, callId } = useCallStore()
+  const { phase, durationSec, callId, reconnectDeadlineMs } = useCallStore()
   const pathname = usePathname()
   const router = useRouter()
   const insets = useSafeAreaInsets()
+  const [nowMs, setNowMs] = useState(Date.now())
 
-  if (phase !== 'active' || !callId || pathname.startsWith('/call/')) {
+  useEffect(() => {
+    if (phase !== 'reconnecting' || !reconnectDeadlineMs) {
+      return
+    }
+
+    setNowMs(Date.now())
+    const intervalId = setInterval(() => {
+      setNowMs(Date.now())
+    }, 1000)
+
+    return () => {
+      clearInterval(intervalId)
+    }
+  }, [phase, reconnectDeadlineMs])
+
+  if (
+    (phase !== 'active' && phase !== 'reconnecting') ||
+    !callId ||
+    pathname.startsWith('/call/')
+  ) {
     return null
   }
 
@@ -43,6 +63,11 @@ function ActiveCallBanner() {
     const seconds = secs % 60
     return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`
   }
+
+  const reconnectSecondsLeft =
+    reconnectDeadlineMs && phase === 'reconnecting'
+      ? Math.max(0, Math.ceil((reconnectDeadlineMs - nowMs) / 1000))
+      : null
 
   return (
     <TouchableOpacity
@@ -60,9 +85,15 @@ function ActiveCallBanner() {
         <View className="h-7 w-7 items-center justify-center rounded-full bg-call-green">
           <MaterialIcons name="call" size={16} color="#ffffff" />
         </View>
-        <Text className="text-md font-medium text-text-primary">Call in progress...</Text>
+        <Text className="text-md font-medium text-text-primary">
+          {phase === 'reconnecting' ? 'Reconnecting...' : 'Call in progress...'}
+        </Text>
       </View>
-      <Text className="text-md font-semibold text-call-green">{formatDuration(durationSec)}</Text>
+      <Text className="text-md font-semibold text-call-green">
+        {phase === 'reconnecting' && reconnectSecondsLeft !== null
+          ? `${reconnectSecondsLeft}s`
+          : formatDuration(durationSec)}
+      </Text>
     </TouchableOpacity>
   )
 }

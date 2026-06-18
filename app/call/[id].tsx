@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useKeepAwake } from 'expo-keep-awake'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Image, Text, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
@@ -18,15 +18,40 @@ export default function ActiveCallScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
   const { endCall, toggleMute } = useCall()
-  const { callId, durationSec, muted, peerAvatarUrl, peerName, phase, remoteAudioState } =
-    useCallStore()
+  const {
+    callId,
+    durationSec,
+    muted,
+    peerAvatarUrl,
+    peerName,
+    phase,
+    remoteAudioState,
+    reconnectDeadlineMs,
+  } = useCallStore()
+  const [nowMs, setNowMs] = useState(Date.now())
 
   useKeepAwake()
+
+  useEffect(() => {
+    if (phase !== 'reconnecting' || !reconnectDeadlineMs) {
+      return
+    }
+
+    setNowMs(Date.now())
+    const intervalId = setInterval(() => {
+      setNowMs(Date.now())
+    }, 1000)
+
+    return () => {
+      clearInterval(intervalId)
+    }
+  }, [phase, reconnectDeadlineMs])
 
   const isValidPhase = useMemo(
     () =>
       phase === 'outgoing_ringing' ||
       phase === 'connecting' ||
+      phase === 'reconnecting' ||
       phase === 'active' ||
       phase === 'ending',
     [phase],
@@ -52,6 +77,10 @@ export default function ActiveCallScreen() {
       return 'Connecting...'
     }
 
+    if (phase === 'reconnecting') {
+      return 'Reconnecting...'
+    }
+
     if (phase === 'ending') {
       return 'Ending...'
     }
@@ -66,6 +95,11 @@ export default function ActiveCallScreen() {
 
     return ''
   }, [durationSec, phase, remoteAudioState])
+
+  const reconnectSecondsLeft =
+    reconnectDeadlineMs && phase === 'reconnecting'
+      ? Math.max(0, Math.ceil((reconnectDeadlineMs - nowMs) / 1000))
+      : null
 
   return (
     <View className="flex-1 bg-bg-primary">
@@ -110,14 +144,22 @@ export default function ActiveCallScreen() {
             {peerName || 'Unknown'}
           </Text>
           <Text className="text-center text-lg font-medium text-text-secondary">{statusLabel}</Text>
+          {phase === 'reconnecting' ? (
+            <Text className="mt-3 text-center text-sm text-text-secondary">
+              {reconnectSecondsLeft !== null
+                ? `Trying to restore your call. ${reconnectSecondsLeft}s left.`
+                : 'Trying to restore your call...'}
+            </Text>
+          ) : null}
         </View>
 
         <View className="w-full pb-12 pt-8">
           <View className="flex-row justify-center gap-10 px-12">
             <TouchableOpacity
-              className={`h-16 w-16 items-center justify-center rounded-full ${muted ? 'bg-brand' : 'bg-surface-card'}`}
+              className={`h-16 w-16 items-center justify-center rounded-full ${muted ? 'bg-brand' : 'bg-surface-card'} ${phase === 'reconnecting' ? 'opacity-50' : ''}`}
               onPress={toggleMute}
-              activeOpacity={0.7}
+              activeOpacity={phase === 'reconnecting' ? 1 : 0.7}
+              disabled={phase === 'reconnecting'}
               style={
                 muted
                   ? {

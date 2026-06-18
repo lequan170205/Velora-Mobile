@@ -11,9 +11,10 @@ interface WaitForEventOptions<TPayload> {
   timeoutMs: number
   registry: CallWaitRegistry
   filter?: (payload: TPayload) => boolean
+  rejectOnException?: boolean
 }
 
-const DEFAULT_SOCKET_PATH = '/socket.io'
+const DEFAULT_SOCKET_PATH = '/call/socket.io'
 
 export const createCallSocket = () => {
   const url = process.env.EXPO_PUBLIC_CALL_WS_URL?.trim()
@@ -65,6 +66,13 @@ export const waitForEvent = <TEvent extends keyof CallServerEvents>(
       resolve(payload)
     }
 
+    const exceptionListener = (payload: Parameters<CallServerEvents['exception']>[0]) => {
+      cleanup()
+      reject(
+        new Error(payload.message || `Call socket exception while waiting for ${String(event)}`),
+      )
+    }
+
     const timeoutId = setTimeout(() => {
       cleanup()
       reject(new Error(`Timed out waiting for ${String(event)}`))
@@ -73,11 +81,17 @@ export const waitForEvent = <TEvent extends keyof CallServerEvents>(
     const cleanup = () => {
       clearTimeout(timeoutId)
       socket.off(event, listener as never)
+      if (options.rejectOnException) {
+        socket.off('exception', exceptionListener as never)
+      }
       options.registry.delete(cleanup)
     }
 
     options.registry.add(cleanup)
     socket.on(event, listener as never)
+    if (options.rejectOnException) {
+      socket.on('exception', exceptionListener as never)
+    }
   })
 }
 
@@ -98,7 +112,10 @@ export const emitAndWaitForEvent = <
   emitPayload: Parameters<CallClientEvents[TEmit]>[0],
   options: WaitForEventOptions<Parameters<CallServerEvents[TEvent]>[0]> & { event: TEvent },
 ) => {
-  const waiter = waitForEvent(socket, options.event, options)
+  const waiter = waitForEvent(socket, options.event, {
+    ...options,
+    rejectOnException: options.rejectOnException ?? true,
+  })
   ;(socket.emit as (event: TEmit, payload: Parameters<CallClientEvents[TEmit]>[0]) => void)(
     emitEvent,
     emitPayload,

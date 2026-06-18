@@ -5,6 +5,7 @@ export type CallPhase =
   | 'outgoing_ringing'
   | 'incoming_ringing'
   | 'connecting'
+  | 'reconnecting'
   | 'active'
   | 'ending'
 
@@ -39,6 +40,10 @@ export interface JoinCallPayload {
 export interface RejectCallPayload {
   callId: string
   reason?: string
+}
+
+export interface RejoinCallPayload {
+  callId: string
 }
 
 export interface LeaveCallPayload {
@@ -85,6 +90,13 @@ export interface IncomingCallPayload {
 }
 
 export interface CallJoinedPayload {
+  callId: string
+  role: 'host' | 'guest'
+  session: CallSessionPayload
+  rtpCapabilities: Record<string, unknown>
+}
+
+export interface CallRejoinedPayload {
   callId: string
   role: 'host' | 'guest'
   session: CallSessionPayload
@@ -147,14 +159,31 @@ export interface PeerLeftPayload {
   reason: string
 }
 
+export interface PeerReconnectingPayload {
+  callId: string
+  userId: string
+  reconnectDeadlineAt: string
+}
+
+export interface PeerReconnectedPayload {
+  callId: string
+  userId: string
+}
+
 export interface CallEndedPayload {
   callId: string
   reason: string
 }
 
+export interface SocketExceptionPayload {
+  status: string
+  message: string
+}
+
 export interface CallServerEvents {
   incoming_call: (payload: IncomingCallPayload) => void
   call_joined: (payload: CallJoinedPayload) => void
+  call_rejoined: (payload: CallRejoinedPayload) => void
   new_peer: (payload: NewPeerPayload) => void
   transport_created: (payload: TransportCreatedPayload) => void
   transport_connected: (payload: TransportConnectedPayload) => void
@@ -163,13 +192,17 @@ export interface CallServerEvents {
   consumer_resumed: (payload: ConsumerResumedPayload) => void
   call_answered: (payload: CallAnsweredPayload) => void
   call_rejected: (payload: CallRejectedPayload) => void
+  peer_reconnecting: (payload: PeerReconnectingPayload) => void
+  peer_reconnected: (payload: PeerReconnectedPayload) => void
   peer_left: (payload: PeerLeftPayload) => void
   call_ended: (payload: CallEndedPayload) => void
+  exception: (payload: SocketExceptionPayload) => void
 }
 
 export interface CallClientEvents {
   initiate_call: (payload: InitiateCallPayload) => void
   join_call: (payload: JoinCallPayload) => void
+  rejoin_call: (payload: RejoinCallPayload) => void
   answer_call: (payload: JoinCallPayload) => void
   reject_call: (payload: RejectCallPayload) => void
   leave_call: (payload: LeaveCallPayload) => void
@@ -196,6 +229,7 @@ export interface CallUiState {
   error: string | null
   durationSec: number
   remoteAudioState: RemoteAudioState
+  reconnectDeadlineMs: number | null
 }
 
 export interface StartVoiceCallInput {

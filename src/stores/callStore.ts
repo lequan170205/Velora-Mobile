@@ -22,6 +22,7 @@ const initialState: CallUiState = {
   error: null,
   durationSec: 0,
   remoteAudioState: 'idle',
+  reconnectDeadlineMs: null,
 }
 
 export const useCallStore = create<CallStore>((set) => ({

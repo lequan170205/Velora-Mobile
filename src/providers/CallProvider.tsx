@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Camera } from 'expo-camera'
 import { useRouter } from 'expo-router'
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react'
+import { AppState, Platform } from 'react-native'
 import { MediaStream, mediaDevices } from 'react-native-webrtc'
 
 import { queryKeys } from '../constants/queryKeys'
@@ -25,10 +26,13 @@ import type {
   CallAnsweredPayload,
   CallEndedPayload,
   CallJoinedPayload,
+  CallRejoinedPayload,
   CallRejectedPayload,
   CallSocket,
   IncomingCallPayload,
   NewProducerPayload,
+  PeerReconnectedPayload,
+  PeerReconnectingPayload,
   PeerLeftPayload,
   StartVoiceCallInput,
   TransportCreatedPayload,
@@ -37,6 +41,7 @@ import type {
 import type { Conversation } from '../types/conversation.types'
 import type { Device as MediasoupDevice } from 'mediasoup-client'
 import type * as MediasoupTypes from 'mediasoup-client/types'
+import type { AppStateStatus } from 'react-native'
 import type { MediaStreamTrack } from 'react-native-webrtc'
 
 const CALL_JOINED_TIMEOUT_MS = 10_000
@@ -48,6 +53,11 @@ const CALL_ANSWERED_TIMEOUT_MS = 30_000
 const REMOTE_PRODUCER_TIMEOUT_MS = 30_000
 const REMOTE_AUDIO_WAIT_FALLBACK_MS = 10_000
 const PEER_LEFT_GRACE_MS = 750
+const DEFAULT_RECONNECT_GRACE_MS = 15_000
+const RECONNECT_RECOVERY_TIMEOUT_MS = (() => {
+  const configured = Number(process.env.EXPO_PUBLIC_CALL_RECONNECT_GRACE_MS)
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_RECONNECT_GRACE_MS
+})()
 
 const CallContext = createContext<UseCallValue>({
   startVoiceCall: async () => {},
@@ -107,6 +117,9 @@ const getCallEndedMessage = (payload: CallEndedPayload) => {
   return null
 }
 
+const isWaitTimeoutError = (error: unknown) =>
+  error instanceof Error && error.message.startsWith('Timed out')
+
 export const useCall = () => useContext(CallContext)
 
 export function CallProvider({ children }: { children: React.ReactNode }) {
@@ -114,6 +127,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const { isAuthenticated, isLoading, user } = useAuthStore()
   const currentUserId = user?.id ?? null
+  const callPhase = useCallStore((state) => state.phase)
+  const callId = useCallStore((state) => state.callId)
 
   const socketRef = useRef<CallSocket | null>(null)
   const waitRegistryRef = useRef<CallWaitRegistry>(new Set())
@@ -130,6 +145,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const queuedRemoteProducerMapRef = useRef<Map<string, NewProducerPayload>>(new Map())
   const handledRemoteProducerIdsRef = useRef<Set<string>>(new Set())
   const consumingProducerIdsRef = useRef<Set<string>>(new Set())
+  const retryingProducerIdsRef = useRef<Set<string>>(new Set())
   const activeCallIdRef = useRef<string | null>(null)
   const teardownInProgressRef = useRef(false)
   const callAnsweredRef = useRef(false)
@@ -138,33 +154,42 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const activeAtMsRef = useRef<number | null>(null)
   const remoteAudioFallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const peerLeftTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reconnectRecoveryInFlightRef = useRef(false)
+  const reconnectModeRef = useRef<'local' | 'peer' | null>(null)
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState)
 
-  const stopTimer = useCallback(() => {
+  const stopTimer = useCallback((options?: { resetDuration?: boolean }) => {
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current)
       timerIntervalRef.current = null
     }
 
     activeAtMsRef.current = null
-    useCallStore.getState().setDurationSec(0)
+    if (options?.resetDuration !== false) {
+      useCallStore.getState().setDurationSec(0)
+    }
   }, [])
 
-  const startTimer = useCallback(() => {
-    stopTimer()
-    activeAtMsRef.current = Date.now()
-    useCallStore.getState().setDurationSec(0)
+  const startTimer = useCallback(
+    (initialDurationSec = 0) => {
+      stopTimer()
+      activeAtMsRef.current = Date.now() - initialDurationSec * 1000
+      useCallStore.getState().setDurationSec(initialDurationSec)
 
-    timerIntervalRef.current = setInterval(() => {
-      const startedAtMs = activeAtMsRef.current
-      if (!startedAtMs) {
-        return
-      }
+      timerIntervalRef.current = setInterval(() => {
+        const startedAtMs = activeAtMsRef.current
+        if (!startedAtMs) {
+          return
+        }
 
-      useCallStore
-        .getState()
-        .setDurationSec(Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)))
-    }, 1000)
-  }, [stopTimer])
+        useCallStore
+          .getState()
+          .setDurationSec(Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)))
+      }, 1000)
+    },
+    [stopTimer],
+  )
 
   const clearRemoteAudioFallback = useCallback(() => {
     if (remoteAudioFallbackTimeoutRef.current) {
@@ -180,42 +205,59 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  const clearReconnectTimeout = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current)
+      reconnectTimeoutRef.current = null
+    }
+  }, [])
+
+  const armRemoteAudioFallback = useCallback(() => {
+    clearRemoteAudioFallback()
+    remoteAudioFallbackTimeoutRef.current = setTimeout(() => {
+      const state = useCallStore.getState()
+      if (state.phase === 'active' && state.remoteAudioState !== 'connected') {
+        useCallStore.getState().patch({ remoteAudioState: 'waiting' })
+      }
+    }, REMOTE_AUDIO_WAIT_FALLBACK_MS)
+  }, [clearRemoteAudioFallback])
+
   const presentError = useCallback((message: string) => {
     useCallStore.getState().patch({ error: message })
   }, [])
 
-  const resetRuntimeRefs = useCallback(() => {
-    clearRemoteAudioFallback()
-    clearPeerLeftFallback()
-    clearWaitRegistry(waitRegistryRef.current)
-    connectedTransportIdsRef.current.clear()
-    queuedRemoteProducerMapRef.current.clear()
-    handledRemoteProducerIdsRef.current.clear()
-    consumingProducerIdsRef.current.clear()
-    consumerMapRef.current.clear()
-    deviceRef.current = null
-    sendTransportRef.current = null
-    recvTransportRef.current = null
-    localStreamRef.current = null
-    remoteStreamRef.current = null
-    audioProducerRef.current = null
-    activeCallIdRef.current = null
-    callAnsweredRef.current = false
-    routerRtpCapabilitiesRef.current = null
-  }, [clearPeerLeftFallback, clearRemoteAudioFallback])
-
-  const teardownOnce = useCallback(
-    async (reason: string, options?: { errorMessage?: string | null }) => {
-      if (teardownInProgressRef.current) {
-        return
-      }
-
-      teardownInProgressRef.current = true
-      stopTimer()
+  const resetRuntimeRefs = useCallback(
+    (options?: { preserveActiveCall?: boolean }) => {
       clearRemoteAudioFallback()
       clearPeerLeftFallback()
+      clearReconnectTimeout()
       clearWaitRegistry(waitRegistryRef.current)
+      connectedTransportIdsRef.current.clear()
+      queuedRemoteProducerMapRef.current.clear()
+      handledRemoteProducerIdsRef.current.clear()
+      consumingProducerIdsRef.current.clear()
+      retryingProducerIdsRef.current.clear()
+      consumerMapRef.current.clear()
+      deviceRef.current = null
+      sendTransportRef.current = null
+      recvTransportRef.current = null
+      localStreamRef.current = null
+      remoteStreamRef.current = null
+      audioProducerRef.current = null
+      routerRtpCapabilitiesRef.current = null
+      reconnectRecoveryInFlightRef.current = false
+      reconnectModeRef.current = null
 
+      if (!options?.preserveActiveCall) {
+        activeCallIdRef.current = null
+        callAnsweredRef.current = false
+      }
+    },
+    [clearPeerLeftFallback, clearReconnectTimeout, clearRemoteAudioFallback],
+  )
+
+  const disposeMediaRuntime = useCallback(
+    (options?: { preserveActiveCall?: boolean }) => {
       const currentConsumers = [...consumerMapRef.current.values()]
       const currentProducer = audioProducerRef.current
       const currentSendTransport = sendTransportRef.current
@@ -271,7 +313,48 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
       })
 
-      resetRuntimeRefs()
+      resetRuntimeRefs(options)
+    },
+    [resetRuntimeRefs],
+  )
+
+  const resetRemoteConsumerRuntime = useCallback(() => {
+    const currentConsumers = [...consumerMapRef.current.values()]
+    const remoteStream = remoteStreamRef.current
+
+    currentConsumers.forEach((consumer) => {
+      try {
+        consumer.close()
+      } catch {
+        console.warn('[Call] Failed to close remote consumer during peer reconnect cleanup')
+      }
+    })
+
+    remoteStream?.getTracks().forEach((track) => {
+      try {
+        track.stop()
+      } catch {
+        console.warn('[Call] Failed to stop remote track during peer reconnect cleanup')
+      }
+    })
+
+    consumerMapRef.current.clear()
+    handledRemoteProducerIdsRef.current.clear()
+    consumingProducerIdsRef.current.clear()
+    retryingProducerIdsRef.current.clear()
+    queuedRemoteProducerMapRef.current.clear()
+    remoteStreamRef.current = null
+  }, [])
+
+  const teardownOnce = useCallback(
+    async (reason: string, options?: { errorMessage?: string | null }) => {
+      if (teardownInProgressRef.current) {
+        return
+      }
+
+      teardownInProgressRef.current = true
+      stopTimer()
+      disposeMediaRuntime()
       useCallStore.getState().reset()
 
       if (options?.errorMessage) {
@@ -281,7 +364,56 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       teardownInProgressRef.current = false
       console.warn(`[Call] Teardown completed (${reason})`)
     },
-    [clearPeerLeftFallback, clearRemoteAudioFallback, resetRuntimeRefs, stopTimer],
+    [disposeMediaRuntime, stopTimer],
+  )
+
+  const teardownRecoveryFailure = useCallback(
+    async (reason: string) => {
+      const socket = socketRef.current
+      const callId = activeCallIdRef.current ?? useCallStore.getState().callId
+
+      if (socket?.connected && callId) {
+        socket.emit('leave_call', {
+          callId,
+          reason: 'disconnected',
+        })
+      }
+
+      await teardownOnce(reason, {
+        errorMessage: 'Call connection was lost',
+      })
+    },
+    [teardownOnce],
+  )
+
+  const leaveCallFromLifecycle = useCallback(
+    async (reason: string) => {
+      const state = useCallStore.getState()
+      if (!['active', 'reconnecting'].includes(state.phase) || !state.callId) {
+        return
+      }
+
+      const socket = socketRef.current
+      if (socket?.connected) {
+        socket.emit('leave_call', {
+          callId: state.callId,
+          reason,
+        })
+      }
+
+      await teardownOnce(`lifecycle_${reason}`)
+    },
+    [teardownOnce],
+  )
+
+  const armReconnectTimeout = useCallback(
+    (reason: string, timeoutMs = RECONNECT_RECOVERY_TIMEOUT_MS) => {
+      clearReconnectTimeout()
+      reconnectTimeoutRef.current = setTimeout(() => {
+        void teardownRecoveryFailure(reason)
+      }, timeoutMs)
+    },
+    [clearReconnectTimeout, teardownRecoveryFailure],
   )
 
   const ensureMicPermission = useCallback(async () => {
@@ -654,20 +786,56 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             producerId: payload.producerId,
           }),
         )
+        const wasWaitingForPeerAudio = reconnectModeRef.current === 'peer'
         handledRemoteProducerIdsRef.current.add(payload.producerId)
         queuedRemoteProducerMapRef.current.delete(payload.producerId)
+        reconnectModeRef.current = null
+        clearReconnectTimeout()
         clearRemoteAudioFallback()
-        useCallStore.getState().patch({ remoteAudioState: 'connected' })
+        useCallStore.getState().patch({
+          ...(wasWaitingForPeerAudio ? { phase: 'active', reconnectDeadlineMs: null } : {}),
+          remoteAudioState: 'connected',
+        })
+
+        if (wasWaitingForPeerAudio) {
+          startTimer(useCallStore.getState().durationSec)
+        }
       } catch (error) {
+        const state = useCallStore.getState()
         console.warn(
           '[Call] Failed to consume remote producer',
           JSON.stringify({
             callId,
             recvTransportId: recvTransport.id,
             producerId: payload.producerId,
+            phase: state.phase,
+            reconnectMode: reconnectModeRef.current,
             error: error instanceof Error ? error.message : 'unknown_error',
           }),
         )
+
+        if (reconnectModeRef.current) {
+          queuedRemoteProducerMapRef.current.set(payload.producerId, payload)
+          useCallStore.getState().patch({ remoteAudioState: 'waiting' })
+
+          if (!retryingProducerIdsRef.current.has(payload.producerId)) {
+            retryingProducerIdsRef.current.add(payload.producerId)
+            setTimeout(() => {
+              retryingProducerIdsRef.current.delete(payload.producerId)
+              const queuedPayload = queuedRemoteProducerMapRef.current.get(payload.producerId)
+
+              if (
+                queuedPayload &&
+                reconnectModeRef.current &&
+                !handledRemoteProducerIdsRef.current.has(payload.producerId)
+              ) {
+                void consumeRemoteProducer(queuedPayload)
+              }
+            }, 750)
+          }
+          return
+        }
+
         await teardownOnce('consume_remote_producer', {
           errorMessage: 'Unable to set up the call',
         })
@@ -675,7 +843,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         consumingProducerIdsRef.current.delete(payload.producerId)
       }
     },
-    [clearRemoteAudioFallback, currentUserId, teardownOnce],
+    [clearReconnectTimeout, clearRemoteAudioFallback, currentUserId, startTimer, teardownOnce],
   )
 
   const flushQueuedRemoteProducers = useCallback(async () => {
@@ -733,7 +901,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   )
 
   const postAnswerSetup = useCallback(
-    async (payload: CallJoinedPayload) => {
+    async (
+      payload: CallJoinedPayload | CallRejoinedPayload,
+      options?: { resumeDurationSec?: number },
+    ) => {
       const socket = socketRef.current
       if (!socket) {
         throw new Error('Call socket is not connected')
@@ -758,6 +929,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         throw new Error('No local audio track available')
       }
 
+      const muted = useCallStore.getState().muted
+      localAudioTrack.enabled = !muted
       localStreamRef.current = localStream
 
       if (!device.canProduce('audio')) {
@@ -772,28 +945,169 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       callAnsweredRef.current = true
       useCallStore.getState().patch({
         phase: 'active',
-        muted: false,
+        muted,
         remoteAudioState: 'waiting',
+        reconnectDeadlineMs: null,
       })
-      startTimer()
-      clearRemoteAudioFallback()
-      remoteAudioFallbackTimeoutRef.current = setTimeout(() => {
-        const state = useCallStore.getState()
-        if (state.phase === 'active' && state.remoteAudioState !== 'connected') {
-          useCallStore.getState().patch({ remoteAudioState: 'waiting' })
-        }
-      }, REMOTE_AUDIO_WAIT_FALLBACK_MS)
+      startTimer(options?.resumeDurationSec ?? 0)
+      armRemoteAudioFallback()
 
       await flushQueuedRemoteProducers()
     },
     [
-      clearRemoteAudioFallback,
+      armRemoteAudioFallback,
       createTransport,
       ensureDeviceLoaded,
       flushQueuedRemoteProducers,
       primeRecvTransportConnection,
       startTimer,
     ],
+  )
+
+  const recoverActiveCall = useCallback(async () => {
+    const socket = socketRef.current
+    const state = useCallStore.getState()
+
+    if (
+      reconnectRecoveryInFlightRef.current ||
+      !socket?.connected ||
+      state.phase !== 'reconnecting' ||
+      !state.callId
+    ) {
+      return
+    }
+
+    reconnectRecoveryInFlightRef.current = true
+
+    try {
+      const rejoined = await emitAndWaitForEvent<'rejoin_call', 'call_rejoined'>(
+        socket,
+        'rejoin_call',
+        { callId: state.callId },
+        {
+          event: 'call_rejoined',
+          timeoutMs: CALL_JOINED_TIMEOUT_MS,
+          registry: waitRegistryRef.current,
+          filter: (payload) => payload.callId === state.callId,
+        },
+      )
+
+      activeCallIdRef.current = rejoined.callId
+      callAnsweredRef.current = true
+      await postAnswerSetup(rejoined, {
+        resumeDurationSec: useCallStore.getState().durationSec,
+      })
+
+      if (useCallStore.getState().remoteAudioState !== 'connected') {
+        useCallStore.getState().patch({
+          reconnectDeadlineMs: Date.now() + RECONNECT_RECOVERY_TIMEOUT_MS,
+        })
+        armReconnectTimeout('recover_audio_timeout')
+      }
+    } catch (error) {
+      if (isWaitTimeoutError(error)) {
+        console.warn(
+          '[Call] Recovery helper timed out before reconnect grace window expired',
+          JSON.stringify({
+            callId: state.callId,
+            error: error instanceof Error ? error.message : 'unknown_error',
+          }),
+        )
+        return
+      }
+
+      await teardownRecoveryFailure('recover_active_call_failed')
+    } finally {
+      reconnectRecoveryInFlightRef.current = false
+    }
+  }, [armReconnectTimeout, postAnswerSetup, teardownRecoveryFailure])
+
+  const beginReconnectRecovery = useCallback(() => {
+    const state = useCallStore.getState()
+
+    if (
+      !['active', 'reconnecting'].includes(state.phase) ||
+      !state.callId ||
+      !isAuthenticated ||
+      !currentUserId ||
+      reconnectRecoveryInFlightRef.current ||
+      (state.phase === 'reconnecting' && reconnectModeRef.current !== 'peer')
+    ) {
+      return
+    }
+
+    stopTimer({ resetDuration: false })
+    disposeMediaRuntime({ preserveActiveCall: true })
+    reconnectModeRef.current = 'local'
+
+    const reconnectDeadlineMs = Date.now() + RECONNECT_RECOVERY_TIMEOUT_MS
+    useCallStore.getState().patch({
+      phase: 'reconnecting',
+      remoteAudioState: 'idle',
+      reconnectDeadlineMs,
+    })
+
+    armReconnectTimeout('reconnect_timeout')
+  }, [armReconnectTimeout, currentUserId, disposeMediaRuntime, isAuthenticated, stopTimer])
+
+  const handlePeerReconnecting = useCallback(
+    (payload: PeerReconnectingPayload) => {
+      if (payload.callId !== activeCallIdRef.current || payload.userId === currentUserId) {
+        return
+      }
+
+      const state = useCallStore.getState()
+      if (state.phase !== 'active') {
+        return
+      }
+
+      reconnectModeRef.current = 'peer'
+      stopTimer({ resetDuration: false })
+      clearRemoteAudioFallback()
+      resetRemoteConsumerRuntime()
+      useCallStore.getState().patch({
+        phase: 'reconnecting',
+        remoteAudioState: 'waiting',
+        reconnectDeadlineMs: Date.parse(payload.reconnectDeadlineAt) || null,
+      })
+
+      const timeoutMs = Math.max(
+        0,
+        Date.parse(payload.reconnectDeadlineAt) - Date.now() || RECONNECT_RECOVERY_TIMEOUT_MS,
+      )
+      armReconnectTimeout('peer_reconnect_timeout', timeoutMs)
+    },
+    [
+      armReconnectTimeout,
+      clearRemoteAudioFallback,
+      currentUserId,
+      resetRemoteConsumerRuntime,
+      stopTimer,
+    ],
+  )
+
+  const handlePeerReconnected = useCallback(
+    (payload: PeerReconnectedPayload) => {
+      if (payload.callId !== activeCallIdRef.current || payload.userId === currentUserId) {
+        return
+      }
+
+      if (reconnectModeRef.current !== 'peer') {
+        return
+      }
+
+      const state = useCallStore.getState()
+      if (state.phase !== 'reconnecting') {
+        return
+      }
+
+      useCallStore.getState().patch({
+        remoteAudioState: 'waiting',
+        reconnectDeadlineMs: Date.now() + RECONNECT_RECOVERY_TIMEOUT_MS,
+      })
+      armReconnectTimeout('peer_audio_reconnect_timeout')
+    },
+    [armReconnectTimeout, currentUserId],
   )
 
   const rejectIncomingCall = useCallback(async () => {
@@ -876,6 +1190,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         callType: payload.callType,
         muted: false,
         remoteAudioState: 'idle',
+        reconnectDeadlineMs: null,
         error: null,
         durationSec: 0,
       })
@@ -921,6 +1236,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       useCallStore.getState().patch({
         phase: 'connecting',
         remoteAudioState: 'idle',
+        reconnectDeadlineMs: null,
       })
       router.push(`/call/${state.callId}` as never)
       await postAnswerSetup(joined)
@@ -975,6 +1291,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           callType: 'VOICE',
           muted: false,
           remoteAudioState: 'idle',
+          reconnectDeadlineMs: null,
           error: null,
           durationSec: 0,
         })
@@ -987,7 +1304,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         })
 
         callAnsweredRef.current = true
-        useCallStore.getState().patch({ phase: 'connecting' })
+        useCallStore.getState().patch({ phase: 'connecting', reconnectDeadlineMs: null })
         await postAnswerSetup(joined)
       } catch (error) {
         const activeCallId = activeCallIdRef.current
@@ -997,7 +1314,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             reason: 'timeout',
           })
         }
-
         await teardownOnce('start_voice_call_failed', {
           errorMessage: 'Unable to set up the call',
         })
@@ -1030,6 +1346,40 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   useEffect(() => {
+    if ((callPhase !== 'active' && callPhase !== 'reconnecting') || !callId) {
+      return
+    }
+
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      const previousAppState = appStateRef.current
+      appStateRef.current = nextAppState
+
+      if (Platform.OS !== 'web' && previousAppState === 'active' && nextAppState !== 'active') {
+        void leaveCallFromLifecycle('app_backgrounded')
+      }
+    }
+
+    const handlePageExit = () => {
+      void leaveCallFromLifecycle('app_closed')
+    }
+
+    const appStateSubscription = AppState.addEventListener('change', handleAppStateChange)
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.addEventListener('pagehide', handlePageExit)
+      window.addEventListener('beforeunload', handlePageExit)
+    }
+
+    return () => {
+      appStateSubscription.remove()
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.removeEventListener('pagehide', handlePageExit)
+        window.removeEventListener('beforeunload', handlePageExit)
+      }
+    }
+  }, [callId, callPhase, leaveCallFromLifecycle])
+
+  useEffect(() => {
     if (isLoading) {
       return
     }
@@ -1053,8 +1403,31 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
     socketRef.current = socket
 
+    const handleConnect = () => {
+      if (
+        useCallStore.getState().phase === 'reconnecting' &&
+        reconnectModeRef.current === 'local'
+      ) {
+        void recoverActiveCall()
+      }
+    }
+
     const handleDisconnect = () => {
-      if (!isBusyPhase(useCallStore.getState().phase)) {
+      const { phase } = useCallStore.getState()
+
+      if (phase === 'reconnecting') {
+        if (reconnectModeRef.current === 'peer') {
+          beginReconnectRecovery()
+        }
+        return
+      }
+
+      if (phase === 'active') {
+        beginReconnectRecovery()
+        return
+      }
+
+      if (!isBusyPhase(phase)) {
         return
       }
 
@@ -1097,6 +1470,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }, PEER_LEFT_GRACE_MS)
     }
 
+    socket.on('connect', handleConnect)
     socket.on('disconnect', handleDisconnect)
     socket.on('incoming_call', (payload) => {
       void handleIncomingCall(payload)
@@ -1110,16 +1484,23 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
     })
     socket.on('call_rejected', handleCallRejected)
+    socket.on('peer_reconnecting', handlePeerReconnecting)
+    socket.on('peer_reconnected', handlePeerReconnected)
     socket.on('peer_left', handlePeerLeft)
     socket.on('call_ended', handleCallEnded)
 
-    if (!socket.connected) {
+    if (socket.connected) {
+      handleConnect()
+    } else {
       socket.connect()
     }
 
     return () => {
+      socket.off('connect', handleConnect)
       socket.off('disconnect', handleDisconnect)
       socket.off('call_rejected', handleCallRejected)
+      socket.off('peer_reconnecting', handlePeerReconnecting)
+      socket.off('peer_reconnected', handlePeerReconnected)
       socket.off('peer_left', handlePeerLeft)
       socket.off('call_ended', handleCallEnded)
       socket.off('incoming_call')
@@ -1129,10 +1510,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   }, [
     consumeRemoteProducer,
     currentUserId,
+    beginReconnectRecovery,
+    handlePeerReconnected,
+    handlePeerReconnecting,
     handleIncomingCall,
     isAuthenticated,
     isLoading,
     presentError,
+    recoverActiveCall,
     teardownOnce,
     clearPeerLeftFallback,
   ])
