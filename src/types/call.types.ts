@@ -94,6 +94,7 @@ export interface CallJoinedPayload {
   role: 'host' | 'guest'
   session: CallSessionPayload
   rtpCapabilities: Record<string, unknown>
+  noAnswerTimeoutMs?: number
 }
 
 export interface CallRejoinedPayload {

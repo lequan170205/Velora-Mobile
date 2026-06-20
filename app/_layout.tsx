@@ -7,13 +7,14 @@ import { BottomSheetModalProvider } from '@gorhom/bottom-sheet'
 import { Stack, usePathname, useRouter } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
-import { useEffect, useRef, useState } from 'react'
-import { Alert, Platform, Text, TouchableOpacity, View } from 'react-native'
+import { useEffect, useState } from 'react'
+import { Platform, Text, TouchableOpacity, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { PaperProvider } from 'react-native-paper'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { CallErrorModal } from '../src/components/call/CallErrorModal'
 import { IncomingCallModal } from '../src/components/call/IncomingCallModal'
 import { paperTheme } from '../src/constants/paperTheme'
 import { colors } from '../src/constants/theme'
@@ -101,27 +102,6 @@ function ActiveCallBanner() {
 function CallUiOverlays() {
   const { phase, peerName, callType, error } = useCallStore()
   const { acceptIncomingCall, rejectIncomingCall, dismissCallError } = useCall()
-  const lastPresentedErrorRef = useRef<string | null>(null)
-
-  useEffect(() => {
-    if (!error || lastPresentedErrorRef.current === error) {
-      return
-    }
-
-    lastPresentedErrorRef.current = error
-    Alert.alert('Call', error, [
-      {
-        text: 'OK',
-        onPress: dismissCallError,
-      },
-    ])
-  }, [dismissCallError, error])
-
-  useEffect(() => {
-    if (!error) {
-      lastPresentedErrorRef.current = null
-    }
-  }, [error])
 
   return (
     <>
@@ -136,6 +116,7 @@ function CallUiOverlays() {
           void rejectIncomingCall()
         }}
       />
+      <CallErrorModal visible={Boolean(error)} message={error} onDismiss={dismissCallError} />
       <ActiveCallBanner />
     </>
   )

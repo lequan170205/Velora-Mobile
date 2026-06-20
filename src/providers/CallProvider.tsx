@@ -49,7 +49,11 @@ const TRANSPORT_CREATED_TIMEOUT_MS = 10_000
 const TRANSPORT_CONNECTED_TIMEOUT_MS = 10_000
 const CONSUMER_CREATED_TIMEOUT_MS = 10_000
 const CONSUMER_RESUMED_TIMEOUT_MS = 10_000
-const CALL_ANSWERED_TIMEOUT_MS = 30_000
+const DEFAULT_CALL_NO_ANSWER_TIMEOUT_MS = 30_000
+const getOutgoingRingWaitTimeoutMs = (noAnswerTimeoutMs?: number) =>
+  (noAnswerTimeoutMs && noAnswerTimeoutMs > 0
+    ? noAnswerTimeoutMs
+    : DEFAULT_CALL_NO_ANSWER_TIMEOUT_MS) + CALL_JOINED_TIMEOUT_MS
 const REMOTE_PRODUCER_TIMEOUT_MS = 30_000
 const REMOTE_AUDIO_WAIT_FALLBACK_MS = 10_000
 const PEER_LEFT_GRACE_MS = 750
@@ -105,7 +109,14 @@ const getPeerInfoFromConversation = ({
   }
 }
 
-const getCallEndedMessage = (payload: CallEndedPayload) => {
+const getCallEndedMessage = (
+  payload: CallEndedPayload,
+  state: Pick<ReturnType<typeof useCallStore.getState>, 'direction' | 'phase'>,
+) => {
+  if (payload.reason === 'no_answer') {
+    return state.direction === 'outgoing' ? 'No one answered' : null
+  }
+
   if (payload.reason === 'cancelled') {
     return 'The caller canceled the call'
   }
@@ -115,6 +126,22 @@ const getCallEndedMessage = (payload: CallEndedPayload) => {
   }
 
   return null
+}
+
+const getCallRejectedMessage = (payload: CallRejectedPayload) => {
+  if (payload.reason === 'busy') {
+    return 'The other person is on another call'
+  }
+
+  if (payload.reason === 'mic_permission_denied') {
+    return 'The other person needs microphone access to answer'
+  }
+
+  if (payload.reason === 'unsupported_video') {
+    return 'Video calls are not supported yet'
+  }
+
+  return 'The call was rejected'
 }
 
 const isWaitTimeoutError = (error: unknown) =>
@@ -1297,11 +1324,35 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         })
         router.push(`/call/${joined.callId}` as never)
 
-        await waitForEventWhere(socket, 'call_answered', {
-          timeoutMs: CALL_ANSWERED_TIMEOUT_MS,
-          registry: waitRegistryRef.current,
-          filter: (payload: CallAnsweredPayload) => payload.callId === joined.callId,
-        })
+        const answerWaitRegistry: CallWaitRegistry = new Set()
+        let answerOutcome: 'answered' | 'ended' | 'rejected'
+        const answerWaitTimeoutMs = getOutgoingRingWaitTimeoutMs(joined.noAnswerTimeoutMs)
+
+        try {
+          answerOutcome = await Promise.race([
+            waitForEventWhere(socket, 'call_answered', {
+              timeoutMs: answerWaitTimeoutMs,
+              registry: answerWaitRegistry,
+              filter: (payload: CallAnsweredPayload) => payload.callId === joined.callId,
+            }).then(() => 'answered' as const),
+            waitForEventWhere(socket, 'call_ended', {
+              timeoutMs: answerWaitTimeoutMs,
+              registry: answerWaitRegistry,
+              filter: (payload) => payload.callId === joined.callId,
+            }).then(() => 'ended' as const),
+            waitForEventWhere(socket, 'call_rejected', {
+              timeoutMs: answerWaitTimeoutMs,
+              registry: answerWaitRegistry,
+              filter: (payload) => payload.callId === joined.callId,
+            }).then(() => 'rejected' as const),
+          ])
+        } finally {
+          clearWaitRegistry(answerWaitRegistry)
+        }
+
+        if (answerOutcome !== 'answered') {
+          return
+        }
 
         callAnsweredRef.current = true
         useCallStore.getState().patch({ phase: 'connecting', reconnectDeadlineMs: null })
@@ -1442,7 +1493,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
 
       void teardownOnce('call_rejected', {
-        errorMessage: 'The call was rejected',
+        errorMessage: getCallRejectedMessage(payload),
       })
     }
 
@@ -1452,8 +1503,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
 
       clearPeerLeftFallback()
+      const state = useCallStore.getState()
       void teardownOnce('call_ended', {
-        errorMessage: getCallEndedMessage(payload),
+        errorMessage: getCallEndedMessage(payload, state),
       })
     }
 
