@@ -17,7 +17,12 @@ import {
   patchExistingMessageAcrossConversationCaches,
   patchMessagesAcrossConversationCaches,
 } from '../lib/chatMessageCache'
-import { isSameMessageIdentity, mergeMessageRecords } from '../lib/messageIdentity'
+import {
+  getMessageAnchorIdentityKey,
+  isMessageBeyondOptimisticReadFrontier,
+  isSameMessageIdentity,
+  mergeMessageRecords,
+} from '../lib/messageIdentity'
 import { getReplyPreviewSenderName } from '../lib/replyPreview'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
@@ -28,6 +33,14 @@ import type { Socket } from 'socket.io-client'
 interface FileSystemCleanupModule {
   deleteAsync: (fileUri: string, options?: { idempotent?: boolean }) => Promise<void>
 }
+
+type CachedMessagesCollection =
+  | InfiniteData<Message[]>
+  | Message[]
+  | {
+      messages: Message[]
+    }
+  | undefined
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
 const LegacyFileSystemCleanup = require('expo-file-system/legacy') as FileSystemCleanupModule
@@ -100,6 +113,62 @@ const getReplyPreviewMediaSize = (message?: Message | null) => {
   }
 }
 
+const isMessageAtOrBeforeReadFrontier = ({
+  frontierCreatedAt,
+  frontierMessageId,
+  message,
+}: {
+  frontierCreatedAt: string
+  frontierMessageId: string | undefined
+  message: Message
+}) => {
+  const frontierTimestamp = Date.parse(frontierCreatedAt)
+  const messageTimestamp = Date.parse(message.createdAt)
+
+  if (!Number.isFinite(frontierTimestamp) || !Number.isFinite(messageTimestamp)) {
+    return !frontierMessageId
+  }
+
+  if (messageTimestamp < frontierTimestamp) {
+    return true
+  }
+
+  if (messageTimestamp > frontierTimestamp) {
+    return false
+  }
+
+  if (!frontierMessageId) {
+    return true
+  }
+
+  const messageId = message.id || message._id || message.clientMessageId || ''
+  return messageId.localeCompare(frontierMessageId) <= 0
+}
+
+const flattenCachedMessagesCollection = (collection: CachedMessagesCollection): Message[] => {
+  if (!collection) {
+    return []
+  }
+
+  if (Array.isArray(collection)) {
+    return collection
+  }
+
+  if ('pages' in collection) {
+    return collection.pages.flat()
+  }
+
+  return 'messages' in collection ? collection.messages : []
+}
+
+const matchesMessageIdentityKey = (message: Message, identityKey: string) => {
+  return (
+    message.id === identityKey ||
+    message._id === identityKey ||
+    message.clientMessageId === identityKey
+  )
+}
+
 export const useSocket = () => useContext(SocketContext)
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
@@ -135,6 +204,50 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       })
     },
     [socket, user?.id],
+  )
+
+  const resolveReadFrontierFromCache = useCallback(
+    ({
+      conversationId,
+      frontierCreatedAt,
+      messageId,
+      seenAt,
+    }: {
+      conversationId: string
+      frontierCreatedAt?: string
+      messageId?: string
+      seenAt: string
+    }) => {
+      if (!messageId) {
+        return {
+          anchorIdentityKey: null,
+          createdAt: frontierCreatedAt ?? seenAt,
+        }
+      }
+
+      const latestMessages = flattenCachedMessagesCollection(
+        queryClient.getQueryData<CachedMessagesCollection>(
+          queryKeys.conversations.messages(conversationId),
+        ),
+      )
+      const anchorQueries = queryClient.getQueriesData<CachedMessagesCollection>({
+        queryKey: queryKeys.conversations.messagesAroundRoot(conversationId),
+      })
+      const anchoredMessages = anchorQueries.flatMap(([, queryData]) =>
+        flattenCachedMessagesCollection(queryData),
+      )
+      const optimisticMessages = useChatStore.getState().optimisticMessages[conversationId] ?? []
+      const frontierMessage =
+        [...latestMessages, ...anchoredMessages, ...optimisticMessages].find((message) =>
+          matchesMessageIdentityKey(message, messageId),
+        ) ?? null
+
+      return {
+        anchorIdentityKey: getMessageAnchorIdentityKey(frontierMessage),
+        createdAt: frontierCreatedAt ?? frontierMessage?.createdAt ?? null,
+      }
+    },
+    [queryClient],
   )
 
   useEffect(() => {
@@ -1020,53 +1133,106 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       useChatStore.getState().setUserOnline(userId, Boolean(isOnline), lastSeenAt)
     })
 
-    newSocket.on('messages_seen', ({ conversationId, readByUserId, at }) => {
-      const currentUserId = userId
-      if (!currentUserId) return
+    newSocket.on(
+      'messages_seen',
+      ({ conversationId, readByUserId, at, messageId, frontierCreatedAt }) => {
+        const currentUserId = userId
+        if (!currentUserId) return
 
-      const seenAt = at || new Date().toISOString()
-      const seenAtTimestamp = Date.parse(seenAt)
-      const store = useChatStore.getState()
-      store.markOptimisticMessagesAsReadBy(conversationId, currentUserId, readByUserId, seenAt)
+        const seenAt = at || new Date().toISOString()
+        const resolvedReadFrontier = resolveReadFrontierFromCache({
+          conversationId,
+          frontierCreatedAt,
+          messageId,
+          seenAt,
+        })
+        const readFrontierCreatedAt = resolvedReadFrontier.createdAt
+        const readFrontierAnchorIdentityKey = resolvedReadFrontier.anchorIdentityKey
 
-      patchConversationMessageCollectionsInCache(queryClient, conversationId, (msg) => {
-        if (msg.senderId !== currentUserId) {
-          return msg
+        if (messageId && !readFrontierCreatedAt) {
+          void applyReadReceiptUpdate({
+            at: seenAt,
+            conversationId,
+            currentUserId,
+            messageId,
+            readByUserId,
+            ...(readFrontierAnchorIdentityKey
+              ? { frontierAnchorIdentityKey: readFrontierAnchorIdentityKey }
+              : {}),
+          }).catch((error) => {
+            console.warn('[Socket] Failed to persist read receipt update locally', error)
+          })
+          return
         }
 
-        const messageCreatedAtTimestamp = Date.parse(msg.createdAt)
-        if (
-          Number.isFinite(seenAtTimestamp) &&
-          Number.isFinite(messageCreatedAtTimestamp) &&
-          messageCreatedAtTimestamp > seenAtTimestamp
-        ) {
-          return msg
-        }
+        const store = useChatStore.getState()
+        store.markOptimisticMessagesAsReadBy(
+          conversationId,
+          currentUserId,
+          readByUserId,
+          seenAt,
+          messageId,
+          readFrontierCreatedAt ?? undefined,
+          readFrontierAnchorIdentityKey ?? undefined,
+        )
 
-        const nextReadBy = Array.isArray(msg.readBy) ? [...msg.readBy] : []
-        const alreadyMarked = nextReadBy.some((entry) => entry.userId === readByUserId)
+        patchConversationMessageCollectionsInCache(queryClient, conversationId, (msg) => {
+          if (msg.senderId !== currentUserId) {
+            return msg
+          }
 
-        if (alreadyMarked) {
-          return msg
-        }
+          const anchorsByMessageId =
+            useChatStore.getState().optimisticSortAnchors[conversationId] || {}
+          if (
+            isMessageBeyondOptimisticReadFrontier({
+              anchorsByMessageId,
+              frontierIdentityKey: readFrontierAnchorIdentityKey,
+              message: msg,
+            })
+          ) {
+            return msg
+          }
 
-        useChatStore.getState().setMessageAsSeen(conversationId, msg.id)
-        return {
-          ...msg,
-          status: 'READ',
-          readBy: [...nextReadBy, { userId: readByUserId, at: seenAt }],
-        }
-      })
+          if (
+            !isMessageAtOrBeforeReadFrontier({
+              frontierCreatedAt: readFrontierCreatedAt ?? seenAt,
+              frontierMessageId: messageId,
+              message: msg,
+            })
+          ) {
+            return msg
+          }
 
-      void applyReadReceiptUpdate({
-        at: seenAt,
-        conversationId,
-        currentUserId,
-        readByUserId,
-      }).catch((error) => {
-        console.warn('[Socket] Failed to persist read receipt update locally', error)
-      })
-    })
+          const nextReadBy = Array.isArray(msg.readBy) ? [...msg.readBy] : []
+          const alreadyMarked = nextReadBy.some((entry) => entry.userId === readByUserId)
+
+          if (alreadyMarked) {
+            return msg
+          }
+
+          useChatStore.getState().setMessageAsSeen(conversationId, msg.id)
+          return {
+            ...msg,
+            status: 'READ',
+            readBy: [...nextReadBy, { userId: readByUserId, at: seenAt }],
+          }
+        })
+
+        void applyReadReceiptUpdate({
+          at: seenAt,
+          conversationId,
+          currentUserId,
+          messageId,
+          readByUserId,
+          ...(readFrontierAnchorIdentityKey
+            ? { frontierAnchorIdentityKey: readFrontierAnchorIdentityKey }
+            : {}),
+          ...(readFrontierCreatedAt ? { frontierCreatedAt: readFrontierCreatedAt } : {}),
+        }).catch((error) => {
+          console.warn('[Socket] Failed to persist read receipt update locally', error)
+        })
+      },
+    )
 
     setSocket(newSocket)
 
@@ -1075,7 +1241,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       newSocket.removeAllListeners()
       newSocket.disconnect()
     }
-  }, [isAuthenticated, isLoading, queryClient, userId])
+  }, [isAuthenticated, isLoading, queryClient, resolveReadFrontierFromCache, userId])
 
   return (
     <SocketContext.Provider value={{ socket, isConnected, requestPresence }}>

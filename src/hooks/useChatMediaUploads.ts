@@ -1,10 +1,10 @@
 import { useQueryClient } from '@tanstack/react-query'
-import * as VideoThumbnails from 'expo-video-thumbnails'
 import { useCallback } from 'react'
 import { Alert, useWindowDimensions } from 'react-native'
 
+import type { InfiniteData } from '@tanstack/react-query'
+
 import { queryKeys } from '../constants/queryKeys'
-import { createPendingMediaMessage } from '../database/messageSync'
 import {
   calculateChatMediaDisplaySize,
   getChatMediaMaxWidth,
@@ -21,15 +21,97 @@ import { useChatMediaUploadStore } from '../stores/chatMediaUploadStore'
 import { useChatStore } from '../stores/chatStore'
 
 import type { ChatMediaUploadJob } from '../stores/chatMediaUploadStore'
+import type { OptimisticSortAnchor } from '../stores/chatStore'
 import type { Conversation, Message } from '../types/conversation.types'
 import type { ImagePickerAsset } from 'expo-image-picker'
 
-interface FileSystemCleanupModule {
-  deleteAsync: (fileUri: string, options?: { idempotent?: boolean }) => Promise<void>
+type EnqueuedMediaBatch = {
+  batchId: string
+  clientMessageIds: string[]
 }
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
-const LegacyFileSystemCleanup = require('expo-file-system/legacy') as FileSystemCleanupModule
+type EnqueueMediaAssetsOptions = {
+  onWillCommitBatch?: (batch: EnqueuedMediaBatch) => void
+}
+
+const isPersistedServerMessageId = (messageId?: string | null): messageId is string => {
+  return Boolean(messageId && !messageId.startsWith('temp-'))
+}
+
+const createMediaBatchId = () => `media-batch-${createClientMessageId()}`
+
+const getMessageCreatedAtMs = (message?: Message | null) => {
+  const createdAtMs = message?.createdAt ? Date.parse(message.createdAt) : NaN
+  return Number.isFinite(createdAtMs) ? createdAtMs : 0
+}
+
+const compareMessagesNewestFirst = (left: Message, right: Message) => {
+  const timestampDelta = getMessageCreatedAtMs(right) - getMessageCreatedAtMs(left)
+
+  if (timestampDelta !== 0) {
+    return timestampDelta
+  }
+
+  return (right.id || right._id || '').localeCompare(left.id || left._id || '')
+}
+
+const getLatestPersistedServerFrontier = ({
+  conversation,
+  conversationId,
+  queryClient,
+}: {
+  conversation?: Conversation | null
+  conversationId: string
+  queryClient: ReturnType<typeof useQueryClient>
+}) => {
+  const cachedMessages = queryClient.getQueryData<InfiniteData<Message[]> | Message[] | undefined>(
+    queryKeys.conversations.messages(conversationId),
+  )
+  const flattenedMessages = Array.isArray(cachedMessages)
+    ? cachedMessages
+    : (cachedMessages?.pages?.flat() ?? [])
+  const latestPersistedMessage =
+    [...flattenedMessages]
+      .filter((message) => isPersistedServerMessageId(message.id))
+      .sort(compareMessagesNewestFirst)[0] ?? null
+
+  if (latestPersistedMessage?.id) {
+    return {
+      frontierCreatedAtMs: getMessageCreatedAtMs(latestPersistedMessage),
+      frontierMessageId: latestPersistedMessage.id,
+    }
+  }
+
+  const fallbackCreatedAtMs = Date.parse(
+    conversation?.lastMessageAt ?? conversation?.updatedAt ?? conversation?.createdAt ?? '',
+  )
+
+  return {
+    frontierCreatedAtMs: Number.isFinite(fallbackCreatedAtMs) ? fallbackCreatedAtMs : 0,
+    frontierMessageId: null,
+  }
+}
+
+const getNextOptimisticSequenceForFrontier = ({
+  anchorsByMessageId,
+  frontierCreatedAtMs,
+  frontierMessageId,
+}: {
+  anchorsByMessageId: Record<string, OptimisticSortAnchor>
+  frontierCreatedAtMs: number
+  frontierMessageId: string | null
+}) => {
+  return Object.values(anchorsByMessageId).reduce((maxSequence, anchor) => {
+    if (
+      anchor.frontierCreatedAtMs !== frontierCreatedAtMs ||
+      (anchor.frontierMessageId ?? null) !== frontierMessageId
+    ) {
+      return maxSequence
+    }
+
+    return Math.max(maxSequence, anchor.sequence)
+  }, 0)
+}
 
 const getReplyPreview = ({
   conversation,
@@ -80,6 +162,7 @@ const buildOptimisticMessage = ({
   clientMessageId,
   content,
   conversationId,
+  createdAt,
   currentUser,
   displayHeight,
   displayWidth,
@@ -96,6 +179,7 @@ const buildOptimisticMessage = ({
   clientMessageId: string
   content: string
   conversationId: string
+  createdAt: string
   currentUser: NonNullable<ReturnType<typeof useAuthStore.getState>['user']>
   displayHeight: number
   displayWidth: number
@@ -109,8 +193,6 @@ const buildOptimisticMessage = ({
   type: 'image' | 'video'
   width?: number
 }): Message => {
-  const now = new Date().toISOString()
-
   return {
     id: clientMessageId,
     clientMessageId,
@@ -131,8 +213,8 @@ const buildOptimisticMessage = ({
     },
     type,
     status: 'PENDING',
-    createdAt: now,
-    updatedAt: now,
+    createdAt,
+    updatedAt: createdAt,
     ...(replyToId ? { replyToId } : {}),
     ...(replyPreview ? { replyPreview } : {}),
   }
@@ -153,23 +235,38 @@ export function useChatMediaUploads(conversationId: string) {
   const { width: screenWidth } = useWindowDimensions()
 
   const enqueueMediaAssets = useCallback(
-    async (assets: ImagePickerAsset[]) => {
+    async (assets: ImagePickerAsset[], options?: EnqueueMediaAssetsOptions) => {
       if (!user?.id || assets.length === 0) {
-        return
+        return null
       }
 
       const maxBubbleWidth = getChatMediaMaxWidth(screenWidth)
+      const batchId = createMediaBatchId()
       const nextOptimisticMessages: Message[] = []
       const nextJobs: ChatMediaUploadJob[] = []
-      let failedPreparationCount = 0
+      const nextClientMessageIds: string[] = []
+      const nextSortAnchorsByMessageId: Record<string, OptimisticSortAnchor> = {}
+      const baseCreatedAtMs = Date.now()
       const replyPreview = getReplyPreview({
         conversation: currentConversation,
         currentUserId: user.id,
         replyToMessage,
       })
       const replyToId = replyToMessage?.id
+      const existingSortAnchors =
+        useChatStore.getState().optimisticSortAnchors[conversationId] ?? {}
+      const frontier = getLatestPersistedServerFrontier({
+        conversation: currentConversation,
+        conversationId,
+        queryClient,
+      })
+      const nextSequenceBase = getNextOptimisticSequenceForFrontier({
+        anchorsByMessageId: existingSortAnchors,
+        frontierCreatedAtMs: frontier.frontierCreatedAtMs,
+        frontierMessageId: frontier.frontierMessageId,
+      })
 
-      for (const asset of assets) {
+      for (const [assetIndex, asset] of assets.entries()) {
         const kind = asset.type === 'video' ? 'video' : 'image'
         const fileType = resolveAllowedChatMediaType({
           mimeType: asset.mimeType ?? null,
@@ -188,6 +285,13 @@ export function useChatMediaUploads(conversationId: string) {
         }
 
         const clientMessageId = createClientMessageId()
+        nextClientMessageIds.push(clientMessageId)
+        nextSortAnchorsByMessageId[clientMessageId] = {
+          batchId,
+          frontierCreatedAtMs: frontier.frontierCreatedAtMs,
+          frontierMessageId: frontier.frontierMessageId,
+          sequence: nextSequenceBase + assetIndex + 1,
+        }
         const displaySize = calculateChatMediaDisplaySize({
           maxWidth: maxBubbleWidth,
           ...(asset.width ? { width: asset.width } : {}),
@@ -197,55 +301,14 @@ export function useChatMediaUploads(conversationId: string) {
         const assetWidth = asset.width && asset.width > 0 ? asset.width : null
         const assetHeight = asset.height && asset.height > 0 ? asset.height : null
         const assetDurationMs = asset.duration && asset.duration > 0 ? asset.duration : null
-        const createdAt = new Date().toISOString()
-        const localPosterUri =
-          kind === 'video'
-            ? await VideoThumbnails.getThumbnailAsync(asset.uri, {
-                quality: 0.65,
-                time: asset.duration ? Math.floor(asset.duration / 2) : 2000,
-              })
-                .then((thumbnail) => thumbnail.uri)
-                .catch(() => null)
-            : null
-        const pendingMedia: NonNullable<Message['media']> = {
-          localFileUri: asset.uri,
-          displayWidth: displaySize.displayWidth,
-          displayHeight: displaySize.displayHeight,
-          mimeType: fileType,
-          uploadStage: 'queued',
-          ...(assetWidth ? { width: assetWidth } : {}),
-          ...(assetHeight ? { height: assetHeight } : {}),
-          ...(assetDurationMs ? { durationMs: assetDurationMs } : {}),
-          ...(localPosterUri ? { localPosterUri } : {}),
-        }
-
-        try {
-          await createPendingMediaMessage({
-            clientMessageId,
-            content,
-            conversationId,
-            currentUser: user,
-            media: pendingMedia,
-            type: kind,
-            ...(replyToId ? { replyToId } : {}),
-            ...(replyPreview ? { replyPreview } : {}),
-          })
-        } catch (error) {
-          failedPreparationCount += 1
-          if (localPosterUri) {
-            void LegacyFileSystemCleanup.deleteAsync(localPosterUri, { idempotent: true }).catch(
-              () => undefined,
-            )
-          }
-          console.error('[ChatMediaUploads] Failed to create pending media message', error)
-          continue
-        }
+        const createdAt = new Date(baseCreatedAtMs + assetIndex).toISOString()
 
         nextOptimisticMessages.push(
           buildOptimisticMessage({
             clientMessageId,
             content,
             conversationId,
+            createdAt,
             currentUser: user,
             displayHeight: displaySize.displayHeight,
             displayWidth: displaySize.displayWidth,
@@ -255,13 +318,13 @@ export function useChatMediaUploads(conversationId: string) {
             ...(assetWidth ? { width: assetWidth } : {}),
             ...(assetHeight ? { height: assetHeight } : {}),
             ...(assetDurationMs ? { durationMs: assetDurationMs } : {}),
-            ...(localPosterUri ? { localPosterUri } : {}),
             ...(replyToId ? { replyToId } : {}),
             ...(replyPreview ? { replyPreview } : {}),
           }),
         )
 
         nextJobs.push({
+          batchId,
           clientMessageId,
           conversationId,
           type: kind,
@@ -274,23 +337,26 @@ export function useChatMediaUploads(conversationId: string) {
           ...(assetWidth ? { width: assetWidth } : {}),
           ...(assetHeight ? { height: assetHeight } : {}),
           ...(assetDurationMs ? { durationMs: assetDurationMs } : {}),
-          ...(localPosterUri ? { localPosterUri } : {}),
           ...(replyToId ? { replyToId } : {}),
           ...(replyPreview ? { replyPreview } : {}),
           uploadStage: 'queued',
           createdAt,
+          preparationStatus: 'preparing',
           cleanupPending: false,
         })
       }
 
       if (nextJobs.length === 0) {
-        if (failedPreparationCount > 0) {
-          Alert.alert('Could not attach media', 'Please try selecting the media again.')
-        }
-        return
+        return null
       }
 
-      addOptimisticMessages(conversationId, nextOptimisticMessages)
+      const nextBatch = {
+        batchId,
+        clientMessageIds: nextClientMessageIds,
+      } satisfies EnqueuedMediaBatch
+
+      options?.onWillCommitBatch?.(nextBatch)
+      addOptimisticMessages(conversationId, nextOptimisticMessages, nextSortAnchorsByMessageId)
       useChatMediaUploadStore.getState().enqueueJobs(nextJobs)
       const lastQueuedJob = nextJobs[nextJobs.length - 1]
       if (lastQueuedJob) {
@@ -302,9 +368,8 @@ export function useChatMediaUploads(conversationId: string) {
         })
       }
       setReplyToMessage(null)
-      if (failedPreparationCount > 0) {
-        Alert.alert('Some media were not attached', 'Please try selecting those items again.')
-      }
+
+      return nextBatch
     },
     [
       addOptimisticMessages,

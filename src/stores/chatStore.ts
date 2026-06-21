@@ -2,6 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
+import { isMessageBeyondOptimisticReadFrontier } from '../lib/messageIdentity'
+
 import type { Message } from '../types/conversation.types'
 
 interface OfflineMessage {
@@ -11,8 +13,16 @@ interface OfflineMessage {
   replyToId?: string
 }
 
+export interface OptimisticSortAnchor {
+  frontierCreatedAtMs: number
+  frontierMessageId: string | null
+  sequence: number
+  batchId?: string
+}
+
 interface ChatState {
   optimisticMessages: Record<string, Message[]>
+  optimisticSortAnchors: Record<string, Record<string, OptimisticSortAnchor>>
   typingUsers: Record<string, string[]>
   onlineUsers: Set<string>
   lastSeenByUserId: Record<string, string | null | undefined>
@@ -22,7 +32,12 @@ interface ChatState {
   botConversationIds: Set<string> // Conversation IDs that belong to bot chats
 
   addOptimisticMessage: (conversationId: string, message: Message) => void
-  addOptimisticMessages: (conversationId: string, messages: Message[]) => void
+  addOptimisticMessages: (
+    conversationId: string,
+    messages: Message[],
+    sortAnchorsByMessageId?: Record<string, OptimisticSortAnchor>,
+  ) => void
+  removeOptimisticSortAnchors: (conversationId: string, identityKeys: string[]) => void
   removeOptimisticMessage: (conversationId: string, tempId: string) => void
   updateOptimisticMessage: (
     conversationId: string,
@@ -41,6 +56,9 @@ interface ChatState {
     currentUserId: string,
     readByUserId: string,
     at: string,
+    messageId?: string,
+    frontierCreatedAt?: string,
+    frontierAnchorIdentityKey?: string,
   ) => void
   setMessageAsSeen: (conversationId: string, messageId: string) => void
   isMessageSeen: (conversationId: string, messageId: string) => boolean
@@ -64,10 +82,43 @@ const pruneOptimisticMessages = (optimisticMessages: Record<string, Message[]>) 
   )
 }
 
+const isMessageAtOrBeforeReadFrontier = ({
+  frontierCreatedAt,
+  frontierMessageId,
+  message,
+}: {
+  frontierCreatedAt: string
+  frontierMessageId: string | undefined
+  message: Message
+}) => {
+  const frontierTimestamp = Date.parse(frontierCreatedAt)
+  const messageTimestamp = Date.parse(message.createdAt)
+
+  if (!Number.isFinite(frontierTimestamp) || !Number.isFinite(messageTimestamp)) {
+    return !frontierMessageId
+  }
+
+  if (messageTimestamp < frontierTimestamp) {
+    return true
+  }
+
+  if (messageTimestamp > frontierTimestamp) {
+    return false
+  }
+
+  if (!frontierMessageId) {
+    return true
+  }
+
+  const messageId = message.id || message._id || message.clientMessageId || ''
+  return messageId.localeCompare(frontierMessageId) <= 0
+}
+
 export const useChatStore = create<ChatState>()(
   persist(
     (set, get) => ({
       optimisticMessages: {},
+      optimisticSortAnchors: {},
       typingUsers: {},
       onlineUsers: new Set(),
       lastSeenByUserId: {},
@@ -109,7 +160,7 @@ export const useChatStore = create<ChatState>()(
           }
         }),
 
-      addOptimisticMessages: (conversationId, messages) =>
+      addOptimisticMessages: (conversationId, messages, sortAnchorsByMessageId) =>
         set((state) => {
           if (messages.length === 0) {
             return state
@@ -130,22 +181,95 @@ export const useChatStore = create<ChatState>()(
             return state
           }
 
+          const currentAnchors = state.optimisticSortAnchors[conversationId] || {}
+          const nextAnchors =
+            sortAnchorsByMessageId && Object.keys(sortAnchorsByMessageId).length > 0
+              ? {
+                  ...currentAnchors,
+                  ...Object.fromEntries(
+                    nextMessages.flatMap((message) => {
+                      const anchor = sortAnchorsByMessageId[message.id]
+                      return anchor ? [[message.id, anchor] as const] : []
+                    }),
+                  ),
+                }
+              : currentAnchors
+
           return {
             optimisticMessages: {
               ...state.optimisticMessages,
               [conversationId]: [...currentMessages, ...nextMessages.reverse()],
             },
+            optimisticSortAnchors:
+              nextAnchors === currentAnchors
+                ? state.optimisticSortAnchors
+                : {
+                    ...state.optimisticSortAnchors,
+                    [conversationId]: nextAnchors,
+                  },
+          }
+        }),
+
+      removeOptimisticSortAnchors: (conversationId, identityKeys) =>
+        set((state) => {
+          if (identityKeys.length === 0) {
+            return state
+          }
+
+          const currentAnchors = state.optimisticSortAnchors[conversationId]
+          if (!currentAnchors) {
+            return state
+          }
+
+          let changed = false
+          const nextAnchors = { ...currentAnchors }
+          identityKeys.forEach((identityKey) => {
+            if (!nextAnchors[identityKey]) {
+              return
+            }
+
+            changed = true
+            delete nextAnchors[identityKey]
+          })
+
+          if (!changed) {
+            return state
+          }
+
+          return {
+            optimisticSortAnchors:
+              Object.keys(nextAnchors).length > 0
+                ? {
+                    ...state.optimisticSortAnchors,
+                    [conversationId]: nextAnchors,
+                  }
+                : (() => {
+                    const updated = { ...state.optimisticSortAnchors }
+                    delete updated[conversationId]
+                    return updated
+                  })(),
           }
         }),
 
       removeOptimisticMessage: (conversationId, tempId) =>
         set((state) => {
           const msgs = state.optimisticMessages[conversationId] || []
+          const nextMessages = msgs.filter((message) => message.id !== tempId)
+
+          const nextOptimisticMessages =
+            nextMessages.length > 0
+              ? {
+                  ...state.optimisticMessages,
+                  [conversationId]: nextMessages,
+                }
+              : (() => {
+                  const updated = { ...state.optimisticMessages }
+                  delete updated[conversationId]
+                  return updated
+                })()
+
           return {
-            optimisticMessages: {
-              ...state.optimisticMessages,
-              [conversationId]: msgs.filter((m) => m.id !== tempId),
-            },
+            optimisticMessages: nextOptimisticMessages,
           }
         }),
 
@@ -181,24 +305,26 @@ export const useChatStore = create<ChatState>()(
           const msgs = state.optimisticMessages[conversationId] || []
           const nextMessages = msgs.filter((message) => message.id !== tempId)
 
-          if (nextMessages.length === msgs.length) {
+          const hasMessageChanges = nextMessages.length !== msgs.length
+          if (!hasMessageChanges) {
             return state
           }
 
-          if (nextMessages.length === 0) {
-            const nextOptimisticMessages = { ...state.optimisticMessages }
-            delete nextOptimisticMessages[conversationId]
-
-            return {
-              optimisticMessages: nextOptimisticMessages,
-            }
-          }
+          const nextOptimisticMessages = hasMessageChanges
+            ? nextMessages.length > 0
+              ? {
+                  ...state.optimisticMessages,
+                  [conversationId]: nextMessages,
+                }
+              : (() => {
+                  const updated = { ...state.optimisticMessages }
+                  delete updated[conversationId]
+                  return updated
+                })()
+            : state.optimisticMessages
 
           return {
-            optimisticMessages: {
-              ...state.optimisticMessages,
-              [conversationId]: nextMessages,
-            },
+            optimisticMessages: nextOptimisticMessages,
           }
         }),
 
@@ -267,22 +393,48 @@ export const useChatStore = create<ChatState>()(
           offlineQueue: state.offlineQueue.filter((msg) => msg.id !== id),
         })),
 
-      markOptimisticMessagesAsReadBy: (conversationId, currentUserId, readByUserId, at) =>
+      markOptimisticMessagesAsReadBy: (
+        conversationId,
+        currentUserId,
+        readByUserId,
+        at,
+        messageId,
+        frontierCreatedAt,
+        frontierAnchorIdentityKey,
+      ) =>
         set((state) => {
           const msgs = state.optimisticMessages[conversationId] || []
-          const seenAtTimestamp = Date.parse(at)
+          const anchorsByMessageId = state.optimisticSortAnchors[conversationId] || {}
           let changed = false
+          const effectiveFrontierCreatedAt = frontierCreatedAt ?? (messageId ? undefined : at)
+
+          if (messageId && !effectiveFrontierCreatedAt) {
+            return state
+          }
 
           const nextMessages = msgs.map((message) => {
             if (message.senderId !== currentUserId) {
               return message
             }
 
-            const messageCreatedAtTimestamp = Date.parse(message.createdAt)
             if (
-              Number.isFinite(seenAtTimestamp) &&
-              Number.isFinite(messageCreatedAtTimestamp) &&
-              messageCreatedAtTimestamp > seenAtTimestamp
+              isMessageBeyondOptimisticReadFrontier({
+                anchorsByMessageId,
+                message,
+                ...(frontierAnchorIdentityKey
+                  ? { frontierIdentityKey: frontierAnchorIdentityKey }
+                  : {}),
+              })
+            ) {
+              return message
+            }
+
+            if (
+              !isMessageAtOrBeforeReadFrontier({
+                frontierCreatedAt: effectiveFrontierCreatedAt ?? at,
+                frontierMessageId: messageId,
+                message,
+              })
             ) {
               return message
             }
@@ -333,6 +485,7 @@ export const useChatStore = create<ChatState>()(
       clearCache: async () => {
         set(() => ({
           optimisticMessages: {},
+          optimisticSortAnchors: {},
           offlineQueue: [],
           replyToMessage: null,
           seenMessages: {},
@@ -347,16 +500,25 @@ export const useChatStore = create<ChatState>()(
       partialize: (state) => ({
         offlineQueue: state.offlineQueue,
         optimisticMessages: pruneOptimisticMessages(state.optimisticMessages),
+        optimisticSortAnchors: state.optimisticSortAnchors,
         botConversationIds: Array.from(state.botConversationIds),
       }),
       merge: (persistedState, currentState) => {
         const persisted = (persistedState || {}) as Record<string, unknown>
+        const optimisticMessages = pruneOptimisticMessages(
+          (persisted.optimisticMessages as Record<string, Message[]>) || {},
+        )
+        const optimisticSortAnchors =
+          (persisted.optimisticSortAnchors as Record<
+            string,
+            Record<string, OptimisticSortAnchor>
+          >) || {}
+
         return {
           ...currentState,
           ...persisted,
-          optimisticMessages: pruneOptimisticMessages(
-            (persisted.optimisticMessages as Record<string, Message[]>) || {},
-          ),
+          optimisticMessages,
+          optimisticSortAnchors,
           botConversationIds: new Set<string>((persisted.botConversationIds as string[]) || []),
           onlineUsers: currentState.onlineUsers,
         }

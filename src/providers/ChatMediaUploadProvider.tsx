@@ -1,4 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
+import * as VideoThumbnails from 'expo-video-thumbnails'
 import React, { useCallback, useEffect, useRef } from 'react'
 import { AppState, Platform, unstable_batchedUpdates } from 'react-native'
 
@@ -6,6 +7,7 @@ import { conversationApi } from '../api/conversation.api'
 import { mediaApi } from '../api/media.api'
 import { queryKeys } from '../constants/queryKeys'
 import {
+  createPendingMediaMessage,
   deletePendingMediaMessage,
   markMediaMessageFailed,
   patchLocalMediaMessage,
@@ -77,6 +79,33 @@ const getUploadFailureReason = (error: unknown) => {
   }
 
   return 'Upload failed unexpectedly'
+}
+
+const buildPendingMediaFromJob = (
+  job: Pick<
+    ChatMediaUploadJob,
+    | 'displayHeight'
+    | 'displayWidth'
+    | 'durationMs'
+    | 'fileType'
+    | 'fileUri'
+    | 'height'
+    | 'localPosterUri'
+    | 'uploadStage'
+    | 'width'
+  >,
+): NonNullable<Message['media']> => {
+  return {
+    localFileUri: job.fileUri,
+    displayWidth: job.displayWidth,
+    displayHeight: job.displayHeight,
+    mimeType: job.fileType,
+    uploadStage: job.uploadStage,
+    ...(job.width ? { width: job.width } : {}),
+    ...(job.height ? { height: job.height } : {}),
+    ...(job.durationMs ? { durationMs: job.durationMs } : {}),
+    ...(job.localPosterUri ? { localPosterUri: job.localPosterUri } : {}),
+  }
 }
 
 const mergePreparedMediaWithJob = (job: ChatMediaUploadJob, media: MessageMedia): MessageMedia => {
@@ -156,7 +185,7 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
   const thumbnailTaskRef = useRef<UploadTask | null>(null)
   const processingJobIdRef = useRef<string | null>(null)
   const reconcileTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const localMediaMutationQueueRef = useRef<Map<string, Promise<void>>>(new Map())
+  const localMediaMutationQueueRef = useRef<Map<string, Promise<unknown>>>(new Map())
 
   const activeJobId = useChatMediaUploadStore((state) => state.activeJobId)
   const queuedJobId = useChatMediaUploadStore((state) =>
@@ -203,12 +232,13 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
           ...(job.lastProgressAt ? { lastProgressAt: job.lastProgressAt } : {}),
           ...(job.uploadStartedAt ? { uploadStartedAt: job.uploadStartedAt } : {}),
         }
+        const hasReadReceipt = Array.isArray(message.readBy) && message.readBy.length > 0
 
         return {
           ...message,
           content: job.content,
           media: nextMedia,
-          status: job.uploadStage === 'failed' ? 'FAILED' : 'PENDING',
+          status: job.uploadStage === 'failed' ? 'FAILED' : hasReadReceipt ? 'READ' : 'PENDING',
           type: job.type,
         }
       })
@@ -229,21 +259,51 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
   )
 
   const enqueueLocalMediaMutation = useCallback(
-    (clientMessageId: string, operation: () => Promise<void>) => {
+    <T,>(clientMessageId: string, operation: () => Promise<T>) => {
       const queue = localMediaMutationQueueRef.current
       const previousMutation = queue.get(clientMessageId) ?? Promise.resolve()
       const nextMutation = previousMutation.catch(() => undefined).then(operation)
+      const settledMutation = nextMutation.then(
+        () => undefined,
+        () => undefined,
+      )
 
-      queue.set(clientMessageId, nextMutation)
-      void nextMutation
-        .catch(() => undefined)
-        .then(() => {
-          if (queue.get(clientMessageId) === nextMutation) {
-            queue.delete(clientMessageId)
-          }
-        })
+      queue.set(clientMessageId, settledMutation)
+      void settledMutation.then(() => {
+        if (queue.get(clientMessageId) === settledMutation) {
+          queue.delete(clientMessageId)
+        }
+      })
 
       return nextMutation
+    },
+    [],
+  )
+
+  const cleanupBatchSortAnchorsIfSettled = useCallback(
+    (conversationId: string, batchId?: string) => {
+      if (!batchId) {
+        return
+      }
+
+      const hasRemainingBatchJobs = Object.values(useChatMediaUploadStore.getState().jobsById).some(
+        (job) => job.conversationId === conversationId && job.batchId === batchId,
+      )
+
+      if (hasRemainingBatchJobs) {
+        return
+      }
+
+      const anchorsByIdentity = useChatStore.getState().optimisticSortAnchors[conversationId] ?? {}
+      const identityKeysToRemove = Object.entries(anchorsByIdentity).flatMap(
+        ([identityKey, anchor]) => (anchor.batchId === batchId ? [identityKey] : []),
+      )
+
+      if (identityKeysToRemove.length === 0) {
+        return
+      }
+
+      useChatStore.getState().removeOptimisticSortAnchors(conversationId, identityKeysToRemove)
     },
     [],
   )
@@ -308,6 +368,115 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
 
     return job
   }, [])
+
+  const persistPendingMediaRecord = useCallback(
+    async (clientMessageId: string) => {
+      // Guard 1: fail fast before we even enter the DB queue if the job is already cancelled.
+      requireRunnableJob(clientMessageId)
+
+      const persistenceResult = await enqueueLocalMediaMutation(clientMessageId, async () => {
+        let queuedJob: ChatMediaUploadJob
+
+        try {
+          // Guard 2a: re-check after any queued DB work ahead of us has completed.
+          queuedJob = requireRunnableJob(clientMessageId)
+        } catch {
+          return { cancelled: true as const }
+        }
+
+        await createPendingMediaMessage({
+          clientMessageId,
+          content: queuedJob.content,
+          conversationId: queuedJob.conversationId,
+          createdAt: queuedJob.createdAt,
+          currentUser: useAuthStore.getState().user ?? null,
+          media: buildPendingMediaFromJob(queuedJob),
+          type: queuedJob.type,
+          ...(queuedJob.replyToId ? { replyToId: queuedJob.replyToId } : {}),
+          ...(queuedJob.replyPreview ? { replyPreview: queuedJob.replyPreview } : {}),
+        })
+
+        const latestStore = useChatMediaUploadStore.getState()
+        const latestJob = latestStore.jobsById[clientMessageId]
+
+        if (!latestJob || latestStore.cancelRequestById[clientMessageId]) {
+          // Guard 2b: if cancellation landed during the DB write, immediately clean the row up
+          // in the same per-message queue so delete cannot race behind create.
+          await deletePendingMediaMessage({
+            clientMessageId,
+            conversationId: queuedJob.conversationId,
+          })
+
+          return { cancelled: true as const }
+        }
+
+        return {
+          cancelled: false as const,
+          job: latestJob,
+        }
+      })
+
+      if (persistenceResult.cancelled) {
+        throw new Error('Upload aborted')
+      }
+
+      requireRunnableJob(clientMessageId)
+      patchJob(clientMessageId, { preparationStatus: 'ready' })
+      return requireRunnableJob(clientMessageId)
+    },
+    [enqueueLocalMediaMutation, patchJob, requireRunnableJob],
+  )
+
+  const prepareJobForUpload = useCallback(
+    async (clientMessageId: string) => {
+      let job = requireRunnableJob(clientMessageId)
+
+      if (job.preparationStatus === 'ready') {
+        return job
+      }
+
+      let localPosterUri = job.localPosterUri ?? null
+
+      if (job.type === 'video' && !localPosterUri) {
+        const generatedPosterUri = await VideoThumbnails.getThumbnailAsync(job.fileUri, {
+          quality: 0.65,
+          time: job.durationMs ? Math.floor(job.durationMs / 2) : 2000,
+        })
+          .then((thumbnail) => thumbnail.uri)
+          .catch(() => null)
+
+        try {
+          requireRunnableJob(clientMessageId)
+        } catch (error) {
+          if (generatedPosterUri) {
+            await LegacyFileSystem.deleteAsync(generatedPosterUri, { idempotent: true }).catch(
+              () => undefined,
+            )
+          }
+          throw error
+        }
+
+        if (generatedPosterUri) {
+          localPosterUri = generatedPosterUri
+          patchJob(clientMessageId, { localPosterUri: generatedPosterUri })
+
+          try {
+            requireRunnableJob(clientMessageId)
+          } catch (error) {
+            await LegacyFileSystem.deleteAsync(generatedPosterUri, { idempotent: true }).catch(
+              () => undefined,
+            )
+            throw error
+          }
+        }
+      }
+
+      job = requireRunnableJob(clientMessageId)
+
+      return persistPendingMediaRecord(clientMessageId)
+    },
+    [patchJob, persistPendingMediaRecord, requireRunnableJob],
+  )
 
   const runUploadTask = useCallback(
     async ({
@@ -394,7 +563,7 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
 
   const finalizeAndSendJob = useCallback(
     async (clientMessageId: string) => {
-      let job = requireRunnableJob(clientMessageId)
+      let job = await prepareJobForUpload(clientMessageId)
       let preparedMedia = job.preparedMedia
 
       if (!preparedMedia) {
@@ -514,11 +683,39 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
         ...confirmedMessage,
         ...(sanitizedConfirmedMedia ? { media: sanitizedConfirmedMedia } : {}),
       }
+      const pendingMsgs = useChatStore.getState().optimisticMessages[job.conversationId] || []
+      const optimisticMatch = pendingMsgs.find(
+        (message) => message.id === clientMessageId || message.clientMessageId === clientMessageId,
+      )
+
+      const receiptMergedConfirmedMessage =
+        optimisticMatch &&
+        Array.isArray(optimisticMatch.readBy) &&
+        optimisticMatch.readBy.length > 0
+          ? (() => {
+              const existingReadBy = Array.isArray(sanitizedConfirmedMessage.readBy)
+                ? [...sanitizedConfirmedMessage.readBy]
+                : []
+
+              optimisticMatch.readBy.forEach((optRead) => {
+                if (!existingReadBy.some((entry) => entry.userId === optRead.userId)) {
+                  existingReadBy.push(optRead)
+                }
+              })
+
+              return {
+                ...sanitizedConfirmedMessage,
+                readBy: existingReadBy,
+                status:
+                  existingReadBy.length > 0 ? ('READ' as const) : sanitizedConfirmedMessage.status,
+              }
+            })()
+          : sanitizedConfirmedMessage
 
       try {
         await upsertRemoteMessage({
           currentUser: useAuthStore.getState().user ?? null,
-          message: sanitizedConfirmedMessage,
+          message: receiptMergedConfirmedMessage,
         })
       } catch (error) {
         console.error('[ChatMediaUpload] Failed to persist confirmed media message locally', error)
@@ -528,13 +725,13 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
       }
 
       try {
-        upsertMessageIntoConversationCache(queryClient, sanitizedConfirmedMessage)
-        patchExistingMessageAcrossConversationCaches(queryClient, sanitizedConfirmedMessage)
+        upsertMessageIntoConversationCache(queryClient, receiptMergedConfirmedMessage)
+        patchExistingMessageAcrossConversationCaches(queryClient, receiptMergedConfirmedMessage)
         upsertConversationSummaryInCache(queryClient, {
-          id: sanitizedConfirmedMessage.conversationId,
-          lastMessage: sanitizedConfirmedMessage.content ?? getMediaPlaceholderLabel(job.type),
-          lastMessageAt: sanitizedConfirmedMessage.createdAt,
-          updatedAt: sanitizedConfirmedMessage.updatedAt,
+          id: receiptMergedConfirmedMessage.conversationId,
+          lastMessage: receiptMergedConfirmedMessage.content ?? getMediaPlaceholderLabel(job.type),
+          lastMessageAt: receiptMergedConfirmedMessage.createdAt,
+          updatedAt: receiptMergedConfirmedMessage.updatedAt,
         })
       } catch (error) {
         console.error('[ChatMediaUpload] Failed to sync confirmed media message cache', error)
@@ -544,21 +741,24 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
         void queryClient.invalidateQueries({ queryKey: queryKeys.conversations.all })
       }
 
-      useChatStore.getState().confirmMessage(clientMessageId, sanitizedConfirmedMessage)
+      useChatStore.getState().confirmMessage(clientMessageId, receiptMergedConfirmedMessage)
       clearJobProgress(clientMessageId)
 
-      const isProcessing = sanitizedConfirmedMessage.media?.status === 'processing'
-      if (sanitizedConfirmedMessage.media?.thumbnailUrl && !isProcessing) {
+      const isProcessing = receiptMergedConfirmedMessage.media?.status === 'processing'
+      if (receiptMergedConfirmedMessage.media?.thumbnailUrl && !isProcessing) {
         await cleanupLocalPoster(job)
       }
 
       useChatMediaUploadStore.getState().removeJob(clientMessageId)
+      cleanupBatchSortAnchorsIfSettled(job.conversationId, job.batchId)
     },
     [
+      cleanupBatchSortAnchorsIfSettled,
       cleanupLocalPoster,
       clearJobProgress,
       enqueueLocalMediaMutation,
       patchJob,
+      prepareJobForUpload,
       queryClient,
       requireRunnableJob,
       runUploadTask,
@@ -677,19 +877,31 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
       }
 
       await Promise.allSettled([
-        deletePendingMediaMessage({
-          clientMessageId,
-          conversationId: job.conversationId,
-        }),
-        cleanupLocalPoster(job),
+        enqueueLocalMediaMutation(clientMessageId, () =>
+          deletePendingMediaMessage({
+            clientMessageId,
+            conversationId: job.conversationId,
+          }),
+        ),
+        (async () => {
+          const latestJob = useChatMediaUploadStore.getState().jobsById[clientMessageId] ?? job
+          await cleanupLocalPoster(latestJob)
+        })(),
       ])
 
       useChatStore.getState().removeOptimisticMessage(job.conversationId, clientMessageId)
       clearJobProgress(clientMessageId)
       useChatMediaUploadStore.getState().acknowledgeCancel(clientMessageId)
+      cleanupBatchSortAnchorsIfSettled(job.conversationId, job.batchId)
       void queryClient.invalidateQueries({ queryKey: queryKeys.conversations.all })
     },
-    [cleanupLocalPoster, clearJobProgress, queryClient],
+    [
+      cleanupBatchSortAnchorsIfSettled,
+      cleanupLocalPoster,
+      clearJobProgress,
+      enqueueLocalMediaMutation,
+      queryClient,
+    ],
   )
 
   useEffect(() => {

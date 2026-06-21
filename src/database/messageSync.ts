@@ -2,6 +2,14 @@ import { Q } from '@nozbe/watermelondb'
 
 import type { Collection, Model } from '@nozbe/watermelondb'
 
+import {
+  getMessageAnchorIdentityKey,
+  isMessageBeyondOptimisticReadFrontier,
+  mergeMessageStatus,
+  mergeReadByEntries,
+} from '../lib/messageIdentity'
+import { useChatStore } from '../stores/chatStore'
+
 import { ensureConversationBootstrap } from './conversationBootstrap'
 import { database } from './DatabaseManager'
 import { TABLES } from './schema'
@@ -24,6 +32,7 @@ type PendingTextMessageInput = MessageContext & {
   clientMessageId: string
   content: string
   conversationId: string
+  createdAt?: string | number | Date | null
   replyPreview?: string | ReplyPreviewData | null
   replyToId?: string | null
 }
@@ -173,6 +182,10 @@ const normalizeMessageStatus = (status?: string | null): MessageStatusValue => {
   }
 }
 
+const toMessageStatusValue = (status?: string | null): MessageStatusValue => {
+  return normalizeMessageStatus(status)
+}
+
 const buildConversationContextFromMessage = ({
   message,
   conversation,
@@ -268,7 +281,9 @@ const findMessageByClientMessageId = async ({
 const prepareMessageRecord = ({
   content,
   createdAt,
+  existingReadBy,
   existingReplyPreview,
+  existingStatus,
   message,
   record,
   status,
@@ -276,7 +291,9 @@ const prepareMessageRecord = ({
 }: {
   content: string
   createdAt: number
+  existingReadBy?: Message['readBy'] | null
   existingReplyPreview?: string | ReplyPreviewData | null
+  existingStatus?: MessageStatusValue | null
   message: Message
   record: MessageModel
   status: MessageStatusValue
@@ -286,8 +303,8 @@ const prepareMessageRecord = ({
   record.content = content
   record.media = message.media ?? null
   record.type = message.type
-  record.status = status
-  record.readBy = message.readBy ?? null
+  record.status = toMessageStatusValue(mergeMessageStatus(existingStatus ?? undefined, status))
+  record.readBy = mergeReadByEntries(existingReadBy ?? null, message.readBy ?? null) ?? null
   record.replyToId = getMessageReplyToId(message)
   record.replyPreview = mergeReplyPreview(
     existingReplyPreview ?? null,
@@ -434,6 +451,7 @@ export const createPendingMediaMessage = async ({
   content,
   conversation,
   conversationId,
+  createdAt,
   currentUser,
   media,
   replyPreview,
@@ -444,7 +462,15 @@ export const createPendingMediaMessage = async ({
     throw new Error('User is not authenticated')
   }
 
-  const now = Date.now()
+  const existingMessage = await findMessageByClientMessageId({
+    clientMessageId,
+    conversationId,
+  })
+  if (existingMessage) {
+    return existingMessage
+  }
+
+  const now = toTimestamp(createdAt) || Date.now()
   const conversationRecord = await ensureConversationBootstrap({
     conversationId,
     conversation: conversation ?? null,
@@ -734,7 +760,9 @@ export const upsertRemoteMessages = async ({
             prepareMessageRecord({
               content: preparedMessage.content,
               createdAt: preparedMessage.createdAt,
+              existingReadBy: record.readBy,
               existingReplyPreview: record.replyPreview,
+              existingStatus: record.status,
               message: normalizedMessage,
               record,
               status: normalizeMessageStatus(normalizedMessage.status),
@@ -754,7 +782,9 @@ export const upsertRemoteMessages = async ({
           prepareMessageRecord({
             content: preparedMessage.content,
             createdAt: preparedMessage.createdAt,
+            existingReadBy: pendingLocalRecord?.readBy ?? null,
             existingReplyPreview: pendingLocalRecord?.replyPreview ?? null,
+            existingStatus: pendingLocalRecord?.status ?? null,
             message: normalizedMessage,
             record,
             status: normalizeMessageStatus(normalizedMessage.status),
@@ -967,29 +997,85 @@ export const applyReadReceiptUpdate = async ({
   at,
   conversationId,
   currentUserId,
+  frontierAnchorIdentityKey,
+  frontierCreatedAt,
+  messageId,
   readByUserId,
 }: {
   at?: string
   conversationId: string
   currentUserId: string
+  frontierAnchorIdentityKey?: string
+  frontierCreatedAt?: string
+  messageId?: string
   readByUserId: string
 }) => {
   const messagesCollection = database.get<MessageModel>(TABLES.messages)
   const seenAt = at ?? new Date().toISOString()
-  const seenAtTimestamp = toTimestamp(seenAt) || Date.now()
-  const records = await messagesCollection
+  const explicitFrontierTimestamp = toTimestamp(frontierCreatedAt)
+  const frontierRecord =
+    !explicitFrontierTimestamp && messageId
+      ? ((await findRecordById(messagesCollection, messageId)) ??
+        (await findMessageByClientMessageId({
+          clientMessageId: messageId,
+          ...(conversationId ? { conversationId } : {}),
+        })))
+      : null
+  const effectiveFrontierAnchorIdentityKey =
+    frontierAnchorIdentityKey ?? getMessageAnchorIdentityKey(frontierRecord)
+  const frontierTimestamp =
+    explicitFrontierTimestamp ||
+    frontierRecord?.createdAt.getTime() ||
+    (!messageId ? toTimestamp(seenAt) || Date.now() : 0)
+
+  if (!frontierTimestamp) {
+    return
+  }
+
+  const anchorsByMessageId = useChatStore.getState().optimisticSortAnchors[conversationId] || {}
+  const rawRecords = await messagesCollection
     .query(
       Q.where('conversation_id', conversationId),
       Q.where('sender_id', currentUserId),
-      Q.where('created_at', Q.lte(seenAtTimestamp)),
+      Q.where('created_at', Q.lte(frontierTimestamp)),
     )
     .fetch()
+
+  const records = rawRecords.filter((record) => {
+    if (!messageId) {
+      return true
+    }
+
+    const recordTimestamp = record.createdAt.getTime()
+    if (recordTimestamp < frontierTimestamp) {
+      return true
+    }
+
+    if (recordTimestamp > frontierTimestamp) {
+      return false
+    }
+
+    if (
+      isMessageBeyondOptimisticReadFrontier({
+        anchorsByMessageId,
+        frontierIdentityKey: effectiveFrontierAnchorIdentityKey,
+        message: {
+          clientMessageId: record.clientMessageId,
+          id: record.id,
+        },
+      })
+    ) {
+      return false
+    }
+
+    return record.id.localeCompare(messageId) <= 0
+  })
 
   if (records.length === 0) {
     return
   }
 
-  const nextUpdatedAt = seenAtTimestamp
+  const nextUpdatedAt = toTimestamp(seenAt) || Date.now()
 
   await database.write(async () => {
     const operations = records.map((record) =>

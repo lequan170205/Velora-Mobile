@@ -320,6 +320,70 @@ export const trimMessagesCache = (queryClient: QueryClient, conversationId: stri
   )
 }
 
+export const syncLatestMessagesToLocalStore = async ({
+  conversation,
+  conversationId,
+  currentUser,
+}: MessagesQueryOptionsInput) => {
+  const remotePage = await conversationApi.getMessages(conversationId, {
+    limit: MESSAGE_PAGE_LIMIT,
+  })
+  markLatestMessagesSynced(conversationId)
+
+  if (remotePage.length === 0) {
+    return remotePage
+  }
+
+  await upsertRemoteMessages({
+    conversation: conversation ?? null,
+    currentUser: currentUser ?? null,
+    messages: remotePage,
+  })
+
+  return remotePage
+}
+
+export const refreshLatestMessagesPageFromLocalStore = async ({
+  conversation,
+  conversationId,
+  currentUser,
+  queryClient,
+}: MessagesQueryOptionsInput & {
+  queryClient: QueryClient
+}) => {
+  const localPage = sortMessagesNewestFirst(
+    await getLocalMessagesPage({
+      conversation: conversation ?? null,
+      conversationId,
+      currentUser: currentUser ?? null,
+      limit: MESSAGE_PAGE_LIMIT,
+    }),
+  )
+
+  queryClient.setQueryData<InfiniteData<Message[]> | undefined>(
+    queryKeys.conversations.messages(conversationId),
+    (oldData) => {
+      if (!oldData?.pages?.length) {
+        return localPage.length > 0
+          ? {
+              pages: [localPage],
+              pageParams: [undefined],
+            }
+          : oldData
+      }
+
+      const [, ...restPages] = oldData.pages
+
+      return {
+        ...oldData,
+        pages: [localPage, ...restPages],
+      }
+    },
+  )
+
+  return localPage
+}
+
 export function useMessages(conversationId: string) {
   const queryClient = useQueryClient()
   const currentUser = useAuthStore((state) => state.user)
@@ -348,20 +412,15 @@ export function useMessages(conversationId: string) {
 
     const syncLatestMessages = async () => {
       try {
-        const remotePage = await conversationApi.getMessages(conversationId, {
-          limit: MESSAGE_PAGE_LIMIT,
+        const remotePage = await syncLatestMessagesToLocalStore({
+          conversation,
+          conversationId,
+          currentUser,
         })
-        markLatestMessagesSynced(conversationId)
 
         if (cancelled || remotePage.length === 0) {
           return
         }
-
-        await upsertRemoteMessages({
-          conversation: conversation ?? null,
-          currentUser: currentUser ?? null,
-          messages: remotePage,
-        })
 
         if (cancelled) {
           return

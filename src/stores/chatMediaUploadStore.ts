@@ -13,7 +13,10 @@ export interface ChatMediaUploadProgress {
   progress: number
 }
 
+export type ChatMediaPreparationStatus = 'preparing' | 'ready'
+
 export interface ChatMediaUploadJob {
+  batchId: string
   clientMessageId: string
   conversationId: string
   type: 'image' | 'video'
@@ -38,6 +41,7 @@ export interface ChatMediaUploadJob {
   lastProgressAt?: number
   deliveryStartedAt?: number
   createdAt: string
+  preparationStatus: ChatMediaPreparationStatus
   cleanupPending: boolean
 }
 
@@ -274,8 +278,15 @@ const createLifecycleSlice: StateCreator<ChatMediaUploadStore, [], [], Lifecycle
 })
 
 const normalizeHydratedJob = (job: ChatMediaUploadJob): ChatMediaUploadJob => {
+  const batchId = job.batchId ?? job.clientMessageId
+  const preparationStatus = job.preparationStatus ?? 'ready'
+
   if (job.uploadStage === 'failed') {
-    return job
+    return {
+      ...job,
+      batchId,
+      preparationStatus,
+    }
   }
 
   const {
@@ -288,6 +299,8 @@ const normalizeHydratedJob = (job: ChatMediaUploadJob): ChatMediaUploadJob => {
 
   return {
     ...restJob,
+    batchId,
+    preparationStatus,
     uploadStage: 'queued',
   }
 }

@@ -4,6 +4,7 @@ import {
   mergeMessageCollectionByIdentity,
 } from './messageIdentity'
 
+import type { OptimisticSortAnchor } from '../stores/chatStore'
 import type { Message } from '../types/conversation.types'
 
 export type MessageLayout = {
@@ -126,6 +127,50 @@ const getStableLayout = (previousLayout: MessageLayout | undefined, nextLayout: 
 
 export const DEFAULT_MESSAGE_LAYOUT = DEFAULT_LAYOUT
 
+const isLocalOptimisticMessage = (message: Message) => {
+  const normalizedStatus = String(message.status ?? '').toUpperCase()
+  return (
+    normalizedStatus !== 'FAILED' &&
+    (Boolean(message.id?.startsWith('temp-')) || Boolean(message._id?.startsWith('temp-')))
+  )
+}
+
+const getMessageStableId = (message: Message) => {
+  return message.id || message._id || message.clientMessageId || ''
+}
+
+const getSortAnchorIdentityKey = (message: Message) => {
+  return message.clientMessageId || message.id || message._id || ''
+}
+
+const compareIdsDesc = (leftId?: string | null, rightId?: string | null) => {
+  const safeLeftId = leftId ?? ''
+  const safeRightId = rightId ?? ''
+  return safeRightId.localeCompare(safeLeftId)
+}
+
+const compareMessageIdsDesc = (left: Message, right: Message) => {
+  return compareIdsDesc(getMessageStableId(left), getMessageStableId(right))
+}
+
+const isMessageAfterOptimisticFrontier = (message: Message, anchor: OptimisticSortAnchor) => {
+  const messageCreatedAtMs = getMessageCreatedAtMs(message.createdAt)
+
+  if (messageCreatedAtMs > anchor.frontierCreatedAtMs) {
+    return true
+  }
+
+  if (messageCreatedAtMs < anchor.frontierCreatedAtMs) {
+    return false
+  }
+
+  if (!anchor.frontierMessageId) {
+    return false
+  }
+
+  return getMessageStableId(message).localeCompare(anchor.frontierMessageId) > 0
+}
+
 const compareMessagesCanonicalNewestFirst = (left: Message, right: Message) => {
   const timestampDelta =
     getMessageCreatedAtMs(right.createdAt) - getMessageCreatedAtMs(left.createdAt)
@@ -155,10 +200,12 @@ export const mergeMessageCollectionsNewestFirst = (existing: Message[], incoming
 
 export const buildMessageListState = ({
   localOptimistic,
+  optimisticSortAnchorsByMessageId,
   previousLayoutById,
   serverMessages,
 }: {
   localOptimistic: Message[]
+  optimisticSortAnchorsByMessageId: Record<string, OptimisticSortAnchor>
   previousLayoutById: Map<string, MessageLayout>
   serverMessages: Message[]
 }) => {
@@ -182,27 +229,55 @@ export const buildMessageListState = ({
   }
 
   const combinedMessages = [...pendingMessages, ...serverMessages]
-  const getVirtualTime = (msg: Message) => {
-    let time = getMessageCreatedAtMs(msg.createdAt)
-    const normalizedStatus = String(msg.status ?? '').toUpperCase()
-    const isLocalOptimistic =
-      normalizedStatus !== 'FAILED' &&
-      (Boolean(msg.id?.startsWith('temp-')) || Boolean(msg._id?.startsWith('temp-')))
-
-    if (isLocalOptimistic) {
-      time += 10000000000000
-    }
-
-    return time
-  }
 
   combinedMessages.sort((left, right) => {
-    const virtualDelta = getVirtualTime(right) - getVirtualTime(left)
-    if (virtualDelta !== 0) {
-      return virtualDelta
+    const leftIsLocalOptimistic = isLocalOptimisticMessage(left)
+    const rightIsLocalOptimistic = isLocalOptimisticMessage(right)
+    const leftAnchorIdentityKey = getSortAnchorIdentityKey(left)
+    const rightAnchorIdentityKey = getSortAnchorIdentityKey(right)
+    const leftAnchor = leftAnchorIdentityKey
+      ? optimisticSortAnchorsByMessageId[leftAnchorIdentityKey]
+      : undefined
+    const rightAnchor = rightAnchorIdentityKey
+      ? optimisticSortAnchorsByMessageId[rightAnchorIdentityKey]
+      : undefined
+    const leftEffectiveSortMs =
+      leftAnchor?.frontierCreatedAtMs ?? getMessageCreatedAtMs(left.createdAt)
+    const rightEffectiveSortMs =
+      rightAnchor?.frontierCreatedAtMs ?? getMessageCreatedAtMs(right.createdAt)
+    const effectiveDelta = rightEffectiveSortMs - leftEffectiveSortMs
+
+    if (effectiveDelta !== 0) {
+      return effectiveDelta
     }
 
-    return (right.id || right._id || '').localeCompare(left.id || left._id || '')
+    if (leftAnchor && !rightAnchor) {
+      return isMessageAfterOptimisticFrontier(right, leftAnchor) ? 1 : -1
+    }
+
+    if (!leftAnchor && rightAnchor) {
+      return isMessageAfterOptimisticFrontier(left, rightAnchor) ? -1 : 1
+    }
+
+    if (leftAnchor && rightAnchor) {
+      const frontierIdDelta = compareIdsDesc(
+        leftAnchor.frontierMessageId,
+        rightAnchor.frontierMessageId,
+      )
+      if (frontierIdDelta !== 0) {
+        return frontierIdDelta
+      }
+
+      if (leftAnchor.sequence !== rightAnchor.sequence) {
+        return rightAnchor.sequence - leftAnchor.sequence
+      }
+    }
+
+    if (leftIsLocalOptimistic !== rightIsLocalOptimistic) {
+      return leftIsLocalOptimistic ? 1 : -1
+    }
+
+    return compareMessageIdsDesc(left, right)
   })
 
   const dedupedMessages = mergeMessageCollectionByIdentity(

@@ -1,9 +1,17 @@
+import type { OptimisticSortAnchor } from '../stores/chatStore'
 import type { Message, MessageMedia } from '../types/conversation.types'
 
 type MessageLike = Partial<
   Pick<
     Message,
-    'id' | '_id' | 'clientMessageId' | 'createdAt' | 'updatedAt' | 'media' | 'replyPreview'
+    | 'id'
+    | '_id'
+    | 'clientMessageId'
+    | 'createdAt'
+    | 'updatedAt'
+    | 'media'
+    | 'readBy'
+    | 'replyPreview'
   >
 > & {
   status?: string
@@ -14,6 +22,25 @@ const isTempId = (value?: string | null) => Boolean(value?.startsWith('temp-'))
 const getTimestamp = (message: MessageLike) => {
   const value = message.updatedAt ?? message.createdAt
   return value ? new Date(value).getTime() : 0
+}
+
+type ReadByEntry = NonNullable<Message['readBy']>[number]
+
+const getStatusRank = (status?: string) => {
+  switch (status) {
+    case 'READ':
+      return 4
+    case 'DELIVERED':
+      return 3
+    case 'SENT':
+      return 2
+    case 'PENDING':
+      return 1
+    case 'FAILED':
+      return 0
+    default:
+      return -1
+  }
 }
 
 export const getMessageIdentityTokens = (message?: MessageLike | null) => {
@@ -30,6 +57,23 @@ export const getMessageIdentityTokens = (message?: MessageLike | null) => {
 
 export const getMessageIdentityKey = (message?: MessageLike | null) => {
   if (!message) return null
+  return message.clientMessageId ?? message.id ?? message._id ?? null
+}
+
+export const getMessageAnchorIdentityKey = (
+  message?:
+    | Pick<MessageLike, 'clientMessageId' | 'id' | '_id'>
+    | {
+        clientMessageId?: string | null
+        id?: string | null
+        _id?: string | null
+      }
+    | null,
+) => {
+  if (!message) {
+    return null
+  }
+
   return message.clientMessageId ?? message.id ?? message._id ?? null
 }
 
@@ -62,6 +106,106 @@ export const mergeMessageCollectionByIdentity = <T extends MessageLike>(messages
   return mergedMessages
 }
 
+export const isMessageBeyondOptimisticReadFrontier = ({
+  anchorsByMessageId,
+  frontierIdentityKey,
+  message,
+}: {
+  anchorsByMessageId: Record<string, OptimisticSortAnchor>
+  frontierIdentityKey?: string | null
+  message?:
+    | Pick<MessageLike, 'clientMessageId' | 'id' | '_id'>
+    | {
+        clientMessageId?: string | null
+        id?: string | null
+        _id?: string | null
+      }
+    | null
+}) => {
+  if (!frontierIdentityKey) {
+    return false
+  }
+
+  const frontierAnchor = anchorsByMessageId[frontierIdentityKey]
+  const messageIdentityKey = getMessageAnchorIdentityKey(message)
+  const messageAnchor = messageIdentityKey ? anchorsByMessageId[messageIdentityKey] : undefined
+
+  if (!frontierAnchor || !messageAnchor) {
+    return false
+  }
+
+  const sharesBatch =
+    Boolean(frontierAnchor.batchId) &&
+    Boolean(messageAnchor.batchId) &&
+    frontierAnchor.batchId === messageAnchor.batchId
+  const sharesFrontierGroup =
+    frontierAnchor.frontierCreatedAtMs === messageAnchor.frontierCreatedAtMs &&
+    (frontierAnchor.frontierMessageId ?? null) === (messageAnchor.frontierMessageId ?? null)
+
+  if (!sharesBatch && !sharesFrontierGroup) {
+    return false
+  }
+
+  return messageAnchor.sequence > frontierAnchor.sequence
+}
+
+export const mergeReadByEntries = (
+  existing?: Message['readBy'] | null,
+  incoming?: Message['readBy'] | null,
+): Message['readBy'] | undefined => {
+  if (!Array.isArray(existing) && !Array.isArray(incoming)) {
+    return undefined
+  }
+
+  const mergedByUserId = new Map<string, ReadByEntry>()
+
+  const mergeEntries = (entries?: Message['readBy'] | null) => {
+    if (!Array.isArray(entries)) {
+      return
+    }
+
+    entries.forEach((entry) => {
+      if (!entry?.userId) {
+        return
+      }
+
+      const currentEntry = mergedByUserId.get(entry.userId)
+      if (!currentEntry) {
+        mergedByUserId.set(entry.userId, entry)
+        return
+      }
+
+      const currentAtMs = Date.parse(currentEntry.at)
+      const nextAtMs = Date.parse(entry.at)
+      if (!Number.isFinite(currentAtMs) || nextAtMs > currentAtMs) {
+        mergedByUserId.set(entry.userId, entry)
+      }
+    })
+  }
+
+  mergeEntries(existing)
+  mergeEntries(incoming)
+
+  return mergedByUserId.size > 0 ? Array.from(mergedByUserId.values()) : undefined
+}
+
+export const mergeMessageStatus = (existingStatus?: string, incomingStatus?: string) => {
+  const safeExistingStatus = existingStatus?.toUpperCase()
+  const safeIncomingStatus = incomingStatus?.toUpperCase()
+
+  if (safeExistingStatus === 'FAILED' && safeIncomingStatus && safeIncomingStatus !== 'FAILED') {
+    return safeIncomingStatus
+  }
+
+  if (safeIncomingStatus === 'FAILED' && safeExistingStatus && safeExistingStatus !== 'FAILED') {
+    return safeExistingStatus
+  }
+
+  return getStatusRank(safeExistingStatus) >= getStatusRank(safeIncomingStatus)
+    ? safeExistingStatus
+    : safeIncomingStatus
+}
+
 export const mergeMessageRecords = <T extends MessageLike>(existing: T, incoming: T): T => {
   const existingHasStableId = Boolean(existing.id && !isTempId(existing.id))
   const incomingHasStableId = Boolean(incoming.id && !isTempId(incoming.id))
@@ -83,13 +227,17 @@ export const mergeMessageRecords = <T extends MessageLike>(existing: T, incoming
   }
 
   const mergedMedia = mergeMessageMedia(existing.media, incoming.media)
+  const mergedReadBy = mergeReadByEntries(existing.readBy, incoming.readBy)
   const mergedReplyPreview = mergeReplyPreview(existing.replyPreview, incoming.replyPreview)
+  const mergedStatus = mergeMessageStatus(existing.status, incoming.status)
 
   return {
     ...fallback,
     ...preferred,
     ...(mergedMedia ? { media: mergedMedia } : {}),
+    ...(mergedReadBy ? { readBy: mergedReadBy } : {}),
     ...(mergedReplyPreview ? { replyPreview: mergedReplyPreview } : {}),
+    ...(mergedStatus ? { status: mergedStatus } : {}),
   }
 }
 

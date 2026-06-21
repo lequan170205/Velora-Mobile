@@ -54,7 +54,13 @@ import { queryKeys } from '../../src/constants/queryKeys'
 import { useAnchoredMessages } from '../../src/hooks/useAnchoredMessages'
 import { useChatMediaUploads } from '../../src/hooks/useChatMediaUploads'
 import { useRecallMessage } from '../../src/hooks/useMessageActions'
-import { trimMessagesCache, useMessages, useSendMessage } from '../../src/hooks/useMessages'
+import {
+  refreshLatestMessagesPageFromLocalStore,
+  syncLatestMessagesToLocalStore,
+  trimMessagesCache,
+  useMessages,
+  useSendMessage,
+} from '../../src/hooks/useMessages'
 import {
   getMediaUploadStage,
   getResolvedMediaPosterUri,
@@ -78,6 +84,7 @@ import { useChatStore } from '../../src/stores/chatStore'
 import { useChatVideoPlaybackStore } from '../../src/stores/chatVideoPlaybackStore'
 import { useMessageListUiStore } from '../../src/stores/messageListUiStore'
 
+import type { OptimisticSortAnchor } from '../../src/stores/chatStore'
 import type { ChatParticipant, Conversation, Message } from '../../src/types/conversation.types'
 import type { ImagePickerAsset } from 'expo-image-picker'
 
@@ -85,12 +92,32 @@ type ActiveContextMenuState = MessageBubbleContextMenuPayload
 
 const EMPTY_MESSAGES: Message[] = []
 const EMPTY_TYPERS: string[] = []
+const EMPTY_OPTIMISTIC_SORT_ANCHORS: Record<string, OptimisticSortAnchor> = {}
 const EMPTY_READ_RECEIPT_PARTICIPANTS: ChatParticipant[] = []
 const renderableOptimisticMessagesCache = new WeakMap<Message[], Message[]>()
 const ANCHOR_MEDIA_VIEWER_WINDOW_RADIUS = 4
 const TIMESTAMP_REVEAL_MAX_OFFSET = 64
 const isPersistedServerMessageId = (messageId?: string | null) =>
   Boolean(messageId && !messageId.startsWith('temp-'))
+const getClientMessageIdentity = (message?: Message | null) => {
+  if (!message) {
+    return null
+  }
+
+  if (message.clientMessageId) {
+    return message.clientMessageId
+  }
+
+  if (message.id?.startsWith('temp-')) {
+    return message.id
+  }
+
+  if (message._id?.startsWith('temp-')) {
+    return message._id
+  }
+
+  return null
+}
 const getOrderDebugSample = (messages: Message[], replyTargetId?: string | null) => {
   return messages.slice(0, 5).map((message, index) => ({
     index,
@@ -329,20 +356,26 @@ const MessageRow = memo(
 )
 
 type TimelineMode = 'latest' | 'anchor'
-type PendingOwnSendBottomScrollMode = 'none' | 'animated' | 'already-scrolled'
+type PendingOwnSendBottomScrollMode = 'none' | 'animated'
+type PendingOwnMediaBatchScrollTransaction = {
+  batchId: string
+  clientMessageIds: Set<string>
+  pendingConfirmSuppressClientMessageIds: Set<string>
+  initialScrollConsumed: boolean
+}
 
 const getPrimaryStatusLabel = ({
-  hasPlacedReadReceipt,
+  hasReadActivityAtOrBeyondMessage,
   message,
 }: {
-  hasPlacedReadReceipt: boolean
+  hasReadActivityAtOrBeyondMessage: boolean
   message: Message
 }) => {
   const normalizedStatus = String(message.status ?? '').toUpperCase()
 
   if (normalizedStatus === 'FAILED') return 'Failed'
 
-  if (hasPlacedReadReceipt) return null
+  if (hasReadActivityAtOrBeyondMessage) return null
 
   const isTempOptimistic =
     normalizedStatus !== 'FAILED' &&
@@ -366,6 +399,12 @@ export default function ChatScreen() {
   const localOptimistic = useChatStore(
     useCallback(
       (state) => getRenderableOptimisticMessages(state.optimisticMessages[conversationId]),
+      [conversationId],
+    ),
+  )
+  const optimisticSortAnchorsByMessageId = useChatStore(
+    useCallback(
+      (state) => state.optimisticSortAnchors[conversationId] ?? EMPTY_OPTIMISTIC_SORT_ANCHORS,
       [conversationId],
     ),
   )
@@ -409,6 +448,7 @@ export default function ChatScreen() {
 
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useMessages(conversationId)
+  const hasLoadedLatestMessagePages = Boolean(data?.pages.length)
   const {
     activeAnchorTargetId,
     anchorData,
@@ -439,8 +479,14 @@ export default function ChatScreen() {
   const indexByIdRef = useRef<Map<string, number>>(new Map())
   const messageInputRef = useRef<MessageInputHandle>(null)
   const pendingOwnSendBottomScrollRef = useRef<PendingOwnSendBottomScrollMode>('none')
+  const pendingOwnMediaBatchScrollTransactionsRef = useRef<
+    Map<string, PendingOwnMediaBatchScrollTransaction>
+  >(new Map())
+  const pendingOwnMediaBatchByClientMessageIdRef = useRef<Map<string, string>>(new Map())
   const isScrollButtonVisible = useSharedValue(false)
   const isNearBottomRef = useRef(true)
+  const lastSentSeenFrontierRef = useRef<string | null>(null)
+  const previousIsConnectedRef = useRef(isConnected)
   const timestampRevealOffset = useSharedValue(0)
   const [isNearBottom, setIsNearBottom] = useState(true)
   const [messageViewportHeight, setMessageViewportHeight] = useState(0)
@@ -597,10 +643,11 @@ export default function ChatScreen() {
     () =>
       buildMessageListState({
         localOptimistic: timelineMode === 'latest' ? localOptimistic : EMPTY_MESSAGES,
+        optimisticSortAnchorsByMessageId,
         previousLayoutById: layoutByIdRef.current,
         serverMessages: activeServerMessages,
       }),
-    [activeServerMessages, localOptimistic, timelineMode],
+    [activeServerMessages, localOptimistic, optimisticSortAnchorsByMessageId, timelineMode],
   )
 
   layoutByIdRef.current = layoutById
@@ -674,7 +721,12 @@ export default function ChatScreen() {
       const messagesToConfirm: Message[] = []
 
       serverMessages.forEach((message) => {
-        if (message.clientMessageId && optimisticIds.has(message.clientMessageId)) {
+        if (
+          message.clientMessageId &&
+          optimisticIds.has(message.clientMessageId) &&
+          message.type === 'text' &&
+          !message.media
+        ) {
           messagesToConfirm.push(message)
         }
       })
@@ -695,7 +747,14 @@ export default function ChatScreen() {
 
   const newestMessage = orderedMessages[0]
   const newestMessageId = newestMessage?.id
+  const newestClientMessageId = getClientMessageIdentity(newestMessage)
   const newestSenderId = newestMessage?.senderId
+  const latestSeenFrontierMessageId = useMemo(() => {
+    const frontierMessage =
+      orderedMessages.find((message) => isPersistedServerMessageId(message.id)) ?? null
+
+    return frontierMessage?.id ?? null
+  }, [orderedMessages])
   const prevNewestMessageId = useRef(newestMessageId)
 
   useEffect(() => {
@@ -905,19 +964,87 @@ export default function ChatScreen() {
     [queryClient],
   )
 
+  const emitMarkSeenToFrontier = useCallback(
+    (frontierMessageId: string, options?: { force?: boolean }) => {
+      if (!socket?.connected) {
+        return
+      }
+
+      const frontierKey = `${conversationId}:${frontierMessageId}`
+      if (!options?.force && lastSentSeenFrontierRef.current === frontierKey) {
+        return
+      }
+
+      socket.emit('mark_seen', {
+        conversationId,
+        upToMessageId: frontierMessageId,
+      })
+      lastSentSeenFrontierRef.current = frontierKey
+      clearConversationUnread(conversationId)
+    },
+    [clearConversationUnread, conversationId, socket],
+  )
+
   useEffect(() => {
     if (!transitionDone) return
 
     const timer = setTimeout(() => {
       if (socket?.connected) {
         socket.emit('join_conversation', conversationId)
-        socket.emit('mark_seen', conversationId)
-        clearConversationUnread(conversationId)
       }
     }, 100)
 
     return () => clearTimeout(timer)
-  }, [clearConversationUnread, conversationId, socket, socket?.connected, transitionDone])
+  }, [conversationId, socket, socket?.connected, transitionDone])
+
+  useEffect(() => {
+    if (!isConnected) {
+      lastSentSeenFrontierRef.current = null
+    }
+  }, [isConnected])
+
+  const registerPendingOwnMediaBatchScrollTransaction = useCallback(
+    (batch: { batchId: string; clientMessageIds: string[] }) => {
+      if (batch.clientMessageIds.length === 0) {
+        return
+      }
+
+      pendingOwnMediaBatchScrollTransactionsRef.current.set(batch.batchId, {
+        batchId: batch.batchId,
+        clientMessageIds: new Set(batch.clientMessageIds),
+        pendingConfirmSuppressClientMessageIds: new Set(batch.clientMessageIds),
+        initialScrollConsumed: false,
+      })
+
+      batch.clientMessageIds.forEach((clientMessageId) => {
+        pendingOwnMediaBatchByClientMessageIdRef.current.set(clientMessageId, batch.batchId)
+      })
+    },
+    [],
+  )
+
+  const clearPendingOwnMediaBatchScrollTransaction = useCallback((batchId: string) => {
+    const transactions = pendingOwnMediaBatchScrollTransactionsRef.current
+    const transaction = transactions.get(batchId)
+
+    if (!transaction) {
+      return
+    }
+
+    transactions.delete(batchId)
+    transaction.clientMessageIds.forEach((clientMessageId) => {
+      if (pendingOwnMediaBatchByClientMessageIdRef.current.get(clientMessageId) === batchId) {
+        pendingOwnMediaBatchByClientMessageIdRef.current.delete(clientMessageId)
+      }
+    })
+  }, [])
+
+  useEffect(() => {
+    lastSentSeenFrontierRef.current = null
+    pendingOwnSendBottomScrollRef.current = 'none'
+    pendingOwnMediaBatchScrollTransactionsRef.current.clear()
+    pendingOwnMediaBatchByClientMessageIdRef.current.clear()
+  }, [conversationId])
 
   const scrollToBottom = useCallback((animated = true) => {
     listRef.current?.scrollToOffset({ offset: 0, animated })
@@ -1004,6 +1131,25 @@ export default function ChatScreen() {
     if (newestMessageId && newestMessageId !== prevNewestMessageId.current) {
       const isInitialAutoScroll = prevNewestMessageId.current === undefined
       const isMyMessage = newestSenderId === user?.id
+      const pendingOwnMediaBatchId =
+        newestClientMessageId !== null
+          ? pendingOwnMediaBatchByClientMessageIdRef.current.get(newestClientMessageId)
+          : undefined
+      const pendingOwnMediaBatchScrollTransaction = pendingOwnMediaBatchId
+        ? pendingOwnMediaBatchScrollTransactionsRef.current.get(pendingOwnMediaBatchId)
+        : undefined
+      const newestBelongsToPendingOwnMediaBatch =
+        newestClientMessageId !== null &&
+        Boolean(pendingOwnMediaBatchScrollTransaction?.clientMessageIds.has(newestClientMessageId))
+      const shouldSuppressPendingOwnMediaConfirmScroll =
+        isMyMessage &&
+        newestClientMessageId !== null &&
+        Boolean(
+          pendingOwnMediaBatchScrollTransaction?.initialScrollConsumed &&
+          pendingOwnMediaBatchScrollTransaction.pendingConfirmSuppressClientMessageIds.has(
+            newestClientMessageId,
+          ),
+        )
 
       const shouldAutoScroll = isMyMessage || isNearBottomRef.current || isInitialAutoScroll
 
@@ -1016,6 +1162,24 @@ export default function ChatScreen() {
           if (nextScrollMode === 'animated') {
             scrollToBottom()
           }
+          if (newestBelongsToPendingOwnMediaBatch && pendingOwnMediaBatchScrollTransaction) {
+            pendingOwnMediaBatchScrollTransaction.initialScrollConsumed = true
+          }
+        } else if (
+          shouldSuppressPendingOwnMediaConfirmScroll &&
+          newestClientMessageId &&
+          pendingOwnMediaBatchId &&
+          pendingOwnMediaBatchScrollTransaction
+        ) {
+          pendingOwnMediaBatchScrollTransaction.pendingConfirmSuppressClientMessageIds.delete(
+            newestClientMessageId,
+          )
+
+          if (
+            pendingOwnMediaBatchScrollTransaction.pendingConfirmSuppressClientMessageIds.size === 0
+          ) {
+            clearPendingOwnMediaBatchScrollTransaction(pendingOwnMediaBatchId)
+          }
         } else {
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
@@ -1024,22 +1188,92 @@ export default function ChatScreen() {
           })
         }
       }
-
-      if (socket?.connected && shouldAutoScroll) {
-        socket.emit('mark_seen', conversationId)
-        clearConversationUnread(conversationId)
-      }
     }
     prevNewestMessageId.current = newestMessageId
   }, [
-    clearConversationUnread,
-    conversationId,
+    newestClientMessageId,
     newestMessageId,
     newestSenderId,
     scrollToBottom,
-    socket,
     timelineMode,
     user?.id,
+    clearPendingOwnMediaBatchScrollTransaction,
+  ])
+
+  useEffect(() => {
+    if (
+      !transitionDone ||
+      timelineMode !== 'latest' ||
+      !isConnected ||
+      !isNearBottom ||
+      !latestSeenFrontierMessageId
+    ) {
+      return
+    }
+
+    emitMarkSeenToFrontier(latestSeenFrontierMessageId)
+  }, [
+    emitMarkSeenToFrontier,
+    isConnected,
+    isNearBottom,
+    latestSeenFrontierMessageId,
+    timelineMode,
+    transitionDone,
+  ])
+
+  useEffect(() => {
+    const wasConnected = previousIsConnectedRef.current
+    previousIsConnectedRef.current = isConnected
+
+    if (
+      !transitionDone ||
+      timelineMode !== 'latest' ||
+      !hasLoadedLatestMessagePages ||
+      !isConnected ||
+      wasConnected
+    ) {
+      return
+    }
+
+    let cancelled = false
+
+    const syncConversationAfterReconnect = async () => {
+      try {
+        await syncLatestMessagesToLocalStore({
+          conversation: currentConversation ?? null,
+          conversationId,
+          currentUser: user ?? null,
+        })
+
+        if (cancelled) {
+          return
+        }
+
+        await refreshLatestMessagesPageFromLocalStore({
+          conversation: currentConversation ?? null,
+          conversationId,
+          currentUser: user ?? null,
+          queryClient,
+        })
+      } catch (error) {
+        console.warn('[Conversation] Failed to sync latest messages after reconnect', error)
+      }
+    }
+
+    void syncConversationAfterReconnect()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    conversationId,
+    currentConversation,
+    hasLoadedLatestMessagePages,
+    isConnected,
+    queryClient,
+    timelineMode,
+    transitionDone,
+    user,
   ])
 
   const participantsMap = useMemo(() => {
@@ -1079,6 +1313,7 @@ export default function ChatScreen() {
     const nextLatestOutgoingIdentityKey = getMessageIdentityKey(latestOutgoingMessage)
 
     let readReceiptIdentityKey: string | null = null
+    let readReceiptAnchorIndex = -1
     if (!currentConversation?.isGroup && otherParticipant) {
       // Receipt avatar follows the newest other-participant activity unless
       // the latest confirmed read frontier on our outgoing messages is newer.
@@ -1111,20 +1346,32 @@ export default function ChatScreen() {
         : newestReadOutgoingMessage
 
       readReceiptIdentityKey = getMessageIdentityKey(receiptAnchorMessage)
+      readReceiptAnchorIndex = receiptAnchorMessage
+        ? orderedMessages.indexOf(receiptAnchorMessage)
+        : -1
       if (readReceiptIdentityKey) {
         readReceiptMap.set(readReceiptIdentityKey, [otherParticipant])
       }
     }
 
-    // Only suppress the latest outgoing status when the receipt avatar is
-    // anchored to that exact message, not merely elsewhere in the thread.
+    const latestOutgoingIndex = latestOutgoingMessage
+      ? orderedMessages.indexOf(latestOutgoingMessage)
+      : -1
+    const hasReadActivityAtOrBeyondLatestOutgoing =
+      readReceiptAnchorIndex >= 0 &&
+      latestOutgoingIndex >= 0 &&
+      readReceiptAnchorIndex <= latestOutgoingIndex
+
+    // Once the other participant's read/activity marker has reached this
+    // message or anything newer, suppress the trailing "Sent" label to avoid
+    // showing two contradictory delivery signals at once.
     if (
       latestOutgoingMessage &&
       nextLatestOutgoingIdentityKey &&
-      nextLatestOutgoingIdentityKey !== readReceiptIdentityKey
+      !hasReadActivityAtOrBeyondLatestOutgoing
     ) {
       const primaryStatusLabel = getPrimaryStatusLabel({
-        hasPlacedReadReceipt: nextLatestOutgoingIdentityKey === readReceiptIdentityKey,
+        hasReadActivityAtOrBeyondMessage: hasReadActivityAtOrBeyondLatestOutgoing,
         message: latestOutgoingMessage,
       })
       if (primaryStatusLabel) {
@@ -1178,23 +1425,27 @@ export default function ChatScreen() {
       isNearBottomRef.current = true
       setIsNearBottom(true)
       isScrollButtonVisible.value = false
-      pendingOwnSendBottomScrollRef.current = 'already-scrolled'
 
       if (timelineMode === 'anchor') {
-        void returnToLatestTimeline()
+        pendingOwnSendBottomScrollRef.current = 'animated'
+        void returnToLatestTimeline(false)
       } else {
-        requestAnimationFrame(() => {
-          scrollToBottom()
-        })
+        pendingOwnSendBottomScrollRef.current = 'animated'
       }
 
-      await enqueueMediaAssets(assets)
+      const queuedMediaBatch = await enqueueMediaAssets(assets, {
+        onWillCommitBatch: registerPendingOwnMediaBatchScrollTransaction,
+      })
+
+      if (!queuedMediaBatch) {
+        pendingOwnSendBottomScrollRef.current = 'none'
+      }
     },
     [
       enqueueMediaAssets,
       isScrollButtonVisible,
+      registerPendingOwnMediaBatchScrollTransaction,
       returnToLatestTimeline,
-      scrollToBottom,
       timelineMode,
     ],
   )
@@ -1545,13 +1796,25 @@ export default function ChatScreen() {
 
     if (timelineMode === 'latest' && pendingReturnToLatestRef.current) {
       pendingReturnToLatestRef.current = false
+      const pendingOwnMediaBatchId =
+        newestClientMessageId !== null
+          ? pendingOwnMediaBatchByClientMessageIdRef.current.get(newestClientMessageId)
+          : undefined
+      const pendingOwnMediaBatchScrollTransaction = pendingOwnMediaBatchId
+        ? pendingOwnMediaBatchScrollTransactionsRef.current.get(pendingOwnMediaBatchId)
+        : undefined
+
+      if (newestClientMessageId && pendingOwnMediaBatchScrollTransaction) {
+        pendingOwnMediaBatchScrollTransaction.initialScrollConsumed = true
+      }
+
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           scrollToBottom()
         })
       })
     }
-  }, [orderedMessages, runReplyScroll, scrollToBottom, timelineMode])
+  }, [newestClientMessageId, orderedMessages, runReplyScroll, scrollToBottom, timelineMode])
 
   useEffect(() => {
     return () => {
