@@ -1,6 +1,13 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import React, { useEffect, useMemo, useState } from 'react'
-import { Pressable, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Pressable,
+  Text,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
+  type GestureResponderEvent,
+} from 'react-native'
 import Animated, {
   useAnimatedRef,
   useAnimatedStyle,
@@ -59,6 +66,7 @@ export function ChatMediaBubble({
 }: ChatMediaBubbleProps) {
   const { width: screenWidth } = useWindowDimensions()
   const mediaRef = useAnimatedRef<View>()
+  const didLongPressRef = useRef(false)
   const clientMessageId = message.clientMessageId ?? message.id
   const uploadJob = useChatMediaUploadStore((state) => state.jobsById[clientMessageId] ?? null)
   const progress = useChatMediaUploadStore(
@@ -163,6 +171,36 @@ export function ChatMediaBubble({
       messageId: clientMessageId,
       sourceRef: mediaRef,
     })
+  }
+
+  const handleMediaPressIn = () => {
+    didLongPressRef.current = false
+    onPressIn?.()
+  }
+
+  const handleMediaLongPress = () => {
+    didLongPressRef.current = true
+    onLongPress?.()
+  }
+
+  const handleMediaPress = () => {
+    if (didLongPressRef.current) {
+      didLongPressRef.current = false
+      return
+    }
+
+    openViewer(isVideo)
+  }
+
+  const handleInlinePlayPress = (event: GestureResponderEvent) => {
+    event.stopPropagation()
+
+    if (didLongPressRef.current) {
+      didLongPressRef.current = false
+      return
+    }
+
+    setActiveMessage(message.conversationId, isInlineVideoActive ? null : message.id)
   }
 
   const handleRetry = () => {
@@ -310,9 +348,9 @@ export function ChatMediaBubble({
         accessibilityLabel={pressableAccessibilityLabel}
         accessibilityRole="button"
         {...(delayLongPress ? { delayLongPress } : {})}
-        {...(onLongPress ? { onLongPress } : {})}
-        {...(onPressIn ? { onPressIn } : {})}
-        onPress={() => openViewer(isVideo)}
+        {...(onLongPress ? { onLongPress: handleMediaLongPress } : {})}
+        onPress={handleMediaPress}
+        onPressIn={handleMediaPressIn}
         style={mediaPressableStyle}
       >
         <ChatMediaFrame
@@ -341,12 +379,9 @@ export function ChatMediaBubble({
               accessibilityRole="button"
               activeOpacity={0.9}
               {...(delayLongPress ? { delayLongPress } : {})}
-              {...(onLongPress ? { onLongPress } : {})}
-              {...(onPressIn ? { onPressIn } : {})}
-              onPress={(event) => {
-                event.stopPropagation()
-                setActiveMessage(message.conversationId, isInlineVideoActive ? null : message.id)
-              }}
+              {...(onLongPress ? { onLongPress: handleMediaLongPress } : {})}
+              onPress={handleInlinePlayPress}
+              onPressIn={handleMediaPressIn}
               style={{
                 alignItems: 'center',
                 backgroundColor: 'rgba(12,12,13,0.58)',

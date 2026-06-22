@@ -339,7 +339,8 @@ const MessageBubbleComponent = function MessageBubble({
   onOpenContextMenu,
   onOpenMedia,
 }: MessageBubbleProps) {
-  const CONTEXT_MENU_LONG_PRESS_DELAY_MS = 60
+  const CONTEXT_MENU_LONG_PRESS_DELAY_MS = 140
+  const MEDIA_CONTEXT_MENU_LONG_PRESS_DELAY_MS = 180
   const { width: screenWidth } = useWindowDimensions()
   const currentUserId = useAuthStore((state) => state.user?.id ?? null)
   const resolvedConversationId = conversationId || message.conversationId
@@ -906,7 +907,7 @@ const MessageBubbleComponent = function MessageBubble({
                           </Text>
                         ) : shouldRenderMediaBubble ? (
                           <ChatMediaBubble
-                            delayLongPress={CONTEXT_MENU_LONG_PRESS_DELAY_MS}
+                            delayLongPress={MEDIA_CONTEXT_MENU_LONG_PRESS_DELAY_MS}
                             message={message}
                             onLongPress={handleLongPress}
                             onPressIn={handlePressIn}
