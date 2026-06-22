@@ -1,5 +1,4 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import { Image } from 'expo-image'
 import React, { useEffect, useMemo, useState } from 'react'
 import { Pressable, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
 import Animated, {
@@ -14,13 +13,14 @@ import {
   getChatMediaMaxWidth,
   getMediaUploadStage,
   getResolvedMediaUri,
-  isRemoteMediaUri,
 } from '../../lib/chatMedia'
 import { formatDurationLabel } from '../../lib/reels'
 import { useChatMediaUploadStore } from '../../stores/chatMediaUploadStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useChatVideoPlaybackStore } from '../../stores/chatVideoPlaybackStore'
 import { ReelVideo } from '../reels/ReelVideo'
+
+import { ChatMediaFrame } from './ChatMediaFrame'
 
 import type { ChatMediaViewerOpenPayload } from './ChatMediaViewer'
 import type { Message } from '../../types/conversation.types'
@@ -29,6 +29,7 @@ interface ChatMediaBubbleProps {
   message: Message
   delayLongPress?: number
   onLongPress?: () => void
+  onPressIn?: () => void
   onOpenMedia?: (payload: ChatMediaViewerOpenPayload) => void
 }
 
@@ -53,6 +54,7 @@ export function ChatMediaBubble({
   delayLongPress,
   message,
   onLongPress,
+  onPressIn,
   onOpenMedia,
 }: ChatMediaBubbleProps) {
   const { width: screenWidth } = useWindowDimensions()
@@ -142,7 +144,6 @@ export function ChatMediaBubble({
   const durationLabel = formatDurationLabel(
     message.media?.durationMs ?? uploadJob?.durationMs ?? null,
   )
-  const cachePolicy = isRemoteMediaUri(posterUri ?? mediaUri) ? 'memory-disk' : 'memory'
 
   const progressStyle = useAnimatedStyle(() => ({
     width: mediaWidth * progressValue.value,
@@ -178,78 +179,150 @@ export function ChatMediaBubble({
       }))
   }
 
-  const renderImage = () =>
-    mediaUri ? (
-      <Image
-        accessibilityLabel="Photo attachment"
-        cachePolicy={cachePolicy}
-        contentFit="contain"
-        recyclingKey={mediaUri}
-        source={{ uri: mediaUri }}
-        style={{ backgroundColor: '#EFEFEF', height: mediaHeight, width: mediaWidth }}
-        transition={150}
-      />
-    ) : (
-      <View
-        style={{
-          alignItems: 'center',
-          backgroundColor: '#EDEDED',
-          height: mediaHeight,
-          justifyContent: 'center',
-          width: mediaWidth,
-        }}
-      >
-        <MaterialIcons color="#A1A1AA" name="image" size={28} />
-      </View>
-    )
+  const mediaFrameStyle = {
+    borderRadius: 18,
+    height: mediaHeight,
+    width: mediaWidth,
+  } as const
+  const mediaBubbleStyle = {
+    backgroundColor: '#111111',
+    borderRadius: 18,
+    height: mediaHeight,
+    overflow: 'hidden',
+    width: mediaWidth,
+  } as const
+  const mediaPressableStyle = {
+    height: mediaHeight,
+    width: mediaWidth,
+  } as const
+  const frameAccessibilityLabel = isVideo ? 'Video attachment' : 'Photo attachment'
+  const pressableAccessibilityLabel = isVideo ? 'Open video' : 'Open photo'
+  const frameKind = isVideo ? 'video' : 'image'
+  const frameUri = isVideo ? posterUri : mediaUri
 
-  const renderVideoPoster = () =>
-    posterUri ? (
-      <Image
-        accessibilityLabel="Video attachment"
-        cachePolicy={cachePolicy}
-        contentFit="contain"
-        recyclingKey={posterUri}
-        source={{ uri: posterUri }}
-        style={{ backgroundColor: '#0C0C0D', height: mediaHeight, width: mediaWidth }}
-        transition={150}
-      />
-    ) : (
-      <View
-        style={{
-          alignItems: 'center',
-          backgroundColor: '#101012',
-          height: mediaHeight,
-          justifyContent: 'center',
-          width: mediaWidth,
-        }}
-      >
-        <MaterialIcons color="#D4D4D8" name="videocam" size={30} />
-      </View>
-    )
-
-  return (
-    <Animated.View
-      collapsable={false}
-      ref={mediaRef}
+  const durationBadge = durationLabel ? (
+    <View
       style={{
-        backgroundColor: '#111111',
-        borderRadius: 18,
-        height: mediaHeight,
-        overflow: 'hidden',
-        width: mediaWidth,
+        backgroundColor: 'rgba(12,12,13,0.68)',
+        borderRadius: 999,
+        bottom: 10,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        position: 'absolute',
+        right: 10,
       }}
     >
-      {isVideo ? (
-        <Pressable
-          accessibilityLabel="Open video"
-          accessibilityRole="button"
-          {...(delayLongPress ? { delayLongPress } : {})}
-          {...(onLongPress ? { onLongPress } : {})}
-          onPress={() => openViewer(true)}
-          style={{ height: mediaHeight, width: mediaWidth }}
+      <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '600' }}>{durationLabel}</Text>
+    </View>
+  ) : null
+
+  const statusOverlay =
+    stageLabel || isFailed ? (
+      <View
+        pointerEvents="box-none"
+        style={{
+          backgroundColor: isFailed ? 'rgba(15,15,16,0.58)' : 'rgba(15,15,16,0.24)',
+          inset: 0,
+          justifyContent: 'flex-end',
+          position: 'absolute',
+        }}
+      >
+        <View pointerEvents="box-none" style={{ paddingBottom: 12, paddingHorizontal: 12 }}>
+          {isUploading ? (
+            <View
+              style={{
+                backgroundColor: 'rgba(255,255,255,0.16)',
+                borderRadius: 999,
+                height: 4,
+                marginBottom: 10,
+                overflow: 'hidden',
+              }}
+            >
+              <Animated.View
+                style={[
+                  progressStyle,
+                  { backgroundColor: '#FF6B2C', borderRadius: 999, height: 4 },
+                ]}
+              />
+            </View>
+          ) : null}
+          <View
+            style={{
+              alignItems: 'center',
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Text style={{ color: '#FFFFFF', flex: 1, fontSize: 12, fontWeight: '600' }}>
+              {isFailed
+                ? message.media?.failureReason || uploadJob?.failureReason || 'Upload failed'
+                : isCancelRequested
+                  ? 'Canceling'
+                  : stageLabel}
+            </Text>
+            {isFailed ? (
+              <TouchableOpacity
+                accessibilityLabel="Retry upload"
+                accessibilityRole="button"
+                activeOpacity={0.86}
+                onPress={(event) => {
+                  event.stopPropagation()
+                  handleRetry()
+                }}
+                style={{
+                  backgroundColor: 'rgba(255,255,255,0.14)',
+                  borderRadius: 999,
+                  marginLeft: 12,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                }}
+              >
+                <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>Retry</Text>
+              </TouchableOpacity>
+            ) : canCancel ? (
+              <TouchableOpacity
+                accessibilityLabel="Cancel upload"
+                accessibilityRole="button"
+                activeOpacity={0.86}
+                onPress={(event) => {
+                  event.stopPropagation()
+                  requestCancel(clientMessageId)
+                }}
+                style={{
+                  backgroundColor: 'rgba(255,255,255,0.14)',
+                  borderRadius: 999,
+                  marginLeft: 12,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                }}
+              >
+                <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>Cancel</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+      </View>
+    ) : null
+
+  return (
+    <Animated.View collapsable={false} ref={mediaRef} style={mediaBubbleStyle}>
+      <Pressable
+        accessibilityLabel={pressableAccessibilityLabel}
+        accessibilityRole="button"
+        {...(delayLongPress ? { delayLongPress } : {})}
+        {...(onLongPress ? { onLongPress } : {})}
+        {...(onPressIn ? { onPressIn } : {})}
+        onPress={() => openViewer(isVideo)}
+        style={mediaPressableStyle}
+      >
+        <ChatMediaFrame
+          accessibilityLabel={frameAccessibilityLabel}
+          contentFit="contain"
+          kind={frameKind}
+          style={mediaFrameStyle}
+          uri={frameUri}
         >
-          {isInlineVideoActive && mediaUri ? (
+          {isVideo && isInlineVideoActive && mediaUri ? (
             <ReelVideo
               contentFit="contain"
               key={`inline-video-${clientMessageId}-${mediaStage}`}
@@ -257,20 +330,19 @@ export function ChatMediaBubble({
               nativeControls={false}
               resetOnPause
               shouldPlay
-              style={{ height: mediaHeight, width: mediaWidth }}
+              style={{ height: mediaHeight, position: 'absolute', width: mediaWidth }}
               uri={mediaUri}
               {...(posterUri ? { posterUri } : {})}
             />
-          ) : (
-            renderVideoPoster()
-          )}
-          {canPlayInline ? (
+          ) : null}
+          {isVideo && canPlayInline ? (
             <TouchableOpacity
               accessibilityLabel={isInlineVideoActive ? 'Pause video' : 'Play video inline'}
               accessibilityRole="button"
               activeOpacity={0.9}
               {...(delayLongPress ? { delayLongPress } : {})}
               {...(onLongPress ? { onLongPress } : {})}
+              {...(onPressIn ? { onPressIn } : {})}
               onPress={(event) => {
                 event.stopPropagation()
                 setActiveMessage(message.conversationId, isInlineVideoActive ? null : message.id)
@@ -296,115 +368,10 @@ export function ChatMediaBubble({
               />
             </TouchableOpacity>
           ) : null}
-        </Pressable>
-      ) : (
-        <Pressable
-          accessibilityLabel="Open photo"
-          accessibilityRole="button"
-          {...(delayLongPress ? { delayLongPress } : {})}
-          {...(onLongPress ? { onLongPress } : {})}
-          onPress={() => openViewer(false)}
-        >
-          {renderImage()}
-        </Pressable>
-      )}
-
-      {durationLabel ? (
-        <View
-          style={{
-            backgroundColor: 'rgba(12,12,13,0.68)',
-            borderRadius: 999,
-            bottom: 10,
-            paddingHorizontal: 8,
-            paddingVertical: 4,
-            position: 'absolute',
-            right: 10,
-          }}
-        >
-          <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '600' }}>{durationLabel}</Text>
-        </View>
-      ) : null}
-
-      {stageLabel || isFailed ? (
-        <View
-          pointerEvents="box-none"
-          style={{
-            backgroundColor: isFailed ? 'rgba(15,15,16,0.58)' : 'rgba(15,15,16,0.24)',
-            inset: 0,
-            justifyContent: 'flex-end',
-            position: 'absolute',
-          }}
-        >
-          <View pointerEvents="box-none" style={{ paddingBottom: 12, paddingHorizontal: 12 }}>
-            {isUploading ? (
-              <View
-                style={{
-                  backgroundColor: 'rgba(255,255,255,0.16)',
-                  borderRadius: 999,
-                  height: 4,
-                  marginBottom: 10,
-                  overflow: 'hidden',
-                }}
-              >
-                <Animated.View
-                  style={[
-                    progressStyle,
-                    { backgroundColor: '#FF6B2C', borderRadius: 999, height: 4 },
-                  ]}
-                />
-              </View>
-            ) : null}
-            <View
-              style={{
-                alignItems: 'center',
-                flexDirection: 'row',
-                justifyContent: 'space-between',
-              }}
-            >
-              <Text style={{ color: '#FFFFFF', flex: 1, fontSize: 12, fontWeight: '600' }}>
-                {isFailed
-                  ? message.media?.failureReason || uploadJob?.failureReason || 'Upload failed'
-                  : isCancelRequested
-                    ? 'Canceling'
-                    : stageLabel}
-              </Text>
-              {isFailed ? (
-                <TouchableOpacity
-                  accessibilityLabel="Retry upload"
-                  accessibilityRole="button"
-                  activeOpacity={0.86}
-                  onPress={handleRetry}
-                  style={{
-                    backgroundColor: 'rgba(255,255,255,0.14)',
-                    borderRadius: 999,
-                    marginLeft: 12,
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                  }}
-                >
-                  <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>Retry</Text>
-                </TouchableOpacity>
-              ) : canCancel ? (
-                <TouchableOpacity
-                  accessibilityLabel="Cancel upload"
-                  accessibilityRole="button"
-                  activeOpacity={0.86}
-                  onPress={() => requestCancel(clientMessageId)}
-                  style={{
-                    backgroundColor: 'rgba(255,255,255,0.14)',
-                    borderRadius: 999,
-                    marginLeft: 12,
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                  }}
-                >
-                  <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>Cancel</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-          </View>
-        </View>
-      ) : null}
+          {isVideo ? durationBadge : null}
+          {statusOverlay}
+        </ChatMediaFrame>
+      </Pressable>
     </Animated.View>
   )
 }

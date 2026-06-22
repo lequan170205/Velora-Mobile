@@ -339,15 +339,19 @@ const MessageBubbleComponent = function MessageBubble({
   onOpenContextMenu,
   onOpenMedia,
 }: MessageBubbleProps) {
+  const CONTEXT_MENU_LONG_PRESS_DELAY_MS = 60
   const { width: screenWidth } = useWindowDimensions()
   const currentUserId = useAuthStore((state) => state.user?.id ?? null)
   const resolvedConversationId = conversationId || message.conversationId
   const progress = useSharedValue(0)
   const highlightProgress = useSharedValue(0)
   const swipeOffsetX = useSharedValue(0)
-  const menuOpeningProgress = useSharedValue(0)
+  const contextMenuOpacityProgress = useSharedValue(isContextMenuActive ? 0 : 1)
   // const swipeProgress = useSharedValue(0)
   const bubbleRef = useRef<View>(null)
+  const cachedAnchorRef = useRef<BubbleAnchor | null>(null)
+  const pressInSequenceRef = useRef(0)
+  const cachedAnchorSequenceRef = useRef(0)
   const isExpandedRef = useRef(isExpanded)
 
   const senderInfo = senderInfoProp ?? message.sender ?? null
@@ -387,7 +391,26 @@ const MessageBubbleComponent = function MessageBubble({
 
   const measureAnchor = useCallback((onMeasured: (nextAnchor: BubbleAnchor) => void) => {
     bubbleRef.current?.measureInWindow((x, y, width, height) => {
-      onMeasured({ x, y, width, height })
+      const nextAnchor = { x, y, width, height }
+      cachedAnchorRef.current = nextAnchor
+      cachedAnchorSequenceRef.current = pressInSequenceRef.current
+      onMeasured(nextAnchor)
+    })
+  }, [])
+
+  const handlePressIn = useCallback(() => {
+    pressInSequenceRef.current += 1
+    const nextSequence = pressInSequenceRef.current
+    cachedAnchorRef.current = null
+    cachedAnchorSequenceRef.current = 0
+
+    bubbleRef.current?.measureInWindow((x, y, width, height) => {
+      if (pressInSequenceRef.current !== nextSequence) {
+        return
+      }
+
+      cachedAnchorRef.current = { x, y, width, height }
+      cachedAnchorSequenceRef.current = nextSequence
     })
   }, [])
 
@@ -403,26 +426,35 @@ const MessageBubbleComponent = function MessageBubble({
     if (swipeOffsetX.value !== 0) {
       swipeOffsetX.value = 0
     }
-    if (menuOpeningProgress.value !== 0) {
-      menuOpeningProgress.value = 0
-    }
-  }, [highlightProgress, menuOpeningProgress, message.id, progress, swipeOffsetX])
+  }, [highlightProgress, message.id, progress, swipeOffsetX])
 
   useEffect(() => {
-    const nextValue = isContextMenuActive ? 1 : 0
+    cachedAnchorRef.current = null
+    cachedAnchorSequenceRef.current = 0
+    pressInSequenceRef.current = 0
+  }, [message.id])
 
-    if (menuOpeningProgress.value === nextValue) {
-      return
-    }
-
-    menuOpeningProgress.value = withTiming(nextValue, {
-      duration: isContextMenuActive ? 220 : 180,
+  useEffect(() => {
+    contextMenuOpacityProgress.value = withTiming(isContextMenuActive ? 0 : 1, {
+      duration: isContextMenuActive ? 50 : 120,
     })
-  }, [isContextMenuActive, menuOpeningProgress])
+  }, [contextMenuOpacityProgress, isContextMenuActive])
 
   const handleLongPress = () => {
     if (isRecalled || !onOpenContextMenu) return
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+
+    if (cachedAnchorRef.current && cachedAnchorSequenceRef.current === pressInSequenceRef.current) {
+      onOpenContextMenu({
+        message,
+        anchor: cachedAnchorRef.current,
+        isOwn,
+        isGroupedTop: Boolean(isGroupedTop),
+        isGroupedBottom: Boolean(isGroupedBottom),
+        conversationId: resolvedConversationId,
+      })
+      return
+    }
 
     measureAnchor((nextAnchor) => {
       onOpenContextMenu({
@@ -454,21 +486,22 @@ const MessageBubbleComponent = function MessageBubble({
   }))
 
   const bubbleWrapStyle = useAnimatedStyle(() => {
-    const menuScale = interpolate(menuOpeningProgress.value, [0, 1], [1, 1.015])
-    const menuTranslateY = interpolate(menuOpeningProgress.value, [0, 1], [0, -1])
-
     const highlightScale = interpolate(highlightProgress.value, [0, 1], [1, 1.048])
     const highlightTranslateY = interpolate(highlightProgress.value, [0, 1], [0, -2])
 
     return {
       transform: [
         { translateX: swipeOffsetX.value },
-        { scale: Math.max(menuScale, highlightScale) },
-        { translateY: menuTranslateY + highlightTranslateY },
+        { scale: highlightScale },
+        { translateY: highlightTranslateY },
       ],
-      zIndex: highlightProgress.value > 0 || menuOpeningProgress.value > 0 ? 2 : 0,
+      zIndex: highlightProgress.value > 0 ? 2 : 0,
     }
   })
+
+  const bubbleVisibilityStyle = useAnimatedStyle(() => ({
+    opacity: contextMenuOpacityProgress.value,
+  }))
 
   const timestampColumnStyle = useAnimatedStyle(() => {
     const revealProgress = timestampRevealProgress?.value ?? 0
@@ -836,7 +869,9 @@ const MessageBubbleComponent = function MessageBubble({
 
               <GestureDetector gesture={swipeGesture}>
                 <View className="flex-row items-center">
-                  <Animated.View style={[bubbleWrapStyle, { flexShrink: 0 }]}>
+                  <Animated.View
+                    style={[bubbleWrapStyle, bubbleVisibilityStyle, { flexShrink: 0 }]}
+                  >
                     <View ref={bubbleRef} collapsable={false} className="relative">
                       <Animated.View
                         pointerEvents="none"
@@ -853,8 +888,9 @@ const MessageBubbleComponent = function MessageBubble({
                         onPress={shouldRenderMediaBubble ? undefined : toggleDetails}
                         {...(!isRecalled
                           ? {
+                              onPressIn: handlePressIn,
                               onLongPress: handleLongPress,
-                              delayLongPress: 180,
+                              delayLongPress: CONTEXT_MENU_LONG_PRESS_DELAY_MS,
                             }
                           : null)}
                         className={bubbleClassName}
@@ -870,9 +906,10 @@ const MessageBubbleComponent = function MessageBubble({
                           </Text>
                         ) : shouldRenderMediaBubble ? (
                           <ChatMediaBubble
-                            delayLongPress={180}
+                            delayLongPress={CONTEXT_MENU_LONG_PRESS_DELAY_MS}
                             message={message}
                             onLongPress={handleLongPress}
+                            onPressIn={handlePressIn}
                             {...(onOpenMedia ? { onOpenMedia } : {})}
                           />
                         ) : (

@@ -251,6 +251,7 @@ interface MessageRowProps {
   timestampRevealProgress: SharedValue<number>
   senderInfo?: ChatParticipant | Message['sender'] | null
   conversationId: string
+  isContextMenuActive: boolean
   onToggleDetails: (messageId: string) => void
   onPressReplyPreview: (replyToId?: string) => void
   onReply: (message: Message) => void
@@ -271,6 +272,7 @@ const MessageRow = memo(
     timestampRevealProgress,
     senderInfo,
     conversationId,
+    isContextMenuActive,
     onToggleDetails,
     onPressReplyPreview,
     onReply,
@@ -325,7 +327,7 @@ const MessageRow = memo(
           isGroupedBottom={layout.isGroupedBottom}
           highlightToken={highlightToken}
           isExpanded={isExpanded}
-          isContextMenuActive={false}
+          isContextMenuActive={isContextMenuActive}
           onToggleDetails={handleToggleDetails}
           onPressReplyPreview={handlePressReplyPreview}
           onReply={handleReply}
@@ -348,6 +350,7 @@ const MessageRow = memo(
     prevProps.timestampRevealProgress === nextProps.timestampRevealProgress &&
     prevProps.senderInfo === nextProps.senderInfo &&
     prevProps.conversationId === nextProps.conversationId &&
+    prevProps.isContextMenuActive === nextProps.isContextMenuActive &&
     prevProps.onToggleDetails === nextProps.onToggleDetails &&
     prevProps.onPressReplyPreview === nextProps.onPressReplyPreview &&
     prevProps.onReply === nextProps.onReply &&
@@ -1882,6 +1885,7 @@ export default function ChatScreen() {
           timestampRevealProgress={timestampRevealProgress}
           senderInfo={sender ?? null}
           conversationId={conversationId}
+          isContextMenuActive={messageIdentityKey === activeContextMenuMessageId}
           onToggleDetails={handleToggleDetails}
           onPressReplyPreview={handleScrollToMessage}
           onReply={handleReply}
@@ -1891,6 +1895,7 @@ export default function ChatScreen() {
       )
     },
     [
+      activeContextMenuMessageId,
       conversationId,
       handleReply,
       handleScrollToMessage,

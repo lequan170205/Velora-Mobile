@@ -4,7 +4,6 @@ import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import React, { useRef, useState } from 'react'
 import {
-  Image,
   Modal,
   Platform,
   Pressable,
@@ -20,6 +19,7 @@ import Animated, {
   interpolate,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withSpring,
   withTiming,
 } from 'react-native-reanimated'
@@ -29,6 +29,7 @@ import { typography } from '../../../constants/theme'
 import { useAddReaction, useRemoveReaction } from '../../../hooks/useMessageActions'
 import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../../lib/chatMedia'
 import { useAuthStore } from '../../../stores/authStore'
+import { ChatMediaFrame } from '../ChatMediaFrame'
 
 import {
   ACTION_ROW_H,
@@ -81,8 +82,9 @@ type MessageContextMenuInnerProps = Omit<MessageContextMenuProps, 'message' | 'a
 }
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
-const MENU_ENTER_EASING = Easing.bezier(0.22, 1, 0.36, 1)
 const MENU_EXIT_EASING = Easing.bezier(0.4, 0, 1, 1)
+const MENU_SPRING = { damping: 16, stiffness: 220, mass: 0.8 }
+const TOOLBAR_ENTER_DELAY_MS = 60
 
 export function MessageContextMenu({
   visible,
@@ -92,10 +94,6 @@ export function MessageContextMenu({
 }: MessageContextMenuProps) {
   const lastMessageRef = useRef<Message | null>(message)
   const lastAnchorRef = useRef<BubbleAnchor | null>(anchor)
-
-  if (!visible || !message || !anchor) {
-    return null
-  }
 
   if (message) lastMessageRef.current = message
   if (anchor) lastAnchorRef.current = anchor
@@ -139,48 +137,44 @@ function MessageContextMenuInner({
   const slideDirection = isOwn ? 1 : -1
 
   const menuProgress = useSharedValue(0)
+  const toolbarProgress = useSharedValue(0)
   const pickerTranslateY = useSharedValue(screenH)
 
   React.useEffect(() => {
     if (visible) {
       setIsPickerExpanded(false)
       pickerTranslateY.value = screenH
-      menuProgress.value = withTiming(1, { duration: 220, easing: MENU_ENTER_EASING })
+      menuProgress.value = withSpring(1, MENU_SPRING)
+      toolbarProgress.value = 0
+      toolbarProgress.value = withDelay(TOOLBAR_ENTER_DELAY_MS, withSpring(1, MENU_SPRING))
     } else {
       menuProgress.value = withTiming(0, { duration: 120, easing: MENU_EXIT_EASING })
+      toolbarProgress.value = withTiming(0, { duration: 120, easing: MENU_EXIT_EASING })
       pickerTranslateY.value = withTiming(screenH, { duration: 150, easing: MENU_EXIT_EASING })
     }
-  }, [menuProgress, pickerTranslateY, screenH, visible])
+  }, [menuProgress, pickerTranslateY, screenH, toolbarProgress, visible])
 
   const backdropStyle = useAnimatedStyle(() => ({
     opacity: interpolate(menuProgress.value, [0, 1], [0, 1]),
   }))
 
-  const stackStyle = useAnimatedStyle(() => ({
-    opacity: menuProgress.value,
-    transform: [
-      { translateX: interpolate(menuProgress.value, [0, 1], [slideDirection * 10, 0]) },
-      { translateY: interpolate(menuProgress.value, [0, 1], [8, 0]) },
-    ],
-  }))
-
   const focusStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: interpolate(menuProgress.value, [0, 1], [0.96, 1]) }],
+    transform: [{ scale: interpolate(menuProgress.value, [0, 1], [1, 1.03]) }],
   }))
 
   const reactionBarStyle = useAnimatedStyle(() => ({
-    opacity: menuProgress.value,
+    opacity: toolbarProgress.value,
     transform: [
-      { translateX: interpolate(menuProgress.value, [0, 1], [slideDirection * 12, 0]) },
-      { scale: interpolate(menuProgress.value, [0, 1], [0.97, 1]) },
+      { translateX: interpolate(toolbarProgress.value, [0, 1], [slideDirection * 12, 0]) },
+      { scale: interpolate(toolbarProgress.value, [0, 1], [0.85, 1]) },
     ],
   }))
 
   const actionBarStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(menuProgress.value, [0, 0.12, 1], [0, 0, 1]),
+    opacity: interpolate(toolbarProgress.value, [0, 0.12, 1], [0, 0, 1]),
     transform: [
-      { translateX: interpolate(menuProgress.value, [0, 1], [slideDirection * 14, 0]) },
-      { scale: interpolate(menuProgress.value, [0, 1], [0.97, 1]) },
+      { translateX: interpolate(toolbarProgress.value, [0, 1], [slideDirection * 14, 0]) },
+      { scale: interpolate(toolbarProgress.value, [0, 1], [0.85, 1]) },
     ],
   }))
 
@@ -194,6 +188,7 @@ function MessageContextMenuInner({
         },
       )
     } else {
+      toolbarProgress.value = withTiming(0, { duration: 120, easing: MENU_EXIT_EASING })
       menuProgress.value = withTiming(0, { duration: 120, easing: MENU_EXIT_EASING }, () => {
         scheduleOnRN(onClose)
       })
@@ -202,6 +197,7 @@ function MessageContextMenuInner({
 
   const openFullPicker = () => {
     setIsPickerExpanded(true)
+    toolbarProgress.value = withTiming(0, { duration: 150, easing: MENU_EXIT_EASING })
     menuProgress.value = withTiming(0, { duration: 150, easing: MENU_EXIT_EASING })
     pickerTranslateY.value = withSpring(0, PICKER_SPRING)
   }
@@ -292,18 +288,25 @@ function MessageContextMenuInner({
   const bubbleHeight = Math.min(anchor.height, maxBubbleH)
 
   const totalHeight = reactionHeight + actionHeight + bubbleHeight + totalGapHeight
+  const idealStackLeft = isOwn ? anchor.x + anchor.width - menuWidth : anchor.x
 
-  const stackLeft = clamp(
-    isOwn ? anchor.x + anchor.width - menuWidth : anchor.x,
-    EDGE_MARGIN,
-    screenW - menuWidth - EDGE_MARGIN,
-  )
+  const stackLeft = clamp(idealStackLeft, EDGE_MARGIN, screenW - menuWidth - EDGE_MARGIN)
 
-  const desiredTop = anchor.y - reactionHeight - (reactionVisible ? GAP : 0)
+  const idealStackTop = anchor.y - reactionHeight - (reactionVisible ? GAP : 0)
 
   const maxAllowedTop = screenH - totalHeight - SAFE_VERTICAL
 
-  const stackTop = clamp(desiredTop, SAFE_VERTICAL, maxAllowedTop)
+  const stackTop = clamp(idealStackTop, SAFE_VERTICAL, maxAllowedTop)
+  const stackDeltaX = idealStackLeft - stackLeft
+  const stackDeltaY = idealStackTop - stackTop
+
+  const stackStyle = useAnimatedStyle(() => ({
+    opacity: menuProgress.value,
+    transform: [
+      { translateX: interpolate(menuProgress.value, [0, 1], [stackDeltaX, 0]) },
+      { translateY: interpolate(menuProgress.value, [0, 1], [stackDeltaY, 0]) },
+    ],
+  }))
 
   return (
     <Modal
@@ -549,7 +552,14 @@ function renderBubblePreview({
   if (message.type === 'image') {
     const imageUri = getResolvedMediaUri(message.media)
     return imageUri ? (
-      <Image source={{ uri: imageUri }} style={styles.imagePreview} resizeMode="cover" />
+      <ChatMediaFrame
+        accessibilityLabel="Photo preview"
+        contentFit="cover"
+        disableTransition
+        kind="image"
+        style={styles.imagePreview}
+        uri={imageUri}
+      />
     ) : (
       <Text style={[styles.textPreview, { color: tokens.textSecondary }]}>Photo</Text>
     )
@@ -558,7 +568,14 @@ function renderBubblePreview({
   if (message.type === 'video') {
     const posterUri = getResolvedMediaPosterUri(message.media)
     return posterUri ? (
-      <Image source={{ uri: posterUri }} style={styles.imagePreview} resizeMode="cover" />
+      <ChatMediaFrame
+        accessibilityLabel="Video preview"
+        contentFit="cover"
+        disableTransition
+        kind="video"
+        style={styles.imagePreview}
+        uri={posterUri}
+      />
     ) : (
       <Text style={[styles.textPreview, { color: tokens.textSecondary }]}>Video</Text>
     )
@@ -624,8 +641,8 @@ function getBubblePreviewFrameStyle({
   message: Message
   isOwn: boolean
 }) {
-  const height = Math.ceil(anchor.height)
-  const width = Math.ceil(anchor.width)
+  const height = anchor.height
+  const width = anchor.width
 
   const alignment = {
     alignSelf: isOwn ? 'flex-end' : 'flex-start',
@@ -656,10 +673,10 @@ function getGroupedCornerStyle({
   isGroupedBottom: boolean
 }) {
   return {
-    borderTopRightRadius: isOwn && isGroupedTop ? 4 : 16,
-    borderBottomRightRadius: isOwn && isGroupedBottom ? 4 : 16,
-    borderTopLeftRadius: !isOwn && isGroupedTop ? 4 : 16,
-    borderBottomLeftRadius: !isOwn && isGroupedBottom ? 4 : 16,
+    borderTopRightRadius: isOwn && isGroupedTop ? 4 : 18,
+    borderBottomRightRadius: isOwn && isGroupedBottom ? 4 : 18,
+    borderTopLeftRadius: !isOwn && isGroupedTop ? 4 : 18,
+    borderBottomLeftRadius: !isOwn && isGroupedBottom ? 4 : 18,
   }
 }
 
@@ -738,7 +755,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   imagePreview: {
-    borderRadius: 16,
+    borderRadius: 18,
     height: '100%',
     width: '100%',
   },
