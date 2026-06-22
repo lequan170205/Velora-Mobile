@@ -22,6 +22,12 @@ import {
   getResolvedMediaUri,
 } from '../../lib/chatMedia'
 import { cn } from '../../lib/cn'
+import {
+  RECALLED_PREVIEW_TEXT,
+  isReplyPreviewRecalled,
+  normalizeReplyPreview,
+  normalizeReplyPreviewContent,
+} from '../../lib/replyPreview'
 import { useAuthStore } from '../../stores/authStore'
 import { ReelVideo } from '../reels/ReelVideo'
 
@@ -38,11 +44,6 @@ import type {
 
 // Valid emojis for reactions (matching backend)
 export const VALID_EMOJIS = ['👍', '❤️', '😂', '😢', '😮', '😡', '👏', '🎉']
-
-const RECALLED_PREVIEW_MAP: Record<string, string> = {
-  'Message recalled': 'Tin nhắn đã thu hồi',
-  'message recalled': 'Tin nhắn đã thu hồi',
-}
 
 const REPLY_PREVIEW_FALLBACK_LABELS: Record<ReplyPreviewData['type'], string> = {
   text: 'Message',
@@ -70,6 +71,10 @@ const TIMESTAMP_REVEAL_MAX_OFFSET = 64
 const generatedReplyVideoThumbnailCache = new Map<string, string | null>()
 
 const getReplyPreviewThumbnailUri = (replyPreview?: Message['replyPreview'], replyTo?: Message) => {
+  if (isReplyPreviewRecalled({ replyPreview, replyTo })) {
+    return null
+  }
+
   if (typeof replyPreview !== 'string' && replyPreview?.thumbnailUri?.trim()) {
     const thumbnailUri = replyPreview.thumbnailUri.trim()
     if (replyPreview.type === 'video' && VIDEO_FILE_URI_PATTERN.test(thumbnailUri)) {
@@ -91,6 +96,13 @@ const getReplyPreviewThumbnailUri = (replyPreview?: Message['replyPreview'], rep
 }
 
 const getReplyPreviewMediaSize = (replyPreview?: Message['replyPreview'], replyTo?: Message) => {
+  if (isReplyPreviewRecalled({ replyPreview, replyTo })) {
+    return {
+      mediaWidth: null,
+      mediaHeight: null,
+    }
+  }
+
   if (typeof replyPreview !== 'string') {
     const mediaWidth = replyPreview?.mediaWidth
     const mediaHeight = replyPreview?.mediaHeight
@@ -120,10 +132,13 @@ const getReplyPreviewMeta = ({
 }) => {
   if (!replyPreview) return null
 
-  if (typeof replyPreview === 'string') {
+  const normalizedReplyPreview = normalizeReplyPreview(replyPreview)
+  if (!normalizedReplyPreview) return null
+
+  if (typeof normalizedReplyPreview === 'string') {
     return {
       senderLabel: 'Original message',
-      contentLabel: RECALLED_PREVIEW_MAP[replyPreview] ?? replyPreview,
+      contentLabel: normalizeReplyPreviewContent(normalizedReplyPreview) || RECALLED_PREVIEW_TEXT,
       iconName: REPLY_PREVIEW_ICONS.text,
       mediaWidth: null,
       mediaHeight: null,
@@ -132,29 +147,29 @@ const getReplyPreviewMeta = ({
     }
   }
 
-  const normalizedContent = RECALLED_PREVIEW_MAP[replyPreview.content] ?? replyPreview.content
+  const normalizedContent = normalizeReplyPreviewContent(normalizedReplyPreview.content)
   const isUriLikeContent = URI_LIKE_PATTERN.test(normalizedContent)
 
   const contentLabel =
-    replyPreview.type === 'text'
+    normalizedReplyPreview.type === 'text'
       ? normalizedContent || REPLY_PREVIEW_FALLBACK_LABELS.text
       : isUriLikeContent || !normalizedContent
-        ? REPLY_PREVIEW_FALLBACK_LABELS[replyPreview.type]
+        ? REPLY_PREVIEW_FALLBACK_LABELS[normalizedReplyPreview.type]
         : normalizedContent
 
-  const resolvedSenderId = replyPreview.senderId ?? replyTo?.senderId
+  const resolvedSenderId = normalizedReplyPreview.senderId ?? replyTo?.senderId
   const senderLabel =
     currentUserId && resolvedSenderId === currentUserId
       ? 'You'
-      : (replyPreview.senderName?.trim() ?? '') || 'Original message'
+      : (normalizedReplyPreview.senderName?.trim() ?? '') || 'Original message'
 
   return {
     senderLabel,
     contentLabel,
-    iconName: REPLY_PREVIEW_ICONS[replyPreview.type],
-    ...getReplyPreviewMediaSize(replyPreview, replyTo),
-    thumbnailUri: getReplyPreviewThumbnailUri(replyPreview, replyTo),
-    type: replyPreview.type,
+    iconName: REPLY_PREVIEW_ICONS[normalizedReplyPreview.type],
+    ...getReplyPreviewMediaSize(normalizedReplyPreview, replyTo),
+    thumbnailUri: getReplyPreviewThumbnailUri(normalizedReplyPreview, replyTo),
+    type: normalizedReplyPreview.type,
   }
 }
 
@@ -365,8 +380,9 @@ const MessageBubbleComponent = function MessageBubble({
     if (onToggleDetails) onToggleDetails()
   }
 
-  const isMedia = message.type === 'image' || message.type === 'video'
   const isRecalled = message.isRecalled === true || message.is_recalled === true
+  const isMedia = message.type === 'image' || message.type === 'video'
+  const shouldRenderMediaBubble = isMedia && !isRecalled
   const swipeDirection = isOwn ? -1 : 1
 
   const measureAnchor = useCallback((onMeasured: (nextAnchor: BubbleAnchor) => void) => {
@@ -510,6 +526,11 @@ const MessageBubbleComponent = function MessageBubble({
   }, [message.reactions])
 
   const resolvedReplyTarget = repliedMessage ?? message.replyTo
+  const isResolvedReplyPreviewRecalled = useMemo(
+    () =>
+      isReplyPreviewRecalled({ replyPreview: message.replyPreview, replyTo: resolvedReplyTarget }),
+    [message.replyPreview, resolvedReplyTarget],
+  )
   const replyPreviewMeta = useMemo(
     () =>
       getReplyPreviewMeta({
@@ -520,7 +541,9 @@ const MessageBubbleComponent = function MessageBubble({
     [currentUserId, message.replyPreview, resolvedReplyTarget],
   )
   const repliedVideoUri =
-    resolvedReplyTarget?.type === 'video' ? getResolvedMediaUri(resolvedReplyTarget.media) : null
+    !isResolvedReplyPreviewRecalled && resolvedReplyTarget?.type === 'video'
+      ? getResolvedMediaUri(resolvedReplyTarget.media)
+      : null
 
   useEffect(() => {
     if (
@@ -599,15 +622,15 @@ const MessageBubbleComponent = function MessageBubble({
   const bubbleClassName = useMemo(
     () =>
       cn(
-        !isMedia && 'px-4 py-3',
-        !isMedia && (isOwn ? 'bg-bubble-out' : 'bg-bubble-in'),
+        !shouldRenderMediaBubble && 'px-4 py-3',
+        !shouldRenderMediaBubble && (isOwn ? 'bg-bubble-out' : 'bg-bubble-in'),
         'overflow-hidden rounded-[18px]',
         isOwn && isGroupedTop && 'rounded-tr-[4px]',
         isOwn && isGroupedBottom && 'rounded-br-[4px]',
         !isOwn && isGroupedTop && 'rounded-tl-[4px]',
         !isOwn && isGroupedBottom && 'rounded-bl-[4px]',
       ),
-    [isGroupedBottom, isGroupedTop, isMedia, isOwn],
+    [isGroupedBottom, isGroupedTop, isOwn, shouldRenderMediaBubble],
   )
   const isSwipeReplyEnabled = !isRecalled && Boolean(onReply)
 
@@ -827,7 +850,7 @@ const MessageBubbleComponent = function MessageBubble({
                       </Animated.View>
 
                       <Pressable
-                        onPress={isMedia ? undefined : toggleDetails}
+                        onPress={shouldRenderMediaBubble ? undefined : toggleDetails}
                         {...(!isRecalled
                           ? {
                               onLongPress: handleLongPress,
@@ -845,7 +868,7 @@ const MessageBubbleComponent = function MessageBubble({
                           >
                             Tin nhắn đã thu hồi
                           </Text>
-                        ) : isMedia ? (
+                        ) : shouldRenderMediaBubble ? (
                           <ChatMediaBubble
                             delayLongPress={180}
                             message={message}

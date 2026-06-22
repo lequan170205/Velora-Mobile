@@ -30,6 +30,11 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../lib/chatMedia'
+import {
+  isReplyPreviewRecalled,
+  normalizeReplyPreviewContent,
+  RECALLED_PREVIEW_TEXT,
+} from '../../lib/replyPreview'
 import { useAuthStore } from '../../stores/authStore'
 
 import {
@@ -74,6 +79,10 @@ const getComposerReplyThumbnailUri = (
   replyTo?: Message | null,
   replyPreviewData?: ReplyPreviewData | null,
 ) => {
+  if (isReplyPreviewRecalled({ replyPreview: replyPreviewData ?? undefined, replyTo })) {
+    return null
+  }
+
   const previewThumbnailUri = replyPreviewData?.thumbnailUri?.trim()
 
   if (replyPreviewData?.type === 'video') {
@@ -439,16 +448,23 @@ const MessageInputComponent = function MessageInput(
     replyTo?.replyPreview && typeof replyTo.replyPreview !== 'string'
       ? (replyTo.replyPreview as ReplyPreviewData)
       : null
+  const isReplyRecalled = isReplyPreviewRecalled({
+    replyPreview: replyTo?.replyPreview,
+    replyTo,
+  })
   const replyPreviewText =
     typeof replyTo?.replyPreview === 'string'
-      ? replyTo.replyPreview
+      ? normalizeReplyPreviewContent(replyTo.replyPreview)
       : replyPreviewData
-        ? replyPreviewData.content
-        : replyTo?.content
+        ? normalizeReplyPreviewContent(replyPreviewData.content)
+        : isReplyRecalled
+          ? RECALLED_PREVIEW_TEXT
+          : replyTo?.content
   const replySenderLabel = getReplySenderLabel({ currentUserId, replyPreviewData, replyTo })
   const replyInitial = (replyPreviewText?.trim().charAt(0) || '?').toUpperCase()
   const replyThumbnailUri = getComposerReplyThumbnailUri(replyTo, replyPreviewData)
-  const isReplyVideo = replyPreviewData?.type === 'video' || replyTo?.type === 'video'
+  const isReplyVideo =
+    !isReplyRecalled && (replyPreviewData?.type === 'video' || replyTo?.type === 'video')
   const bottomInset = Math.max(insets.bottom, 8)
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation()
   const ACTIVE_PADDING = 8 // The tight spacing you want when focused

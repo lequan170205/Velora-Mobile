@@ -7,11 +7,12 @@ import type { InfiniteData } from '@tanstack/react-query'
 import { authApi } from '../api/auth.api'
 import { queryKeys } from '../constants/queryKeys'
 import {
+  applyReplyPreviewUpdate,
   applyMediaProcessingUpdate,
   applyReadReceiptUpdate,
+  markMessageRecalled,
   upsertRemoteMessage,
 } from '../database/messageSync'
-import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../lib/chatMedia'
 import {
   patchConversationMessageCollectionsInCache,
   patchExistingMessageAcrossConversationCaches,
@@ -23,7 +24,11 @@ import {
   isSameMessageIdentity,
   mergeMessageRecords,
 } from '../lib/messageIdentity'
-import { getReplyPreviewSenderName } from '../lib/replyPreview'
+import {
+  buildReplyPreviewFromMessage,
+  mergeReplyPreview,
+  toTextOnlyReplyPreview,
+} from '../lib/replyPreview'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
 
@@ -56,62 +61,6 @@ const SocketContext = createContext<SocketContextType>({
   isConnected: false,
   requestPresence: () => {},
 })
-
-const mergeReplyPreview = (
-  remoteReplyPreview?: Message['replyPreview'],
-  localReplyPreview?: Message['replyPreview'],
-): Message['replyPreview'] | undefined => {
-  if (!remoteReplyPreview) {
-    return localReplyPreview
-  }
-
-  if (!localReplyPreview) {
-    return remoteReplyPreview
-  }
-
-  if (typeof remoteReplyPreview === 'string' || typeof localReplyPreview === 'string') {
-    return remoteReplyPreview
-  }
-
-  if (remoteReplyPreview.thumbnailUri || !localReplyPreview.thumbnailUri) {
-    return {
-      ...remoteReplyPreview,
-      ...(remoteReplyPreview.senderId ? {} : { senderId: localReplyPreview.senderId }),
-      ...(remoteReplyPreview.mediaWidth ? {} : { mediaWidth: localReplyPreview.mediaWidth }),
-      ...(remoteReplyPreview.mediaHeight ? {} : { mediaHeight: localReplyPreview.mediaHeight }),
-    }
-  }
-
-  return {
-    ...remoteReplyPreview,
-    thumbnailUri: localReplyPreview.thumbnailUri,
-    ...(remoteReplyPreview.senderId ? {} : { senderId: localReplyPreview.senderId }),
-    ...(remoteReplyPreview.mediaWidth ? {} : { mediaWidth: localReplyPreview.mediaWidth }),
-    ...(remoteReplyPreview.mediaHeight ? {} : { mediaHeight: localReplyPreview.mediaHeight }),
-  }
-}
-
-const getReplyPreviewThumbnailUri = (message?: Message | null) => {
-  if (!message || (message.type !== 'image' && message.type !== 'video')) {
-    return undefined
-  }
-
-  if (message.type === 'video') {
-    return getResolvedMediaPosterUri(message.media) ?? undefined
-  }
-
-  return getResolvedMediaUri(message.media) ?? undefined
-}
-
-const getReplyPreviewMediaSize = (message?: Message | null) => {
-  const mediaWidth = message?.media?.width ?? message?.media?.displayWidth ?? undefined
-  const mediaHeight = message?.media?.height ?? message?.media?.displayHeight ?? undefined
-
-  return {
-    ...(mediaWidth ? { mediaWidth } : {}),
-    ...(mediaHeight ? { mediaHeight } : {}),
-  }
-}
 
 const isMessageAtOrBeforeReadFrontier = ({
   frontierCreatedAt,
@@ -655,32 +604,18 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         return message
       }
 
-      const currentUser = useAuthStore.getState().user
       const cachedConversations = queryClient.getQueryData<unknown>(queryKeys.conversations.all)
       const conversations: Conversation[] = Array.isArray(cachedConversations)
         ? cachedConversations
         : (cachedConversations as { pages?: Conversation[][] })?.pages?.flat() || []
       const currentConversation =
         conversations.find((conversation) => conversation.id === message.conversationId) ?? null
-      const replyPreviewThumbnailUri = getReplyPreviewThumbnailUri(resolvedReplyTarget)
-      const localReplyPreview: Message['replyPreview'] = {
-        senderName: getReplyPreviewSenderName({
-          conversation: currentConversation,
-          currentUserId: currentUser?.id ?? null,
-          senderEmail: resolvedReplyTarget.sender?.email ?? null,
-          senderId: resolvedReplyTarget.senderId,
-        }),
-        senderId: resolvedReplyTarget.senderId,
-        content: resolvedReplyTarget.content ?? '',
-        ...(replyPreviewThumbnailUri ? { thumbnailUri: replyPreviewThumbnailUri } : {}),
-        ...getReplyPreviewMediaSize(resolvedReplyTarget),
-        type: (resolvedReplyTarget.type === 'voice' ? 'text' : resolvedReplyTarget.type) as
-          | 'text'
-          | 'image'
-          | 'video'
-          | 'file'
-          | 'call',
-      }
+      const currentUser = useAuthStore.getState().user
+      const localReplyPreview = buildReplyPreviewFromMessage({
+        conversation: currentConversation,
+        currentUserId: currentUser?.id ?? null,
+        message: resolvedReplyTarget,
+      })
 
       const replyPreview = mergeReplyPreview(message.replyPreview, localReplyPreview)
 
@@ -1025,6 +960,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
               : msg,
           )
         }
+
+        void markMessageRecalled({ messageId, recalledAt: now }).catch((error) => {
+          console.warn('[Socket] Failed to persist recalled message locally', error)
+        })
       },
     )
 
@@ -1051,12 +990,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
                 hasChanges = true
                 convChanged = true
                 const updatedPreview =
-                  typeof msg.replyPreview === 'object'
-                    ? {
-                        ...msg.replyPreview,
-                        content: payload.previewContent || 'Tin nhắn đã thu hồi',
-                      }
-                    : payload.previewContent || 'Tin nhắn đã thu hồi'
+                  toTextOnlyReplyPreview(msg.replyPreview, payload.previewContent) ??
+                  msg.replyPreview
                 return { ...msg, replyPreview: updatedPreview }
               }
               return msg
@@ -1096,15 +1031,17 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
             }
 
             const updatedPreview =
-              typeof msg.replyPreview === 'object'
-                ? {
-                    ...msg.replyPreview,
-                    content: payload.previewContent || 'Tin nhắn đã thu hồi',
-                  }
-                : payload.previewContent || 'Tin nhắn đã thu hồi'
+              toTextOnlyReplyPreview(msg.replyPreview, payload.previewContent) ?? msg.replyPreview
             return { ...msg, replyPreview: updatedPreview }
           })
         }
+
+        void applyReplyPreviewUpdate({
+          messageIds,
+          previewContent: payload.previewContent || 'Tin nhắn đã thu hồi',
+        }).catch((error) => {
+          console.warn('[Socket] Failed to persist reply preview update locally', error)
+        })
       },
     )
 

@@ -8,6 +8,7 @@ import {
   mergeMessageStatus,
   mergeReadByEntries,
 } from '../lib/messageIdentity'
+import { mergeReplyPreview, toTextOnlyReplyPreview } from '../lib/replyPreview'
 import { useChatStore } from '../stores/chatStore'
 
 import { ensureConversationBootstrap } from './conversationBootstrap'
@@ -119,42 +120,6 @@ const getMessageReplyToId = (message: Partial<Message>) => {
 
 const getMessageReplyPreview = (message: Partial<Message>) => {
   return message.replyPreview ?? message.reply_preview ?? null
-}
-
-const mergeReplyPreview = (
-  existingReplyPreview: string | ReplyPreviewData | null,
-  incomingReplyPreview: string | ReplyPreviewData | null,
-) => {
-  if (!incomingReplyPreview) {
-    return existingReplyPreview
-  }
-
-  if (!existingReplyPreview) {
-    return incomingReplyPreview
-  }
-
-  if (typeof existingReplyPreview === 'string' || typeof incomingReplyPreview === 'string') {
-    return incomingReplyPreview
-  }
-
-  if (incomingReplyPreview.thumbnailUri || !existingReplyPreview.thumbnailUri) {
-    return {
-      ...incomingReplyPreview,
-      ...(incomingReplyPreview.senderId ? {} : { senderId: existingReplyPreview.senderId }),
-      ...(incomingReplyPreview.mediaWidth ? {} : { mediaWidth: existingReplyPreview.mediaWidth }),
-      ...(incomingReplyPreview.mediaHeight
-        ? {}
-        : { mediaHeight: existingReplyPreview.mediaHeight }),
-    }
-  }
-
-  return {
-    ...incomingReplyPreview,
-    thumbnailUri: existingReplyPreview.thumbnailUri,
-    ...(incomingReplyPreview.senderId ? {} : { senderId: existingReplyPreview.senderId }),
-    ...(incomingReplyPreview.mediaWidth ? {} : { mediaWidth: existingReplyPreview.mediaWidth }),
-    ...(incomingReplyPreview.mediaHeight ? {} : { mediaHeight: existingReplyPreview.mediaHeight }),
-  }
 }
 
 const getMessageRecalledAt = (message: Partial<Message>) => {
@@ -306,10 +271,8 @@ const prepareMessageRecord = ({
   record.status = toMessageStatusValue(mergeMessageStatus(existingStatus ?? undefined, status))
   record.readBy = mergeReadByEntries(existingReadBy ?? null, message.readBy ?? null) ?? null
   record.replyToId = getMessageReplyToId(message)
-  record.replyPreview = mergeReplyPreview(
-    existingReplyPreview ?? null,
-    getMessageReplyPreview(message),
-  )
+  record.replyPreview =
+    mergeReplyPreview(existingReplyPreview ?? null, getMessageReplyPreview(message)) ?? null
   record.reactions = message.reactions ?? null
   record.isDeleted = message.isDeleted ?? false
   record.isRecalled = message.isRecalled === true || message.is_recalled === true
@@ -931,9 +894,7 @@ export const applyReplyPreviewUpdate = async ({
       .map((record) =>
         record.prepareUpdate((draft) => {
           const nextReplyPreview =
-            typeof draft.replyPreview === 'object' && draft.replyPreview
-              ? { ...draft.replyPreview, content: previewContent }
-              : previewContent
+            toTextOnlyReplyPreview(draft.replyPreview, previewContent) ?? previewContent
 
           draft.replyPreview = nextReplyPreview
           draft.serverUpdatedAt = nextUpdatedAt

@@ -11,14 +11,13 @@ import {
   upsertRemoteMessage,
   upsertRemoteMessages,
 } from '../database/messageSync'
-import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../lib/chatMedia'
 import {
   upsertConversationSummaryInCache,
   upsertMessageIntoConversationCache,
 } from '../lib/chatMessageCache'
 import { createClientMessageId } from '../lib/clientMessageId'
 import { getMessageIdentityKey, mergeMessageCollectionByIdentity } from '../lib/messageIdentity'
-import { getReplyPreviewSenderName } from '../lib/replyPreview'
+import { buildReplyPreviewFromMessage, mergeReplyPreview } from '../lib/replyPreview'
 import { useSocket } from '../providers/SocketProvider'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
@@ -76,62 +75,6 @@ const shouldSyncLatestMessages = (conversationId: string) => {
 const getMessageCreatedAtMs = (message: Message) => {
   const timestamp = new Date(message.createdAt).getTime()
   return Number.isFinite(timestamp) ? timestamp : 0
-}
-
-const getReplyPreviewThumbnailUri = (message?: Message | null) => {
-  if (!message || (message.type !== 'image' && message.type !== 'video')) {
-    return undefined
-  }
-
-  if (message.type === 'video') {
-    return getResolvedMediaPosterUri(message.media) ?? undefined
-  }
-
-  return getResolvedMediaUri(message.media) ?? undefined
-}
-
-const getReplyPreviewMediaSize = (message?: Message | null) => {
-  const mediaWidth = message?.media?.width ?? message?.media?.displayWidth ?? undefined
-  const mediaHeight = message?.media?.height ?? message?.media?.displayHeight ?? undefined
-
-  return {
-    ...(mediaWidth ? { mediaWidth } : {}),
-    ...(mediaHeight ? { mediaHeight } : {}),
-  }
-}
-
-const mergeReplyPreview = (
-  remoteReplyPreview?: Message['replyPreview'],
-  localReplyPreview?: Message['replyPreview'],
-): Message['replyPreview'] | undefined => {
-  if (!remoteReplyPreview) {
-    return localReplyPreview
-  }
-
-  if (!localReplyPreview) {
-    return remoteReplyPreview
-  }
-
-  if (typeof remoteReplyPreview === 'string' || typeof localReplyPreview === 'string') {
-    return remoteReplyPreview
-  }
-
-  if (remoteReplyPreview.thumbnailUri || !localReplyPreview.thumbnailUri) {
-    return {
-      ...remoteReplyPreview,
-      ...(remoteReplyPreview.senderId ? {} : { senderId: localReplyPreview.senderId }),
-      ...(remoteReplyPreview.mediaWidth ? {} : { mediaWidth: localReplyPreview.mediaWidth }),
-      ...(remoteReplyPreview.mediaHeight ? {} : { mediaHeight: localReplyPreview.mediaHeight }),
-    }
-  }
-
-  return {
-    ...remoteReplyPreview,
-    thumbnailUri: localReplyPreview.thumbnailUri,
-    ...(remoteReplyPreview.senderId ? {} : { senderId: localReplyPreview.senderId }),
-    ...(remoteReplyPreview.mediaWidth ? {} : { mediaWidth: localReplyPreview.mediaWidth }),
-    ...(remoteReplyPreview.mediaHeight ? {} : { mediaHeight: localReplyPreview.mediaHeight }),
-  }
 }
 
 const sortMessagesNewestFirst = (messages: Message[]) => {
@@ -546,25 +489,11 @@ export function useSendMessage(conversationId: string) {
 
       let replyPreview: Message['replyPreview'] | undefined = undefined
       if (resolvedReplyToId && resolvedReplyToMessage) {
-        const thumbnailUri = getReplyPreviewThumbnailUri(resolvedReplyToMessage)
-        replyPreview = {
-          senderName: getReplyPreviewSenderName({
-            conversation: currentConversation ?? null,
-            currentUserId: user.id,
-            senderEmail: resolvedReplyToMessage.sender?.email ?? null,
-            senderId: resolvedReplyToMessage.senderId,
-          }),
-          senderId: resolvedReplyToMessage.senderId,
-          content: resolvedReplyToMessage.content ?? '',
-          ...(thumbnailUri ? { thumbnailUri } : {}),
-          ...getReplyPreviewMediaSize(resolvedReplyToMessage),
-          type: (resolvedReplyToMessage.type === 'voice' ? 'text' : resolvedReplyToMessage.type) as
-            | 'text'
-            | 'image'
-            | 'video'
-            | 'file'
-            | 'call',
-        }
+        replyPreview = buildReplyPreviewFromMessage({
+          conversation: currentConversation ?? null,
+          currentUserId: user.id,
+          message: resolvedReplyToMessage,
+        })
       }
 
       const tempMessage: Message = {

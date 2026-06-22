@@ -3,6 +3,7 @@ import { Alert } from 'react-native'
 
 import { conversationApi } from '../api/conversation.api'
 import { queryKeys } from '../constants/queryKeys'
+import { markMessageRecalled } from '../database/messageSync'
 import { patchConversationMessageCollectionsInCache } from '../lib/chatMessageCache'
 import { useAuthStore } from '../stores/authStore'
 
@@ -82,6 +83,12 @@ export function useRecallMessage(conversationId: string) {
     },
     onSuccess: ({ conversationId: currentConversationId, message }) => {
       mergeRecalledMessageIntoCache(queryClient, currentConversationId, message)
+      void markMessageRecalled({
+        messageId: message.id,
+        ...(message.recalledAt ? { recalledAt: message.recalledAt } : {}),
+      }).catch((error) => {
+        console.warn('[Recall] Failed to persist recalled message locally', error)
+      })
     },
   })
 }

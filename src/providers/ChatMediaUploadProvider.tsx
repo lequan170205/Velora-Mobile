@@ -20,6 +20,7 @@ import {
   upsertConversationSummaryInCache,
   upsertMessageIntoConversationCache,
 } from '../lib/chatMessageCache'
+import { mergeReplyPreview } from '../lib/replyPreview'
 import { useAuthStore } from '../stores/authStore'
 import { useChatMediaUploadStore } from '../stores/chatMediaUploadStore'
 import { useChatStore } from '../stores/chatStore'
@@ -142,40 +143,6 @@ const sanitizeConfirmedMedia = (media?: MessageMedia | null): MessageMedia | und
     ...(failureReason && media.status === 'failed' ? { failureReason } : {}),
     ...(localFileUri && (!media.fileUrl || isProcessing) ? { localFileUri } : {}),
     ...(localPosterUri && (!media.thumbnailUrl || isProcessing) ? { localPosterUri } : {}),
-  }
-}
-
-const mergeReplyPreview = (
-  remoteReplyPreview?: Message['replyPreview'],
-  localReplyPreview?: Message['replyPreview'],
-): Message['replyPreview'] | undefined => {
-  if (!remoteReplyPreview) {
-    return localReplyPreview
-  }
-
-  if (!localReplyPreview) {
-    return remoteReplyPreview
-  }
-
-  if (typeof remoteReplyPreview === 'string' || typeof localReplyPreview === 'string') {
-    return remoteReplyPreview
-  }
-
-  if (remoteReplyPreview.thumbnailUri || !localReplyPreview.thumbnailUri) {
-    return {
-      ...remoteReplyPreview,
-      ...(remoteReplyPreview.senderId ? {} : { senderId: localReplyPreview.senderId }),
-      ...(remoteReplyPreview.mediaWidth ? {} : { mediaWidth: localReplyPreview.mediaWidth }),
-      ...(remoteReplyPreview.mediaHeight ? {} : { mediaHeight: localReplyPreview.mediaHeight }),
-    }
-  }
-
-  return {
-    ...remoteReplyPreview,
-    thumbnailUri: localReplyPreview.thumbnailUri,
-    ...(remoteReplyPreview.senderId ? {} : { senderId: localReplyPreview.senderId }),
-    ...(remoteReplyPreview.mediaWidth ? {} : { mediaWidth: localReplyPreview.mediaWidth }),
-    ...(remoteReplyPreview.mediaHeight ? {} : { mediaHeight: localReplyPreview.mediaHeight }),
   }
 }
 

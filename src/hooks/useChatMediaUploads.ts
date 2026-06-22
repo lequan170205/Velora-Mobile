@@ -9,13 +9,11 @@ import {
   calculateChatMediaDisplaySize,
   getChatMediaMaxWidth,
   getMediaPlaceholderLabel,
-  getResolvedMediaPosterUri,
-  getResolvedMediaUri,
   resolveAllowedChatMediaType,
 } from '../lib/chatMedia'
 import { upsertConversationSummaryInCache } from '../lib/chatMessageCache'
 import { createClientMessageId } from '../lib/clientMessageId'
-import { getReplyPreviewSenderName } from '../lib/replyPreview'
+import { buildReplyPreviewFromMessage } from '../lib/replyPreview'
 import { useAuthStore } from '../stores/authStore'
 import { useChatMediaUploadStore } from '../stores/chatMediaUploadStore'
 import { useChatStore } from '../stores/chatStore'
@@ -126,36 +124,11 @@ const getReplyPreview = ({
     return undefined
   }
 
-  let thumbnailUri: string | undefined
-  if (replyToMessage.type === 'video') {
-    thumbnailUri = getResolvedMediaPosterUri(replyToMessage.media) ?? undefined
-  } else if (replyToMessage.type === 'image') {
-    thumbnailUri = getResolvedMediaUri(replyToMessage.media) ?? undefined
-  }
-
-  const mediaWidth = replyToMessage.media?.width ?? replyToMessage.media?.displayWidth ?? undefined
-  const mediaHeight =
-    replyToMessage.media?.height ?? replyToMessage.media?.displayHeight ?? undefined
-
-  return {
-    senderName: getReplyPreviewSenderName({
-      conversation: conversation ?? null,
-      currentUserId,
-      senderEmail: replyToMessage.sender?.email ?? null,
-      senderId: replyToMessage.senderId,
-    }),
-    senderId: replyToMessage.senderId,
-    content: replyToMessage.content ?? '',
-    ...(thumbnailUri ? { thumbnailUri } : {}),
-    ...(mediaWidth ? { mediaWidth } : {}),
-    ...(mediaHeight ? { mediaHeight } : {}),
-    type: (replyToMessage.type === 'voice' ? 'text' : replyToMessage.type) as
-      | 'text'
-      | 'image'
-      | 'video'
-      | 'file'
-      | 'call',
-  }
+  return buildReplyPreviewFromMessage({
+    conversation: conversation ?? null,
+    currentUserId,
+    message: replyToMessage,
+  })
 }
 
 const buildOptimisticMessage = ({

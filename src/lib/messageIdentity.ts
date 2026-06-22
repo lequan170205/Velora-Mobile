@@ -1,3 +1,5 @@
+import { mergeReplyPreview } from './replyPreview'
+
 import type { OptimisticSortAnchor } from '../stores/chatStore'
 import type { Message, MessageMedia } from '../types/conversation.types'
 
@@ -252,39 +254,5 @@ const mergeMessageMedia = (
   return {
     ...(existing ?? {}),
     ...(incoming ?? {}),
-  }
-}
-
-const mergeReplyPreview = (
-  existing?: Message['replyPreview'],
-  incoming?: Message['replyPreview'],
-): Message['replyPreview'] | undefined => {
-  if (!incoming) {
-    return existing
-  }
-
-  if (!existing) {
-    return incoming
-  }
-
-  if (typeof existing === 'string' || typeof incoming === 'string') {
-    return incoming
-  }
-
-  if (incoming.thumbnailUri || !existing.thumbnailUri) {
-    return {
-      ...incoming,
-      ...(incoming.senderId ? {} : { senderId: existing.senderId }),
-      ...(incoming.mediaWidth ? {} : { mediaWidth: existing.mediaWidth }),
-      ...(incoming.mediaHeight ? {} : { mediaHeight: existing.mediaHeight }),
-    }
-  }
-
-  return {
-    ...incoming,
-    thumbnailUri: existing.thumbnailUri,
-    ...(incoming.senderId ? {} : { senderId: existing.senderId }),
-    ...(incoming.mediaWidth ? {} : { mediaWidth: existing.mediaWidth }),
-    ...(incoming.mediaHeight ? {} : { mediaHeight: existing.mediaHeight }),
   }
 }
