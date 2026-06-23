@@ -252,7 +252,6 @@ interface MessageRowProps {
   senderInfo?: ChatParticipant | Message['sender'] | null
   conversationId: string
   isContextMenuActive: boolean
-  onToggleDetails: (messageId: string) => void
   onPressReplyPreview: (replyToId?: string) => void
   onReply: (message: Message) => void
   onOpenContextMenu: (payload: MessageBubbleContextMenuPayload) => void
@@ -273,28 +272,17 @@ const MessageRow = memo(
     senderInfo,
     conversationId,
     isContextMenuActive,
-    onToggleDetails,
     onPressReplyPreview,
     onReply,
     onOpenContextMenu,
     onOpenMedia,
   }: MessageRowProps) {
-    const isExpanded = useMessageListUiStore(
-      useCallback(
-        (state) => state.conversations[conversationId]?.expandedMessageId === message.id,
-        [conversationId, message.id],
-      ),
-    )
     const highlightToken = useMessageListUiStore(
       useCallback(
         (state) => state.conversations[conversationId]?.highlightTokens[message.id] ?? 0,
         [conversationId, message.id],
       ),
     )
-
-    const handleToggleDetails = useCallback(() => {
-      onToggleDetails(message.id)
-    }, [message.id, onToggleDetails])
 
     const handleReply = useCallback(() => {
       onReply(message)
@@ -326,9 +314,7 @@ const MessageRow = memo(
           isGroupedTop={layout.isGroupedTop}
           isGroupedBottom={layout.isGroupedBottom}
           highlightToken={highlightToken}
-          isExpanded={isExpanded}
           isContextMenuActive={isContextMenuActive}
-          onToggleDetails={handleToggleDetails}
           onPressReplyPreview={handlePressReplyPreview}
           onReply={handleReply}
           onOpenContextMenu={onOpenContextMenu}
@@ -351,7 +337,6 @@ const MessageRow = memo(
     prevProps.senderInfo === nextProps.senderInfo &&
     prevProps.conversationId === nextProps.conversationId &&
     prevProps.isContextMenuActive === nextProps.isContextMenuActive &&
-    prevProps.onToggleDetails === nextProps.onToggleDetails &&
     prevProps.onPressReplyPreview === nextProps.onPressReplyPreview &&
     prevProps.onReply === nextProps.onReply &&
     prevProps.onOpenContextMenu === nextProps.onOpenContextMenu &&
@@ -467,7 +452,6 @@ export default function ChatScreen() {
   const { mutate: sendMessage } = useSendMessage(conversationId)
   const { enqueueMediaAssets } = useChatMediaUploads(conversationId)
   const { mutate: recallMessage } = useRecallMessage(conversationId)
-  const toggleExpandedMessage = useMessageListUiStore((state) => state.toggleExpandedMessage)
   const bumpHighlightToken = useMessageListUiStore((state) => state.bumpHighlightToken)
   const resetConversationUi = useMessageListUiStore((state) => state.resetConversationUi)
   const clearConversationInlinePlayback = useChatVideoPlaybackStore(
@@ -1543,13 +1527,6 @@ export default function ChatScreen() {
     [recallMessage],
   )
 
-  const handleToggleDetails = useCallback(
-    (messageId: string) => {
-      toggleExpandedMessage(conversationId, messageId)
-    },
-    [conversationId, toggleExpandedMessage],
-  )
-
   const clearReplyJumpSettleTimeout = useCallback(() => {
     if (replyJumpSettleTimeoutRef.current) {
       clearTimeout(replyJumpSettleTimeoutRef.current)
@@ -1886,7 +1863,6 @@ export default function ChatScreen() {
           senderInfo={sender ?? null}
           conversationId={conversationId}
           isContextMenuActive={messageIdentityKey === activeContextMenuMessageId}
-          onToggleDetails={handleToggleDetails}
           onPressReplyPreview={handleScrollToMessage}
           onReply={handleReply}
           onOpenContextMenu={handleOpenContextMenu}
@@ -1899,7 +1875,6 @@ export default function ChatScreen() {
       conversationId,
       handleReply,
       handleScrollToMessage,
-      handleToggleDetails,
       handleOpenContextMenu,
       handleOpenMedia,
       messageById,
@@ -2099,6 +2074,7 @@ export default function ChatScreen() {
                     inverted
                     data={orderedMessages}
                     extraData={listExtraData}
+                    scrollEnabled={!activeContextMenuData}
                     renderItem={renderItem}
                     keyExtractor={keyExtractor}
                     getItemType={getItemType}

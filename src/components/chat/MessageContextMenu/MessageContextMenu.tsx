@@ -25,11 +25,9 @@ import Animated, {
 } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 
-import { typography } from '../../../constants/theme'
 import { useAddReaction, useRemoveReaction } from '../../../hooks/useMessageActions'
-import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../../lib/chatMedia'
 import { useAuthStore } from '../../../stores/authStore'
-import { ChatMediaFrame } from '../ChatMediaFrame'
+import { MessageBubbleContent } from '../MessageBubbleContent'
 
 import {
   ACTION_ROW_H,
@@ -158,9 +156,9 @@ function MessageContextMenuInner({
     opacity: interpolate(menuProgress.value, [0, 1], [0, 1]),
   }))
 
-  const focusStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: interpolate(menuProgress.value, [0, 1], [1, 1.03]) }],
-  }))
+  // focusStyle không còn dùng — bubble gốc tự scale via pressScale trong MessageBubble
+  // Giữ lại tên biến để không break JSX, nhưng no-op
+  const focusStyle = useAnimatedStyle(() => ({ transform: [] }))
 
   const reactionBarStyle = useAnimatedStyle(() => ({
     opacity: toolbarProgress.value,
@@ -340,7 +338,7 @@ function MessageContextMenuInner({
       </Animated.View>
 
       <Animated.View
-        pointerEvents={isPickerExpanded ? 'none' : 'auto'}
+        pointerEvents={isPickerExpanded ? 'none' : 'box-none'}
         style={[styles.stack, stackStyle, { top: stackTop, left: stackLeft, width: menuWidth }]}
       >
         {reactionVisible ? (
@@ -391,7 +389,12 @@ function MessageContextMenuInner({
               shadowStyle(tokens.shadow),
             ]}
           >
-            {renderBubblePreview({ message, isOwn, tokens })}
+            <MessageBubbleContent
+              message={message}
+              isOwn={isOwn}
+              variant="preview"
+              tokens={tokens}
+            />
           </View>
         </Animated.View>
 
@@ -521,70 +524,6 @@ function ReactionButton({
         <View style={[styles.reactionActiveDot, { backgroundColor: tokens.textSecondary }]} />
       ) : null}
     </AnimatedPressable>
-  )
-}
-
-function renderBubblePreview({
-  message,
-  isOwn,
-  tokens,
-}: {
-  message: Message
-  isOwn: boolean
-  tokens: MessageContextMenuTokens
-}) {
-  const isRecalled = isMessageRecalled(message)
-
-  if (isRecalled) {
-    return (
-      <Text
-        style={[
-          styles.textPreview,
-          styles.recalledText,
-          { color: isOwn ? 'rgba(255,255,255,0.72)' : tokens.textSecondary },
-        ]}
-      >
-        Tin nhắn đã thu hồi
-      </Text>
-    )
-  }
-
-  if (message.type === 'image') {
-    const imageUri = getResolvedMediaUri(message.media)
-    return imageUri ? (
-      <ChatMediaFrame
-        accessibilityLabel="Photo preview"
-        contentFit="cover"
-        disableTransition
-        kind="image"
-        style={styles.imagePreview}
-        uri={imageUri}
-      />
-    ) : (
-      <Text style={[styles.textPreview, { color: tokens.textSecondary }]}>Photo</Text>
-    )
-  }
-
-  if (message.type === 'video') {
-    const posterUri = getResolvedMediaPosterUri(message.media)
-    return posterUri ? (
-      <ChatMediaFrame
-        accessibilityLabel="Video preview"
-        contentFit="cover"
-        disableTransition
-        kind="video"
-        style={styles.imagePreview}
-        uri={posterUri}
-      />
-    ) : (
-      <Text style={[styles.textPreview, { color: tokens.textSecondary }]}>Video</Text>
-    )
-  }
-
-  return (
-    <Text style={[styles.textPreview, { color: isOwn ? tokens.textInverse : tokens.textPrimary }]}>
-      {message.content}
-    </Text>
   )
 }
 
@@ -754,11 +693,6 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: 'hidden',
   },
-  imagePreview: {
-    borderRadius: 18,
-    height: '100%',
-    width: '100%',
-  },
   reactionActiveDot: {
     borderRadius: 3,
     height: 4,
@@ -786,9 +720,6 @@ const styles = StyleSheet.create({
     minHeight: REACTION_BAR_H,
     paddingHorizontal: 4,
   },
-  recalledText: {
-    fontStyle: 'italic',
-  },
   stack: {
     gap: GAP,
     position: 'absolute',
@@ -797,11 +728,5 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
-  },
-  textPreview: {
-    flexShrink: 1,
-    fontFamily: typography.fonts.body,
-    fontSize: typography.sizes.md,
-    lineHeight: 22,
   },
 })
