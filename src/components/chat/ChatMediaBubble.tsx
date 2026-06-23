@@ -37,6 +37,7 @@ interface ChatMediaBubbleProps {
   delayLongPress?: number
   onLongPress?: () => void
   onPressIn?: () => void
+  onPressOut?: () => void
   onOpenMedia?: (payload: ChatMediaViewerOpenPayload) => void
 }
 
@@ -62,6 +63,7 @@ export function ChatMediaBubble({
   message,
   onLongPress,
   onPressIn,
+  onPressOut,
   onOpenMedia,
 }: ChatMediaBubbleProps) {
   const { width: screenWidth } = useWindowDimensions()
@@ -176,6 +178,10 @@ export function ChatMediaBubble({
   const handleMediaPressIn = () => {
     didLongPressRef.current = false
     onPressIn?.()
+  }
+
+  const handleMediaPressOut = () => {
+    onPressOut?.()
   }
 
   const handleMediaLongPress = () => {
@@ -351,6 +357,7 @@ export function ChatMediaBubble({
         {...(onLongPress ? { onLongPress: handleMediaLongPress } : {})}
         onPress={handleMediaPress}
         onPressIn={handleMediaPressIn}
+        onPressOut={handleMediaPressOut}
         style={mediaPressableStyle}
       >
         <ChatMediaFrame
@@ -382,6 +389,7 @@ export function ChatMediaBubble({
               {...(onLongPress ? { onLongPress: handleMediaLongPress } : {})}
               onPress={handleInlinePlayPress}
               onPressIn={handleMediaPressIn}
+              onPressOut={handleMediaPressOut}
               style={{
                 alignItems: 'center',
                 backgroundColor: 'rgba(12,12,13,0.58)',

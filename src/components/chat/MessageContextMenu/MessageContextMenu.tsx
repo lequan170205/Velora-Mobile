@@ -266,11 +266,8 @@ function MessageContextMenuInner({
     onPress: actionHandlers[action.id],
   }))
 
-  const menuWidth = clamp(
-    Math.max(anchor.width, MENU_MIN_W),
-    MENU_MIN_W,
-    Math.min(MENU_MAX_W, screenW - EDGE_MARGIN * 2),
-  )
+  const maxMenuWidth = Math.min(MENU_MAX_W, screenW - EDGE_MARGIN * 2)
+  const menuWidth = clamp(anchor.width, MENU_MIN_W, maxMenuWidth)
 
   const reactionVisible = !isRecalled
   const reactionHeight = reactionVisible ? REACTION_BAR_H : 0
@@ -381,7 +378,9 @@ function MessageContextMenuInner({
           </Animated.View>
         ) : null}
 
-        <Animated.View style={[focusStyle, getBubblePreviewFrameStyle({ anchor, message, isOwn })]}>
+        <Animated.View
+          style={[focusStyle, getBubblePreviewFrameStyle({ anchor, bubbleHeight, message, isOwn })]}
+        >
           <View
             style={[
               styles.focusBubble,
@@ -573,14 +572,15 @@ function getBubbleSurfaceStyle({
 
 function getBubblePreviewFrameStyle({
   anchor,
+  bubbleHeight,
   message,
   isOwn,
 }: {
   anchor: BubbleAnchor
+  bubbleHeight: number
   message: Message
   isOwn: boolean
 }) {
-  const height = anchor.height
   const width = anchor.width
 
   const alignment = {
@@ -590,14 +590,14 @@ function getBubblePreviewFrameStyle({
   if (message.type === 'image' || message.type === 'video') {
     return {
       ...alignment,
-      height,
+      height: bubbleHeight,
       width,
     }
   }
 
   return {
     ...alignment,
-    height,
+    height: bubbleHeight,
     minWidth: width,
   }
 }

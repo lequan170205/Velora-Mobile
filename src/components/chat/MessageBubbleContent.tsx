@@ -18,6 +18,7 @@ interface FullVariantHandlers {
   delayLongPress?: number
   onLongPress?: () => void
   onPressIn?: () => void
+  onPressOut?: () => void
   onOpenMedia?: (payload: ChatMediaViewerOpenPayload) => void
 }
 
@@ -110,6 +111,7 @@ export function MessageBubbleContent({
         ...(handlers?.onLongPress ? { onLongPress: handlers.onLongPress } : {}),
         ...(handlers?.onOpenMedia ? { onOpenMedia: handlers.onOpenMedia } : {}),
         ...(handlers?.onPressIn ? { onPressIn: handlers.onPressIn } : {}),
+        ...(handlers?.onPressOut ? { onPressOut: handlers.onPressOut } : {}),
       }
 
       return <ChatMediaBubble message={message} {...mediaBubbleHandlers} />

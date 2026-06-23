@@ -348,6 +348,8 @@ const MessageBubbleComponent = function MessageBubble({
   const cachedAnchorRef = useRef<BubbleAnchor | null>(null)
   const pressInSequenceRef = useRef(0)
   const cachedAnchorSequenceRef = useRef(0)
+  const isContextMenuActiveRef = useRef(isContextMenuActive)
+  isContextMenuActiveRef.current = isContextMenuActive
 
   const senderInfo = senderInfoProp ?? message.sender ?? null
   const [generatedReplyThumbnailUri, setGeneratedReplyThumbnailUri] = useState<string | null>(null)
@@ -385,6 +387,10 @@ const MessageBubbleComponent = function MessageBubble({
   }, [])
 
   const handlePressIn = useCallback(() => {
+    if (isContextMenuActiveRef.current) {
+      return
+    }
+
     pressInSequenceRef.current += 1
     const nextSequence = pressInSequenceRef.current
     cachedAnchorRef.current = null
@@ -404,6 +410,19 @@ const MessageBubbleComponent = function MessageBubble({
 
       cachedAnchorRef.current = { x, y, width, height }
       cachedAnchorSequenceRef.current = nextSequence
+    })
+  }, [pressScale])
+
+  const handlePressOut = useCallback(() => {
+    if (isContextMenuActiveRef.current) {
+      return
+    }
+
+    pressScale.value = withSpring(1, {
+      mass: 0.35,
+      stiffness: 360,
+      damping: 20,
+      overshootClamping: false,
     })
   }, [pressScale])
 
@@ -865,45 +884,49 @@ const MessageBubbleComponent = function MessageBubble({
 
               <GestureDetector gesture={swipeGesture}>
                 <View className="flex-row items-center">
-                  <Animated.View
-                    style={[bubbleWrapStyle, bubbleVisibilityStyle, { flexShrink: 0 }]}
-                  >
-                    <View ref={bubbleRef} collapsable={false} className="relative">
-                      <Animated.View
-                        pointerEvents="none"
-                        className={cn(
-                          'absolute top-1/2 -mt-[18px] h-9 w-9 items-center justify-center rounded-full border border-border-light bg-surface-card',
-                          isOwn ? '-left-11' : '-right-11',
-                        )}
-                        style={swipeIndicatorStyle}
-                      >
-                        <MaterialIcons name="reply" size={16} color="#FF6B2C" />
-                      </Animated.View>
+                  <View ref={bubbleRef} collapsable={false} className="relative">
+                    <Animated.View
+                      style={[bubbleWrapStyle, bubbleVisibilityStyle, { flexShrink: 0 }]}
+                    >
+                      <View className="relative">
+                        <Animated.View
+                          pointerEvents="none"
+                          className={cn(
+                            'absolute top-1/2 -mt-[18px] h-9 w-9 items-center justify-center rounded-full border border-border-light bg-surface-card',
+                            isOwn ? '-left-11' : '-right-11',
+                          )}
+                          style={swipeIndicatorStyle}
+                        >
+                          <MaterialIcons name="reply" size={16} color="#FF6B2C" />
+                        </Animated.View>
 
-                      <Pressable
-                        {...(!isRecalled
-                          ? {
-                              onPressIn: handlePressIn,
+                        <Pressable
+                          {...(!isRecalled
+                            ? {
+                                onPressIn: handlePressIn,
+                                onPressOut: handlePressOut,
+                                onLongPress: handleLongPress,
+                                delayLongPress: CONTEXT_MENU_LONG_PRESS_DELAY_MS,
+                              }
+                            : null)}
+                          className={bubbleClassName}
+                        >
+                          <MessageBubbleContent
+                            message={message}
+                            isOwn={isOwn}
+                            variant="full"
+                            handlers={{
+                              delayLongPress: MEDIA_CONTEXT_MENU_LONG_PRESS_DELAY_MS,
                               onLongPress: handleLongPress,
-                              delayLongPress: CONTEXT_MENU_LONG_PRESS_DELAY_MS,
-                            }
-                          : null)}
-                        className={bubbleClassName}
-                      >
-                        <MessageBubbleContent
-                          message={message}
-                          isOwn={isOwn}
-                          variant="full"
-                          handlers={{
-                            delayLongPress: MEDIA_CONTEXT_MENU_LONG_PRESS_DELAY_MS,
-                            onLongPress: handleLongPress,
-                            onPressIn: handlePressIn,
-                            ...(onOpenMedia ? { onOpenMedia } : {}),
-                          }}
-                        />
-                      </Pressable>
-                    </View>
-                  </Animated.View>
+                              onPressIn: handlePressIn,
+                              onPressOut: handlePressOut,
+                              ...(onOpenMedia ? { onOpenMedia } : {}),
+                            }}
+                          />
+                        </Pressable>
+                      </View>
+                    </Animated.View>
+                  </View>
                 </View>
               </GestureDetector>
 
