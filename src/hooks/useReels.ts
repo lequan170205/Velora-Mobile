@@ -1,13 +1,21 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
-import type { InfiniteData, QueryKey } from '@tanstack/react-query'
+import type { InfiniteData, QueryClient, QueryKey } from '@tanstack/react-query'
 
+import { conversationApi } from '../api/conversation.api'
 import { mediaApi } from '../api/media.api'
 import { reelsApi } from '../api/reels.api'
 import { queryKeys } from '../constants/queryKeys'
 import { DEFAULT_REELS_LIMIT } from '../constants/reels'
+import { upsertRemoteMessage } from '../database/messageSync'
+import {
+  upsertConversationSummaryInCache,
+  upsertMessageIntoConversationCache,
+} from '../lib/chatMessageCache'
+import { useAuthStore } from '../stores/authStore'
 
+import type { Conversation, Message } from '../types/conversation.types'
 import type {
   AllowedVideoType,
   ListReelsParams,
@@ -17,7 +25,9 @@ import type {
   Reel,
   ReelDetail,
   ReelProcessingStatusResponse,
+  ReelShareResponse,
   ReelVisibility,
+  ShareReelPayload,
   UpdateReelPayload,
 } from '../types/reel.types'
 
@@ -299,6 +309,96 @@ const mergePendingCreatedReelsIntoContext = (
   return { ...context, items }
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+type ShareReelMutationVariables = {
+  data: ShareReelPayload
+  id: string
+  reel?: Reel
+}
+
+const toSharedReelMessage = (
+  share: ReelShareResponse,
+  currentUser: ReturnType<typeof useAuthStore.getState>['user'] | null,
+  sourceReel?: Reel,
+): Message | null => {
+  if (!share.message) {
+    return null
+  }
+
+  const createdAt = share.message.createdAt || share.createdAt
+  const media: NonNullable<Message['media']> = isRecord(share.message.media)
+    ? (share.message.media as NonNullable<Message['media']>)
+    : {}
+  const sourceAuthorUsername = sourceReel?.author?.username?.trim() || undefined
+  const sourceAuthorAvatarUrl = sourceReel?.author?.avatarUrl?.trim() || undefined
+  const enrichedMedia: NonNullable<Message['media']> = { ...media }
+  const reelId = media.reelId ?? sourceReel?.id ?? share.reelId
+  const reelOwnerId = media.reelOwnerId ?? sourceReel?.userId ?? share.ownerId
+  const reelOwnerUsername = media.reelOwnerUsername ?? sourceAuthorUsername
+  const reelOwnerAvatarUrl = media.reelOwnerAvatarUrl ?? sourceAuthorAvatarUrl
+  const reelTitle = media.reelTitle ?? sourceReel?.title
+  const reelDescription = media.reelDescription ?? sourceReel?.description
+  const thumbnailUrl = media.thumbnailUrl ?? sourceReel?.thumbnailUrl
+  const fileUrl = media.fileUrl ?? sourceReel?.streamUrl
+
+  enrichedMedia.reelId = reelId
+  enrichedMedia.reelOwnerId = reelOwnerId
+  if (reelOwnerUsername) enrichedMedia.reelOwnerUsername = reelOwnerUsername
+  if (reelOwnerAvatarUrl) enrichedMedia.reelOwnerAvatarUrl = reelOwnerAvatarUrl
+  if (reelTitle) enrichedMedia.reelTitle = reelTitle
+  if (reelDescription) enrichedMedia.reelDescription = reelDescription
+  if (thumbnailUrl) enrichedMedia.thumbnailUrl = thumbnailUrl
+  if (fileUrl) enrichedMedia.fileUrl = fileUrl
+
+  return {
+    id: share.message.id,
+    conversationId: share.message.conversationId,
+    senderId: share.message.senderId,
+    sender: {
+      id: share.message.senderId,
+      email: currentUser?.email ?? '',
+      ...(currentUser?.picture ? { picture: currentUser.picture } : {}),
+    },
+    content: share.message.content,
+    media: enrichedMedia,
+    type: share.message.type === 'reel' ? 'reel' : 'text',
+    status: 'SENT',
+    createdAt,
+    updatedAt: createdAt,
+  }
+}
+
+const findCachedConversation = (queryClient: QueryClient, conversationId: string) => {
+  const cachedData = queryClient.getQueryData<unknown>(queryKeys.conversations.all)
+
+  const conversations = Array.isArray(cachedData)
+    ? cachedData
+    : (cachedData as { pages?: unknown[] })?.pages?.flat() || []
+
+  return (
+    conversations.find((conversation): conversation is Conversation =>
+      Boolean(
+        conversation &&
+        typeof conversation === 'object' &&
+        'id' in conversation &&
+        conversation.id === conversationId,
+      ),
+    ) ?? null
+  )
+}
+
+const toShareMessagePayload = (message: Message): NonNullable<ReelShareResponse['message']> => ({
+  id: message.id,
+  conversationId: message.conversationId,
+  senderId: message.senderId,
+  content: message.content,
+  type: message.type,
+  media: message.media,
+  createdAt: message.createdAt,
+})
+
 const normalizeListParams = (params: Omit<ListReelsParams, 'cursor'> = {}) => ({
   ...(params.limit ? { limit: params.limit } : {}),
   ...(params.userId ? { userId: params.userId } : {}),
@@ -528,6 +628,78 @@ export function useUpdateReel() {
         (data) => updateReelInContextData(data, updatedReel),
       )
     },
+  })
+}
+
+export function useShareReel() {
+  const queryClient = useQueryClient()
+  const currentUser = useAuthStore((state) => state.user)
+
+  return useMutation({
+    mutationFn: async ({ id, data }: ShareReelMutationVariables) => {
+      const share = await reelsApi.share(id, data)
+
+      if (share.message) {
+        return share
+      }
+
+      if (!share.messageId) {
+        throw new Error('Reel share completed, but no chat message was returned.')
+      }
+
+      const window = await conversationApi.getMessagesAround(
+        share.conversationId,
+        share.messageId,
+        {
+          before: 1,
+          after: 1,
+        },
+      )
+      const message = window?.messages.find(
+        (candidate) => candidate.id === share.messageId || candidate._id === share.messageId,
+      )
+
+      if (!message) {
+        throw new Error('Reel share completed, but the chat message was not returned.')
+      }
+
+      return {
+        ...share,
+        message: toShareMessagePayload(message),
+      }
+    },
+    onSuccess: async (share, variables) => {
+      const message = toSharedReelMessage(share, currentUser ?? null, variables.reel)
+
+      if (message) {
+        upsertMessageIntoConversationCache(queryClient, message)
+        upsertConversationSummaryInCache(queryClient, {
+          id: message.conversationId,
+          lastMessage: message.content,
+          lastMessageAt: message.createdAt,
+          updatedAt: message.updatedAt,
+        })
+        await upsertRemoteMessage({
+          conversation: findCachedConversation(queryClient, message.conversationId),
+          currentUser: currentUser ?? null,
+          message,
+        })
+      }
+
+      void queryClient.invalidateQueries({ queryKey: queryKeys.conversations.all })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.conversations.messages(share.conversationId),
+      })
+    },
+  })
+}
+
+export function useCreateReelShareLink() {
+  return useMutation({
+    mutationFn: ({ id }: { id: string }) =>
+      reelsApi.createShareLink(id, {
+        reuseExisting: true,
+      }),
   })
 }
 

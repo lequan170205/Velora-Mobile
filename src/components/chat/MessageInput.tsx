@@ -31,6 +31,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../lib/chatMedia'
 import {
+  getPreferredReelReplyPreviewContent,
   isReplyPreviewRecalled,
   normalizeReplyPreviewContent,
   RECALLED_PREVIEW_TEXT,
@@ -97,12 +98,20 @@ const getComposerReplyThumbnailUri = (
     return previewThumbnailUri || getResolvedMediaUri(replyTo?.media) || null
   }
 
+  if (replyPreviewData?.type === 'reel') {
+    return previewThumbnailUri || replyTo?.media?.thumbnailUrl || null
+  }
+
   if (replyTo?.type === 'video') {
     return getResolvedMediaPosterUri(replyTo.media) ?? null
   }
 
   if (replyTo?.type === 'image') {
     return getResolvedMediaUri(replyTo.media) ?? null
+  }
+
+  if (replyTo?.type === 'reel') {
+    return replyTo.media?.thumbnailUrl ?? null
   }
 
   return null
@@ -452,19 +461,28 @@ const MessageInputComponent = function MessageInput(
     replyPreview: replyTo?.replyPreview,
     replyTo,
   })
-  const replyPreviewText =
-    typeof replyTo?.replyPreview === 'string'
-      ? normalizeReplyPreviewContent(replyTo.replyPreview)
-      : replyPreviewData
-        ? normalizeReplyPreviewContent(replyPreviewData.content)
-        : isReplyRecalled
-          ? RECALLED_PREVIEW_TEXT
-          : replyTo?.content
+  const replyPreviewText = isReplyRecalled
+    ? RECALLED_PREVIEW_TEXT
+    : replyPreviewData?.type === 'reel' || replyTo?.type === 'reel'
+      ? getPreferredReelReplyPreviewContent({
+          content: replyPreviewData?.content,
+          reelTitle: replyTo?.media?.reelTitle,
+        })
+      : typeof replyTo?.replyPreview === 'string'
+        ? normalizeReplyPreviewContent(replyTo.replyPreview)
+        : replyPreviewData
+          ? normalizeReplyPreviewContent(replyPreviewData.content)
+          : normalizeReplyPreviewContent(replyTo?.content)
   const replySenderLabel = getReplySenderLabel({ currentUserId, replyPreviewData, replyTo })
   const replyInitial = (replyPreviewText?.trim().charAt(0) || '?').toUpperCase()
   const replyThumbnailUri = getComposerReplyThumbnailUri(replyTo, replyPreviewData)
   const isReplyVideo =
-    !isReplyRecalled && (replyPreviewData?.type === 'video' || replyTo?.type === 'video')
+    !isReplyRecalled &&
+    (replyPreviewData?.type === 'video' ||
+      replyPreviewData?.type === 'reel' ||
+      replyTo?.type === 'video' ||
+      replyTo?.type === 'reel')
+  const isReplyReel = replyPreviewData?.type === 'reel' || replyTo?.type === 'reel'
   const bottomInset = Math.max(insets.bottom, 8)
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation()
   const ACTIVE_PADDING = 8 // The tight spacing you want when focused
@@ -529,7 +547,7 @@ const MessageInputComponent = function MessageInput(
           style={{
             paddingLeft: 12,
             paddingRight: 8,
-            borderLeftWidth: 3,
+            borderLeftWidth: isReplyReel ? 0 : 3,
             borderLeftColor: BRAND,
             overflow: 'hidden',
           }}
@@ -537,9 +555,9 @@ const MessageInputComponent = function MessageInput(
           {replyThumbnailUri ? (
             <View
               style={{
-                width: 36,
-                height: 36,
-                borderRadius: 10,
+                width: isReplyReel ? 38 : 36,
+                height: isReplyReel ? 52 : 36,
+                borderRadius: isReplyReel ? 12 : 10,
                 overflow: 'hidden',
                 backgroundColor: isReplyVideo ? '#111111' : '#EFEFEF',
                 marginRight: 10,
@@ -548,7 +566,7 @@ const MessageInputComponent = function MessageInput(
               <Image
                 source={{ uri: replyThumbnailUri }}
                 resizeMode="cover"
-                style={{ width: 36, height: 36 }}
+                style={{ width: isReplyReel ? 38 : 36, height: isReplyReel ? 52 : 36 }}
               />
               {isReplyVideo ? (
                 <View
@@ -567,6 +585,21 @@ const MessageInputComponent = function MessageInput(
                   <Ionicons name="play" size={16} color="#FFFFFF" />
                 </View>
               ) : null}
+            </View>
+          ) : isReplyReel ? (
+            <View
+              style={{
+                width: 38,
+                height: 52,
+                borderRadius: 12,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#111111',
+                marginRight: 10,
+                overflow: 'hidden',
+              }}
+            >
+              <Ionicons name="play" size={18} color="#FFFFFF" />
             </View>
           ) : (
             <View
@@ -588,7 +621,12 @@ const MessageInputComponent = function MessageInput(
 
           <View style={{ flex: 1 }}>
             <Text
-              style={{ fontSize: 12, fontWeight: '700', color: BRAND_DARK, marginBottom: 2 }}
+              style={{
+                fontSize: 12,
+                fontWeight: '700',
+                color: isReplyReel ? TEXT_PRIMARY : BRAND_DARK,
+                marginBottom: 2,
+              }}
               numberOfLines={1}
             >
               {replySenderLabel}

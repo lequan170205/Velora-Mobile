@@ -38,6 +38,7 @@ const BASE_CUTOUT_RADIUS = CIRCLE_RADIUS + CUTOUT_GAP
 const FLOAT_LIFT = 14
 
 const REELS_INDEX = 2
+export const MESSAGES_TAB_INDEX = 0
 export const PROFILE_TAB_INDEX = 4
 
 const DOCK_EASING = Easing.bezier(0.22, 1, 0.36, 1)

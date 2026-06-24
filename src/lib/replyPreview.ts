@@ -3,11 +3,19 @@ import { getResolvedMediaPosterUri, getResolvedMediaUri } from './chatMedia'
 import type { Conversation, Message, ReplyPreviewData } from '../types/conversation.types'
 
 export const RECALLED_PREVIEW_TEXT = 'Tin nhắn đã thu hồi'
+export const REEL_PREVIEW_FALLBACK_TEXT = 'Reel'
 
 const RECALLED_PREVIEW_ALIASES = new Set([
   RECALLED_PREVIEW_TEXT,
   'Message recalled',
   'message recalled',
+])
+
+const GENERIC_REEL_PREVIEW_ALIASES = new Set([
+  'Tin nhắn mới',
+  'Tin nhan moi',
+  'New message',
+  'new message',
 ])
 
 const getEmailLabel = (email?: string | null) => {
@@ -57,6 +65,26 @@ export const isRecalledPreviewContent = (content?: string | null) => {
 export const normalizeReplyPreviewContent = (content?: string | null) => {
   const normalizedContent = content?.trim() ?? ''
   return isRecalledPreviewContent(normalizedContent) ? RECALLED_PREVIEW_TEXT : normalizedContent
+}
+
+export const getPreferredReelReplyPreviewContent = ({
+  content,
+  reelTitle,
+}: {
+  content?: string | null | undefined
+  reelTitle?: string | null | undefined
+}) => {
+  const normalizedReelTitle = normalizeReplyPreviewContent(reelTitle)
+  if (normalizedReelTitle) {
+    return normalizedReelTitle
+  }
+
+  const normalizedContent = normalizeReplyPreviewContent(content)
+  if (normalizedContent && !GENERIC_REEL_PREVIEW_ALIASES.has(normalizedContent)) {
+    return normalizedContent
+  }
+
+  return REEL_PREVIEW_FALLBACK_TEXT
 }
 
 export const toTextOnlyReplyPreview = (
@@ -216,15 +244,24 @@ export const buildReplyPreviewFromMessage = ({
     thumbnailUri = getResolvedMediaPosterUri(message.media) ?? undefined
   } else if (message.type === 'image') {
     thumbnailUri = getResolvedMediaUri(message.media) ?? undefined
+  } else if (message.type === 'reel') {
+    thumbnailUri = message.media?.thumbnailUrl ?? undefined
   }
 
   const mediaWidth = message.media?.width ?? message.media?.displayWidth ?? undefined
   const mediaHeight = message.media?.height ?? message.media?.displayHeight ?? undefined
+  const content =
+    message.type === 'reel'
+      ? getPreferredReelReplyPreviewContent({
+          content: message.content,
+          reelTitle: message.media?.reelTitle,
+        })
+      : normalizeReplyPreviewContent(message.content ?? '')
 
   return {
     senderName,
     ...(message.senderId ? { senderId: message.senderId } : {}),
-    content: normalizeReplyPreviewContent(message.content ?? ''),
+    content,
     ...(thumbnailUri ? { thumbnailUri } : {}),
     ...(mediaWidth ? { mediaWidth } : {}),
     ...(mediaHeight ? { mediaHeight } : {}),

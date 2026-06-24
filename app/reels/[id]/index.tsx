@@ -1,31 +1,159 @@
+import { useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import React, { useCallback } from 'react'
+import React, { useCallback, useMemo } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import {
   CustomTabBarSurface,
   getDockedTabBarHeight,
+  MESSAGES_TAB_INDEX,
   PROFILE_TAB_INDEX,
 } from '../../../src/components/navigation/CustomTabBar'
 import { ReelsViewer } from '../../../src/components/reels/ReelsViewer'
 
+import type { Message } from '../../../src/types/conversation.types'
+import type { Reel } from '../../../src/types/reel.types'
+
+type AnchoredMessagesCache = {
+  messages?: Message[]
+}
+
+const getMessageCreatedAtMs = (message: Message) => {
+  const createdAtMs = new Date(message.createdAt).getTime()
+  return Number.isFinite(createdAtMs) ? createdAtMs : 0
+}
+
+const isReelMessage = (message: Message) =>
+  message.type === 'reel' ||
+  message.media?.mimeType === 'application/vnd.velora.reel' ||
+  Boolean(message.media?.reelId)
+
+const getCachedMessagePages = (
+  data: InfiniteData<Message[]> | Message[] | AnchoredMessagesCache | undefined,
+): Message[] => {
+  if (!data) {
+    return []
+  }
+
+  if (!Array.isArray(data) && 'pages' in data) {
+    return data.pages.flat()
+  }
+
+  if (!Array.isArray(data) && 'messages' in data) {
+    return data.messages ?? []
+  }
+
+  return Array.isArray(data) ? data : []
+}
+
+const getReelOwnerIdentity = (media: Message['media'], reelId: string) => {
+  const ownerUsername = media?.reelOwnerUsername
+  const normalizedOwnerUsername = ownerUsername?.trim().replace(/^@+/, '')
+  const ownerId =
+    media?.reelOwnerId ??
+    (normalizedOwnerUsername ? `username:${normalizedOwnerUsername}` : `reel:${reelId}`)
+
+  return {
+    ownerId,
+    ownerUsername: normalizedOwnerUsername ?? null,
+  }
+}
+
+const buildReelFromMessage = (message: Message): Reel | null => {
+  const media = message.media
+  const reelId = media?.reelId
+  const streamUrl = media?.fileUrl
+  const hasAuthorMetadata =
+    media?.reelOwnerUsername || media?.reelOwnerId || media?.reelOwnerAvatarUrl
+
+  if (!media || !reelId || !streamUrl) {
+    return null
+  }
+
+  const { ownerId, ownerUsername } = getReelOwnerIdentity(media, reelId)
+
+  return {
+    id: reelId,
+    userId: ownerId,
+    mediaKey: media.fileKey ?? reelId,
+    title: media.reelTitle ?? message.content,
+    ...(media.reelDescription ? { description: media.reelDescription } : {}),
+    tags: [],
+    status: 'COMPLETED',
+    visibility: 'public',
+    viewCount: 0,
+    ...(hasAuthorMetadata
+      ? {
+          author: {
+            id: ownerId,
+            username: ownerUsername,
+            displayName: null,
+            avatarUrl: media.reelOwnerAvatarUrl ?? null,
+            isVerified: null,
+          },
+        }
+      : {}),
+    ...(media.thumbnailKey ? { thumbnailKey: media.thumbnailKey } : {}),
+    ...(media.thumbnailUrl ? { thumbnailUrl: media.thumbnailUrl } : {}),
+    streamUrl,
+    createdAt: message.createdAt,
+  }
+}
+
 export default function ReelContextScreen() {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const insets = useSafeAreaInsets()
-  const { id, source, returnTo, returnUsername } = useLocalSearchParams<{
+  const { conversationId, id, returnTo, returnUsername } = useLocalSearchParams<{
+    conversationId?: string | string[]
     id?: string | string[]
-    source?: string | string[]
     returnTo?: string | string[]
     returnUsername?: string | string[]
   }>()
+  const normalizedConversationId = Array.isArray(conversationId)
+    ? conversationId[0]
+    : conversationId
   const reelId = Array.isArray(id) ? id[0] : id
-  const contextSource = Array.isArray(source) ? source[0] : source
   const normalizedReturnTo = Array.isArray(returnTo) ? returnTo[0] : returnTo
   const normalizedReturnUsername = Array.isArray(returnUsername)
     ? returnUsername[0]
     : returnUsername
+  const isConversationReturn = normalizedReturnTo === 'conversation'
   const tabBarHeight = getDockedTabBarHeight(insets.bottom)
+  const conversationReels = useMemo(() => {
+    if (!isConversationReturn || !normalizedConversationId) {
+      return []
+    }
+
+    const messageQueries = queryClient.getQueriesData<
+      InfiniteData<Message[]> | Message[] | AnchoredMessagesCache
+    >({
+      queryKey: ['conversations', normalizedConversationId],
+    })
+    const messages = messageQueries.flatMap(([, data]) => getCachedMessagePages(data))
+
+    const reelsById = new Map<string, Reel>()
+
+    messages
+      .filter(isReelMessage)
+      .sort((left, right) => getMessageCreatedAtMs(left) - getMessageCreatedAtMs(right))
+      .forEach((message) => {
+        const reel = buildReelFromMessage(message)
+        if (reel && !reelsById.has(reel.id)) {
+          reelsById.set(reel.id, reel)
+        }
+      })
+
+    return Array.from(reelsById.values())
+  }, [isConversationReturn, normalizedConversationId, queryClient])
+  const contextItems = useMemo(() => {
+    if (!reelId || conversationReels.some((reel) => reel.id === reelId)) {
+      return conversationReels
+    }
+
+    return []
+  }, [conversationReels, reelId])
   const handleTabSelect = useCallback(
     (_nextIndex: number, routeName: string) => {
       if (routeName === 'index') {
@@ -48,7 +176,9 @@ export default function ReelContextScreen() {
       <ReelsViewer
         mode="context"
         reelId={reelId}
-        contextSource={contextSource === 'public' ? 'public' : 'profile'}
+        contextItems={contextItems}
+        contextSource="profile"
+        returnConversationId={normalizedConversationId}
         returnTo={normalizedReturnTo}
         returnUsername={normalizedReturnUsername}
         bottomContentInset={tabBarHeight}
@@ -57,7 +187,7 @@ export default function ReelContextScreen() {
 
       <View pointerEvents="box-none" style={styles.tabBarOverlay}>
         <CustomTabBarSurface
-          activeIndex={PROFILE_TAB_INDEX}
+          activeIndex={isConversationReturn ? MESSAGES_TAB_INDEX : PROFILE_TAB_INDEX}
           forceDarkTheme
           forceDockedLayout
           onTabSelect={handleTabSelect}

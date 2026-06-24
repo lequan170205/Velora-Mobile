@@ -16,7 +16,7 @@ import type {
 
 type MessageReadBy = NonNullable<ConversationMessage['readBy']>
 type MessageReplyPreview = string | ReplyPreviewData | null
-type MessageTypeValue = 'text' | 'image' | 'video' | 'file' | 'voice' | 'call'
+type MessageTypeValue = 'text' | 'image' | 'video' | 'file' | 'voice' | 'call' | 'reel'
 type MessageStatusValue = 'PENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED'
 
 export type AddMessageInput = {

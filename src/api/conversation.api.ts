@@ -70,8 +70,8 @@ export const conversationApi = {
       `/conversations/${id}/messages/around/${messageId}`,
       {
         params: {
-          ...(params.before ? { before: params.before } : {}),
-          ...(params.after ? { after: params.after } : {}),
+          ...(params.before !== undefined ? { before: params.before } : {}),
+          ...(params.after !== undefined ? { after: params.after } : {}),
         },
         ...(params.signal ? { signal: params.signal } : {}),
       },
@@ -119,7 +119,7 @@ export const conversationApi = {
       clientMessageId?: string
       content: string
       media?: Message['media']
-      type: 'text' | 'image' | 'video' | 'file' | 'voice' | 'call'
+      type: Message['type']
       signalType?: number
       replyToId?: string
     },

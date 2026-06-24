@@ -18,7 +18,7 @@ const MEDIA_UPLOAD_STAGE_VALUES = new Set([
   'processing',
   'failed',
 ])
-const REPLY_PREVIEW_TYPES = new Set(['text', 'image', 'video', 'file', 'call'])
+const REPLY_PREVIEW_TYPES = new Set(['text', 'image', 'video', 'file', 'call', 'reel'])
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -61,6 +61,16 @@ export const sanitizeMessageMedia = (value: unknown): MessageMedia | null => {
   const thumbnailKey = sanitizeString(value.thumbnailKey)
   const thumbnailUrl = sanitizeString(value.thumbnailUrl)
   const mimeType = sanitizeString(value.mimeType)
+  const reelId = sanitizeString(value.reelId ?? value.reel_id ?? value.reelID)
+  const reelOwnerId = sanitizeString(value.reelOwnerId)
+  const reelOwnerAvatarUrl = sanitizeString(
+    value.reelOwnerAvatarUrl ?? value.reelAuthorAvatarUrl ?? value.authorAvatarUrl,
+  )
+  const reelOwnerUsername = sanitizeString(
+    value.reelOwnerUsername ?? value.reelAuthorUsername ?? value.authorUsername,
+  )
+  const reelTitle = sanitizeString(value.reelTitle)
+  const reelDescription = sanitizeString(value.reelDescription)
   const width = sanitizeNumber(value.width)
   const height = sanitizeNumber(value.height)
   const durationMs = sanitizeNumber(value.durationMs)
@@ -79,6 +89,12 @@ export const sanitizeMessageMedia = (value: unknown): MessageMedia | null => {
   if (thumbnailKey) nextMedia.thumbnailKey = thumbnailKey
   if (thumbnailUrl) nextMedia.thumbnailUrl = thumbnailUrl
   if (mimeType) nextMedia.mimeType = mimeType
+  if (reelId) nextMedia.reelId = reelId
+  if (reelOwnerId) nextMedia.reelOwnerId = reelOwnerId
+  if (reelOwnerAvatarUrl) nextMedia.reelOwnerAvatarUrl = reelOwnerAvatarUrl
+  if (reelOwnerUsername) nextMedia.reelOwnerUsername = reelOwnerUsername
+  if (reelTitle) nextMedia.reelTitle = reelTitle
+  if (reelDescription) nextMedia.reelDescription = reelDescription
   if (width !== null) nextMedia.width = width
   if (height !== null) nextMedia.height = height
   if (durationMs !== null) nextMedia.durationMs = durationMs

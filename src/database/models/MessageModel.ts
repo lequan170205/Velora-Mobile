@@ -30,7 +30,7 @@ import type {
 type MessageReadBy = NonNullable<ConversationMessage['readBy']>
 type MessageReplyPreview = string | ReplyPreviewData | null
 
-export const MESSAGE_TYPES = ['text', 'image', 'video', 'file', 'voice', 'call'] as const
+export const MESSAGE_TYPES = ['text', 'image', 'video', 'file', 'voice', 'call', 'reel'] as const
 export type MessageTypeValue = (typeof MESSAGE_TYPES)[number]
 
 export const MESSAGE_STATUSES = ['PENDING', 'SENT', 'DELIVERED', 'READ', 'FAILED'] as const

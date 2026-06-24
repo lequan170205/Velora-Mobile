@@ -27,9 +27,12 @@ type ReelsViewerMode = 'public' | 'context'
 
 interface ReelsViewerProps {
   bottomContentInset?: number
+  contextItems?: Reel[]
   contextSource?: ReelContextSource
+  hideDescriptions?: boolean
   mode: ReelsViewerMode
   reelId?: string | undefined
+  returnConversationId?: string | undefined
   returnTo?: string | undefined
   returnUsername?: string | undefined
   tabBarHeight?: number
@@ -91,9 +94,12 @@ function ReelsLoadingSkeleton({
 
 export function ReelsViewer({
   bottomContentInset = 0,
+  contextItems = [],
   contextSource = 'profile',
+  hideDescriptions = false,
   mode,
   reelId,
+  returnConversationId,
   returnTo,
   returnUsername,
   tabBarHeight = 0,
@@ -119,6 +125,8 @@ export function ReelsViewer({
   const reelsRef = useRef<Reel[]>([])
   const previousSelectedReelIdRef = useRef<string | undefined>(reelId)
   const shouldUseReelContext = mode === 'context' && Boolean(reelId)
+  const shouldUseLocalContext = shouldUseReelContext && contextItems.length > 0
+  const shouldFetchReelContext = shouldUseReelContext && !shouldUseLocalContext
   const shouldLoadPublicFeed = !shouldUseReelContext
   const shouldAllowRefresh = mode === 'public'
   const handleTimelineInteractionChange = useCallback((isInteracting: boolean) => {
@@ -156,14 +164,18 @@ export function ReelsViewer({
       after: Math.max(1, DEFAULT_REELS_LIMIT - 1),
     },
     {
-      enabled: shouldUseReelContext,
+      enabled: shouldFetchReelContext,
     },
   )
 
   const reels = useMemo(() => {
     if (shouldUseReelContext) {
-      const contextItems = reelContext?.items ?? []
-      const seenIds = new Set(contextItems.map((item) => item.id))
+      if (shouldUseLocalContext) {
+        return contextItems.filter((item) => !deletedReelIds.has(item.id))
+      }
+
+      const fetchedContextItems = reelContext?.items ?? []
+      const seenIds = new Set(fetchedContextItems.map((item) => item.id))
       const appendedItems = contextExtraItems.filter((item) => {
         if (seenIds.has(item.id)) {
           return false
@@ -173,13 +185,23 @@ export function ReelsViewer({
         return true
       })
 
-      return [...contextItems, ...appendedItems].filter((item) => !deletedReelIds.has(item.id))
+      return [...fetchedContextItems, ...appendedItems].filter(
+        (item) => !deletedReelIds.has(item.id),
+      )
     }
 
     return (
       data?.pages.flatMap((page) => page.items).filter((item) => !deletedReelIds.has(item.id)) ?? []
     )
-  }, [contextExtraItems, data, deletedReelIds, reelContext, shouldUseReelContext])
+  }, [
+    contextExtraItems,
+    contextItems,
+    data,
+    deletedReelIds,
+    reelContext,
+    shouldUseLocalContext,
+    shouldUseReelContext,
+  ])
   const reelContextSelectedId = reelContext?.selectedId
   const reelContextInitialNextCursor = reelContext?.nextCursor ?? null
   const requestedReelIndex = useMemo(() => {
@@ -220,7 +242,7 @@ export function ReelsViewer({
   }, [reelId])
 
   useEffect(() => {
-    if (!shouldUseReelContext) {
+    if (!shouldUseReelContext || shouldUseLocalContext) {
       setContextExtraItems([])
       setContextNextCursor(null)
       return
@@ -232,7 +254,12 @@ export function ReelsViewer({
 
     setContextExtraItems([])
     setContextNextCursor(reelContextInitialNextCursor)
-  }, [reelContextInitialNextCursor, reelContextSelectedId, shouldUseReelContext])
+  }, [
+    reelContextInitialNextCursor,
+    reelContextSelectedId,
+    shouldUseLocalContext,
+    shouldUseReelContext,
+  ])
 
   useEffect(() => {
     if (!reelId) {
@@ -272,7 +299,7 @@ export function ReelsViewer({
     })
   }, [reelId, requestedReelIndex, shouldUseReelContext])
 
-  const activeError = shouldUseReelContext ? contextError : error
+  const activeError = shouldFetchReelContext ? contextError : error
   const errorMessage =
     (activeError as (Error & { response?: { data?: { message?: string } } }) | null)?.response?.data
       ?.message ||
@@ -375,6 +402,7 @@ export function ReelsViewer({
   const fetchNextContextPage = useCallback(async () => {
     if (
       !shouldUseReelContext ||
+      shouldUseLocalContext ||
       !reelContext?.scope ||
       !contextNextCursor ||
       isFetchingContextNextPage
@@ -414,7 +442,13 @@ export function ReelsViewer({
     } finally {
       setIsFetchingContextNextPage(false)
     }
-  }, [contextNextCursor, isFetchingContextNextPage, reelContext, shouldUseReelContext])
+  }, [
+    contextNextCursor,
+    isFetchingContextNextPage,
+    reelContext,
+    shouldUseLocalContext,
+    shouldUseReelContext,
+  ])
 
   const handleRefresh = useCallback(() => {
     if (!shouldAllowRefresh) {
@@ -451,13 +485,21 @@ export function ReelsViewer({
       return
     }
 
+    if (returnTo === 'conversation' && returnConversationId) {
+      router.dismissTo({
+        pathname: '/conversation/[id]',
+        params: { id: returnConversationId },
+      })
+      return
+    }
+
     if (router.canGoBack()) {
       router.back()
       return
     }
 
-    router.replace('/profile')
-  }, [returnTo, returnUsername, router])
+    router.replace(returnTo === 'conversation' ? '/' : '/profile')
+  }, [returnConversationId, returnTo, returnUsername, router])
 
   const handleReelDeleted = useCallback(
     (deletedReelId: string) => {
@@ -496,6 +538,8 @@ export function ReelsViewer({
           params: {
             id: nextReel.id,
             source: contextSource,
+            ...(returnConversationId ? { conversationId: returnConversationId } : {}),
+            ...(hideDescriptions ? { hideDescriptions: '1' } : {}),
             ...(returnTo ? { returnTo } : {}),
             ...(returnUsername ? { returnUsername } : {}),
           },
@@ -526,9 +570,11 @@ export function ReelsViewer({
     [
       contextSource,
       handleExitContext,
+      hideDescriptions,
       reelId,
       refetch,
       refetchContext,
+      returnConversationId,
       returnTo,
       returnUsername,
       router,
@@ -549,11 +595,12 @@ export function ReelsViewer({
       return (
         <ReelFeedItem
           reel={item}
-          description={item.description}
+          description={hideDescriptions ? undefined : item.description}
           height={viewportHeight}
           isActive={isActiveItem}
           shouldWarmVideo={shouldWarmVideo}
           enableStatusPolling={isActiveItem}
+          hideCaption={hideDescriptions}
           isMuted={isMuted}
           bottomContentInset={bottomContentInset}
           onToggleMuted={handleToggleMuted}
@@ -568,6 +615,7 @@ export function ReelsViewer({
       handleTimelineInteractionChange,
       handleToggleMuted,
       handleReelDeleted,
+      hideDescriptions,
       isFocused,
       isMuted,
       bottomContentInset,
@@ -575,12 +623,12 @@ export function ReelsViewer({
     ],
   )
 
-  const isInitialLoading = shouldUseReelContext ? isContextPending : isPending
-  const isActiveError = shouldUseReelContext ? isContextError : isError
-  const isActiveRefetching = shouldUseReelContext
+  const isInitialLoading = shouldFetchReelContext ? isContextPending : isPending
+  const isActiveError = shouldFetchReelContext ? isContextError : isError
+  const isActiveRefetching = shouldFetchReelContext
     ? isContextRefetching || isRefetching
     : isRefetching
-  const refetchActiveFeed = shouldUseReelContext ? refetchContext : refetch
+  const refetchActiveFeed = shouldFetchReelContext ? refetchContext : refetch
 
   if (isInitialLoading && reels.length === 0) {
     return <ReelsLoadingSkeleton headerTop={insets.top + 18} viewportHeight={viewportHeight} />
@@ -657,7 +705,12 @@ export function ReelsViewer({
             return
           }
 
-          if (shouldUseReelContext && contextNextCursor && !isFetchingContextNextPage) {
+          if (
+            shouldUseReelContext &&
+            !shouldUseLocalContext &&
+            contextNextCursor &&
+            !isFetchingContextNextPage
+          ) {
             void fetchNextContextPage()
           }
         }}

@@ -45,7 +45,7 @@ export interface ReplyPreviewData {
   thumbnailUri?: string
   mediaWidth?: number
   mediaHeight?: number
-  type: 'text' | 'image' | 'video' | 'file' | 'call'
+  type: 'text' | 'image' | 'video' | 'file' | 'call' | 'reel'
 }
 
 export type MessageMediaStatus = 'ready' | 'processing' | 'failed'
@@ -64,6 +64,12 @@ export interface MessageMedia {
   thumbnailKey?: string
   thumbnailUrl?: string
   mimeType?: string
+  reelId?: string
+  reelOwnerId?: string
+  reelOwnerAvatarUrl?: string
+  reelOwnerUsername?: string
+  reelTitle?: string
+  reelDescription?: string
   width?: number
   height?: number
   durationMs?: number
@@ -88,7 +94,7 @@ export interface Message {
   sender: UserSummary
   content: string
   media?: MessageMedia
-  type: 'text' | 'image' | 'video' | 'file' | 'voice' | 'call'
+  type: 'text' | 'image' | 'video' | 'file' | 'voice' | 'call' | 'reel'
   status: 'PENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED'
   readBy?: { userId: string; at: string }[]
   replyTo?: Message
@@ -125,7 +131,7 @@ export interface BotChatResponse {
   senderId: string
   content: string
   media?: MessageMedia
-  type: 'text' | 'image' | 'video' | 'file' | 'voice' | 'call'
+  type: 'text' | 'image' | 'video' | 'file' | 'voice' | 'call' | 'reel'
   signalType: number
   createdAt: string
   createdAtMs: number

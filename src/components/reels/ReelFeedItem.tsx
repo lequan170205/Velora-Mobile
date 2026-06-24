@@ -30,6 +30,7 @@ import { useAuthStore } from '../../stores/authStore'
 
 import { DeleteReelModal } from './DeleteReelModal'
 import { ReelActionsMenu } from './ReelActionsMenu'
+import { ReelShareSheet } from './ReelShareSheet'
 import { ReelVideo } from './ReelVideo'
 
 import type { ReelVideoHandle, ReelVideoProgress } from './ReelVideo'
@@ -42,6 +43,7 @@ interface ReelFeedItemProps {
   isActive: boolean
   shouldWarmVideo?: boolean | undefined
   enableStatusPolling?: boolean | undefined
+  hideCaption?: boolean | undefined
   isMuted: boolean
   bottomContentInset?: number | undefined
   onToggleMuted: () => void
@@ -163,6 +165,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   isActive,
   shouldWarmVideo = false,
   enableStatusPolling = false,
+  hideCaption = false,
   isMuted,
   bottomContentInset = 0,
   onToggleMuted,
@@ -186,6 +189,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const [scrubberWidth, setScrubberWidth] = useState(0)
   const [showActionsMenu, setShowActionsMenu] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [showShareSheet, setShowShareSheet] = useState(false)
   const { data: processingStatus } = useReelProcessingStatus(reel, {
     enabled: enableStatusPolling,
   })
@@ -249,7 +253,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const metaLine = getCreatedAtLabel(displayReel.createdAt)
   const effectiveAuthor =
     displayReel.author ||
-    (user
+    (user && displayReel.userId === user.id
       ? {
           id: user.id,
           username: user.username ?? null,
@@ -266,13 +270,15 @@ const ReelFeedItemComponent = function ReelFeedItem({
     authorHandle && normalizeAuthorLabel(authorNameLine) !== normalizeAuthorLabel(authorHandle)
       ? `@${authorHandle}`
       : null
-  const captionText = descriptionText || titleText || 'Shared a new reel.'
-  const hashtagLine = displayReel.tags
-    .slice(0, 4)
-    .map((tag) => tag.trim().replace(/^#/, ''))
-    .filter(Boolean)
-    .map((tag) => `#${tag}`)
-    .join(' ')
+  const captionText = hideCaption ? '' : descriptionText || titleText || 'Shared a new reel.'
+  const hashtagLine = hideCaption
+    ? ''
+    : displayReel.tags
+        .slice(0, 4)
+        .map((tag) => tag.trim().replace(/^#/, ''))
+        .filter(Boolean)
+        .map((tag) => `#${tag}`)
+        .join(' ')
   const avatarInitials = getInitials(authorDisplayName)
   const pendingSeekPosition =
     pendingSeekRatio !== null && durationSeconds > 0 ? pendingSeekRatio * durationSeconds : null
@@ -879,9 +885,11 @@ const ReelFeedItemComponent = function ReelFeedItem({
                     </Text>
                   ) : null}
 
-                  <Text className="mt-3 text-sm2 leading-6 text-white" numberOfLines={3}>
-                    {captionText}
-                  </Text>
+                  {captionText ? (
+                    <Text className="mt-3 text-sm2 leading-6 text-white" numberOfLines={3}>
+                      {captionText}
+                    </Text>
+                  ) : null}
 
                   {hashtagLine ? (
                     <Text
@@ -894,20 +902,40 @@ const ReelFeedItemComponent = function ReelFeedItem({
                 </View>
               </View>
 
-              {canManageReel ? (
+              <View className="ml-auto items-center gap-3">
                 <TouchableOpacity
-                  className="ml-auto h-10 w-10 items-center justify-center rounded-full bg-white/14"
+                  className="h-10 w-10 items-center justify-center rounded-full bg-white/14"
                   activeOpacity={0.84}
                   onPress={() => {
-                    setShowActionsMenu(true)
+                    setShowShareSheet(true)
                   }}
                 >
-                  <MaterialIcons name="more-horiz" size={24} color="#FFFFFF" />
+                  <MaterialIcons name="ios-share" size={20} color="#FFFFFF" />
                 </TouchableOpacity>
-              ) : null}
+
+                {canManageReel ? (
+                  <TouchableOpacity
+                    className="h-10 w-10 items-center justify-center rounded-full bg-white/14"
+                    activeOpacity={0.84}
+                    onPress={() => {
+                      setShowActionsMenu(true)
+                    }}
+                  >
+                    <MaterialIcons name="more-horiz" size={24} color="#FFFFFF" />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
             </View>
           </View>
         </View>
+
+        <ReelShareSheet
+          visible={showShareSheet}
+          reel={displayReel}
+          onClose={() => {
+            setShowShareSheet(false)
+          }}
+        />
 
         <ReelActionsMenu
           visible={showActionsMenu}
@@ -951,6 +979,7 @@ const areReelFeedItemPropsEqual = (previous: ReelFeedItemProps, next: ReelFeedIt
   previous.isActive === next.isActive &&
   previous.shouldWarmVideo === next.shouldWarmVideo &&
   previous.enableStatusPolling === next.enableStatusPolling &&
+  previous.hideCaption === next.hideCaption &&
   previous.isMuted === next.isMuted &&
   previous.bottomContentInset === next.bottomContentInset &&
   previous.onToggleMuted === next.onToggleMuted &&

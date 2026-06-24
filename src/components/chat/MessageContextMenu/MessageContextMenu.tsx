@@ -4,6 +4,7 @@ import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import React, { useRef, useState } from 'react'
 import {
+  Image,
   Modal,
   Platform,
   Pressable,
@@ -23,6 +24,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated'
+import Svg, { Path } from 'react-native-svg'
 import { scheduleOnRN } from 'react-native-worklets'
 
 import { useAddReaction, useRemoveReaction } from '../../../hooks/useMessageActions'
@@ -83,6 +85,35 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 const MENU_EXIT_EASING = Easing.bezier(0.4, 0, 1, 1)
 const MENU_SPRING = { damping: 16, stiffness: 220, mass: 0.8 }
 const TOOLBAR_ENTER_DELAY_MS = 60
+
+const isReelMessage = (message: Message) =>
+  message.type === 'reel' ||
+  message.media?.mimeType === 'application/vnd.velora.reel' ||
+  Boolean(message.media?.reelId)
+
+const getReelCreatorLabel = (message: Message) => {
+  const username = message.media?.reelOwnerUsername?.trim().replace(/^@+/, '')
+
+  if (username) {
+    return `@${username}`
+  }
+
+  return message.media?.reelTitle?.trim() || 'Reel'
+}
+
+function RoundedPlayIcon({ size = 42 }: { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 56 56">
+      <Path
+        d="M19 14 L19 42 L42 28 Z"
+        fill="#FFFFFF"
+        stroke="#FFFFFF"
+        strokeLinejoin="round"
+        strokeWidth={5}
+      />
+    </Svg>
+  )
+}
 
 export function MessageContextMenu({
   visible,
@@ -388,12 +419,7 @@ function MessageContextMenuInner({
               shadowStyle(tokens.shadow),
             ]}
           >
-            <MessageBubbleContent
-              message={message}
-              isOwn={isOwn}
-              variant="preview"
-              tokens={tokens}
-            />
+            {renderBubblePreview({ message, isOwn, tokens })}
           </View>
         </Animated.View>
 
@@ -526,6 +552,58 @@ function ReactionButton({
   )
 }
 
+function renderBubblePreview({
+  message,
+  isOwn,
+  tokens,
+}: {
+  message: Message
+  isOwn: boolean
+  tokens: MessageContextMenuTokens
+}) {
+  if (!isReelMessage(message) || isMessageRecalled(message)) {
+    return (
+      <MessageBubbleContent message={message} isOwn={isOwn} variant="preview" tokens={tokens} />
+    )
+  }
+
+  const thumbnailUri = message.media?.thumbnailUrl
+  const avatarUri = message.media?.reelOwnerAvatarUrl
+  const creatorLabel = getReelCreatorLabel(message)
+  const hasCreatorIdentity = Boolean(message.media?.reelOwnerUsername || avatarUri)
+  const creatorInitial = creatorLabel.replace(/^@+/, '').charAt(0).toUpperCase() || '?'
+
+  return (
+    <View style={styles.reelPreview}>
+      {thumbnailUri ? (
+        <Image source={{ uri: thumbnailUri }} style={styles.reelPreviewImage} resizeMode="cover" />
+      ) : (
+        <View style={styles.reelPreviewFallback} />
+      )}
+
+      <View pointerEvents="none" style={styles.reelCreatorBar}>
+        {avatarUri ? (
+          <Image source={{ uri: avatarUri }} style={styles.reelAvatar} resizeMode="cover" />
+        ) : (
+          <View style={styles.reelAvatarFallback}>
+            {hasCreatorIdentity ? (
+              <Text style={styles.reelAvatarInitial}>{creatorInitial}</Text>
+            ) : (
+              <MaterialIcons name="movie-filter" size={13} color="#FFFFFF" />
+            )}
+          </View>
+        )}
+        <Text style={styles.reelCreatorText} numberOfLines={1}>
+          {creatorLabel}
+        </Text>
+      </View>
+
+      <View pointerEvents="none" style={styles.reelPlayIcon}>
+        <RoundedPlayIcon />
+      </View>
+    </View>
+  )
+}
 function getBubbleSurfaceStyle({
   message,
   isOwn,
@@ -541,7 +619,7 @@ function getBubbleSurfaceStyle({
 }) {
   const groupedCornerStyle = getGroupedCornerStyle({ isOwn, isGroupedTop, isGroupedBottom })
 
-  if (message.type === 'image' || message.type === 'video') {
+  if (message.type === 'image' || message.type === 'video' || isReelMessage(message)) {
     return {
       backgroundColor: 'transparent',
       padding: 0,
@@ -587,7 +665,7 @@ function getBubblePreviewFrameStyle({
     alignSelf: isOwn ? 'flex-end' : 'flex-start',
   } as const
 
-  if (message.type === 'image' || message.type === 'video') {
+  if (message.type === 'image' || message.type === 'video' || isReelMessage(message)) {
     return {
       ...alignment,
       height: bubbleHeight,
@@ -719,6 +797,64 @@ const styles = StyleSheet.create({
     justifyContent: 'space-evenly',
     minHeight: REACTION_BAR_H,
     paddingHorizontal: 4,
+  },
+  reelAvatar: {
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderRadius: 11,
+    height: 22,
+    width: 22,
+  },
+  reelAvatarFallback: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 11,
+    height: 22,
+    justifyContent: 'center',
+    width: 22,
+  },
+  reelAvatarInitial: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  reelCreatorBar: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.18)',
+    flexDirection: 'row',
+    left: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  reelCreatorText: {
+    color: '#FFFFFF',
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  reelPlayIcon: {
+    alignItems: 'center',
+    bottom: 0,
+    justifyContent: 'center',
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  reelPreview: {
+    backgroundColor: '#101010',
+    flex: 1,
+  },
+  reelPreviewFallback: {
+    backgroundColor: '#111111',
+    flex: 1,
+  },
+  reelPreviewImage: {
+    height: '100%',
+    width: '100%',
   },
   stack: {
     gap: GAP,

@@ -4,10 +4,14 @@ import type {
   CreateReelPayload,
   ReelContextParams,
   ReelContextResponse,
+  CreateReelShareLinkPayload,
   ListReelsParams,
   ListReelsResponse,
   ReelDetail,
   ReelProcessingStatusResponse,
+  ReelShareLinkResponse,
+  ReelShareResponse,
+  ShareReelPayload,
   UpdateReelPayload,
 } from '../types/reel.types'
 
@@ -38,6 +42,23 @@ export const reelsApi = {
   },
   update: async (id: string, data: UpdateReelPayload) => {
     const response = await apiClient.patch<ReelDetail>(`/content/reels/${id}`, data)
+    return response.data
+  },
+  share: async (id: string, data: ShareReelPayload) => {
+    const response = await apiClient.post<ReelShareResponse>(`/content/reels/${id}/share`, data)
+    return response.data
+  },
+  createShareLink: async (id: string, data: CreateReelShareLinkPayload = {}) => {
+    const response = await apiClient.post<ReelShareLinkResponse>(
+      `/content/reels/${id}/share-link`,
+      data,
+    )
+    return response.data
+  },
+  revokeShareLink: async (token: string) => {
+    const response = await apiClient.delete<ReelShareLinkResponse>(
+      `/content/reels/share-links/${token}`,
+    )
     return response.data
   },
   delete: async (id: string) => {

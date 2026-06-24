@@ -1,5 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'
+import { useRouter } from 'expo-router'
 import * as VideoThumbnails from 'expo-video-thumbnails'
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Image, Pressable, Text, View, useWindowDimensions } from 'react-native'
@@ -14,8 +15,10 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated'
+import Svg, { Path } from 'react-native-svg'
 import { scheduleOnRN } from 'react-native-worklets'
 
+import { useReelDetail } from '../../hooks/useReels'
 import {
   calculateChatMediaDisplaySize,
   getResolvedMediaPosterUri,
@@ -23,6 +26,7 @@ import {
 } from '../../lib/chatMedia'
 import { cn } from '../../lib/cn'
 import {
+  getPreferredReelReplyPreviewContent,
   RECALLED_PREVIEW_TEXT,
   isReplyPreviewRecalled,
   normalizeReplyPreview,
@@ -51,17 +55,19 @@ const REPLY_PREVIEW_FALLBACK_LABELS: Record<ReplyPreviewData['type'], string> = 
   video: 'Video',
   file: 'Attachment',
   call: 'Call',
+  reel: 'Reel',
 }
 
 const REPLY_PREVIEW_ICONS: Record<
   ReplyPreviewData['type'],
-  'format-quote' | 'photo' | 'videocam' | 'attach-file' | 'call'
+  'format-quote' | 'photo' | 'videocam' | 'attach-file' | 'call' | 'movie-filter'
 > = {
   text: 'format-quote',
   image: 'photo',
   video: 'videocam',
   file: 'attach-file',
   call: 'call',
+  reel: 'movie-filter',
 }
 
 const URI_LIKE_PATTERN = /^(https?:\/\/|file:\/\/|content:\/\/|data:|blob:)/i
@@ -69,6 +75,20 @@ const VIDEO_FILE_URI_PATTERN = /\.(mp4|m4v|mov|webm)(?:[?#].*)?$/i
 const SWIPE_REPLY_TRIGGER_DISTANCE = 72
 const TIMESTAMP_REVEAL_MAX_OFFSET = 64
 const generatedReplyVideoThumbnailCache = new Map<string, string | null>()
+
+const RoundedPlayIcon = memo(function RoundedPlayIcon() {
+  return (
+    <Svg width={56} height={56} viewBox="0 0 56 56">
+      <Path
+        d="M19 14 L19 42 L42 28 Z"
+        fill="#FFFFFF"
+        stroke="#FFFFFF"
+        strokeLinejoin="round"
+        strokeWidth={5}
+      />
+    </Svg>
+  )
+})
 
 const getReplyPreviewThumbnailUri = (replyPreview?: Message['replyPreview'], replyTo?: Message) => {
   if (isReplyPreviewRecalled({ replyPreview, replyTo })) {
@@ -84,12 +104,19 @@ const getReplyPreviewThumbnailUri = (replyPreview?: Message['replyPreview'], rep
     return thumbnailUri
   }
 
-  if (!replyTo || (replyTo.type !== 'image' && replyTo.type !== 'video')) {
+  if (
+    !replyTo ||
+    (replyTo.type !== 'image' && replyTo.type !== 'video' && replyTo.type !== 'reel')
+  ) {
     return null
   }
 
   if (replyTo.type === 'video') {
     return getResolvedMediaPosterUri(replyTo.media) ?? null
+  }
+
+  if (replyTo.type === 'reel') {
+    return replyTo.media?.thumbnailUrl ?? null
   }
 
   return getResolvedMediaUri(replyTo.media) ?? null
@@ -149,13 +176,22 @@ const getReplyPreviewMeta = ({
 
   const normalizedContent = normalizeReplyPreviewContent(normalizedReplyPreview.content)
   const isUriLikeContent = URI_LIKE_PATTERN.test(normalizedContent)
+  const reelContent =
+    normalizedReplyPreview.type === 'reel'
+      ? getPreferredReelReplyPreviewContent({
+          content: normalizedReplyPreview.content,
+          reelTitle: replyTo?.media?.reelTitle,
+        })
+      : null
 
   const contentLabel =
-    normalizedReplyPreview.type === 'text'
-      ? normalizedContent || REPLY_PREVIEW_FALLBACK_LABELS.text
-      : isUriLikeContent || !normalizedContent
-        ? REPLY_PREVIEW_FALLBACK_LABELS[normalizedReplyPreview.type]
-        : normalizedContent
+    normalizedReplyPreview.type === 'reel'
+      ? reelContent || REPLY_PREVIEW_FALLBACK_LABELS.reel
+      : normalizedReplyPreview.type === 'text'
+        ? normalizedContent || REPLY_PREVIEW_FALLBACK_LABELS.text
+        : isUriLikeContent || !normalizedContent
+          ? REPLY_PREVIEW_FALLBACK_LABELS[normalizedReplyPreview.type]
+          : normalizedContent
 
   const resolvedSenderId = normalizedReplyPreview.senderId ?? replyTo?.senderId
   const senderLabel =
@@ -187,6 +223,9 @@ const getSenderDisplayName = ({
       : ''
   return namedSender || senderInfo?.email?.split('@')[0] || 'Someone'
 }
+
+const getInitialFromLabel = (label: string) =>
+  label.replace(/^@+/, '').charAt(0).toUpperCase() || '?'
 
 const areReadReceiptsEqual = (left?: Message['readBy'], right?: Message['readBy']) => {
   if (left === right) return true
@@ -337,6 +376,7 @@ const MessageBubbleComponent = function MessageBubble({
 }: MessageBubbleProps) {
   const CONTEXT_MENU_LONG_PRESS_DELAY_MS = 140
   const MEDIA_CONTEXT_MENU_LONG_PRESS_DELAY_MS = 180
+  const router = useRouter()
   const { width: screenWidth } = useWindowDimensions()
   const currentUserId = useAuthStore((state) => state.user?.id ?? null)
   const resolvedConversationId = conversationId || message.conversationId
@@ -372,6 +412,10 @@ const MessageBubbleComponent = function MessageBubble({
     })
   }, [primaryMetaProgress, primaryMetaVisible])
 
+  const isReel =
+    message.type === 'reel' ||
+    message.media?.mimeType === 'application/vnd.velora.reel' ||
+    Boolean(message.media?.reelId)
   const isRecalled = message.isRecalled === true || message.is_recalled === true
   const isMedia = message.type === 'image' || message.type === 'video'
   const shouldRenderMediaBubble = isMedia && !isRecalled
@@ -649,7 +693,9 @@ const MessageBubbleComponent = function MessageBubble({
 
     if (
       (!resolvedReplyPreviewThumbnailUri && !hasRenderableVideoFallback) ||
-      (replyPreviewMeta.type !== 'image' && replyPreviewMeta.type !== 'video')
+      (replyPreviewMeta.type !== 'image' &&
+        replyPreviewMeta.type !== 'video' &&
+        replyPreviewMeta.type !== 'reel')
     ) {
       return null
     }
@@ -666,19 +712,58 @@ const MessageBubbleComponent = function MessageBubble({
     () => getSenderDisplayName({ isOwn, senderInfo }),
     [isOwn, senderInfo],
   )
+  const reelId = message.media?.reelId
+  const shouldFetchReelDetail =
+    isReel &&
+    Boolean(reelId) &&
+    !message.media?.reelOwnerUsername &&
+    !message.media?.reelOwnerAvatarUrl
+  const { data: reelDetail } = useReelDetail(reelId, { enabled: shouldFetchReelDetail })
+  const reelThumbnailUri = message.media?.thumbnailUrl
+  const reelCreatorUsername = (message.media?.reelOwnerUsername ?? reelDetail?.author?.username)
+    ?.trim()
+    .replace(/^@+/, '')
+  const reelCreatorDisplayName = reelDetail?.author?.displayName?.trim()
+  const reelCreatorLabel = reelCreatorUsername
+    ? `@${reelCreatorUsername}`
+    : reelCreatorDisplayName || message.media?.reelTitle?.trim() || 'Reel'
+  const reelCreatorAvatarUri =
+    message.media?.reelOwnerAvatarUrl || reelDetail?.author?.avatarUrl || null
+  const hasReelCreatorIdentity = Boolean(
+    reelCreatorUsername || reelCreatorDisplayName || reelCreatorAvatarUri,
+  )
+  const reelCreatorInitial = getInitialFromLabel(reelCreatorLabel)
+  const reelCardWidth = Math.max(196, Math.min(Math.floor(screenWidth * 0.58), 238))
+  const reelCardHeight = Math.round(reelCardWidth * 1.38)
+  const handleOpenReel = useCallback(() => {
+    if (!reelId) {
+      return
+    }
+
+    router.push({
+      pathname: '/reels/[id]',
+      params: {
+        conversationId: resolvedConversationId,
+        id: reelId,
+        returnTo: 'conversation',
+        source: 'chat',
+      },
+    })
+  }, [reelId, resolvedConversationId, router])
   const hasReactions = Object.keys(reactionSummary).length > 0
   const bubbleClassName = useMemo(
     () =>
       cn(
-        !shouldRenderMediaBubble && 'px-4 py-3',
-        !shouldRenderMediaBubble && (isOwn ? 'bg-bubble-out' : 'bg-bubble-in'),
+        !shouldRenderMediaBubble && !isReel && 'px-4 py-3',
+        !shouldRenderMediaBubble && !isReel && (isOwn ? 'bg-bubble-out' : 'bg-bubble-in'),
+        isReel && 'bg-transparent p-0',
         'overflow-hidden rounded-[18px]',
         isOwn && isGroupedTop && 'rounded-tr-[4px]',
         isOwn && isGroupedBottom && 'rounded-br-[4px]',
         !isOwn && isGroupedTop && 'rounded-tl-[4px]',
         !isOwn && isGroupedBottom && 'rounded-bl-[4px]',
       ),
-    [isGroupedBottom, isGroupedTop, isOwn, shouldRenderMediaBubble],
+    [isGroupedBottom, isGroupedTop, isOwn, isReel, shouldRenderMediaBubble],
   )
   const isSwipeReplyEnabled = !isRecalled && Boolean(onReply)
 
@@ -729,6 +814,22 @@ const MessageBubbleComponent = function MessageBubble({
     swipeOffsetX,
     timestampRevealGesture,
   ])
+  const reelTapGesture = useMemo(
+    () =>
+      Gesture.Tap()
+        .enabled(isReel && !isRecalled && Boolean(reelId))
+        .maxDistance(8)
+        .onEnd((_, success) => {
+          if (success) {
+            scheduleOnRN(handleOpenReel)
+          }
+        }),
+    [handleOpenReel, isRecalled, isReel, reelId],
+  )
+  const contentGesture = useMemo(
+    () => (isReel ? Gesture.Simultaneous(swipeGesture, reelTapGesture) : swipeGesture),
+    [isReel, reelTapGesture, swipeGesture],
+  )
 
   return (
     <View className={cn('w-full px-4', isGroupedBottom ? 'mb-[2px]' : 'mb-3')}>
@@ -779,7 +880,8 @@ const MessageBubbleComponent = function MessageBubble({
                       <View>
                         {((resolvedReplyPreviewThumbnailUri &&
                           (replyPreviewMeta.type === 'image' ||
-                            replyPreviewMeta.type === 'video')) ||
+                            replyPreviewMeta.type === 'video' ||
+                            replyPreviewMeta.type === 'reel')) ||
                           (replyPreviewMeta.type === 'video' && repliedVideoUri)) &&
                         replyPreviewMediaSize ? (
                           <View
@@ -789,7 +891,10 @@ const MessageBubbleComponent = function MessageBubble({
                               borderRadius: 16,
                               overflow: 'hidden',
                               backgroundColor:
-                                replyPreviewMeta.type === 'video' ? '#111111' : '#EFEFEF',
+                                replyPreviewMeta.type === 'video' ||
+                                replyPreviewMeta.type === 'reel'
+                                  ? '#111111'
+                                  : '#EFEFEF',
                               alignSelf: 'flex-start',
                             }}
                           >
@@ -816,10 +921,11 @@ const MessageBubbleComponent = function MessageBubble({
                                   width: replyPreviewMediaSize.displayWidth,
                                   height: replyPreviewMediaSize.displayHeight,
                                 }}
-                                resizeMode="contain"
+                                resizeMode={replyPreviewMeta.type === 'reel' ? 'cover' : 'contain'}
                               />
                             ) : null}
-                            {replyPreviewMeta.type === 'video' ? (
+                            {replyPreviewMeta.type === 'video' ||
+                            replyPreviewMeta.type === 'reel' ? (
                               <View
                                 pointerEvents="none"
                                 style={{
@@ -882,7 +988,7 @@ const MessageBubbleComponent = function MessageBubble({
                 </View>
               ) : null}
 
-              <GestureDetector gesture={swipeGesture}>
+              <GestureDetector gesture={contentGesture}>
                 <View className="flex-row items-center">
                   <View ref={bubbleRef} collapsable={false} className="relative">
                     <Animated.View
@@ -911,18 +1017,94 @@ const MessageBubbleComponent = function MessageBubble({
                             : null)}
                           className={bubbleClassName}
                         >
-                          <MessageBubbleContent
-                            message={message}
-                            isOwn={isOwn}
-                            variant="full"
-                            handlers={{
-                              delayLongPress: MEDIA_CONTEXT_MENU_LONG_PRESS_DELAY_MS,
-                              onLongPress: handleLongPress,
-                              onPressIn: handlePressIn,
-                              onPressOut: handlePressOut,
-                              ...(onOpenMedia ? { onOpenMedia } : {}),
-                            }}
-                          />
+                          {isReel && !isRecalled ? (
+                            <View
+                              className="overflow-hidden rounded-[18px] bg-[#101010]"
+                              style={{ width: reelCardWidth, height: reelCardHeight }}
+                            >
+                              <View style={{ flex: 1 }}>
+                                {reelThumbnailUri ? (
+                                  <Image
+                                    source={{ uri: reelThumbnailUri }}
+                                    style={{
+                                      width: reelCardWidth,
+                                      height: reelCardHeight,
+                                      backgroundColor: '#111111',
+                                    }}
+                                    resizeMode="cover"
+                                  />
+                                ) : (
+                                  <View
+                                    style={{
+                                      width: reelCardWidth,
+                                      height: reelCardHeight,
+                                      backgroundColor: '#111111',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}
+                                  >
+                                    <RoundedPlayIcon />
+                                  </View>
+                                )}
+
+                                <View
+                                  pointerEvents="none"
+                                  className="absolute inset-x-0 top-0 flex-row items-center px-3 py-3"
+                                  style={{ backgroundColor: 'rgba(0,0,0,0.18)' }}
+                                >
+                                  {reelCreatorAvatarUri ? (
+                                    <Image
+                                      source={{ uri: reelCreatorAvatarUri }}
+                                      style={{
+                                        width: 22,
+                                        height: 22,
+                                        borderRadius: 11,
+                                        backgroundColor: 'rgba(255,255,255,0.18)',
+                                      }}
+                                      resizeMode="cover"
+                                    />
+                                  ) : (
+                                    <View className="h-[22px] w-[22px] items-center justify-center rounded-full bg-white/20">
+                                      {hasReelCreatorIdentity ? (
+                                        <Text className="text-[10px] font-semibold text-white">
+                                          {reelCreatorInitial}
+                                        </Text>
+                                      ) : (
+                                        <MaterialIcons
+                                          name="movie-filter"
+                                          size={13}
+                                          color="#FFFFFF"
+                                        />
+                                      )}
+                                    </View>
+                                  )}
+                                  <Text
+                                    className="ml-2 flex-1 text-[12px] font-semibold text-white"
+                                    numberOfLines={1}
+                                  >
+                                    {reelCreatorLabel}
+                                  </Text>
+                                </View>
+
+                                <View className="absolute inset-0 items-center justify-center">
+                                  <RoundedPlayIcon />
+                                </View>
+                              </View>
+                            </View>
+                          ) : (
+                            <MessageBubbleContent
+                              message={message}
+                              isOwn={isOwn}
+                              variant="full"
+                              handlers={{
+                                delayLongPress: MEDIA_CONTEXT_MENU_LONG_PRESS_DELAY_MS,
+                                onLongPress: handleLongPress,
+                                onPressIn: handlePressIn,
+                                onPressOut: handlePressOut,
+                                ...(onOpenMedia ? { onOpenMedia } : {}),
+                              }}
+                            />
+                          )}
                         </Pressable>
                       </View>
                     </Animated.View>

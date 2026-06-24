@@ -52,7 +52,7 @@ export interface ListReelsResponse {
   nextCursor?: string | null
 }
 
-export type ReelContextSource = 'profile' | 'public'
+export type ReelContextSource = 'profile'
 
 export interface ReelContextParams {
   source?: ReelContextSource
@@ -87,6 +87,53 @@ export interface UpdateReelPayload {
   description?: string
   tags?: string[]
   visibility?: ReelVisibility
+}
+
+export interface ShareReelPayload {
+  conversationId: string
+  sharedWithUserId?: string
+}
+
+export interface ReelShareMessagePayload {
+  id: string
+  conversationId: string
+  senderId: string
+  content: string
+  type: string
+  media?: unknown
+  createdAt: string
+  createdAtMs?: number
+}
+
+export interface ReelShareResponse {
+  id: string
+  reelId: string
+  ownerId: string
+  sharedByUserId: string
+  sharedWithUserId?: string | null
+  conversationId: string
+  messageId?: string | null
+  createdAt: string
+  message?: ReelShareMessagePayload
+}
+
+export interface CreateReelShareLinkPayload {
+  expiresInDays?: number
+  reuseExisting?: boolean
+}
+
+export interface ReelShareLinkResponse {
+  id: string
+  reelId: string
+  ownerId: string
+  token: string
+  createdBy: string
+  publicUrl?: string
+  expiresAt?: string | null
+  revokedAt?: string | null
+  clickCount: number
+  createdAt: string
+  updatedAt: string
 }
 
 export interface ReelUploadUrlRequest {
