@@ -295,6 +295,7 @@ type MessagesQueryOptionsInput = {
   isOnline?: boolean
   isNetworkResolved?: boolean
   latestSyncRange?: MessageSyncRangeSnapshot | null | undefined
+  onLatestSyncCompleted?: (() => void) | undefined
   onLatestSyncRangeUpdated?: ((range: MessageSyncRangeSnapshot) => void) | undefined
   queryClient?: QueryClient
 }
@@ -311,6 +312,7 @@ export const getMessagesInfiniteQueryOptions = ({
   isOnline = true,
   isNetworkResolved = true,
   latestSyncRange,
+  onLatestSyncCompleted,
   onLatestSyncRangeUpdated,
   queryClient,
 }: MessagesQueryOptionsInput) => ({
@@ -375,6 +377,7 @@ export const getMessagesInfiniteQueryOptions = ({
         conversationId,
         currentUser: currentUser ?? null,
         ...(cursor ? { cursor } : {}),
+        onLatestSyncCompleted,
         onLatestSyncRangeUpdated,
       })
 
@@ -492,6 +495,7 @@ async function syncMessagesPageToLocalStore({
   conversationId,
   currentUser,
   cursor,
+  onLatestSyncCompleted,
   onLatestSyncRangeUpdated,
 }: MessagesQueryOptionsInput & {
   cursor?: string
@@ -515,6 +519,9 @@ async function syncMessagesPageToLocalStore({
         onLatestSyncRangeUpdated?.(range)
       }
     })
+    if (!cursor) {
+      onLatestSyncCompleted?.()
+    }
     return remotePage
   }
 
@@ -533,6 +540,10 @@ async function syncMessagesPageToLocalStore({
       onLatestSyncRangeUpdated?.(range)
     }
   })
+
+  if (!cursor) {
+    onLatestSyncCompleted?.()
+  }
 
   return remotePage
 }
@@ -608,6 +619,7 @@ export function useMessages(conversationId: string) {
   const { isNetworkResolved, isOnline } = useNetworkStatus()
   const [latestSyncRange, setLatestSyncRange] = useState<MessageSyncRangeSnapshot | null>(null)
   const failedOlderCursorRef = useRef<string | null>(null)
+  const needsLatestSyncOnEntryRef = useRef(true)
   const wasOnlineRef = useRef(isOnline)
 
   const handleLatestSyncRangeUpdated = useCallback(
@@ -620,6 +632,9 @@ export function useMessages(conversationId: string) {
     },
     [conversationId],
   )
+  const handleLatestSyncCompleted = useCallback(() => {
+    needsLatestSyncOnEntryRef.current = false
+  }, [])
 
   const conversation = useMemo(
     () => getCachedConversation(queryClient, conversationId),
@@ -634,6 +649,7 @@ export function useMessages(conversationId: string) {
       isNetworkResolved,
       isOnline,
       latestSyncRange,
+      onLatestSyncCompleted: handleLatestSyncCompleted,
       onLatestSyncRangeUpdated: handleLatestSyncRangeUpdated,
       queryClient,
     }),
@@ -647,6 +663,7 @@ export function useMessages(conversationId: string) {
 
   useEffect(() => {
     failedOlderCursorRef.current = null
+    needsLatestSyncOnEntryRef.current = true
   }, [conversationId])
 
   useEffect(() => {
@@ -680,18 +697,21 @@ export function useMessages(conversationId: string) {
   useEffect(() => {
     if (!wasOnlineRef.current && isOnline) {
       failedOlderCursorRef.current = null
+      needsLatestSyncOnEntryRef.current = true
     }
 
     wasOnlineRef.current = isOnline
   }, [isOnline])
 
   useEffect(() => {
+    const shouldForceLatestSync = needsLatestSyncOnEntryRef.current
+
     if (
       !isOnline ||
       !isNetworkResolved ||
       !hasLoadedMessagePages ||
       query.isFetching ||
-      !shouldSyncLatestMessages(conversationId)
+      (!shouldForceLatestSync && !shouldSyncLatestMessages(conversationId))
     ) {
       return
     }
@@ -704,6 +724,7 @@ export function useMessages(conversationId: string) {
           conversation,
           conversationId,
           currentUser,
+          onLatestSyncCompleted: handleLatestSyncCompleted,
           onLatestSyncRangeUpdated: handleLatestSyncRangeUpdated,
         })
 
@@ -719,6 +740,7 @@ export function useMessages(conversationId: string) {
         })
 
         failedOlderCursorRef.current = null
+        needsLatestSyncOnEntryRef.current = false
       } catch (error) {
         console.warn('[Messages] Failed to sync latest messages', error)
       }
@@ -733,6 +755,7 @@ export function useMessages(conversationId: string) {
     conversation,
     conversationId,
     currentUser,
+    handleLatestSyncCompleted,
     handleLatestSyncRangeUpdated,
     hasLoadedMessagePages,
     isNetworkResolved,
@@ -779,6 +802,7 @@ export function useMessages(conversationId: string) {
 
 export function useSendMessage(conversationId: string) {
   const { socket } = useSocket()
+  const { isNetworkResolved, isOnline } = useNetworkStatus()
   const { addOptimisticMessage, enqueueOfflineMessage, markMessageFailed, replyToMessage } =
     useChatStore()
   const { user } = useAuthStore()
@@ -813,11 +837,18 @@ export function useSendMessage(conversationId: string) {
       }
 
       if (!socket.connected) {
+        const canAttemptReconnect = isNetworkResolved && isOnline
+
         console.warn('[Socket] send_message queued: socket is disconnected', {
           socketId: socket.id,
           conversationId,
+          canAttemptReconnect,
         })
-        socket.connect()
+
+        if (canAttemptReconnect && !socket.active) {
+          socket.connect()
+        }
+
         return { pending: true }
       }
 

@@ -130,7 +130,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
-  const manualConnectRequestedRef = useRef(false)
+  const lastConnectErrorMessageRef = useRef<string | null>(null)
 
   const requestPresence = useCallback(
     (userIds: string[], options?: { conversationId?: string }) => {
@@ -214,7 +214,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         return null
       })
       setIsConnected(false)
-      manualConnectRequestedRef.current = false
+      lastConnectErrorMessageRef.current = null
       useChatStore.getState().clearOnlineUsers()
       return
     }
@@ -234,7 +234,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       },
       forceNew: true,
       transports: ['websocket'],
-      reconnectionAttempts: 5,
+      // Keep retrying while the app reports online. Mobile radios often take a moment
+      // to become reachable again after the OS says the network is back.
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       randomizationFactor: 0.5,
@@ -260,7 +262,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     newSocket.on('connect', () => {
       setIsConnected(true)
-      manualConnectRequestedRef.current = false
+      lastConnectErrorMessageRef.current = null
 
       const queue = useChatStore.getState().offlineQueue
 
@@ -289,6 +291,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     newSocket.on('disconnect', () => {
       setIsConnected(false)
+      lastConnectErrorMessageRef.current = null
       useChatStore.getState().clearOnlineUsers()
       useChatStore.setState({ typingUsers: {} })
       joinedConversationIds.clear()
@@ -297,11 +300,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     newSocket.on('connect_error', (error) => {
       setIsConnected(false)
       useChatStore.getState().clearOnlineUsers()
-      console.error('🔌 Socket connection error:', {
-        message: error.message,
-        url: process.env.EXPO_PUBLIC_WS_URL || 'http://localhost:3000',
-        path: '/socket.io',
-      })
+      if (lastConnectErrorMessageRef.current === error.message) {
+        return
+      }
     })
 
     const unsubscribeQueryCache = queryClient.getQueryCache().subscribe((event) => {
@@ -1190,33 +1191,23 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!socket || isLoading || !isAuthenticated || !userId) {
-      manualConnectRequestedRef.current = false
       return
     }
 
     if (!isNetworkResolved) {
-      manualConnectRequestedRef.current = false
       return
     }
 
     if (!isOnline) {
-      manualConnectRequestedRef.current = false
       if (!socket.disconnected) {
         socket.disconnect()
       }
       return
     }
 
-    if (socket.connected) {
-      manualConnectRequestedRef.current = false
+    if (socket.connected || socket.active) {
       return
     }
-
-    if (manualConnectRequestedRef.current) {
-      return
-    }
-
-    manualConnectRequestedRef.current = true
 
     socket.connect()
   }, [isAuthenticated, isLoading, isNetworkResolved, isOnline, isConnected, socket, userId])

@@ -19,11 +19,11 @@ const NetworkContext = createContext<NetworkContextValue>({
 })
 
 const isNetworkOnline = (networkState: NetworkState | null) => {
-  if (!networkState) {
+  if (!networkState || networkState.isConnected !== true) {
     return false
   }
 
-  if (networkState.isConnected === false || networkState.isInternetReachable === false) {
+  if (networkState.isInternetReachable === false) {
     return false
   }
 
