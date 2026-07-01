@@ -24,17 +24,17 @@ type VideoBufferOptions = {
 
 interface ReelVideoProps {
   uri: string
-  posterUri?: string
+  posterUri?: string | undefined
   shouldPlay: boolean
-  loop?: boolean
-  muted?: boolean
-  nativeControls?: boolean
-  contentFit?: ContentFit
-  style?: StyleProp<ViewStyle>
-  resetOnPause?: boolean
-  onReady?: () => void
-  onError?: () => void
-  onProgress?: (progress: ReelVideoProgress) => void
+  loop?: boolean | undefined
+  muted?: boolean | undefined
+  nativeControls?: boolean | undefined
+  contentFit?: ContentFit | undefined
+  style?: StyleProp<ViewStyle> | undefined
+  resetOnPause?: boolean | undefined
+  onReady?: (() => void) | undefined
+  onError?: (() => void) | undefined
+  onProgress?: ((progress: ReelVideoProgress) => void) | undefined
 }
 
 export interface ReelVideoHandle {
@@ -51,6 +51,14 @@ export interface ReelVideoProgress {
   isBuffering?: boolean | undefined
 }
 
+type ExpoVideoSource =
+  | string
+  | {
+      uri: string
+      contentType?: 'hls'
+      useCaching?: boolean
+    }
+
 interface ExpoVideoModule {
   VideoView: React.ComponentType<{
     player: unknown
@@ -61,7 +69,7 @@ interface ExpoVideoModule {
     style?: StyleProp<ViewStyle>
   }>
   useVideoPlayer: (
-    source: string | { uri: string; contentType?: 'hls' },
+    source: ExpoVideoSource,
     setup?: (player: {
       loop: boolean
       muted: boolean
@@ -145,18 +153,25 @@ interface ExpoAvModule {
 const isHlsUri = (uri: string) => /\.m3u8($|[?#])/i.test(uri)
 
 const REEL_BUFFER_OPTIONS: VideoBufferOptions = {
-  minBufferForPlayback: 0.2,
-  preferredForwardBufferDuration: 2,
+  minBufferForPlayback: 0.12,
+  preferredForwardBufferDuration: 5,
   prioritizeTimeOverSizeThreshold: true,
   waitsToMinimizeStalling: false,
 }
 
-const buildExpoVideoSource = (uri: string): string | { uri: string; contentType: 'hls' } => {
+const buildExpoVideoSource = (uri: string): ExpoVideoSource => {
   if (isHlsUri(uri)) {
-    return { uri, contentType: 'hls' }
+    return {
+      uri,
+      contentType: 'hls',
+      useCaching: true,
+    }
   }
 
-  return uri
+  return {
+    uri,
+    useCaching: true,
+  }
 }
 
 let expoVideoModule: ExpoVideoModule | null = null
@@ -211,6 +226,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
   const isBufferingRef = useRef(false)
   const { VideoView: VideoViewComponent, useVideoPlayer } = expoVideoModule as ExpoVideoModule
   const videoSource = useMemo(() => buildExpoVideoSource(uri), [uri])
+
   const player = useVideoPlayer(videoSource, (videoPlayer) => {
     videoPlayer.loop = loop
     videoPlayer.muted = muted
@@ -277,14 +293,12 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
       return
     }
 
-    if (!shouldPlay) {
-      player.pause()
+    player.pause()
 
-      if (resetOnPause) {
-        player.currentTime = 0
-      }
+    if (resetOnPause) {
+      player.currentTime = 0
     }
-  }, [hasRenderedFrame, loop, muted, player, resetOnPause, shouldPlay])
+  }, [loop, muted, player, resetOnPause, shouldPlay])
 
   useEffect(() => {
     const statusSubscription = player.addListener('statusChange', ({ status, error }) => {
@@ -297,10 +311,15 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
         isBuffering: isBufferingRef.current,
       })
 
+      if (status === 'readyToPlay') {
+        notifyReady()
+      }
+
       if (status === 'error' || error) {
         onError?.()
       }
     })
+
     const timeSubscription = player.addListener(
       'timeUpdate',
       ({ bufferedPosition, currentTime }) => {
@@ -317,7 +336,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
       statusSubscription.remove()
       timeSubscription.remove()
     }
-  }, [onError, onProgress, player])
+  }, [notifyReady, onError, onProgress, player])
 
   return (
     <>
@@ -329,6 +348,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
           transition={0}
         />
       ) : null}
+
       <VideoViewComponent
         player={player}
         contentFit={contentFit}
@@ -336,12 +356,14 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
         onFirstFrameRender={() => {
           setHasRenderedFrame(true)
           isBufferingRef.current = false
+
           onProgress?.({
             currentTime: player.currentTime,
             duration: player.duration,
             bufferedPosition: player.bufferedPosition,
             isBuffering: false,
           })
+
           notifyReady()
         }}
         surfaceType="textureView"

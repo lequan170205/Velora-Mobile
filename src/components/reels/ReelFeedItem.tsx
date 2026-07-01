@@ -6,14 +6,7 @@ import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useRouter } from 'expo-router'
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native'
+import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
   Easing,
@@ -58,7 +51,6 @@ type ReelWithLocalThumbnail = Reel & {
 const SCRUBBER_TOUCH_ZONE_HEIGHT = 40
 const TIMELINE_ACTIVE_HEIGHT = 10
 const TIMELINE_CHIP_WIDTH = 74
-const TIMELINE_LOADING_CHIP_WIDTH = 96
 const TIMELINE_CHIP_BOTTOM_OFFSET = 4
 const TIMELINE_MOTION_EASING = Easing.bezier(0.22, 1, 0.36, 1)
 const TIMELINE_PLAYBACK_EASING = Easing.linear
@@ -283,12 +275,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const pendingSeekPosition =
     pendingSeekRatio !== null && durationSeconds > 0 ? pendingSeekRatio * durationSeconds : null
   const showScrubber = isScrubbing && durationSeconds > 0 && isActive
-  const showLoadingRail =
-    pendingSeekPosition !== null &&
-    !isScrubbing &&
-    durationSeconds > 0 &&
-    isActive &&
-    pendingSeekPosition > bufferedPosition + 0.24
+  const showLoadingRail = false
   const showPausedControls =
     isPausedByUser &&
     !isScrubbing &&
@@ -304,7 +291,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const scrubRailBottom = safeBottomContentInset
   const metadataBottom = safeBottomContentInset + SCRUBBER_TOUCH_ZONE_HEIGHT + 14
   const timelineLabel = formatPlaybackTime(timelinePosition)
-  const timelineChipWidth = showLoadingRail ? TIMELINE_LOADING_CHIP_WIDTH : TIMELINE_CHIP_WIDTH
+  const timelineChipWidth = TIMELINE_CHIP_WIDTH
   const processingMessage = displayReel.message ?? displayReel.processingMessage
   const processingProgress = normalizeProgress(
     displayReel.progress ?? displayReel.processingProgress,
@@ -515,11 +502,11 @@ const ReelFeedItemComponent = function ReelFeedItem({
   )
 
   useEffect(() => {
-    timelineInteractionProgress.value = withTiming(showScrubber || showLoadingRail ? 1 : 0, {
-      duration: showScrubber || showLoadingRail ? 160 : 210,
+    timelineInteractionProgress.value = withTiming(showScrubber ? 1 : 0, {
+      duration: showScrubber ? 160 : 210,
       easing: TIMELINE_MOTION_EASING,
     })
-  }, [showLoadingRail, showScrubber, timelineInteractionProgress])
+  }, [showScrubber, timelineInteractionProgress])
 
   useEffect(() => {
     onTimelineInteractionChange?.(isScrubbing)
@@ -640,11 +627,12 @@ const ReelFeedItemComponent = function ReelFeedItem({
             key={displayReel.streamUrl}
             ref={videoRef}
             uri={displayReel.streamUrl}
+            {...(posterUri ? { posterUri } : {})}
             shouldPlay={isActive && !isPausedByUser && !hasPlaybackError}
             loop
             muted={isMuted || !isActive}
             contentFit="cover"
-            resetOnPause={!isActive}
+            resetOnPause={false}
             onReady={() => {
               setIsReady(true)
             }}
@@ -753,15 +741,6 @@ const ReelFeedItemComponent = function ReelFeedItem({
                   >
                     <View className="flex-row items-center justify-center">
                       <Text className="text-xs2 font-medium text-white">{timelineLabel}</Text>
-                      {showLoadingRail ? (
-                        <>
-                          <ActivityIndicator
-                            color="#FFFFFF"
-                            size="small"
-                            style={{ marginLeft: 8, transform: [{ scale: 0.7 }] }}
-                          />
-                        </>
-                      ) : null}
                     </View>
                   </Animated.View>
 
