@@ -36,6 +36,13 @@ export interface LocalMessageWindowAroundId {
   source: 'local'
 }
 
+export interface LocalMessageCursorPage {
+  messages: Message[]
+  hasMore: boolean
+  nextCursor?: string
+  source: 'local'
+}
+
 const MESSAGE_ORDER_BY_DESC = [Q.sortBy('created_at', Q.desc), Q.sortBy('id', Q.desc)] as const
 const MESSAGE_ORDER_BY_ASC = [Q.sortBy('created_at', Q.asc), Q.sortBy('id', Q.asc)] as const
 
@@ -199,6 +206,106 @@ export const getLocalMessageWindowAroundId = async (
     hasNewer,
     ...(oldestRecord?.id ? { oldestCursor: oldestRecord.id } : {}),
     ...(newestRecord?.id ? { newestCursor: newestRecord.id } : {}),
+    source: 'local',
+  }
+}
+
+export const getLocalMessagesOlderThanCursor = async ({
+  conversation,
+  conversationId,
+  currentUser,
+  cursor,
+  limit,
+}: {
+  conversation?: Conversation | null
+  conversationId: string
+  currentUser?: UserSession | null
+  cursor: string
+  limit: number
+}): Promise<LocalMessageCursorPage> => {
+  const cursorRecord = await findMessageRecordById(cursor)
+
+  if (!cursorRecord || cursorRecord.conversationId !== conversationId) {
+    return { messages: [], hasMore: false, source: 'local' }
+  }
+
+  const records = await database
+    .get<MessageModel>(TABLES.messages)
+    .query(
+      ...buildOlderThanBoundaryClauses({
+        conversationId,
+        createdAt: cursorRecord.createdAt.getTime(),
+        messageId: cursorRecord.id,
+      }),
+      Q.take(limit + 1),
+    )
+    .fetch()
+
+  const pageRecords = records.slice(0, limit)
+  const participantsMap = buildParticipantsMap(conversation)
+  const messages = pageRecords.map((message) =>
+    toConversationMessageFromModel({
+      currentUser: currentUser ?? null,
+      message,
+      participantsMap,
+    }),
+  )
+  const oldestRecord = pageRecords[pageRecords.length - 1]
+
+  return {
+    messages,
+    hasMore: records.length > limit,
+    ...(oldestRecord?.id ? { nextCursor: oldestRecord.id } : {}),
+    source: 'local',
+  }
+}
+
+export const getLocalMessagesNewerThanCursor = async ({
+  conversation,
+  conversationId,
+  currentUser,
+  cursor,
+  limit,
+}: {
+  conversation?: Conversation | null
+  conversationId: string
+  currentUser?: UserSession | null
+  cursor: string
+  limit: number
+}): Promise<LocalMessageCursorPage> => {
+  const cursorRecord = await findMessageRecordById(cursor)
+
+  if (!cursorRecord || cursorRecord.conversationId !== conversationId) {
+    return { messages: [], hasMore: false, source: 'local' }
+  }
+
+  const records = await database
+    .get<MessageModel>(TABLES.messages)
+    .query(
+      ...buildNewerThanBoundaryClauses({
+        conversationId,
+        createdAt: cursorRecord.createdAt.getTime(),
+        messageId: cursorRecord.id,
+      }),
+      Q.take(limit + 1),
+    )
+    .fetch()
+
+  const pageRecords = records.slice(0, limit).reverse()
+  const participantsMap = buildParticipantsMap(conversation)
+  const messages = pageRecords.map((message) =>
+    toConversationMessageFromModel({
+      currentUser: currentUser ?? null,
+      message,
+      participantsMap,
+    }),
+  )
+  const newestRecord = pageRecords[0]
+
+  return {
+    messages,
+    hasMore: records.length > limit,
+    ...(newestRecord?.id ? { nextCursor: newestRecord.id } : {}),
     source: 'local',
   }
 }

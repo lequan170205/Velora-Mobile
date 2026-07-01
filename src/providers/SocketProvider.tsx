@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 
 import type { InfiniteData } from '@tanstack/react-query'
@@ -31,6 +31,8 @@ import {
 } from '../lib/replyPreview'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
+
+import { useNetworkStatus } from './NetworkProvider'
 
 import type { Conversation, Message } from '../types/conversation.types'
 import type { Socket } from 'socket.io-client'
@@ -122,11 +124,13 @@ export const useSocket = () => useContext(SocketContext)
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user, isLoading } = useAuthStore()
+  const { isNetworkResolved, isOnline } = useNetworkStatus()
   const queryClient = useQueryClient()
   const userId = user?.id ?? null
 
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
+  const manualConnectRequestedRef = useRef(false)
 
   const requestPresence = useCallback(
     (userIds: string[], options?: { conversationId?: string }) => {
@@ -210,11 +214,13 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         return null
       })
       setIsConnected(false)
+      manualConnectRequestedRef.current = false
       useChatStore.getState().clearOnlineUsers()
       return
     }
 
     const newSocket = io(process.env.EXPO_PUBLIC_WS_URL || 'http://localhost:3000', {
+      autoConnect: false,
       withCredentials: true,
       auth: (cb) => {
         void authApi
@@ -254,8 +260,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     newSocket.on('connect', () => {
       setIsConnected(true)
+      manualConnectRequestedRef.current = false
 
       const queue = useChatStore.getState().offlineQueue
+
       queue.forEach((msg) => {
         const payload = {
           conversationId: msg.conversationId,
@@ -1179,6 +1187,39 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       newSocket.disconnect()
     }
   }, [isAuthenticated, isLoading, queryClient, resolveReadFrontierFromCache, userId])
+
+  useEffect(() => {
+    if (!socket || isLoading || !isAuthenticated || !userId) {
+      manualConnectRequestedRef.current = false
+      return
+    }
+
+    if (!isNetworkResolved) {
+      manualConnectRequestedRef.current = false
+      return
+    }
+
+    if (!isOnline) {
+      manualConnectRequestedRef.current = false
+      if (!socket.disconnected) {
+        socket.disconnect()
+      }
+      return
+    }
+
+    if (socket.connected) {
+      manualConnectRequestedRef.current = false
+      return
+    }
+
+    if (manualConnectRequestedRef.current) {
+      return
+    }
+
+    manualConnectRequestedRef.current = true
+
+    socket.connect()
+  }, [isAuthenticated, isLoading, isNetworkResolved, isOnline, isConnected, socket, userId])
 
   return (
     <SocketContext.Provider value={{ socket, isConnected, requestPresence }}>

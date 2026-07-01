@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import * as VideoThumbnails from 'expo-video-thumbnails'
-import React, { useCallback, useEffect, useRef } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { AppState, Platform, unstable_batchedUpdates } from 'react-native'
 
 import { conversationApi } from '../api/conversation.api'
@@ -24,6 +24,8 @@ import { mergeReplyPreview } from '../lib/replyPreview'
 import { useAuthStore } from '../stores/authStore'
 import { useChatMediaUploadStore } from '../stores/chatMediaUploadStore'
 import { useChatStore } from '../stores/chatStore'
+
+import { useNetworkStatus } from './NetworkProvider'
 
 import type { ChatMediaUploadJob } from '../stores/chatMediaUploadStore'
 import type { Message, MessageMedia } from '../types/conversation.types'
@@ -71,6 +73,7 @@ const LegacyFileSystem = require('expo-file-system/legacy') as LegacyFileSystemM
 
 const FOREGROUND_RECONCILE_GRACE_MS = 2_000
 const JOB_STALE_TIMEOUT_MS = 45_000
+const NETWORK_RETRY_DELAY_MS = 10_000
 
 const isSuccessfulUpload = (status?: number) => Boolean(status && status >= 200 && status < 300)
 
@@ -80,6 +83,48 @@ const getUploadFailureReason = (error: unknown) => {
   }
 
   return 'Upload failed unexpectedly'
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return Boolean(value && typeof value === 'object')
+}
+
+const isNetworkTransportError = (error: unknown) => {
+  if (!isRecord(error)) {
+    return false
+  }
+
+  if ('response' in error && error.response) {
+    return false
+  }
+
+  const code = typeof error.code === 'string' ? error.code.toUpperCase() : ''
+  if (
+    [
+      'ECONNABORTED',
+      'ECONNRESET',
+      'ENETUNREACH',
+      'EHOSTUNREACH',
+      'ENOTFOUND',
+      'ERR_NETWORK',
+      'ETIMEDOUT',
+    ].includes(code)
+  ) {
+    return true
+  }
+
+  const message = error instanceof Error ? error.message.toLowerCase() : ''
+  return [
+    'network error',
+    'network request failed',
+    'no internet',
+    'offline',
+    'socket',
+    'timed out',
+    'timeout',
+    'unable to connect',
+    'upload failed with status unknown',
+  ].some((needle) => message.includes(needle))
 }
 
 const buildPendingMediaFromJob = (
@@ -148,11 +193,17 @@ const sanitizeConfirmedMedia = (media?: MessageMedia | null): MessageMedia | und
 
 export function ChatMediaUploadProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient()
+  const { isNetworkResolved, isOnline } = useNetworkStatus()
   const uploadTaskRef = useRef<UploadTask | null>(null)
   const thumbnailTaskRef = useRef<UploadTask | null>(null)
   const processingJobIdRef = useRef<string | null>(null)
   const reconcileTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const localMediaMutationQueueRef = useRef<Map<string, Promise<unknown>>>(new Map())
+  const networkRetryPausedUntilByIdRef = useRef<Map<string, number>>(new Map())
+  const networkRetryTimeoutByIdRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const isNetworkResolvedRef = useRef(isNetworkResolved)
+  const isOnlineRef = useRef(isOnline)
+  const [networkRetryWakeupVersion, setNetworkRetryWakeupVersion] = useState(0)
 
   const activeJobId = useChatMediaUploadStore((state) => state.activeJobId)
   const queuedJobId = useChatMediaUploadStore((state) =>
@@ -161,6 +212,22 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
   const appState = useChatMediaUploadStore((state) => state.appState)
   const reconcileVersion = useChatMediaUploadStore((state) => state.reconcileVersion)
   const cancelRequestById = useChatMediaUploadStore((state) => state.cancelRequestById)
+
+  useEffect(() => {
+    isNetworkResolvedRef.current = isNetworkResolved
+    isOnlineRef.current = isOnline
+  }, [isNetworkResolved, isOnline])
+
+  useEffect(() => {
+    const retryTimeouts = networkRetryTimeoutByIdRef.current
+    const retryPauses = networkRetryPausedUntilByIdRef.current
+
+    return () => {
+      retryTimeouts.forEach((timeoutId) => clearTimeout(timeoutId))
+      retryTimeouts.clear()
+      retryPauses.clear()
+    }
+  }, [])
 
   const syncOptimisticMessageFromJob = useCallback((clientMessageId: string) => {
     const job = useChatMediaUploadStore.getState().jobsById[clientMessageId]
@@ -796,9 +863,65 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
     [markJobsFailed],
   )
 
+  const requeueJobForNetwork = useCallback(
+    async (clientMessageId: string, options?: { delayRetry?: boolean }) => {
+      const store = useChatMediaUploadStore.getState()
+      const job = store.jobsById[clientMessageId]
+      if (!job) {
+        return
+      }
+
+      const previousTimeout = networkRetryTimeoutByIdRef.current.get(clientMessageId)
+      if (previousTimeout) {
+        clearTimeout(previousTimeout)
+        networkRetryTimeoutByIdRef.current.delete(clientMessageId)
+      }
+
+      if (options?.delayRetry) {
+        const pausedUntil = Date.now() + NETWORK_RETRY_DELAY_MS
+        networkRetryPausedUntilByIdRef.current.set(clientMessageId, pausedUntil)
+        const timeoutId = setTimeout(() => {
+          networkRetryTimeoutByIdRef.current.delete(clientMessageId)
+          setNetworkRetryWakeupVersion((version) => version + 1)
+        }, NETWORK_RETRY_DELAY_MS)
+        networkRetryTimeoutByIdRef.current.set(clientMessageId, timeoutId)
+      } else {
+        networkRetryPausedUntilByIdRef.current.delete(clientMessageId)
+      }
+
+      clearJobProgress(clientMessageId)
+      store.retryJob(clientMessageId)
+      syncOptimisticMessageFromJob(clientMessageId)
+
+      await enqueueLocalMediaMutation(clientMessageId, () =>
+        patchLocalMediaMessage({
+          clientMessageId,
+          conversationId: job.conversationId,
+          clearFailureReason: true,
+          mediaPatch: {
+            uploadStage: 'queued',
+          },
+        }),
+      ).catch((error) => {
+        console.error('[ChatMediaUpload] Failed to persist queued network retry', error)
+      })
+    },
+    [clearJobProgress, enqueueLocalMediaMutation, syncOptimisticMessageFromJob],
+  )
+
   const processJob = useCallback(
     async (clientMessageId: string) => {
       if (processingJobIdRef.current === clientMessageId) {
+        return
+      }
+
+      const pausedUntil = networkRetryPausedUntilByIdRef.current.get(clientMessageId)
+      if (pausedUntil && Date.now() < pausedUntil) {
+        return
+      }
+      networkRetryPausedUntilByIdRef.current.delete(clientMessageId)
+
+      if (!isNetworkResolvedRef.current || !isOnlineRef.current) {
         return
       }
 
@@ -809,9 +932,19 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
       try {
         await finalizeAndSendJob(clientMessageId)
       } catch (error) {
-        const failureReason = getUploadFailureReason(error)
+        if (getUploadFailureReason(error) !== 'Upload aborted') {
+          if (
+            !isNetworkResolvedRef.current ||
+            !isOnlineRef.current ||
+            isNetworkTransportError(error)
+          ) {
+            await requeueJobForNetwork(clientMessageId, {
+              delayRetry: isNetworkResolvedRef.current && isOnlineRef.current,
+            })
+            return
+          }
 
-        if (failureReason !== 'Upload aborted') {
+          const failureReason = getUploadFailureReason(error)
           await markJobFailed(clientMessageId, failureReason)
         }
       } finally {
@@ -824,7 +957,7 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
         }
       }
     },
-    [finalizeAndSendJob, markJobFailed, syncOptimisticMessageFromJob],
+    [finalizeAndSendJob, markJobFailed, requeueJobForNetwork, syncOptimisticMessageFromJob],
   )
 
   const cancelPendingJob = useCallback(
@@ -912,15 +1045,23 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
   }, [cancelPendingJob, cancelRequestById])
 
   useEffect(() => {
-    if (!queuedJobId || activeJobId || appState !== 'active') {
+    if (!isNetworkResolved || !isOnline || !queuedJobId || activeJobId || appState !== 'active') {
       return
     }
 
     void processJob(queuedJobId)
-  }, [activeJobId, appState, processJob, queuedJobId])
+  }, [
+    activeJobId,
+    appState,
+    isNetworkResolved,
+    isOnline,
+    networkRetryWakeupVersion,
+    processJob,
+    queuedJobId,
+  ])
 
   useEffect(() => {
-    if (appState !== 'active') {
+    if (appState !== 'active' || !isNetworkResolved || !isOnline) {
       return
     }
 
@@ -946,7 +1087,7 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
     })
 
     void markJobsFailed(staleJobs, 'Upload timed out. Please retry.')
-  }, [appState, markJobsFailed, reconcileVersion])
+  }, [appState, isNetworkResolved, isOnline, markJobsFailed, reconcileVersion])
 
   return <>{children}</>
 }

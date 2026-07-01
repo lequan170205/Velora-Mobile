@@ -2,6 +2,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'expo-router'
 import { useCallback } from 'react'
 
+import { useNetworkStatus } from '../providers/NetworkProvider'
+
 import { prefetchMessages } from './useMessages'
 
 const CONVERSATION_NAVIGATION_LOCK_MS = 500
@@ -20,6 +22,7 @@ export const navigationBypass = { targetId: null as string | null, timestamp: 0 
 export function useConversationNavigation() {
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { isNetworkResolved, isOnline } = useNetworkStatus()
 
   const prefetchConversation = useCallback(
     (conversationId: string) => {
@@ -27,9 +30,9 @@ export function useConversationNavigation() {
         return
       }
 
-      void prefetchMessages(queryClient, conversationId)
+      void prefetchMessages(queryClient, conversationId, { isNetworkResolved, isOnline })
     },
-    [queryClient],
+    [isNetworkResolved, isOnline, queryClient],
   )
 
   const openConversation = useCallback(

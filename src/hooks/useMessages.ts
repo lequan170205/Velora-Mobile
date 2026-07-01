@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { InfiniteData, QueryClient } from '@tanstack/react-query'
 
@@ -12,12 +12,21 @@ import {
   upsertRemoteMessages,
 } from '../database/messageSync'
 import {
+  buildRangeBoundaryFromMessages,
+  getLatestMessageSyncRange,
+  markRangeRemoteExhausted,
+  upsertMessageSyncRange,
+  type MessageSyncRangeBoundary,
+  type MessageSyncRangeSnapshot,
+} from '../database/messageSyncRangeRepository'
+import {
   upsertConversationSummaryInCache,
   upsertMessageIntoConversationCache,
 } from '../lib/chatMessageCache'
 import { createClientMessageId } from '../lib/clientMessageId'
 import { getMessageIdentityKey, mergeMessageCollectionByIdentity } from '../lib/messageIdentity'
 import { buildReplyPreviewFromMessage, mergeReplyPreview } from '../lib/replyPreview'
+import { useNetworkStatus } from '../providers/NetworkProvider'
 import { useSocket } from '../providers/SocketProvider'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
@@ -119,6 +128,153 @@ const getOldestMessage = (messages: Message[]) => {
   }, messages[0])
 }
 
+const getNextOlderCursorFromPages = (pages?: Message[][]) => {
+  const lastPage = pages?.[pages.length - 1]
+  if (!lastPage || lastPage.length === 0) return null
+
+  return getOldestMessage(lastPage)?.id ?? null
+}
+
+const isBoundaryOlderThan = (
+  candidate: Pick<MessageSyncRangeBoundary, 'endCreatedAt' | 'endMessageId'>,
+  existing: Pick<MessageSyncRangeBoundary, 'endCreatedAt' | 'endMessageId'>,
+) => {
+  if (candidate.endCreatedAt === null || !candidate.endMessageId) {
+    return false
+  }
+
+  if (existing.endCreatedAt === null || !existing.endMessageId) {
+    return true
+  }
+
+  if (candidate.endCreatedAt !== existing.endCreatedAt) {
+    return candidate.endCreatedAt < existing.endCreatedAt
+  }
+
+  return candidate.endMessageId.localeCompare(existing.endMessageId) < 0
+}
+
+const isMessageAtOrOlderThanExhaustedBoundary = (
+  message: Message,
+  latestSyncRange?: MessageSyncRangeSnapshot | null,
+) => {
+  if (!latestSyncRange?.remoteExhaustedOlder) {
+    return false
+  }
+
+  const messageId = message.id || message._id || ''
+
+  if (latestSyncRange.endCreatedAt === null || !latestSyncRange.endMessageId) {
+    return latestSyncRange.lastCursor ? messageId === latestSyncRange.lastCursor : true
+  }
+
+  const messageCreatedAt = getMessageCreatedAtMs(message)
+
+  if (messageCreatedAt !== latestSyncRange.endCreatedAt) {
+    return messageCreatedAt < latestSyncRange.endCreatedAt
+  }
+
+  return messageId.localeCompare(latestSyncRange.endMessageId) <= 0
+}
+
+const isCursorAtExhaustedOlderBoundary = (
+  cursor: string | undefined,
+  latestSyncRange?: MessageSyncRangeSnapshot | null,
+) => {
+  if (!cursor || !latestSyncRange?.remoteExhaustedOlder) {
+    return false
+  }
+
+  if (latestSyncRange.endMessageId) {
+    return cursor === latestSyncRange.endMessageId
+  }
+
+  if (latestSyncRange.lastCursor) {
+    return cursor === latestSyncRange.lastCursor
+  }
+
+  return true
+}
+
+const writeLatestRemoteSyncRangeMetadata = async ({
+  conversationId,
+  cursor,
+  remotePage,
+}: {
+  conversationId: string
+  cursor?: string
+  remotePage: Message[]
+}): Promise<MessageSyncRangeSnapshot | null> => {
+  const syncedAt = Date.now()
+
+  try {
+    if (remotePage.length === 0) {
+      if (!cursor) {
+        return null
+      }
+
+      const exhaustedRange = await markRangeRemoteExhausted({
+        conversationId,
+        direction: 'older',
+        exhaustedAt: syncedAt,
+        rangeType: 'latest',
+        source: 'remote_latest',
+      })
+
+      if (!exhaustedRange) {
+        return await upsertMessageSyncRange({
+          conversationId,
+          isComplete: false,
+          isContiguous: false,
+          lastCursor: cursor,
+          lastSyncedAt: syncedAt,
+          rangeType: 'latest',
+          remoteExhaustedOlder: true,
+          source: 'remote_latest',
+        })
+      }
+
+      return exhaustedRange
+    }
+
+    const pageBoundary = buildRangeBoundaryFromMessages(remotePage)
+    const existingRange = await getLatestMessageSyncRange(conversationId)
+    const nextBoundary: MessageSyncRangeBoundary = {
+      startMessageId: existingRange?.startMessageId ?? pageBoundary.startMessageId,
+      startCreatedAt: existingRange?.startCreatedAt ?? pageBoundary.startCreatedAt,
+      endMessageId: pageBoundary.endMessageId,
+      endCreatedAt: pageBoundary.endCreatedAt,
+    }
+
+    if (
+      cursor &&
+      existingRange &&
+      !isBoundaryOlderThan(pageBoundary, {
+        endCreatedAt: existingRange.endCreatedAt,
+        endMessageId: existingRange.endMessageId,
+      })
+    ) {
+      nextBoundary.endMessageId = existingRange.endMessageId
+      nextBoundary.endCreatedAt = existingRange.endCreatedAt
+    }
+
+    return await upsertMessageSyncRange({
+      boundary: nextBoundary,
+      conversationId,
+      isComplete: false,
+      isContiguous: true,
+      lastCursor: pageBoundary.endMessageId,
+      lastSyncedAt: syncedAt,
+      rangeType: 'latest',
+      ...(cursor ? { remoteExhaustedOlder: false } : {}),
+      source: 'remote_latest',
+    })
+  } catch (error) {
+    console.warn('[Messages] Failed to persist latest sync range metadata', error)
+    return null
+  }
+}
+
 const getCachedConversation = (
   queryClient: QueryClient,
   conversationId: string,
@@ -136,12 +292,27 @@ type MessagesQueryOptionsInput = {
   conversation?: Conversation | null
   conversationId: string
   currentUser?: ReturnType<typeof useAuthStore.getState>['user'] | null
+  isOnline?: boolean
+  isNetworkResolved?: boolean
+  latestSyncRange?: MessageSyncRangeSnapshot | null | undefined
+  onLatestSyncRangeUpdated?: ((range: MessageSyncRangeSnapshot) => void) | undefined
+  queryClient?: QueryClient
+}
+
+type PrefetchMessagesOptions = {
+  isNetworkResolved?: boolean
+  isOnline?: boolean
 }
 
 export const getMessagesInfiniteQueryOptions = ({
   conversation,
   conversationId,
   currentUser,
+  isOnline = true,
+  isNetworkResolved = true,
+  latestSyncRange,
+  onLatestSyncRangeUpdated,
+  queryClient,
 }: MessagesQueryOptionsInput) => ({
   queryKey: queryKeys.conversations.messages(conversationId),
 
@@ -156,38 +327,74 @@ export const getMessagesInfiniteQueryOptions = ({
       limit: MESSAGE_PAGE_LIMIT,
     })
 
-    if (!cursor && localPage.length >= MESSAGE_PAGE_LIMIT) {
+    if (localPage.length > 0) {
+      if (cursor && queryClient && isNetworkResolved && isOnline) {
+        void syncMessagesPageToLocalStore({
+          conversation: conversation ?? null,
+          conversationId,
+          currentUser: currentUser ?? null,
+          cursor,
+          onLatestSyncRangeUpdated,
+        })
+          .then((remotePage) => {
+            if (remotePage.length === 0) {
+              return
+            }
+
+            return refreshMessagesPageFromLocalStore({
+              conversation: conversation ?? null,
+              conversationId,
+              currentUser: currentUser ?? null,
+              cursor,
+              queryClient,
+            })
+          })
+          .catch((error) => {
+            console.warn('[Messages] Failed to sync older messages page', error)
+          })
+      }
+
       return sortMessagesNewestFirst(localPage)
     }
 
+    if (isCursorAtExhaustedOlderBoundary(cursor, latestSyncRange)) {
+      return []
+    }
+
+    if (!isNetworkResolved) {
+      throw new Error('Cannot fetch remote messages before network state resolves')
+    }
+
+    if (!isOnline) {
+      throw new Error('Cannot fetch remote messages while offline')
+    }
+
     try {
-      const remotePage = await conversationApi.getMessages(conversationId, {
-        limit: MESSAGE_PAGE_LIMIT,
+      const remotePage = await syncMessagesPageToLocalStore({
+        conversation: conversation ?? null,
+        conversationId,
+        currentUser: currentUser ?? null,
         ...(cursor ? { cursor } : {}),
+        onLatestSyncRangeUpdated,
       })
 
-      if (!cursor) {
-        markLatestMessagesSynced(conversationId)
+      if (remotePage.length === 0) {
+        return []
       }
 
-      if (remotePage.length > 0) {
-        void upsertRemoteMessages({
-          conversation: conversation ?? null,
-          currentUser: currentUser ?? null,
-          messages: remotePage,
-        }).catch((error) => {
-          console.warn('[Messages] Failed to persist remote page locally', error)
-        })
-      }
+      const refreshedLocalPage = await getLocalMessagesPage({
+        conversation: conversation ?? null,
+        conversationId,
+        currentUser: currentUser ?? null,
+        ...(cursor ? { cursor } : {}),
+        limit: MESSAGE_PAGE_LIMIT,
+      })
 
-      if (cursor) {
+      if (refreshedLocalPage.length === 0) {
         return sortMessagesNewestFirst(remotePage)
       }
 
-      return sortMessagesNewestFirst(dedupeMessages([...localPage, ...remotePage])).slice(
-        0,
-        MESSAGE_PAGE_LIMIT,
-      )
+      return sortMessagesNewestFirst(dedupeMessages(refreshedLocalPage))
     } catch (error) {
       if (localPage.length > 0) {
         return sortMessagesNewestFirst(localPage)
@@ -198,18 +405,29 @@ export const getMessagesInfiniteQueryOptions = ({
   },
 
   getNextPageParam: (lastPage: Message[]) => {
-    if (!lastPage || lastPage.length < MESSAGE_PAGE_LIMIT) return undefined
+    if (!lastPage || lastPage.length === 0) return undefined
 
     const oldestMessage = getOldestMessage(lastPage)
+    if (!oldestMessage) return undefined
+
+    if (isMessageAtOrOlderThanExhaustedBoundary(oldestMessage, latestSyncRange)) {
+      return undefined
+    }
+
     return oldestMessage?.id
   },
 
   initialPageParam: undefined as string | undefined,
+  networkMode: 'always' as const,
   staleTime: MESSAGE_QUERY_STALE_TIME_MS,
   gcTime: MESSAGE_QUERY_GC_TIME_MS,
 })
 
-export const prefetchMessages = async (queryClient: QueryClient, conversationId: string) => {
+export const prefetchMessages = async (
+  queryClient: QueryClient,
+  conversationId: string,
+  options: PrefetchMessagesOptions = {},
+) => {
   if (!MESSAGE_PREFETCH_ENABLED) {
     return
   }
@@ -227,6 +445,9 @@ export const prefetchMessages = async (queryClient: QueryClient, conversationId:
       conversation: getCachedConversation(queryClient, conversationId),
       conversationId,
       currentUser: useAuthStore.getState().user ?? null,
+      isNetworkResolved: options.isNetworkResolved ?? false,
+      isOnline: options.isOnline ?? false,
+      queryClient,
     }),
   )
 }
@@ -234,11 +455,14 @@ export const prefetchMessages = async (queryClient: QueryClient, conversationId:
 export const prefetchMessagesForConversations = async (
   queryClient: QueryClient,
   conversationIds: string[],
+  options: PrefetchMessagesOptions = {},
 ) => {
   const uniqueConversationIds = Array.from(new Set(conversationIds.filter(Boolean)))
 
   await Promise.allSettled(
-    uniqueConversationIds.map((conversationId) => prefetchMessages(queryClient, conversationId)),
+    uniqueConversationIds.map((conversationId) =>
+      prefetchMessages(queryClient, conversationId, options),
+    ),
   )
 }
 
@@ -263,17 +487,34 @@ export const trimMessagesCache = (queryClient: QueryClient, conversationId: stri
   )
 }
 
-export const syncLatestMessagesToLocalStore = async ({
+async function syncMessagesPageToLocalStore({
   conversation,
   conversationId,
   currentUser,
-}: MessagesQueryOptionsInput) => {
+  cursor,
+  onLatestSyncRangeUpdated,
+}: MessagesQueryOptionsInput & {
+  cursor?: string
+}) {
   const remotePage = await conversationApi.getMessages(conversationId, {
     limit: MESSAGE_PAGE_LIMIT,
+    ...(cursor ? { cursor } : {}),
   })
-  markLatestMessagesSynced(conversationId)
+
+  if (!cursor) {
+    markLatestMessagesSynced(conversationId)
+  }
 
   if (remotePage.length === 0) {
+    void writeLatestRemoteSyncRangeMetadata({
+      conversationId,
+      ...(cursor ? { cursor } : {}),
+      remotePage,
+    }).then((range) => {
+      if (range) {
+        onLatestSyncRangeUpdated?.(range)
+      }
+    })
     return remotePage
   }
 
@@ -283,22 +524,39 @@ export const syncLatestMessagesToLocalStore = async ({
     messages: remotePage,
   })
 
+  void writeLatestRemoteSyncRangeMetadata({
+    conversationId,
+    ...(cursor ? { cursor } : {}),
+    remotePage,
+  }).then((range) => {
+    if (range) {
+      onLatestSyncRangeUpdated?.(range)
+    }
+  })
+
   return remotePage
 }
 
-export const refreshLatestMessagesPageFromLocalStore = async ({
+export const syncLatestMessagesToLocalStore = async (input: MessagesQueryOptionsInput) => {
+  return syncMessagesPageToLocalStore(input)
+}
+
+async function refreshMessagesPageFromLocalStore({
   conversation,
   conversationId,
   currentUser,
+  cursor,
   queryClient,
 }: MessagesQueryOptionsInput & {
+  cursor?: string
   queryClient: QueryClient
-}) => {
+}) {
   const localPage = sortMessagesNewestFirst(
     await getLocalMessagesPage({
       conversation: conversation ?? null,
       conversationId,
       currentUser: currentUser ?? null,
+      ...(cursor ? { cursor } : {}),
       limit: MESSAGE_PAGE_LIMIT,
     }),
   )
@@ -315,11 +573,20 @@ export const refreshLatestMessagesPageFromLocalStore = async ({
           : oldData
       }
 
-      const [, ...restPages] = oldData.pages
+      const pageIndex = cursor
+        ? oldData.pageParams.findIndex((pageParam) => String(pageParam) === cursor)
+        : 0
+
+      if (pageIndex < 0) {
+        return oldData
+      }
+
+      const pages = [...oldData.pages]
+      pages[pageIndex] = localPage
 
       return {
         ...oldData,
-        pages: [localPage, ...restPages],
+        pages,
       }
     },
   )
@@ -327,9 +594,32 @@ export const refreshLatestMessagesPageFromLocalStore = async ({
   return localPage
 }
 
+export const refreshLatestMessagesPageFromLocalStore = async (
+  input: MessagesQueryOptionsInput & {
+    queryClient: QueryClient
+  },
+) => {
+  return refreshMessagesPageFromLocalStore(input)
+}
+
 export function useMessages(conversationId: string) {
   const queryClient = useQueryClient()
   const currentUser = useAuthStore((state) => state.user)
+  const { isNetworkResolved, isOnline } = useNetworkStatus()
+  const [latestSyncRange, setLatestSyncRange] = useState<MessageSyncRangeSnapshot | null>(null)
+  const failedOlderCursorRef = useRef<string | null>(null)
+  const wasOnlineRef = useRef(isOnline)
+
+  const handleLatestSyncRangeUpdated = useCallback(
+    (range: MessageSyncRangeSnapshot) => {
+      if (range.conversationId !== conversationId || range.rangeType !== 'latest') {
+        return
+      }
+
+      setLatestSyncRange(range)
+    },
+    [conversationId],
+  )
 
   const conversation = useMemo(
     () => getCachedConversation(queryClient, conversationId),
@@ -341,13 +631,68 @@ export function useMessages(conversationId: string) {
       conversation,
       conversationId,
       currentUser,
+      isNetworkResolved,
+      isOnline,
+      latestSyncRange,
+      onLatestSyncRangeUpdated: handleLatestSyncRangeUpdated,
+      queryClient,
     }),
   )
 
   const hasLoadedMessagePages = Boolean(query.data?.pages.length)
+  const nextOlderCursor = useMemo(
+    () => getNextOlderCursorFromPages(query.data?.pages),
+    [query.data?.pages],
+  )
 
   useEffect(() => {
-    if (!hasLoadedMessagePages || query.isFetching || !shouldSyncLatestMessages(conversationId)) {
+    failedOlderCursorRef.current = null
+  }, [conversationId])
+
+  useEffect(() => {
+    let cancelled = false
+    setLatestSyncRange(null)
+
+    void getLatestMessageSyncRange(conversationId)
+      .then((range) => {
+        if (!cancelled) {
+          setLatestSyncRange(range)
+        }
+      })
+      .catch((error) => {
+        console.warn('[Messages] Failed to load latest sync range metadata', error)
+        if (!cancelled) {
+          setLatestSyncRange(null)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [conversationId])
+
+  useEffect(() => {
+    if (failedOlderCursorRef.current && failedOlderCursorRef.current !== nextOlderCursor) {
+      failedOlderCursorRef.current = null
+    }
+  }, [nextOlderCursor])
+
+  useEffect(() => {
+    if (!wasOnlineRef.current && isOnline) {
+      failedOlderCursorRef.current = null
+    }
+
+    wasOnlineRef.current = isOnline
+  }, [isOnline])
+
+  useEffect(() => {
+    if (
+      !isOnline ||
+      !isNetworkResolved ||
+      !hasLoadedMessagePages ||
+      query.isFetching ||
+      !shouldSyncLatestMessages(conversationId)
+    ) {
       return
     }
 
@@ -355,41 +700,25 @@ export function useMessages(conversationId: string) {
 
     const syncLatestMessages = async () => {
       try {
-        const remotePage = await syncLatestMessagesToLocalStore({
+        await syncLatestMessagesToLocalStore({
           conversation,
           conversationId,
           currentUser,
+          onLatestSyncRangeUpdated: handleLatestSyncRangeUpdated,
         })
-
-        if (cancelled || remotePage.length === 0) {
-          return
-        }
 
         if (cancelled) {
           return
         }
 
-        queryClient.setQueryData<InfiniteData<Message[]> | undefined>(
-          queryKeys.conversations.messages(conversationId),
-          (oldData) => {
-            if (!oldData?.pages?.length) {
-              return {
-                pages: [sortMessagesNewestFirst(remotePage)],
-                pageParams: [undefined],
-              }
-            }
+        await refreshLatestMessagesPageFromLocalStore({
+          conversation,
+          conversationId,
+          currentUser,
+          queryClient,
+        })
 
-            const [firstPage = [], ...restPages] = oldData.pages
-
-            return {
-              ...oldData,
-              pages: [
-                sortMessagesNewestFirst(dedupeMessages([...remotePage, ...firstPage])),
-                ...restPages,
-              ],
-            }
-          },
-        )
+        failedOlderCursorRef.current = null
       } catch (error) {
         console.warn('[Messages] Failed to sync latest messages', error)
       }
@@ -404,12 +733,48 @@ export function useMessages(conversationId: string) {
     conversation,
     conversationId,
     currentUser,
+    handleLatestSyncRangeUpdated,
     hasLoadedMessagePages,
+    isNetworkResolved,
+    isOnline,
     query.isFetching,
     queryClient,
   ])
 
-  return query
+  const fetchNextPage = useCallback(
+    (...args: Parameters<typeof query.fetchNextPage>) => {
+      const cursor = getNextOlderCursorFromPages(query.data?.pages)
+
+      if (cursor && failedOlderCursorRef.current === cursor) {
+        return Promise.resolve(query as Awaited<ReturnType<typeof query.fetchNextPage>>)
+      }
+
+      return query
+        .fetchNextPage(...args)
+        .then((result) => {
+          if (result.isError) {
+            failedOlderCursorRef.current = cursor
+            return result
+          }
+
+          failedOlderCursorRef.current = null
+          return result
+        })
+        .catch((error) => {
+          failedOlderCursorRef.current = cursor
+          throw error
+        })
+    },
+    [query],
+  )
+
+  return useMemo(
+    () => ({
+      ...query,
+      fetchNextPage,
+    }),
+    [fetchNextPage, query],
+  )
 }
 
 export function useSendMessage(conversationId: string) {

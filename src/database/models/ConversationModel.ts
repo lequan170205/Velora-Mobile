@@ -7,6 +7,7 @@ import { sanitizeParticipantIds } from '../sanitizers'
 import { TABLES } from '../schema'
 
 import type { MessageModel } from './MessageModel'
+import type { MessageSyncRangeModel } from './MessageSyncRangeModel'
 import type {
   Message as ConversationMessage,
   MessageMedia,
@@ -41,10 +42,10 @@ export type AddMessageInput = {
 export class ConversationModel extends Model {
   static table = TABLES.conversations
 
-  static associations = associations([
-    TABLES.messages,
-    { type: 'has_many', foreignKey: 'conversation_id' },
-  ])
+  static associations = associations(
+    [TABLES.messages, { type: 'has_many', foreignKey: 'conversation_id' }],
+    [TABLES.messageSyncRanges, { type: 'has_many', foreignKey: 'conversation_id' }],
+  )
 
   @text('creator_id') creatorId!: string
   @json('participant_ids', sanitizeParticipantIds, { memo: true }) participantIds!: string[]
@@ -59,6 +60,7 @@ export class ConversationModel extends Model {
   @readonly @date('updated_at') updatedAt!: Date
 
   @children(TABLES.messages) messages!: Query<MessageModel>
+  @children(TABLES.messageSyncRanges) messageSyncRanges!: Query<MessageSyncRangeModel>
 
   @writer
   async addMessage(input: AddMessageInput): Promise<MessageModel> {

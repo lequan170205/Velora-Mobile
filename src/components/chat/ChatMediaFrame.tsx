@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { Image } from 'expo-image'
-import React, { useEffect, useState, type ReactNode } from 'react'
+import React, { useEffect, useRef, useState, type ReactNode } from 'react'
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native'
 
 import { isRemoteMediaUri } from '../../lib/chatMedia'
@@ -53,6 +53,13 @@ export function ChatMediaFrame({
   const [hasLoadError, setHasLoadError] = useState(false)
   const resolvedUri = typeof uri === 'string' && uri.length > 0 ? uri : null
 
+  // Track whether the URI changed since the last render so we can detect FlashList
+  // cell recycling. Reading and writing a ref during render is safe — it's a
+  // synchronous mutation that happens before the commit phase.
+  const prevUriRef = useRef<string | null>(resolvedUri)
+  const uriChangedThisRender = prevUriRef.current !== resolvedUri
+  prevUriRef.current = resolvedUri
+
   useEffect(() => {
     setHasLoadError(false)
   }, [showPlaceholder, uri])
@@ -83,7 +90,7 @@ export function ChatMediaFrame({
           recyclingKey={resolvedUri}
           source={{ uri: resolvedUri }}
           style={StyleSheet.absoluteFillObject}
-          transition={disableTransition ? 0 : 150}
+          transition={disableTransition || uriChangedThisRender ? 0 : 150}
           {...(accessibilityLabel ? { accessibilityLabel } : {})}
         />
       )}

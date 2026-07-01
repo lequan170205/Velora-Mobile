@@ -68,7 +68,10 @@ import {
   isRemoteMediaUri,
 } from '../../src/lib/chatMedia'
 import { saveChatMediaToLibrary } from '../../src/lib/chatMediaSave'
-import { getMessageIdentityKey } from '../../src/lib/messageIdentity'
+import {
+  getMessageIdentityKey,
+  mergeMessageCollectionByIdentity,
+} from '../../src/lib/messageIdentity'
 import {
   buildMessageListState,
   DEFAULT_MESSAGE_LAYOUT,
@@ -606,7 +609,8 @@ export default function ChatScreen() {
   const anchorBottomLoadArmedRef = useRef(false)
 
   const serverMessages = useMemo(() => {
-    return (data?.pages.flat() as Message[]) || EMPTY_MESSAGES
+    const flattenedMessages = (data?.pages.flat() as Message[] | undefined) ?? EMPTY_MESSAGES
+    return mergeMessageCollectionByIdentity(flattenedMessages)
   }, [data])
   const activeServerMessages = useMemo(
     () =>

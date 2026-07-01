@@ -22,6 +22,7 @@ import { AuthProvider } from '../src/providers/AuthProvider'
 import { CallProvider, useCall } from '../src/providers/CallProvider'
 import { ChatMediaUploadProvider } from '../src/providers/ChatMediaUploadProvider'
 import { ChatMediaViewerProvider } from '../src/providers/ChatMediaViewerProvider'
+import { NetworkProvider } from '../src/providers/NetworkProvider'
 import { QueryProvider } from '../src/providers/QueryProvider'
 import { SocketProvider } from '../src/providers/SocketProvider'
 import { useAuthStore } from '../src/stores/authStore'
@@ -154,51 +155,53 @@ export default function RootLayout() {
           <KeyboardProvider>
             <BottomSheetModalProvider>
               <QueryProvider>
-                <AuthProvider>
-                  <SocketProvider>
-                    <CallProvider>
-                      <ChatMediaUploadProvider>
-                        <ChatMediaViewerProvider>
-                          <Stack
-                            screenOptions={{
-                              headerShown: false,
-                              contentStyle: { backgroundColor: colors.bg.secondary },
-                              freezeOnBlur: true,
-                            }}
-                          >
-                            <Stack.Screen name="(tabs)" />
-                            <Stack.Screen name="(auth)" />
-                            <Stack.Screen
-                              name="reels/[id]/index"
-                              options={{
-                                animation: 'slide_from_right',
-                                animationDuration: 220,
-                                freezeOnBlur: false,
+                <NetworkProvider>
+                  <AuthProvider>
+                    <SocketProvider>
+                      <CallProvider>
+                        <ChatMediaUploadProvider>
+                          <ChatMediaViewerProvider>
+                            <Stack
+                              screenOptions={{
+                                headerShown: false,
+                                contentStyle: { backgroundColor: colors.bg.secondary },
+                                freezeOnBlur: true,
                               }}
-                            />
-                            <Stack.Screen
-                              name="conversation/[id]"
-                              options={{
-                                animation: 'slide_from_right',
-                                animationDuration: 250,
-                              }}
-                            />
-                            <Stack.Screen
-                              name="reels/create"
-                              options={{ presentation: 'fullScreenModal' }}
-                            />
-                            <Stack.Screen
-                              name="call/[id]"
-                              options={{ presentation: 'fullScreenModal' }}
-                            />
-                          </Stack>
+                            >
+                              <Stack.Screen name="(tabs)" />
+                              <Stack.Screen name="(auth)" />
+                              <Stack.Screen
+                                name="reels/[id]/index"
+                                options={{
+                                  animation: 'slide_from_right',
+                                  animationDuration: 220,
+                                  freezeOnBlur: false,
+                                }}
+                              />
+                              <Stack.Screen
+                                name="conversation/[id]"
+                                options={{
+                                  animation: 'slide_from_right',
+                                  animationDuration: 250,
+                                }}
+                              />
+                              <Stack.Screen
+                                name="reels/create"
+                                options={{ presentation: 'fullScreenModal' }}
+                              />
+                              <Stack.Screen
+                                name="call/[id]"
+                                options={{ presentation: 'fullScreenModal' }}
+                              />
+                            </Stack>
 
-                          <CallUiOverlays />
-                        </ChatMediaViewerProvider>
-                      </ChatMediaUploadProvider>
-                    </CallProvider>
-                  </SocketProvider>
-                </AuthProvider>
+                            <CallUiOverlays />
+                          </ChatMediaViewerProvider>
+                        </ChatMediaUploadProvider>
+                      </CallProvider>
+                    </SocketProvider>
+                  </AuthProvider>
+                </NetworkProvider>
               </QueryProvider>
             </BottomSheetModalProvider>
           </KeyboardProvider>
