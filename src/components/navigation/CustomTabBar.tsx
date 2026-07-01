@@ -22,6 +22,8 @@ import { scheduleOnRN } from 'react-native-worklets'
 
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs'
 
+import { colors } from '../../constants/theme'
+
 import type { MD3Theme } from 'react-native-paper'
 
 const SCREEN_W = Dimensions.get('window').width
@@ -206,6 +208,7 @@ export const CustomTabBarSurface = React.memo(function CustomTabBarSurface({
   const iconOnAccentColor = tokens.iconOnAccent
   const lightInactiveColor = tokens.light.inactive
   const darkInactiveColor = tokens.dark.inactive
+  const lightWrapperColor = colors.bg.primary
   const lightPillColor = tokens.light.pill
   const darkPillColor = tokens.dark.pill
   const lightBorderColor = tokens.light.border
@@ -293,8 +296,12 @@ export const CustomTabBarSurface = React.memo(function CustomTabBarSurface({
   })
 
   const wrapperSurfaceStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(themeProgress.value, [0, 1], [lightPillColor, darkPillColor]),
-    opacity: dockProgress.value,
+    backgroundColor: interpolateColor(
+      themeProgress.value,
+      [0, 1],
+      [lightWrapperColor, darkPillColor],
+    ),
+    opacity: 1,
   }))
 
   const trackSegmentThemeStyle = useAnimatedStyle(() => ({
