@@ -1,6 +1,6 @@
 import { Image as ExpoImage } from 'expo-image'
 
-import { cacheOfflineReelVideo } from './offlineReelVideoCache'
+import { warmTemporaryReelVideoCache } from './offlineReelVideoCache'
 
 import type { Reel } from '../types/reel.types'
 
@@ -108,12 +108,14 @@ export const prefetchReelAssets = async (
   await fetchTextQuietly(firstVariantPlaylistUrl)
 }
 
-export const prefetchReelForOfflinePlayback = async (
-  reel?: Pick<Reel, 'id' | 'thumbnailUrl' | 'streamUrl' | 'status'> | null,
+export const prefetchReelsForTemporaryOfflinePlayback = (
+  reels: (
+    | (Pick<Reel, 'id' | 'thumbnailUrl' | 'streamUrl' | 'status'> & {
+        priority?: number
+      })
+    | undefined
+    | null
+  )[],
 ) => {
-  if (!reel || reel.status !== 'COMPLETED') {
-    return
-  }
-
-  await Promise.all([prefetchReelAssets(reel), cacheOfflineReelVideo(reel).catch(() => null)])
+  warmTemporaryReelVideoCache(reels)
 }

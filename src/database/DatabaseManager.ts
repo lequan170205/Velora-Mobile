@@ -2,9 +2,13 @@ import { Database } from '@nozbe/watermelondb'
 import SQLiteAdapter from '@nozbe/watermelondb/adapters/sqlite'
 
 import { migrations } from './migrations'
+import { CachedReelFeedPageModel } from './models/CachedReelFeedPageModel'
+import { CachedReelModel } from './models/CachedReelModel'
 import { ConversationModel } from './models/ConversationModel'
 import { MessageModel } from './models/MessageModel'
 import { MessageSyncRangeModel } from './models/MessageSyncRangeModel'
+import { ReelEventOutboxItemModel } from './models/ReelEventOutboxItemModel'
+import { ReelVideoCacheRecordModel } from './models/ReelVideoCacheRecordModel'
 import { UserModel } from './models/UserModel'
 import { schema } from './schema'
 
@@ -28,7 +32,16 @@ export class DatabaseManager {
 
     this.database = new Database({
       adapter,
-      modelClasses: [UserModel, ConversationModel, MessageModel, MessageSyncRangeModel],
+      modelClasses: [
+        UserModel,
+        ConversationModel,
+        MessageModel,
+        MessageSyncRangeModel,
+        CachedReelModel,
+        CachedReelFeedPageModel,
+        ReelVideoCacheRecordModel,
+        ReelEventOutboxItemModel,
+      ],
     })
   }
 

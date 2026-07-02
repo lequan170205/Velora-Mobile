@@ -1,106 +1,58 @@
-import AsyncStorage from '@react-native-async-storage/async-storage'
+import {
+  createFeedCacheKey,
+  deserializeCachedReelToReel,
+  getCachedFeedPageReelIds,
+  normalizeFeedParams,
+  serializeReelToCachedReelInput,
+  toCachedReelFeedPageInput,
+} from '../database/reels/reelCacheMappers'
+import {
+  deleteCachedReelFeedPages,
+  deleteCachedReels,
+  findCachedReelFeedPageByCacheKey,
+  getAllCachedReelFeedPages,
+  getAllCachedReels,
+  getCachedReelsByReelIds,
+  touchCachedReelFeedPageAndReels,
+  upsertCachedReelFeedPage,
+  upsertCachedReels,
+} from '../database/reels/reelOfflineStore'
 
-import { DEFAULT_REELS_LIMIT } from '../constants/reels'
+import type { CacheableFeedParams } from '../database/reels/reelCacheMappers'
+import type { ListReelsResponse } from '../types/reel.types'
 
-import type { ListReelsParams, ListReelsResponse } from '../types/reel.types'
-
-const REEL_FEED_CACHE_PREFIX = '@velora/reels/feed-page/v1'
-const REEL_FEED_CACHE_INDEX_KEY = '@velora/reels/feed-page-index/v1'
 const MAX_CACHED_FEED_PAGES = 24
 const MAX_CACHE_AGE_MS = 1000 * 60 * 60 * 24 * 7
 
-type CacheableFeedParams = Omit<ListReelsParams, 'cursor'>
+const getPageAgeMs = (cachedAt: number) => Date.now() - cachedAt
 
-interface ReelFeedCacheEntry {
-  key: string
-  savedAt: number
-}
-
-interface CachedReelFeedPage {
-  savedAt: number
-  params: CacheableFeedParams
-  cursor?: string
-  response: ListReelsResponse
-}
-
-const normalizeFeedParams = (params: CacheableFeedParams = {}) => ({
-  limit: params.limit ?? DEFAULT_REELS_LIMIT,
-  ...(params.userId ? { userId: params.userId } : {}),
-  ...(params.visibility ? { visibility: params.visibility } : {}),
-  ...(params.ranked !== undefined ? { ranked: params.ranked } : {}),
-})
-
-const stableStringify = (value: Record<string, unknown>) =>
-  JSON.stringify(
-    Object.keys(value)
-      .sort()
-      .reduce<Record<string, unknown>>((result, key) => {
-        result[key] = value[key]
-        return result
-      }, {}),
-  )
-
-const getPageCacheKey = (params: CacheableFeedParams = {}, cursor?: string) => {
-  const normalizedParams = normalizeFeedParams(params)
-  const paramsKey = stableStringify(normalizedParams)
-  const cursorKey = cursor ?? 'FIRST_PAGE'
-
-  return `${REEL_FEED_CACHE_PREFIX}/${paramsKey}/${cursorKey}`
-}
-
-const readCacheIndex = async (): Promise<ReelFeedCacheEntry[]> => {
-  try {
-    const raw = await AsyncStorage.getItem(REEL_FEED_CACHE_INDEX_KEY)
-
-    if (!raw) {
-      return []
-    }
-
-    const parsed = JSON.parse(raw)
-
-    if (!Array.isArray(parsed)) {
-      return []
-    }
-
-    return parsed.filter(
-      (item): item is ReelFeedCacheEntry =>
-        typeof item?.key === 'string' && typeof item?.savedAt === 'number',
-    )
-  } catch {
-    return []
-  }
-}
-
-const writeCacheIndex = async (entries: ReelFeedCacheEntry[]) => {
-  await AsyncStorage.setItem(REEL_FEED_CACHE_INDEX_KEY, JSON.stringify(entries))
-}
-
-const trimCacheIndex = async (entries: ReelFeedCacheEntry[]) => {
+const pruneCachedReelFeedPages = async () => {
   const now = Date.now()
-  const uniqueEntriesByKey = new Map<string, ReelFeedCacheEntry>()
+  const allPages = await getAllCachedReelFeedPages()
+  const pagesByFreshness = [...allPages].sort((a, b) => b.cachedAt - a.cachedAt)
+  const stalePages = pagesByFreshness.filter((page) => now - page.cachedAt > MAX_CACHE_AGE_MS)
+  const freshPages = pagesByFreshness.filter((page) => now - page.cachedAt <= MAX_CACHE_AGE_MS)
+  const overflowPages = freshPages.slice(MAX_CACHED_FEED_PAGES)
+  const pagesToDelete = [...stalePages, ...overflowPages]
 
-  for (const entry of entries) {
-    if (now - entry.savedAt > MAX_CACHE_AGE_MS) {
-      await AsyncStorage.removeItem(entry.key).catch(() => undefined)
-      continue
-    }
-
-    const existing = uniqueEntriesByKey.get(entry.key)
-
-    if (!existing || existing.savedAt < entry.savedAt) {
-      uniqueEntriesByKey.set(entry.key, entry)
-    }
+  if (pagesToDelete.length > 0) {
+    await deleteCachedReelFeedPages(pagesToDelete)
   }
 
-  const sortedEntries = [...uniqueEntriesByKey.values()].sort((a, b) => b.savedAt - a.savedAt)
-  const keptEntries = sortedEntries.slice(0, MAX_CACHED_FEED_PAGES)
-  const removedEntries = sortedEntries.slice(MAX_CACHED_FEED_PAGES)
+  const retainedPages = freshPages.slice(0, MAX_CACHED_FEED_PAGES)
+  const referencedReelIds = new Set(retainedPages.flatMap((page) => getCachedFeedPageReelIds(page)))
+  const cachedReels = await getAllCachedReels()
+  const orphanedReels = cachedReels.filter((reel) => {
+    if (referencedReelIds.has(reel.reelId)) {
+      return false
+    }
 
-  await Promise.all(
-    removedEntries.map((entry) => AsyncStorage.removeItem(entry.key).catch(() => undefined)),
-  )
+    return now - Math.max(reel.cachedAt, reel.lastAccessedAt) > MAX_CACHE_AGE_MS
+  })
 
-  await writeCacheIndex(keptEntries)
+  if (orphanedReels.length > 0) {
+    await deleteCachedReels(orphanedReels)
+  }
 }
 
 export const cacheReelFeedPage = async (
@@ -108,55 +60,84 @@ export const cacheReelFeedPage = async (
   cursor: string | undefined,
   response: ListReelsResponse,
 ) => {
-  if (!response.items.length) {
+  if (response.items.length === 0) {
     return
   }
 
-  const key = getPageCacheKey(params, cursor)
   const savedAt = Date.now()
+  const normalizedParams = normalizeFeedParams(params)
+  const reelInputs = response.items.map((reel) => ({
+    ...serializeReelToCachedReelInput(reel),
+    cachedAt: savedAt,
+    lastAccessedAt: savedAt,
+  }))
 
-  const payload: CachedReelFeedPage = {
-    savedAt,
-    params: normalizeFeedParams(params),
-    ...(cursor ? { cursor } : {}),
-    response: {
-      ...response,
-      fromOfflineCache: false,
+  await upsertCachedReels(reelInputs)
+  await upsertCachedReelFeedPage(
+    toCachedReelFeedPageInput({
+      cacheKey: createFeedCacheKey(normalizedParams, cursor),
+      params: normalizedParams,
+      ...(cursor ? { cursor } : {}),
+      reelIds: response.items.map((reel) => reel.id),
+      ...(response.nextCursor ? { nextCursor: response.nextCursor } : {}),
       cachedAt: savedAt,
-    },
-  }
+      lastAccessedAt: savedAt,
+    }),
+  )
 
-  await AsyncStorage.setItem(key, JSON.stringify(payload))
-
-  const index = await readCacheIndex()
-  await trimCacheIndex([{ key, savedAt }, ...index])
+  await pruneCachedReelFeedPages()
 }
 
 export const readCachedReelFeedPage = async (
   params: CacheableFeedParams,
   cursor?: string,
 ): Promise<ListReelsResponse | null> => {
-  const key = getPageCacheKey(params, cursor)
+  const normalizedParams = normalizeFeedParams(params)
+  const page = await findCachedReelFeedPageByCacheKey(createFeedCacheKey(normalizedParams, cursor))
 
-  try {
-    const raw = await AsyncStorage.getItem(key)
-
-    if (!raw) {
-      return null
-    }
-
-    const parsed = JSON.parse(raw) as CachedReelFeedPage
-
-    if (!parsed?.response?.items?.length) {
-      return null
-    }
-
-    return {
-      ...parsed.response,
-      fromOfflineCache: true,
-      cachedAt: parsed.savedAt,
-    }
-  } catch {
+  if (!page) {
     return null
+  }
+
+  if (getPageAgeMs(page.cachedAt) > MAX_CACHE_AGE_MS) {
+    await deleteCachedReelFeedPages([page])
+    void pruneCachedReelFeedPages().catch(() => undefined)
+    return null
+  }
+
+  const reelIds = getCachedFeedPageReelIds(page)
+
+  if (reelIds.length === 0) {
+    return null
+  }
+
+  const reelRecords = await getCachedReelsByReelIds(reelIds)
+
+  if (reelRecords.length === 0) {
+    return null
+  }
+
+  const reelsById = new Map(reelRecords.map((record) => [record.reelId, record]))
+  const items = reelIds
+    .map((reelId) => reelsById.get(reelId))
+    .filter((record): record is NonNullable<typeof record> => record !== undefined)
+    .map(deserializeCachedReelToReel)
+
+  if (items.length === 0) {
+    return null
+  }
+
+  const touchedAt = Date.now()
+  void touchCachedReelFeedPageAndReels({
+    page,
+    reels: reelRecords,
+    touchedAt,
+  }).catch(() => undefined)
+
+  return {
+    items,
+    nextCursor: page.nextCursor,
+    fromOfflineCache: true,
+    cachedAt: page.cachedAt,
   }
 }

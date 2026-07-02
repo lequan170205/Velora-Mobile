@@ -2,6 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons'
 import { useIsFocused } from '@react-navigation/native'
 import { useQueryClient } from '@tanstack/react-query'
 import { Image as ExpoImage } from 'expo-image'
+import { LinearGradient } from 'expo-linear-gradient'
 import { useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -13,17 +14,18 @@ import Animated, {
   Easing,
   cancelAnimation,
   interpolate,
-  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
   withTiming,
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { scheduleOnRN } from 'react-native-worklets'
 
 import { useIsOnline } from '@/hooks/useIsOnline'
 import { useReelAnalyticsTracker } from '@/hooks/useReelAnalyticsTracker'
-import { prefetchReelForOfflinePlayback } from '@/lib/reel-prefetch'
+import { getCachedTemporaryReelVideo } from '@/lib/offlineReelVideoCache'
+import { prefetchReelsForTemporaryOfflinePlayback } from '@/lib/reel-prefetch'
 import type { InfiniteData } from '@tanstack/react-query'
 
 import { reelsApi } from '../../api/reels.api'
@@ -32,6 +34,9 @@ import { DEFAULT_REELS_LIMIT } from '../../constants/reels'
 import { useReelContext, useReelsFeed } from '../../hooks/useReels'
 
 import { ReelFeedItem } from './ReelFeedItem'
+import { ReelLoadingRail } from './ReelLoadingRail'
+import { ReelOfflineAlert } from './ReelOfflineAlert'
+import { ReelOfflineSkeleton } from './ReelOfflineSkeleton'
 
 import type { ListReelsResponse, Reel, ReelContextSource } from '../../types/reel.types'
 import type { LayoutChangeEvent, NativeSyntheticEvent } from 'react-native'
@@ -46,6 +51,11 @@ type PagerViewRef = React.ElementRef<typeof PagerView>
 
 const PRELOAD_RADIUS = 2
 const PULL_TO_REFRESH_DISTANCE = 74
+const OFFLINE_ALERT_DURATION_MS = 2000
+const OFFLINE_END_PULL_DISTANCE = 88
+const OFFLINE_END_REVEAL_HEIGHT = 72
+const OFFLINE_END_TRIGGER_PROGRESS = 0.64
+const OFFLINE_END_LOADING_DURATION_MS = 920
 
 interface ReelsViewerProps {
   bottomContentInset?: number
@@ -74,6 +84,14 @@ const prefetchReelAssets = (reel?: Reel | null) => {
   }
 }
 
+const areStringArraysEqual = (left: string[], right: string[]) => {
+  if (left.length !== right.length) {
+    return false
+  }
+
+  return left.every((value, index) => value === right[index])
+}
+
 export function ReelsViewer({
   bottomContentInset = 0,
   contextItems = [],
@@ -97,15 +115,20 @@ export function ReelsViewer({
   const pagerRef = useRef<PagerViewRef | null>(null)
   const handledRequestedReelIdRef = useRef<string | null>(null)
   const currentPageIndexRef = useRef(0)
+  const offlineAlertTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const offlineBoundaryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wasFocusedRef = useRef(isFocused)
   const activeReelIdRef = useRef<string | null>(null)
   const reelsRef = useRef<Reel[]>([])
   const previousSelectedReelIdRef = useRef<string | undefined>(reelId)
+  const hasShownOfflineFocusAlertRef = useRef(false)
 
   const [viewportHeight, setViewportHeight] = useState(windowHeight)
   const [activeReelId, setActiveReelId] = useState<string | null>(null)
   const [deletedReelIds, setDeletedReelIds] = useState<Set<string>>(() => new Set())
+  const [isOfflineAlertVisible, setIsOfflineAlertVisible] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
+  const [offlineReadyReelIds, setOfflineReadyReelIds] = useState<string[]>([])
   const [isTimelineInteracting, setIsTimelineInteracting] = useState(false)
   const [contextExtraItems, setContextExtraItems] = useState<Reel[]>([])
   const [contextNextCursor, setContextNextCursor] = useState<string | null>(null)
@@ -115,6 +138,8 @@ export function ReelsViewer({
   const pullProgress = useSharedValue(0)
   const refreshSpin = useSharedValue(0)
   const refreshTriggered = useSharedValue(false)
+  const offlineBoundaryProgress = useSharedValue(0)
+  const offlineBoundaryLoading = useSharedValue(0)
 
   const shouldUseReelContext = mode === 'context' && Boolean(reelId)
   const shouldUseLocalContext = shouldUseReelContext && contextItems.length > 0
@@ -240,6 +265,80 @@ export function ReelsViewer({
     () => reels.findIndex((reel) => reel.id === effectiveActiveReelId),
     [effectiveActiveReelId, reels],
   )
+  const reelIdsKey = useMemo(() => reels.map((reel) => reel.id).join('|'), [reels])
+  const offlineReadyReelIdSet = useMemo(() => new Set(offlineReadyReelIds), [offlineReadyReelIds])
+  const lastOfflineReadyIndex = useMemo(
+    () =>
+      reels.reduce(
+        (lastReadyIndex, reel, index) =>
+          offlineReadyReelIdSet.has(reel.id) ? index : lastReadyIndex,
+        -1,
+      ),
+    [offlineReadyReelIdSet, reels],
+  )
+  const isAtOfflineBoundary =
+    !isOnline &&
+    reels.length > 0 &&
+    activeIndex >= 0 &&
+    lastOfflineReadyIndex >= 0 &&
+    lastOfflineReadyIndex === reels.length - 1 &&
+    activeIndex === lastOfflineReadyIndex
+
+  const hideOfflineAlert = useCallback(() => {
+    if (offlineAlertTimeoutRef.current) {
+      clearTimeout(offlineAlertTimeoutRef.current)
+      offlineAlertTimeoutRef.current = null
+    }
+
+    setIsOfflineAlertVisible(false)
+  }, [])
+
+  const showOfflineAlert = useCallback(() => {
+    if (offlineAlertTimeoutRef.current) {
+      clearTimeout(offlineAlertTimeoutRef.current)
+    }
+
+    setIsOfflineAlertVisible(true)
+    offlineAlertTimeoutRef.current = setTimeout(() => {
+      setIsOfflineAlertVisible(false)
+      offlineAlertTimeoutRef.current = null
+    }, OFFLINE_ALERT_DURATION_MS)
+  }, [])
+
+  const resetOfflineBoundaryFeedback = useCallback(() => {
+    if (offlineBoundaryTimeoutRef.current) {
+      clearTimeout(offlineBoundaryTimeoutRef.current)
+      offlineBoundaryTimeoutRef.current = null
+    }
+
+    offlineBoundaryLoading.value = 0
+    offlineBoundaryProgress.value = withTiming(0, {
+      duration: 180,
+      easing: Easing.out(Easing.cubic),
+    })
+  }, [offlineBoundaryLoading, offlineBoundaryProgress])
+
+  const triggerOfflineBoundaryFeedback = useCallback(() => {
+    if (offlineBoundaryTimeoutRef.current) {
+      return
+    }
+
+    offlineBoundaryLoading.value = 1
+    offlineBoundaryProgress.value = withTiming(1, {
+      duration: 140,
+      easing: Easing.out(Easing.cubic),
+    })
+
+    offlineBoundaryTimeoutRef.current = setTimeout(() => {
+      offlineBoundaryLoading.value = 0
+      offlineBoundaryProgress.value = withTiming(0, {
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+      })
+      offlineBoundaryTimeoutRef.current = null
+      showOfflineAlert()
+    }, OFFLINE_END_LOADING_DURATION_MS)
+  }, [offlineBoundaryLoading, offlineBoundaryProgress, showOfflineAlert])
 
   useEffect(() => {
     if (!isFocused || !effectiveActiveReelId) {
@@ -259,18 +358,107 @@ export function ReelsViewer({
   }, [isMuted, updateActiveMutedState])
 
   useEffect(() => {
+    return () => {
+      if (offlineAlertTimeoutRef.current) {
+        clearTimeout(offlineAlertTimeoutRef.current)
+        offlineAlertTimeoutRef.current = null
+      }
+
+      if (offlineBoundaryTimeoutRef.current) {
+        clearTimeout(offlineBoundaryTimeoutRef.current)
+        offlineBoundaryTimeoutRef.current = null
+      }
+
+      cancelAnimation(offlineBoundaryProgress)
+      cancelAnimation(offlineBoundaryLoading)
+    }
+  }, [offlineBoundaryLoading, offlineBoundaryProgress])
+
+  useEffect(() => {
+    if (!isFocused) {
+      hideOfflineAlert()
+      hasShownOfflineFocusAlertRef.current = false
+      return
+    }
+
+    if (isOnline) {
+      hideOfflineAlert()
+      hasShownOfflineFocusAlertRef.current = false
+      return
+    }
+
+    if (hasShownOfflineFocusAlertRef.current) {
+      return
+    }
+
+    hasShownOfflineFocusAlertRef.current = true
+    showOfflineAlert()
+  }, [hideOfflineAlert, isFocused, isOnline, showOfflineAlert])
+
+  useEffect(() => {
+    let isMounted = true
+    const reelIds = reelIdsKey ? reelIdsKey.split('|') : []
+
+    if (isOnline || reelIds.length === 0) {
+      setOfflineReadyReelIds((current) => (current.length === 0 ? current : []))
+      return () => {
+        isMounted = false
+      }
+    }
+
+    void Promise.all(
+      reelIds.map(async (reelId) => ({
+        id: reelId,
+        record: await getCachedTemporaryReelVideo(reelId),
+      })),
+    ).then((results) => {
+      if (!isMounted) {
+        return
+      }
+
+      const nextOfflineReadyReelIds = results
+        .filter((result) => Boolean(result.record))
+        .map((result) => result.id)
+
+      setOfflineReadyReelIds((current) =>
+        areStringArraysEqual(current, nextOfflineReadyReelIds) ? current : nextOfflineReadyReelIds,
+      )
+    })
+
+    return () => {
+      isMounted = false
+    }
+  }, [isOnline, reelIdsKey])
+
+  useEffect(() => {
+    if (!isAtOfflineBoundary) {
+      resetOfflineBoundaryFeedback()
+    }
+  }, [isAtOfflineBoundary, resetOfflineBoundaryFeedback])
+
+  useEffect(() => {
     if (!isFocused || activeIndex < 0 || reels.length === 0) {
       return
     }
 
-    void prefetchReelAssets(reels[activeIndex + 1])
-    void prefetchReelAssets(reels[activeIndex + 2])
+    const previousReel = reels[activeIndex - 1]
+    const currentReel = reels[activeIndex]
+    const nextReel = reels[activeIndex + 1]
+    const nextNextReel = reels[activeIndex + 2]
 
-    if (isOnline) {
-      void prefetchReelForOfflinePlayback(reels[activeIndex])
-      void prefetchReelForOfflinePlayback(reels[activeIndex + 1])
-      void prefetchReelForOfflinePlayback(reels[activeIndex + 2])
+    void prefetchReelAssets(nextReel)
+    void prefetchReelAssets(nextNextReel)
+
+    if (!isOnline) {
+      return
     }
+
+    prefetchReelsForTemporaryOfflinePlayback([
+      currentReel ? { ...currentReel, priority: 0 } : null,
+      nextReel ? { ...nextReel, priority: 10 } : null,
+      nextNextReel ? { ...nextNextReel, priority: 20 } : null,
+      previousReel ? { ...previousReel, priority: 30 } : null,
+    ])
   }, [activeIndex, isFocused, isOnline, reels])
 
   const isInitialLoading = shouldFetchReelContext ? isContextPending : isPending
@@ -300,6 +488,38 @@ export function ReelsViewer({
       transform: [{ rotateZ: `${dragRotate + loadingRotate}deg` }],
     }
   })
+
+  const offlineBoundaryUnderlayStyle = useAnimatedStyle(() => {
+    const revealHeight = interpolate(
+      offlineBoundaryProgress.value,
+      [0, 1],
+      [0, OFFLINE_END_REVEAL_HEIGHT],
+      Extrapolation.CLAMP,
+    )
+
+    return {
+      height: revealHeight,
+      opacity: interpolate(
+        offlineBoundaryProgress.value,
+        [0, 0.12, 1],
+        [0, 1, 1],
+        Extrapolation.CLAMP,
+      ),
+    }
+  })
+
+  const offlineBoundaryPagerStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateY: interpolate(
+          offlineBoundaryProgress.value,
+          [0, 1],
+          [0, -OFFLINE_END_REVEAL_HEIGHT],
+          Extrapolation.CLAMP,
+        ),
+      },
+    ],
+  }))
 
   useEffect(() => {
     reelsRef.current = reels
@@ -474,6 +694,13 @@ export function ReelsViewer({
       ?.message ||
     (activeError as Error | null)?.message ||
     'Could not load reels right now.'
+  const isConnectivityError =
+    Boolean(activeError) &&
+    typeof activeError === 'object' &&
+    activeError !== null &&
+    'response' in activeError &&
+    !(activeError as { response?: unknown }).response
+  const shouldShowOfflineSkeleton = reels.length === 0 && (!isOnline || isConnectivityError)
 
   const handleLayout = (event: LayoutChangeEvent) => {
     const nextHeight = event.nativeEvent.layout.height
@@ -669,7 +896,7 @@ export function ReelsViewer({
           if (!refreshTriggered.value && event.translationY >= PULL_TO_REFRESH_DISTANCE) {
             refreshTriggered.value = true
             pullProgress.value = withTiming(1, { duration: 90 })
-            runOnJS(handleRefresh)()
+            scheduleOnRN(handleRefresh)
           }
         })
         .onEnd(() => {
@@ -694,6 +921,79 @@ export function ReelsViewer({
       refreshTriggered,
       shouldAllowRefresh,
     ],
+  )
+
+  const offlineBoundaryGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(
+          isFocused &&
+            isAtOfflineBoundary &&
+            !isTimelineInteracting &&
+            !isManualRefreshing &&
+            !isRefetching,
+        )
+        .activeOffsetY([-22, 100000])
+        .failOffsetX([-36, 36])
+        .onBegin(() => {
+          if (offlineBoundaryLoading.value === 0) {
+            offlineBoundaryProgress.value = 0
+          }
+        })
+        .onUpdate((event) => {
+          if (offlineBoundaryLoading.value === 1) {
+            return
+          }
+
+          const nextProgress = Math.max(
+            0,
+            Math.min(1, -event.translationY / OFFLINE_END_PULL_DISTANCE),
+          )
+
+          offlineBoundaryProgress.value = nextProgress
+        })
+        .onEnd(() => {
+          if (offlineBoundaryLoading.value === 1) {
+            return
+          }
+
+          if (offlineBoundaryProgress.value >= OFFLINE_END_TRIGGER_PROGRESS) {
+            scheduleOnRN(triggerOfflineBoundaryFeedback)
+            return
+          }
+
+          offlineBoundaryProgress.value = withTiming(0, {
+            duration: 180,
+            easing: Easing.out(Easing.cubic),
+          })
+        })
+        .onFinalize(() => {
+          if (offlineBoundaryLoading.value === 1) {
+            return
+          }
+
+          if (offlineBoundaryProgress.value < OFFLINE_END_TRIGGER_PROGRESS) {
+            offlineBoundaryProgress.value = withTiming(0, {
+              duration: 180,
+              easing: Easing.out(Easing.cubic),
+            })
+          }
+        }),
+    [
+      isAtOfflineBoundary,
+      isFocused,
+      isManualRefreshing,
+      isRefetching,
+      isTimelineInteracting,
+      offlineBoundaryLoading,
+      offlineBoundaryProgress,
+      triggerOfflineBoundaryFeedback,
+    ],
+  )
+
+  const rootGesture = useMemo(
+    () => Gesture.Simultaneous(pullToRefreshGesture, offlineBoundaryGesture),
+    [offlineBoundaryGesture, pullToRefreshGesture],
   )
 
   const handleExitContext = useCallback(() => {
@@ -859,7 +1159,7 @@ export function ReelsViewer({
     ],
   )
 
-  if (isActiveError && reels.length === 0) {
+  if (isActiveError && reels.length === 0 && !shouldShowOfflineSkeleton) {
     return (
       <View className="flex-1 items-center justify-center bg-[#050505] px-6">
         <StatusBar style="light" />
@@ -897,30 +1197,65 @@ export function ReelsViewer({
   }
 
   return (
-    <GestureDetector gesture={pullToRefreshGesture}>
+    <GestureDetector gesture={rootGesture}>
       <View className="flex-1 bg-[#050505]" onLayout={handleLayout}>
         <StatusBar style="light" />
 
-        {reels.length > 0 ? (
-          <PagerView
-            ref={pagerRef}
-            style={{ flex: 1 }}
-            initialPage={safeInitialPageIndex}
-            orientation="vertical"
-            scrollEnabled={!isTimelineInteracting}
-            overScrollMode="never"
-            overdrag={false}
-            offscreenPageLimit={2}
-            onPageSelected={handlePageSelected}
-          >
-            {reels.map(renderPagerPage)}
-          </PagerView>
-        ) : (
-          <View
-            className="flex-1 bg-[#050505]"
-            style={{ height: viewportHeight || windowHeight }}
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            {
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              overflow: 'hidden',
+              zIndex: 0,
+            },
+            offlineBoundaryUnderlayStyle,
+          ]}
+        >
+          <LinearGradient
+            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.42)', 'rgba(255,107,44,0.12)']}
+            locations={[0, 0.58, 1]}
+            style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}
           />
-        )}
+
+          <View className="absolute inset-x-0 top-0 h-px bg-white/8" />
+          <ReelLoadingRail
+            bottomOffset={Math.max(14, bottomContentInset + 12)}
+            opacity={0.95}
+            railHeight={3}
+          />
+        </Animated.View>
+
+        <Animated.View style={[{ flex: 1, zIndex: 1 }, offlineBoundaryPagerStyle]}>
+          {reels.length > 0 ? (
+            <PagerView
+              ref={pagerRef}
+              style={{ flex: 1 }}
+              initialPage={safeInitialPageIndex}
+              orientation="vertical"
+              scrollEnabled={!isTimelineInteracting}
+              overScrollMode="never"
+              overdrag={false}
+              offscreenPageLimit={2}
+              onPageSelected={handlePageSelected}
+            >
+              {reels.map(renderPagerPage)}
+            </PagerView>
+          ) : shouldShowOfflineSkeleton ? (
+            <ReelOfflineSkeleton
+              height={viewportHeight || windowHeight}
+              bottomContentInset={bottomContentInset}
+            />
+          ) : (
+            <View
+              className="flex-1 bg-[#050505]"
+              style={{ height: viewportHeight || windowHeight }}
+            />
+          )}
+        </Animated.View>
 
         {activeIndex <= 0 ? (
           <Animated.View
@@ -965,7 +1300,10 @@ export function ReelsViewer({
           </Animated.View>
         ) : null}
 
-        {!isInitialLoading && reels.length === 0 && !isShowingOfflineCache ? (
+        {!isInitialLoading &&
+        reels.length === 0 &&
+        !isShowingOfflineCache &&
+        !shouldShowOfflineSkeleton ? (
           <View
             pointerEvents="box-none"
             className="absolute inset-0 items-center justify-center px-6"
@@ -1003,19 +1341,7 @@ export function ReelsViewer({
           </View>
         ) : null}
 
-        {!isOnline || isShowingOfflineCache ? (
-          <View
-            pointerEvents="none"
-            className="absolute inset-x-0 z-20 items-center px-5"
-            style={{ top: insets.top + 108, elevation: 20 }}
-          >
-            <View className="rounded-full bg-black/52 px-3 py-1.5">
-              <Text className="text-xs2 font-medium text-white">
-                {!isOnline ? 'Offline • showing saved reels' : 'Showing saved reels'}
-              </Text>
-            </View>
-          </View>
-        ) : null}
+        <ReelOfflineAlert topOffset={insets.top + 18} visible={isOfflineAlertVisible} />
 
         <View
           pointerEvents="box-none"
@@ -1032,20 +1358,26 @@ export function ReelsViewer({
             </TouchableOpacity>
           ) : (
             <View className="flex-row items-center justify-between">
-              <View>
-                <Text className="text-xs2 uppercase tracking-[1.4px] text-white">Velora</Text>
-                <Text className="mt-2 font-heading text-[30px] text-white">Reels</Text>
+              <View className="flex-1">
+                {!isOfflineAlertVisible ? (
+                  <>
+                    <Text className="text-xs2 uppercase tracking-[1.4px] text-white">Velora</Text>
+                    <Text className="mt-2 font-heading text-[30px] text-white">Reels</Text>
+                  </>
+                ) : null}
               </View>
 
-              <TouchableOpacity
-                className="h-14 w-14 items-center justify-center"
-                activeOpacity={0.72}
-                onPress={() => {
-                  router.push('/reels/create')
-                }}
-              >
-                <MaterialIcons name="add" size={30} color="#FFFFFF" />
-              </TouchableOpacity>
+              {!isOfflineAlertVisible ? (
+                <TouchableOpacity
+                  className="h-14 w-14 items-center justify-center"
+                  activeOpacity={0.72}
+                  onPress={() => {
+                    router.push('/reels/create')
+                  }}
+                >
+                  <MaterialIcons name="add" size={30} color="#FFFFFF" />
+                </TouchableOpacity>
+              ) : null}
             </View>
           )}
         </View>

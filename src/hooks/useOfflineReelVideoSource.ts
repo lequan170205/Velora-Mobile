@@ -1,15 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { cacheOfflineReelVideo, getCachedOfflineReelVideo } from '../lib/offlineReelVideoCache'
+import {
+  cacheTemporaryReelVideo,
+  getCachedTemporaryReelVideo,
+  getTemporaryReelVideoCacheStatus,
+  subscribeTemporaryReelVideoCacheStatus,
+} from '../lib/offlineReelVideoCache'
 
 import { useIsOnline } from './useIsOnline'
 
-import type { OfflineReelVideoRecord } from '../lib/offlineReelVideoCache'
+import type {
+  TemporaryReelVideoCacheRecord,
+  TemporaryReelVideoCacheStatus,
+} from '../lib/offlineReelVideoCache'
 import type { Reel } from '../types/reel.types'
 
 interface UseOfflineReelVideoSourceOptions {
   enabled?: boolean
   preferOffline?: boolean
+  cachePriority?: number
 }
 
 export function useOfflineReelVideoSource(
@@ -17,11 +26,19 @@ export function useOfflineReelVideoSource(
   options: UseOfflineReelVideoSourceOptions = {},
 ) {
   const isOnline = useIsOnline()
-  const [offlineRecord, setOfflineRecord] = useState<OfflineReelVideoRecord | null>(null)
-  const [isDownloadingOfflineVideo, setIsDownloadingOfflineVideo] = useState(false)
+  const [offlineRecord, setOfflineRecord] = useState<TemporaryReelVideoCacheRecord | null>(null)
+  const [cacheStatus, setCacheStatus] = useState<TemporaryReelVideoCacheStatus>('NOT_CACHED')
 
   const shouldPrepareOfflineVideo =
     (options.enabled ?? true) && reel.status === 'COMPLETED' && Boolean(reel.streamUrl)
+
+  useEffect(() => {
+    if (!reel.id) {
+      return undefined
+    }
+
+    return subscribeTemporaryReelVideoCacheStatus(reel.id, setCacheStatus)
+  }, [reel.id])
 
   useEffect(() => {
     let isMounted = true
@@ -34,9 +51,15 @@ export function useOfflineReelVideoSource(
       }
     }
 
-    void getCachedOfflineReelVideo(reel.id).then((record) => {
+    void getCachedTemporaryReelVideo(reel.id).then((record) => {
       if (isMounted) {
         setOfflineRecord(record)
+      }
+    })
+
+    void getTemporaryReelVideoCacheStatus(reel.id).then((status) => {
+      if (isMounted) {
+        setCacheStatus(status)
       }
     })
 
@@ -54,53 +77,61 @@ export function useOfflineReelVideoSource(
       }
     }
 
-    setIsDownloadingOfflineVideo(true)
-
     const cacheInput = {
       id: reel.id,
       streamUrl: reel.streamUrl,
       ...(reel.thumbnailUrl ? { thumbnailUrl: reel.thumbnailUrl } : {}),
     }
 
-    void cacheOfflineReelVideo(cacheInput)
-      .then((record) => {
-        if (isMounted && record) {
-          setOfflineRecord(record)
-        }
-      })
-      .finally(() => {
-        if (isMounted) {
-          setIsDownloadingOfflineVideo(false)
-        }
-      })
+    void cacheTemporaryReelVideo(cacheInput, {
+      priority: options.cachePriority ?? 50,
+    }).then((record) => {
+      if (isMounted && record) {
+        setOfflineRecord(record)
+      }
+    })
 
     return () => {
       isMounted = false
     }
-  }, [isOnline, reel.id, reel.streamUrl, reel.thumbnailUrl, shouldPrepareOfflineVideo])
+  }, [
+    isOnline,
+    options.cachePriority,
+    reel.id,
+    reel.streamUrl,
+    reel.thumbnailUrl,
+    shouldPrepareOfflineVideo,
+  ])
 
   return useMemo(() => {
     const shouldUseOfflineVideo = Boolean(offlineRecord) && (!isOnline || options.preferOffline)
 
     const uri =
-      shouldUseOfflineVideo && offlineRecord ? offlineRecord.localManifestUri : reel.streamUrl
+      shouldUseOfflineVideo && offlineRecord
+        ? offlineRecord.localManifestUri
+        : isOnline
+          ? reel.streamUrl
+          : ''
 
     const posterUri =
       shouldUseOfflineVideo && offlineRecord?.localThumbnailUri
         ? offlineRecord.localThumbnailUri
         : reel.thumbnailUrl || reel.localThumbnailUri || offlineRecord?.localThumbnailUri
 
+    const isDownloadingOfflineVideo = cacheStatus === 'QUEUED' || cacheStatus === 'DOWNLOADING'
+
     return {
       uri,
       posterUri,
       isOnline,
+      cacheStatus,
       isOfflineVideoReady: Boolean(offlineRecord),
       isOfflineVideoActive: shouldUseOfflineVideo,
       isOfflineVideoUnavailable: !isOnline && !offlineRecord,
       isDownloadingOfflineVideo,
     }
   }, [
-    isDownloadingOfflineVideo,
+    cacheStatus,
     isOnline,
     offlineRecord,
     options.preferOffline,

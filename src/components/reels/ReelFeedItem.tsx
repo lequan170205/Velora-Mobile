@@ -25,6 +25,7 @@ import { useAuthStore } from '../../stores/authStore'
 
 import { DeleteReelModal } from './DeleteReelModal'
 import { ReelActionsMenu } from './ReelActionsMenu'
+import { ReelLoadingRail } from './ReelLoadingRail'
 import { ReelShareSheet } from './ReelShareSheet'
 import { ReelVideo } from './ReelVideo'
 
@@ -234,6 +235,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   }, [processingStatus, reel])
   const offlineVideoSource = useOfflineReelVideoSource(displayReel, {
     enabled: shouldWarmVideo,
+    cachePriority: isActive ? 0 : 40,
   })
   const resumeAfterScrub = useSharedValue(0)
   const pendingSeekTarget = useSharedValue(-1)
@@ -280,7 +282,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const pendingSeekPosition =
     pendingSeekRatio !== null && durationSeconds > 0 ? pendingSeekRatio * durationSeconds : null
   const showScrubber = isScrubbing && durationSeconds > 0 && isActive
-  const showLoadingRail = false
+  const showLoadingRail = isActive && offlineVideoSource.isOfflineVideoUnavailable
   const showPausedControls =
     isPausedByUser &&
     !isScrubbing &&
@@ -769,7 +771,10 @@ const ReelFeedItemComponent = function ReelFeedItem({
           </GestureDetector>
         ) : null}
 
-        {!playbackState.isPlayable || hasPlaybackError ? (
+        {showLoadingRail ? <ReelLoadingRail bottomOffset={scrubRailBottom} /> : null}
+
+        {(!playbackState.isPlayable && !offlineVideoSource.isOfflineVideoUnavailable) ||
+        hasPlaybackError ? (
           <View
             pointerEvents={isFailed ? 'auto' : 'none'}
             className="absolute inset-0 items-center justify-center px-8"
@@ -782,15 +787,6 @@ const ReelFeedItemComponent = function ReelFeedItem({
                   </Text>
                   <Text className="mt-2 text-center text-sm2 leading-5 text-white">
                     This reel could not be played.
-                  </Text>
-                </>
-              ) : offlineVideoSource.isOfflineVideoUnavailable ? (
-                <>
-                  <Text className="text-center font-heading text-xl text-white">
-                    Not saved offline
-                  </Text>
-                  <Text className="mt-2 text-center text-sm2 leading-5 text-white">
-                    This reel was not downloaded yet. Connect to the internet to watch it.
                   </Text>
                 </>
               ) : isFailed ? (

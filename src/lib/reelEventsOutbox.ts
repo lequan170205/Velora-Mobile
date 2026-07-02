@@ -1,41 +1,85 @@
-import AsyncStorage from '@react-native-async-storage/async-storage'
-
 import { reelsApi } from '../api/reels.api'
+import {
+  deleteReelEventOutboxItems,
+  getReelEventOutboxCount,
+  getReelEventOutboxItems,
+  insertReelEventOutboxItems,
+  markReelEventOutboxItemsAttempted,
+} from '../database/reels/reelOfflineStore'
 
 import { getIsOnline } from './network'
 
+import type { ReelEventOutboxItemModel } from '../database/models/ReelEventOutboxItemModel'
+import type { ReelEventOutboxItemInput } from '../database/reels/reelOfflineStore'
 import type { TrackReelEventPayload } from '../types/reel.types'
 
-const REEL_EVENTS_OUTBOX_KEY = '@velora/reels/events-outbox/v1'
-const MAX_OUTBOX_EVENTS = 300
+const MAX_OUTBOX_EVENTS = 500
 const BATCH_SIZE = 40
 
-const readOutbox = async (): Promise<TrackReelEventPayload[]> => {
+const isTrackReelEventPayload = (value: unknown): value is TrackReelEventPayload => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+
+  const candidate = value as Partial<TrackReelEventPayload>
+  return typeof candidate.reelId === 'string' && typeof candidate.eventType === 'string'
+}
+
+const buildOutboxEventId = (
+  event: Pick<TrackReelEventPayload, 'reelId' | 'eventType'>,
+  createdAt: number,
+  index: number,
+) =>
+  `${event.reelId}-${event.eventType}-${createdAt}-${index}-${Math.random().toString(36).slice(2, 10)}`
+
+const toOutboxItemInput = (
+  event: TrackReelEventPayload,
+  createdAt: number,
+  index: number,
+): ReelEventOutboxItemInput => ({
+  eventId: buildOutboxEventId(event, createdAt, index),
+  reelId: event.reelId,
+  sessionId: event.sessionId ?? null,
+  eventType: event.eventType,
+  payloadJson: JSON.stringify(event),
+  createdAt,
+  retryCount: 0,
+  lastAttemptedAt: null,
+})
+
+const deserializeOutboxItem = (record: ReelEventOutboxItemModel): TrackReelEventPayload | null => {
   try {
-    const raw = await AsyncStorage.getItem(REEL_EVENTS_OUTBOX_KEY)
+    const parsed: unknown = JSON.parse(record.payloadJson)
 
-    if (!raw) {
-      return []
+    if (isTrackReelEventPayload(parsed)) {
+      return parsed
     }
-
-    const parsed = JSON.parse(raw)
-
-    if (!Array.isArray(parsed)) {
-      return []
-    }
-
-    return parsed.filter(
-      (event): event is TrackReelEventPayload =>
-        typeof event?.reelId === 'string' && typeof event?.eventType === 'string',
-    )
   } catch {
-    return []
+    // Fall through to a minimal payload built from indexed columns.
+  }
+
+  return {
+    reelId: record.reelId,
+    eventType: record.eventType as TrackReelEventPayload['eventType'],
+    ...(record.sessionId ? { sessionId: record.sessionId } : {}),
   }
 }
 
-const writeOutbox = async (events: TrackReelEventPayload[]) => {
-  const trimmedEvents = events.slice(-MAX_OUTBOX_EVENTS)
-  await AsyncStorage.setItem(REEL_EVENTS_OUTBOX_KEY, JSON.stringify(trimmedEvents))
+const trimOutbox = async () => {
+  const queuedCount = await getReelEventOutboxCount()
+
+  if (queuedCount <= MAX_OUTBOX_EVENTS) {
+    return
+  }
+
+  const queuedItems = await getReelEventOutboxItems()
+  const overflowCount = queuedItems.length - MAX_OUTBOX_EVENTS
+
+  if (overflowCount <= 0) {
+    return
+  }
+
+  await deleteReelEventOutboxItems(queuedItems.slice(0, overflowCount))
 }
 
 export const queueReelEvents = async (events: TrackReelEventPayload[]) => {
@@ -43,8 +87,13 @@ export const queueReelEvents = async (events: TrackReelEventPayload[]) => {
     return
   }
 
-  const currentEvents = await readOutbox()
-  await writeOutbox([...currentEvents, ...events])
+  const baseCreatedAt = Date.now()
+
+  await insertReelEventOutboxItems(
+    events.map((event, index) => toOutboxItemInput(event, baseCreatedAt + index, index)),
+  )
+
+  await trimOutbox()
 }
 
 export const flushQueuedReelEvents = async () => {
@@ -54,32 +103,30 @@ export const flushQueuedReelEvents = async () => {
     return false
   }
 
-  const queuedEvents = await readOutbox()
+  let records = await getReelEventOutboxItems(BATCH_SIZE)
 
-  if (queuedEvents.length === 0) {
-    return true
-  }
+  while (records.length > 0) {
+    const events = records
+      .map(deserializeOutboxItem)
+      .filter((event): event is TrackReelEventPayload => event !== null)
 
-  let remainingEvents = [...queuedEvents]
-
-  while (remainingEvents.length > 0) {
-    const batch = remainingEvents.slice(0, BATCH_SIZE)
+    if (events.length === 0) {
+      await deleteReelEventOutboxItems(records)
+      continue
+    }
 
     try {
-      await reelsApi.trackEvents({ events: batch })
-      remainingEvents = remainingEvents.slice(BATCH_SIZE)
-      await writeOutbox(remainingEvents)
+      await reelsApi.trackEvents({ events })
+      await deleteReelEventOutboxItems(records)
     } catch {
-      await writeOutbox(remainingEvents)
+      await markReelEventOutboxItemsAttempted(records, Date.now())
       return false
     }
+
+    records = await getReelEventOutboxItems(BATCH_SIZE)
   }
 
-  await writeOutbox([])
   return true
 }
 
-export const getQueuedReelEventCount = async () => {
-  const events = await readOutbox()
-  return events.length
-}
+export const getQueuedReelEventCount = async () => getReelEventOutboxCount()
