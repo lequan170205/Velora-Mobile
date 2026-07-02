@@ -21,7 +21,9 @@ import Animated, {
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { useIsOnline } from '@/hooks/useIsOnline'
 import { useReelAnalyticsTracker } from '@/hooks/useReelAnalyticsTracker'
+import { prefetchReelForOfflinePlayback } from '@/lib/reel-prefetch'
 import type { InfiniteData } from '@tanstack/react-query'
 
 import { reelsApi } from '../../api/reels.api'
@@ -88,6 +90,7 @@ export function ReelsViewer({
   const insets = useSafeAreaInsets()
   const isFocused = useIsFocused()
   const { height: windowHeight } = useWindowDimensions()
+  const isOnline = useIsOnline()
   const { startReelSession, endCurrentReelSession, updateActiveMutedState, flushReelEvents } =
     useReelAnalyticsTracker()
 
@@ -120,7 +123,7 @@ export function ReelsViewer({
   const shouldAllowRefresh = mode === 'public'
 
   const publicReelsQueryKey = useMemo(
-    () => queryKeys.reels.list({ limit: DEFAULT_REELS_LIMIT, visibility: 'public' }),
+    () => queryKeys.reels.list({ limit: DEFAULT_REELS_LIMIT, visibility: 'public', ranked: true }),
     [],
   )
 
@@ -142,7 +145,7 @@ export function ReelsViewer({
     isFetchingNextPage,
     isRefetching,
   } = useReelsFeed(
-    { limit: DEFAULT_REELS_LIMIT, visibility: 'public' },
+    { limit: DEFAULT_REELS_LIMIT, visibility: 'public', ranked: true },
     { enabled: shouldLoadPublicFeed },
   )
 
@@ -260,12 +263,20 @@ export function ReelsViewer({
       return
     }
 
-    prefetchReelAssets(reels[activeIndex + 1])
-    prefetchReelAssets(reels[activeIndex + 2])
-  }, [activeIndex, isFocused, reels])
+    void prefetchReelAssets(reels[activeIndex + 1])
+    void prefetchReelAssets(reels[activeIndex + 2])
+
+    if (isOnline) {
+      void prefetchReelForOfflinePlayback(reels[activeIndex])
+      void prefetchReelForOfflinePlayback(reels[activeIndex + 1])
+      void prefetchReelForOfflinePlayback(reels[activeIndex + 2])
+    }
+  }, [activeIndex, isFocused, isOnline, reels])
 
   const isInitialLoading = shouldFetchReelContext ? isContextPending : isPending
   const isActiveError = shouldFetchReelContext ? isContextError : isError
+  const isShowingOfflineCache =
+    !shouldFetchReelContext && Boolean(data?.pages.some((page) => page.fromOfflineCache))
 
   const pullRefreshContainerStyle = useAnimatedStyle(() => {
     const opacity = interpolate(pullProgress.value, [0, 0.22, 1], [0, 1, 1], Extrapolation.CLAMP)
@@ -591,6 +602,7 @@ export function ReelsViewer({
       const freshPage = await reelsApi.list({
         limit: DEFAULT_REELS_LIMIT,
         visibility: 'public',
+        ranked: true,
       })
 
       queryClient.setQueryData<InfiniteData<ListReelsResponse, string | undefined>>(
@@ -953,7 +965,7 @@ export function ReelsViewer({
           </Animated.View>
         ) : null}
 
-        {!isInitialLoading && reels.length === 0 ? (
+        {!isInitialLoading && reels.length === 0 && !isShowingOfflineCache ? (
           <View
             pointerEvents="box-none"
             className="absolute inset-0 items-center justify-center px-6"
@@ -987,6 +999,20 @@ export function ReelsViewer({
               >
                 <Text className="font-medium text-white">Create reel</Text>
               </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+
+        {!isOnline || isShowingOfflineCache ? (
+          <View
+            pointerEvents="none"
+            className="absolute inset-x-0 z-20 items-center px-5"
+            style={{ top: insets.top + 108, elevation: 20 }}
+          >
+            <View className="rounded-full bg-black/52 px-3 py-1.5">
+              <Text className="text-xs2 font-medium text-white">
+                {!isOnline ? 'Offline • showing saved reels' : 'Showing saved reels'}
+              </Text>
             </View>
           </View>
         ) : null}

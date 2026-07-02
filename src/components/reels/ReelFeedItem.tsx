@@ -17,6 +17,8 @@ import Animated, {
 } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 
+import { useOfflineReelVideoSource } from '@/hooks/useOfflineReelVideoSource'
+
 import { useReelProcessingStatus, useDeleteReel } from '../../hooks/useReels'
 import { getInitials } from '../../lib/profile'
 import { useAuthStore } from '../../stores/authStore'
@@ -230,6 +232,9 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
     return nextReel
   }, [processingStatus, reel])
+  const offlineVideoSource = useOfflineReelVideoSource(displayReel, {
+    enabled: shouldWarmVideo,
+  })
   const resumeAfterScrub = useSharedValue(0)
   const pendingSeekTarget = useSharedValue(-1)
   const lastScrubRatio = useSharedValue(0)
@@ -237,8 +242,8 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const timelineInteractionProgress = useSharedValue(0)
   const timelinePreviewRatio = useSharedValue(0)
   const playbackState = useMemo(
-    () => getPlaybackState(displayReel.status, displayReel.streamUrl),
-    [displayReel.status, displayReel.streamUrl],
+    () => getPlaybackState(displayReel.status, offlineVideoSource.uri),
+    [displayReel.status, offlineVideoSource.uri],
   )
   const descriptionText = description?.trim()
   const titleText = displayReel.title?.trim()
@@ -298,7 +303,8 @@ const ReelFeedItemComponent = function ReelFeedItem({
   )
   const isFailed = displayReel.status === 'FAILED'
   const canManageReel = user?.id === displayReel.userId
-  const posterUri = displayReel.thumbnailUrl ?? displayReel.localThumbnailUri
+  const posterUri =
+    offlineVideoSource.posterUri ?? displayReel.thumbnailUrl ?? displayReel.localThumbnailUri
   const shouldShowVideoLayer = isActive && (isReady || playbackPosition > 0)
 
   const triggerScrubStartHaptic = useCallback(() => {
@@ -624,9 +630,9 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
         {shouldRenderVideo ? (
           <ReelVideo
-            key={displayReel.streamUrl}
+            key={offlineVideoSource.uri}
             ref={videoRef}
-            uri={displayReel.streamUrl}
+            uri={offlineVideoSource.uri}
             {...(posterUri ? { posterUri } : {})}
             shouldPlay={isActive && !isPausedByUser && !hasPlaybackError}
             loop
@@ -776,6 +782,15 @@ const ReelFeedItemComponent = function ReelFeedItem({
                   </Text>
                   <Text className="mt-2 text-center text-sm2 leading-5 text-white">
                     This reel could not be played.
+                  </Text>
+                </>
+              ) : offlineVideoSource.isOfflineVideoUnavailable ? (
+                <>
+                  <Text className="text-center font-heading text-xl text-white">
+                    Not saved offline
+                  </Text>
+                  <Text className="mt-2 text-center text-sm2 leading-5 text-white">
+                    This reel was not downloaded yet. Connect to the internet to watch it.
                   </Text>
                 </>
               ) : isFailed ? (

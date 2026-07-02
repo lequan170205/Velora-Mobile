@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef } from 'react'
 import { AppState } from 'react-native'
 
 import { reelsApi } from '../api/reels.api'
+import { getIsOnline } from '../lib/network'
+import { flushQueuedReelEvents, queueReelEvents } from '../lib/reelEventsOutbox'
 
 import type { ReelViewEventType, TrackReelEventPayload } from '../types/reel.types'
 import type { AppStateStatus } from 'react-native'
@@ -66,21 +68,37 @@ export function useReelAnalyticsTracker() {
   const isFlushingRef = useRef(false)
 
   const flushReelEvents = useCallback(async () => {
-    if (isFlushingRef.current || pendingEventsRef.current.length === 0) {
+    if (isFlushingRef.current) {
       return
     }
-
-    const batch = pendingEventsRef.current.splice(0, MAX_BATCH_SIZE)
 
     isFlushingRef.current = true
 
     try {
-      await reelsApi.trackEvents({ events: batch })
-    } catch {
-      pendingEventsRef.current = [...batch, ...pendingEventsRef.current].slice(
-        0,
-        MAX_RETRY_QUEUE_SIZE,
-      )
+      const isOnline = await getIsOnline()
+
+      if (!isOnline) {
+        if (pendingEventsRef.current.length > 0) {
+          const eventsToQueue = pendingEventsRef.current.splice(0, MAX_RETRY_QUEUE_SIZE)
+          await queueReelEvents(eventsToQueue)
+        }
+
+        return
+      }
+
+      await flushQueuedReelEvents()
+
+      if (pendingEventsRef.current.length === 0) {
+        return
+      }
+
+      const batch = pendingEventsRef.current.splice(0, MAX_BATCH_SIZE)
+
+      try {
+        await reelsApi.trackEvents({ events: batch })
+      } catch {
+        await queueReelEvents(batch)
+      }
     } finally {
       isFlushingRef.current = false
     }
@@ -230,6 +248,9 @@ export function useReelAnalyticsTracker() {
     const handleAppStateChange = (nextState: AppStateStatus) => {
       if (nextState !== 'active') {
         endCurrentReelSession('screen_blur')
+      }
+
+      if (nextState === 'active') {
         void flushReelEvents()
       }
     }

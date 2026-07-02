@@ -24,6 +24,8 @@ export interface Reel {
   thumbnailKey?: string
   thumbnailUrl?: string
   localThumbnailUri?: string
+  offlineStreamUrl?: string
+  offlineThumbnailUrl?: string
   processingStage?: string
   processingMessage?: string
   processingProgress?: number
@@ -45,11 +47,14 @@ export interface ListReelsParams {
   visibility?: ReelVisibility
   limit?: number
   cursor?: string
+  ranked?: boolean
 }
 
 export interface ListReelsResponse {
   items: Reel[]
   nextCursor?: string | null
+  fromOfflineCache?: boolean
+  cachedAt?: number
 }
 
 export type ReelContextSource = 'profile'

@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
+import { cacheReelFeedPage, readCachedReelFeedPage } from '@/lib/reelOfflineCache'
 import type { InfiniteData, QueryClient, QueryKey } from '@tanstack/react-query'
 
 import { conversationApi } from '../api/conversation.api'
@@ -403,6 +404,7 @@ const normalizeListParams = (params: Omit<ListReelsParams, 'cursor'> = {}) => ({
   ...(params.limit ? { limit: params.limit } : {}),
   ...(params.userId ? { userId: params.userId } : {}),
   ...(params.visibility ? { visibility: params.visibility } : {}),
+  ...(params.ranked !== undefined ? { ranked: params.ranked } : {}),
 })
 
 const normalizeContextParams = (params: ReelContextParams = {}) => ({
@@ -424,20 +426,40 @@ export function useReelsFeed(
     enabled: options.enabled ?? true,
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
-      const response = await reelsApi.list({
-        ...normalizedParams,
-        ...(pageParam ? { cursor: pageParam } : {}),
-      })
+      try {
+        const response = await reelsApi.list({
+          ...normalizedParams,
+          ...(pageParam ? { cursor: pageParam } : {}),
+        })
 
-      return mergePendingCreatedReelsIntoResponse(
-        response,
-        queryClient.getQueryData<Reel[]>(queryKeys.reels.pendingCreated()),
-        normalizedParams,
-        !pageParam,
-      )
+        const mergedResponse = mergePendingCreatedReelsIntoResponse(
+          response,
+          queryClient.getQueryData<Reel[]>(queryKeys.reels.pendingCreated()),
+          normalizedParams,
+          !pageParam,
+        )
+
+        void cacheReelFeedPage(normalizedParams, pageParam, mergedResponse)
+
+        return mergedResponse
+      } catch (error) {
+        const cachedResponse = await readCachedReelFeedPage(normalizedParams, pageParam)
+
+        if (cachedResponse) {
+          return mergePendingCreatedReelsIntoResponse(
+            cachedResponse,
+            queryClient.getQueryData<Reel[]>(queryKeys.reels.pendingCreated()),
+            normalizedParams,
+            !pageParam,
+          )
+        }
+
+        throw error
+      }
     },
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     staleTime: REELS_QUERY_STALE_TIME_MS,
+    retry: 1,
   })
 }
 
