@@ -1,6 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useIsFocused } from '@react-navigation/native'
 import { useQueryClient } from '@tanstack/react-query'
+import { Image as ExpoImage } from 'expo-image'
 import { useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -20,6 +21,7 @@ import Animated, {
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { useReelAnalyticsTracker } from '@/hooks/useReelAnalyticsTracker'
 import type { InfiniteData } from '@tanstack/react-query'
 
 import { reelsApi } from '../../api/reels.api'
@@ -56,6 +58,20 @@ interface ReelsViewerProps {
   tabBarHeight?: number
 }
 
+const prefetchReelAssets = (reel?: Reel | null) => {
+  if (!reel) {
+    return
+  }
+
+  if (reel.thumbnailUrl) {
+    void ExpoImage.prefetch(reel.thumbnailUrl).catch(() => undefined)
+  }
+
+  if (reel.streamUrl) {
+    void fetch(reel.streamUrl, { method: 'GET' }).catch(() => undefined)
+  }
+}
+
 export function ReelsViewer({
   bottomContentInset = 0,
   contextItems = [],
@@ -72,6 +88,8 @@ export function ReelsViewer({
   const insets = useSafeAreaInsets()
   const isFocused = useIsFocused()
   const { height: windowHeight } = useWindowDimensions()
+  const { startReelSession, endCurrentReelSession, updateActiveMutedState, flushReelEvents } =
+    useReelAnalyticsTracker()
 
   const pagerRef = useRef<PagerViewRef | null>(null)
   const handledRequestedReelIdRef = useRef<string | null>(null)
@@ -219,6 +237,32 @@ export function ReelsViewer({
     () => reels.findIndex((reel) => reel.id === effectiveActiveReelId),
     [effectiveActiveReelId, reels],
   )
+
+  useEffect(() => {
+    if (!isFocused || !effectiveActiveReelId) {
+      endCurrentReelSession('screen_blur')
+      return
+    }
+
+    startReelSession(effectiveActiveReelId, { muted: isMuted })
+
+    return () => {
+      endCurrentReelSession('switch')
+    }
+  }, [effectiveActiveReelId, endCurrentReelSession, isFocused, isMuted, startReelSession])
+
+  useEffect(() => {
+    updateActiveMutedState(isMuted)
+  }, [isMuted, updateActiveMutedState])
+
+  useEffect(() => {
+    if (!isFocused || activeIndex < 0 || reels.length === 0) {
+      return
+    }
+
+    prefetchReelAssets(reels[activeIndex + 1])
+    prefetchReelAssets(reels[activeIndex + 2])
+  }, [activeIndex, isFocused, reels])
 
   const isInitialLoading = shouldFetchReelContext ? isContextPending : isPending
   const isActiveError = shouldFetchReelContext ? isContextError : isError
@@ -534,6 +578,8 @@ export function ReelsViewer({
       return
     }
 
+    endCurrentReelSession('manual_refresh')
+    void flushReelEvents()
     setIsManualRefreshing(true)
 
     try {
@@ -573,6 +619,8 @@ export function ReelsViewer({
     }
   }, [
     deletedReelIds,
+    endCurrentReelSession,
+    flushReelEvents,
     isManualRefreshing,
     isRefetching,
     publicReelsQueryKey,

@@ -157,3 +157,33 @@ export interface ReelProcessingStatusResponse {
   thumbnailUrl?: string
   streamUrl?: string
 }
+
+export type ReelViewEventType =
+  | 'IMPRESSION'
+  | 'WATCH_START'
+  | 'WATCH_PROGRESS'
+  | 'WATCH_END'
+  | 'SKIP'
+  | 'COMPLETE'
+  | 'REPLAY'
+  | 'PAUSE'
+  | 'RESUME'
+  | 'MUTE'
+  | 'UNMUTE'
+
+export interface TrackReelEventPayload {
+  reelId: string
+  sessionId?: string
+  eventType: ReelViewEventType
+  watchMs?: number
+  durationMs?: number
+  percentageWatched?: number
+  muted?: boolean
+  completed?: boolean
+  replayed?: boolean
+  skipped?: boolean
+}
+
+export interface TrackReelEventsPayload {
+  events: TrackReelEventPayload[]
+}
