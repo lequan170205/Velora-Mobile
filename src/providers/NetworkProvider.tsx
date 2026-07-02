@@ -8,14 +8,18 @@ onlineManager.setOnline(false)
 
 type NetworkContextValue = {
   isOnline: boolean
+  isForceOffline: boolean
   isNetworkResolved: boolean
   networkState: NetworkState | null
+  setForceOffline: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 const NetworkContext = createContext<NetworkContextValue>({
   isOnline: false,
+  isForceOffline: false,
   isNetworkResolved: false,
   networkState: null,
+  setForceOffline: () => undefined,
 })
 
 const isNetworkOnline = (networkState: NetworkState | null) => {
@@ -35,6 +39,7 @@ export const useNetworkStatus = () => useContext(NetworkContext)
 export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const [networkState, setNetworkState] = useState<NetworkState | null>(null)
   const [isNetworkResolved, setIsNetworkResolved] = useState(false)
+  const [isForceOffline, setForceOffline] = useState(false)
 
   useEffect(() => {
     onlineManager.setOnline(false)
@@ -42,7 +47,6 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     const applyNetworkState = (nextNetworkState: NetworkState) => {
       setNetworkState(nextNetworkState)
       setIsNetworkResolved(true)
-      onlineManager.setOnline(isNetworkOnline(nextNetworkState))
     }
 
     void Network.getNetworkStateAsync()
@@ -50,7 +54,6 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       .catch((error) => {
         console.warn('[Network] Failed to read initial network state', error)
         setIsNetworkResolved(true)
-        onlineManager.setOnline(false)
       })
 
     const subscription = Network.addNetworkStateListener(applyNetworkState)
@@ -60,13 +63,21 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  const isOnline = isNetworkResolved && isNetworkOnline(networkState) && !isForceOffline
+
+  useEffect(() => {
+    onlineManager.setOnline(isOnline)
+  }, [isOnline])
+
   const value = useMemo(
     () => ({
-      isOnline: isNetworkResolved && isNetworkOnline(networkState),
+      isForceOffline,
+      isOnline,
       isNetworkResolved,
       networkState,
+      setForceOffline,
     }),
-    [isNetworkResolved, networkState],
+    [isForceOffline, isNetworkResolved, isOnline, networkState],
   )
 
   return <NetworkContext.Provider value={value}>{children}</NetworkContext.Provider>

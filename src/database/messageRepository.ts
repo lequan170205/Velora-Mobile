@@ -43,6 +43,13 @@ export interface LocalMessageCursorPage {
   source: 'local'
 }
 
+export interface PendingTextMessageForRetry {
+  id: string
+  conversationId: string
+  content: string
+  replyToId?: string
+}
+
 const MESSAGE_ORDER_BY_DESC = [Q.sortBy('created_at', Q.desc), Q.sortBy('id', Q.desc)] as const
 const MESSAGE_ORDER_BY_ASC = [Q.sortBy('created_at', Q.asc), Q.sortBy('id', Q.asc)] as const
 
@@ -129,6 +136,37 @@ export const getLocalMessagesPage = async ({
       participantsMap,
     }),
   )
+}
+
+export const getPendingTextMessagesForRetry = async ({
+  currentUserId,
+}: {
+  currentUserId: string
+}): Promise<PendingTextMessageForRetry[]> => {
+  const records = await database
+    .get<MessageModel>(TABLES.messages)
+    .query(
+      Q.where('sender_id', currentUserId),
+      Q.where('status', 'PENDING'),
+      Q.where('type', 'text'),
+      ...MESSAGE_ORDER_BY_ASC,
+    )
+    .fetch()
+
+  return records.flatMap((record) => {
+    if (!record.clientMessageId || !record.content) {
+      return []
+    }
+
+    return [
+      {
+        id: record.clientMessageId,
+        conversationId: record.conversationId,
+        content: record.content,
+        ...(record.replyToId ? { replyToId: record.replyToId } : {}),
+      },
+    ]
+  })
 }
 
 export const getLocalMessageWindowAroundId = async (

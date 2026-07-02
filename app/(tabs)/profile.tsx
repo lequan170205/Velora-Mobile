@@ -31,6 +31,8 @@ import Animated, {
 } from 'react-native-reanimated'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { OfflineNetworkToggle } from '@/components/dev/OfflineNetworkToggle'
+
 import { authApi } from '../../src/api/auth.api'
 import { queryKeys } from '../../src/constants/queryKeys'
 import { resetLocalDatabase } from '../../src/database/DatabaseManager'
@@ -1021,6 +1023,7 @@ export default function ProfileScreen() {
                           setSheetMode('clear-cache')
                         }}
                       />
+                      <OfflineNetworkToggle />
                       <SheetActionRow
                         icon="storage"
                         label="Clear local database"

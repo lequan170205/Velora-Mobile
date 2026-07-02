@@ -68,7 +68,9 @@ export const authApi = {
     return toUserSession(response.data)
   },
   getSocketToken: async () => {
-    const response = await apiClient.get<SocketTokenResponse>('/auth/socket-token')
+    const response = await apiClient.get<SocketTokenResponse>('/auth/socket-token', {
+      timeout: 5000,
+    })
     return response.data
   },
   confirm: async (token: string) => {

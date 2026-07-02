@@ -6,6 +6,7 @@ import type { InfiniteData } from '@tanstack/react-query'
 
 import { authApi } from '../api/auth.api'
 import { queryKeys } from '../constants/queryKeys'
+import { getPendingTextMessagesForRetry } from '../database/messageRepository'
 import {
   applyReplyPreviewUpdate,
   applyMediaProcessingUpdate,
@@ -64,6 +65,8 @@ const SocketContext = createContext<SocketContextType>({
   requestPresence: () => {},
 })
 
+const OFFLINE_MESSAGE_ACK_TIMEOUT_MS = 15000
+
 const isMessageAtOrBeforeReadFrontier = ({
   frontierCreatedAt,
   frontierMessageId,
@@ -120,6 +123,17 @@ const matchesMessageIdentityKey = (message: Message, identityKey: string) => {
   )
 }
 
+type QueuedOfflineMessage = ReturnType<typeof useChatStore.getState>['offlineQueue'][number]
+
+const buildOfflineMessagePayload = (message: QueuedOfflineMessage) => ({
+  conversationId: message.conversationId,
+  content: message.content,
+  type: 'text',
+  signalType: 0,
+  clientMessageId: message.id,
+  ...(message.replyToId ? { replyToId: message.replyToId } : {}),
+})
+
 export const useSocket = () => useContext(SocketContext)
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
@@ -131,6 +145,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const lastConnectErrorMessageRef = useRef<string | null>(null)
+  const flushingOfflineMessageIdsRef = useRef<Set<string>>(new Set())
+  const flushingOfflineConversationIdsRef = useRef<Set<string>>(new Set())
+  const offlineMessageAckTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const serverDisconnectReconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const flushOfflineQueueRef = useRef<(targetSocket: Socket | null) => void>(() => {})
 
   const requestPresence = useCallback(
     (userIds: string[], options?: { conversationId?: string }) => {
@@ -203,6 +222,118 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     [queryClient],
   )
 
+  const clearOfflineMessageAckTimeout = useCallback((messageId: string) => {
+    const timeoutId = offlineMessageAckTimeoutsRef.current.get(messageId)
+    if (!timeoutId) {
+      return
+    }
+
+    clearTimeout(timeoutId)
+    offlineMessageAckTimeoutsRef.current.delete(messageId)
+  }, [])
+
+  const clearAllOfflineMessageAckTimeouts = useCallback(() => {
+    offlineMessageAckTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId))
+    offlineMessageAckTimeoutsRef.current.clear()
+  }, [])
+
+  const recoverPendingTextMessagesToOfflineQueue = useCallback(async () => {
+    const currentUserId = useAuthStore.getState().user?.id
+    if (!currentUserId) {
+      return
+    }
+
+    const pendingMessages = await getPendingTextMessagesForRetry({ currentUserId })
+    const store = useChatStore.getState()
+
+    pendingMessages.forEach((message) => {
+      store.enqueueOfflineMessage(message)
+    })
+  }, [])
+
+  const flushOfflineQueue = useCallback(
+    (targetSocket: Socket | null) => {
+      if (!targetSocket?.connected) {
+        return
+      }
+
+      const queue = useChatStore.getState().offlineQueue
+      const nextMessagesByConversation = new Map<string, QueuedOfflineMessage>()
+
+      queue.forEach((message) => {
+        if (
+          !message.conversationId ||
+          flushingOfflineMessageIdsRef.current.has(message.id) ||
+          flushingOfflineConversationIdsRef.current.has(message.conversationId) ||
+          nextMessagesByConversation.has(message.conversationId)
+        ) {
+          return
+        }
+
+        nextMessagesByConversation.set(message.conversationId, message)
+      })
+
+      const pendingMessages = Array.from(nextMessagesByConversation.values())
+
+      if (pendingMessages.length === 0) {
+        return
+      }
+
+      Array.from(new Set(pendingMessages.map((message) => message.conversationId))).forEach(
+        (conversationId) => {
+          if (conversationId) {
+            targetSocket.emit('join_conversation', conversationId)
+          }
+        },
+      )
+
+      pendingMessages.forEach((message) => {
+        flushingOfflineMessageIdsRef.current.add(message.id)
+        flushingOfflineConversationIdsRef.current.add(message.conversationId)
+        clearOfflineMessageAckTimeout(message.id)
+        offlineMessageAckTimeoutsRef.current.set(
+          message.id,
+          setTimeout(() => {
+            offlineMessageAckTimeoutsRef.current.delete(message.id)
+            flushingOfflineMessageIdsRef.current.delete(message.id)
+            flushingOfflineConversationIdsRef.current.delete(message.conversationId)
+            flushOfflineQueueRef.current(targetSocket)
+          }, OFFLINE_MESSAGE_ACK_TIMEOUT_MS),
+        )
+        targetSocket.emit('send_message', buildOfflineMessagePayload(message))
+      })
+    },
+    [clearOfflineMessageAckTimeout],
+  )
+
+  flushOfflineQueueRef.current = flushOfflineQueue
+
+  const flushOfflineQueueWhenReady = useCallback(
+    (targetSocket: Socket | null) => {
+      if (!targetSocket?.connected) {
+        return undefined
+      }
+
+      const recoverAndFlush = () => {
+        void recoverPendingTextMessagesToOfflineQueue()
+          .catch((error) => {
+            console.warn('[Socket] Failed to recover pending text messages for retry', error)
+          })
+          .finally(() => {
+            flushOfflineQueue(targetSocket)
+          })
+      }
+
+      if (useChatStore.persist.hasHydrated()) {
+        recoverAndFlush()
+        return undefined
+      }
+
+      return useChatStore.persist.onFinishHydration(recoverAndFlush)
+    },
+    [flushOfflineQueue, recoverPendingTextMessagesToOfflineQueue],
+  )
+
   useEffect(() => {
     if (isLoading) {
       return
@@ -215,7 +346,14 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       })
       setIsConnected(false)
       lastConnectErrorMessageRef.current = null
+      if (serverDisconnectReconnectTimeoutRef.current) {
+        clearTimeout(serverDisconnectReconnectTimeoutRef.current)
+        serverDisconnectReconnectTimeoutRef.current = null
+      }
+      flushingOfflineMessageIdsRef.current.clear()
+      flushingOfflineConversationIdsRef.current.clear()
       useChatStore.getState().clearOnlineUsers()
+      clearAllOfflineMessageAckTimeouts()
       return
     }
 
@@ -261,23 +399,13 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     }
 
     newSocket.on('connect', () => {
+      if (serverDisconnectReconnectTimeoutRef.current) {
+        clearTimeout(serverDisconnectReconnectTimeoutRef.current)
+        serverDisconnectReconnectTimeoutRef.current = null
+      }
+
       setIsConnected(true)
       lastConnectErrorMessageRef.current = null
-
-      const queue = useChatStore.getState().offlineQueue
-
-      queue.forEach((msg) => {
-        const payload = {
-          conversationId: msg.conversationId,
-          content: msg.content,
-          type: 'text',
-          signalType: 0,
-          clientMessageId: msg.id,
-          ...(msg.replyToId ? { replyToId: msg.replyToId } : {}),
-        }
-
-        newSocket.emit('send_message', payload)
-      })
 
       const cachedConversations = queryClient.getQueryData<Conversation[] | undefined>(
         queryKeys.conversations.all,
@@ -287,22 +415,59 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           ? cachedConversations.map((conversation) => conversation.id)
           : [],
       )
+
+      flushOfflineQueueWhenReady(newSocket)
     })
 
-    newSocket.on('disconnect', () => {
+    newSocket.on('disconnect', (reason) => {
       setIsConnected(false)
       lastConnectErrorMessageRef.current = null
+      flushingOfflineMessageIdsRef.current.clear()
+      flushingOfflineConversationIdsRef.current.clear()
+      clearAllOfflineMessageAckTimeouts()
       useChatStore.getState().clearOnlineUsers()
       useChatStore.setState({ typingUsers: {} })
       joinedConversationIds.clear()
+
+      if (reason === 'io server disconnect') {
+        if (serverDisconnectReconnectTimeoutRef.current) {
+          clearTimeout(serverDisconnectReconnectTimeoutRef.current)
+        }
+
+        serverDisconnectReconnectTimeoutRef.current = setTimeout(() => {
+          serverDisconnectReconnectTimeoutRef.current = null
+
+          const { isAuthenticated: latestIsAuthenticated, user: latestUser } =
+            useAuthStore.getState()
+
+          if (
+            latestIsAuthenticated &&
+            latestUser?.id &&
+            newSocket.disconnected &&
+            !newSocket.active
+          ) {
+            newSocket.connect()
+          }
+        }, 1000)
+      }
     })
 
     newSocket.on('connect_error', (error) => {
       setIsConnected(false)
       useChatStore.getState().clearOnlineUsers()
+      flushingOfflineMessageIdsRef.current.clear()
+      flushingOfflineConversationIdsRef.current.clear()
+      clearAllOfflineMessageAckTimeouts()
       if (lastConnectErrorMessageRef.current === error.message) {
         return
       }
+
+      lastConnectErrorMessageRef.current = error.message
+      console.warn('🔌 Socket connection warning:', {
+        message: error.message,
+        url: process.env.EXPO_PUBLIC_WS_URL || 'http://localhost:3000',
+        path: '/socket.io',
+      })
     })
 
     const unsubscribeQueryCache = queryClient.getQueryCache().subscribe((event) => {
@@ -844,8 +1009,12 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       if (userId && message.senderId === userId) {
         const store = useChatStore.getState()
         if (message.clientMessageId) {
+          flushingOfflineMessageIdsRef.current.delete(message.clientMessageId)
+          flushingOfflineConversationIdsRef.current.delete(message.conversationId)
+          clearOfflineMessageAckTimeout(message.clientMessageId)
           store.confirmMessage(message.clientMessageId, message)
           store.dequeueOfflineMessage(message.clientMessageId)
+          flushOfflineQueueRef.current(newSocket)
         } else {
           reconcileOptimisticMessage(message)
         }
@@ -867,16 +1036,24 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         if (typeof payload === 'string') {
           Object.entries(store.optimisticMessages).forEach(([conversationId, messages]) => {
             if (messages.some((message) => message.id === payload)) {
+              flushingOfflineMessageIdsRef.current.delete(payload)
+              flushingOfflineConversationIdsRef.current.delete(conversationId)
+              clearOfflineMessageAckTimeout(payload)
               store.markMessageFailed(conversationId, payload)
               store.dequeueOfflineMessage(payload)
+              flushOfflineQueueRef.current(newSocket)
             }
           })
           return
         }
 
         if (payload.conversationId && payload.clientMessageId) {
+          flushingOfflineMessageIdsRef.current.delete(payload.clientMessageId)
+          flushingOfflineConversationIdsRef.current.delete(payload.conversationId)
+          clearOfflineMessageAckTimeout(payload.clientMessageId)
           store.markMessageFailed(payload.conversationId, payload.clientMessageId)
           store.dequeueOfflineMessage(payload.clientMessageId)
+          flushOfflineQueueRef.current(newSocket)
         }
       },
     )
@@ -1180,14 +1357,35 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       },
     )
 
+    const flushingOfflineMessageIds = flushingOfflineMessageIdsRef.current
+    const flushingOfflineConversationIds = flushingOfflineConversationIdsRef.current
+
     setSocket(newSocket)
 
     return () => {
+      if (serverDisconnectReconnectTimeoutRef.current) {
+        clearTimeout(serverDisconnectReconnectTimeoutRef.current)
+        serverDisconnectReconnectTimeoutRef.current = null
+      }
+      flushingOfflineMessageIds.clear()
+      flushingOfflineConversationIds.clear()
+      clearAllOfflineMessageAckTimeouts()
+
       unsubscribeQueryCache()
       newSocket.removeAllListeners()
       newSocket.disconnect()
     }
-  }, [isAuthenticated, isLoading, queryClient, resolveReadFrontierFromCache, userId])
+  }, [
+    clearAllOfflineMessageAckTimeouts,
+    clearOfflineMessageAckTimeout,
+    flushOfflineQueue,
+    flushOfflineQueueWhenReady,
+    isAuthenticated,
+    isLoading,
+    queryClient,
+    resolveReadFrontierFromCache,
+    userId,
+  ])
 
   useEffect(() => {
     if (!socket || isLoading || !isAuthenticated || !userId) {
@@ -1211,6 +1409,14 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     socket.connect()
   }, [isAuthenticated, isLoading, isNetworkResolved, isOnline, isConnected, socket, userId])
+
+  useEffect(() => {
+    if (!socket?.connected || !isNetworkResolved || !isOnline || !isConnected) {
+      return
+    }
+
+    return flushOfflineQueueWhenReady(socket)
+  }, [flushOfflineQueueWhenReady, isConnected, isNetworkResolved, isOnline, socket])
 
   return (
     <SocketContext.Provider value={{ socket, isConnected, requestPresence }}>
