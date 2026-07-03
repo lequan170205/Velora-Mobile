@@ -38,6 +38,7 @@ interface ReelFeedItemProps {
   height: number
   isActive: boolean
   shouldWarmVideo?: boolean | undefined
+  offlineVideoCachePriority?: number | undefined
   enableStatusPolling?: boolean | undefined
   hideCaption?: boolean | undefined
   isMuted: boolean
@@ -159,6 +160,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   height,
   isActive,
   shouldWarmVideo = false,
+  offlineVideoCachePriority,
   enableStatusPolling = false,
   hideCaption = false,
   isMuted,
@@ -235,7 +237,10 @@ const ReelFeedItemComponent = function ReelFeedItem({
   }, [processingStatus, reel])
   const offlineVideoSource = useOfflineReelVideoSource(displayReel, {
     enabled: shouldWarmVideo,
-    cachePriority: isActive ? 0 : 40,
+    shouldPrepareOfflineVideo: typeof offlineVideoCachePriority === 'number',
+    ...(typeof offlineVideoCachePriority === 'number'
+      ? { cachePriority: offlineVideoCachePriority }
+      : {}),
   })
   const resumeAfterScrub = useSharedValue(0)
   const pendingSeekTarget = useSharedValue(-1)
@@ -968,6 +973,7 @@ const areReelFeedItemPropsEqual = (previous: ReelFeedItemProps, next: ReelFeedIt
   previous.height === next.height &&
   previous.isActive === next.isActive &&
   previous.shouldWarmVideo === next.shouldWarmVideo &&
+  previous.offlineVideoCachePriority === next.offlineVideoCachePriority &&
   previous.enableStatusPolling === next.enableStatusPolling &&
   previous.hideCaption === next.hideCaption &&
   previous.isMuted === next.isMuted &&

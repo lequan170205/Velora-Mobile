@@ -17,6 +17,7 @@ import {
   ScrollView,
   Share,
   StyleSheet,
+  Switch,
   Text,
   View,
   useWindowDimensions,
@@ -39,6 +40,7 @@ import { resetLocalDatabase } from '../../src/database/DatabaseManager'
 import { useFriends } from '../../src/hooks/useFriends'
 import { useUpdateAvatar } from '../../src/hooks/useProfile'
 import { useReelsFeed } from '../../src/hooks/useReels'
+import { useReelSavingMode } from '../../src/hooks/useReelSavingMode'
 import { getDisplayName, getInitials, getProfileHandle } from '../../src/lib/profile'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useChatStore } from '../../src/stores/chatStore'
@@ -240,6 +242,39 @@ function SheetActionRow({
   )
 }
 
+function SheetToggleRow({
+  description,
+  icon,
+  label,
+  value,
+  onValueChange,
+}: {
+  label: string
+  description: string
+  icon: keyof typeof MaterialIcons.glyphMap
+  value: boolean
+  onValueChange: (nextValue: boolean) => void
+}) {
+  return (
+    <View className="flex-row items-center rounded-[24px] bg-surface-muted px-4 py-4">
+      <View className="h-12 w-12 items-center justify-center rounded-full bg-white">
+        <MaterialIcons name={icon} size={20} color="#161616" />
+      </View>
+      <View className="ml-3 flex-1 pr-4">
+        <Text className="font-medium text-md text-text-primary">{label}</Text>
+        <Text className="mt-1 text-sm2 text-text-secondary">{description}</Text>
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        thumbColor="#FFFFFF"
+        trackColor={{ false: '#D9D9D9', true: 'rgba(255,107,44,0.72)' }}
+        ios_backgroundColor="#D9D9D9"
+      />
+    </View>
+  )
+}
+
 export default function ProfileScreen() {
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -252,6 +287,7 @@ export default function ProfileScreen() {
 
   const { user, clearAuth } = useAuthStore()
   const { clearCache } = useChatStore()
+  const { reelSavingModeEnabled, setReelSavingModeEnabled } = useReelSavingMode()
   const clearPendingFeedbackMessage = useProfileUiStore(
     (state) => state.clearPendingFeedbackMessage,
   )
@@ -1006,6 +1042,21 @@ export default function ProfileScreen() {
                         onPress={() => {
                           closeSheet('edit-profile')
                         }}
+                      />
+                    </View>
+                  </View>
+
+                  <View className="mt-5">
+                    <Text className="mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">
+                      Reels
+                    </Text>
+                    <View className="gap-3">
+                      <SheetToggleRow
+                        icon="play-circle-outline"
+                        label="Reel saving mode"
+                        description="Save nearby reels on this device so they can play when your connection is poor."
+                        value={reelSavingModeEnabled}
+                        onValueChange={setReelSavingModeEnabled}
                       />
                     </View>
                   </View>

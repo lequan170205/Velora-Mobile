@@ -70,10 +70,20 @@ interface DownloadableResource {
 interface DownloadJob {
   reel: TemporaryReelVideoCacheInput
   priority: number
+  maxBytes?: number
   addedAt: number
   status: TemporaryReelVideoCacheStatus
   promise: Promise<TemporaryReelVideoCacheRecord | null>
   resolve: (record: TemporaryReelVideoCacheRecord | null) => void
+}
+
+interface TemporaryReelVideoCacheOptions {
+  priority?: number
+  maxBytes?: number
+}
+
+interface TemporaryReelVideoCacheCleanupOptions {
+  maxBytes?: number
 }
 
 const TEMP_REEL_VIDEO_CACHE_DIR = `${FileSystem.cacheDirectory ?? ''}velora-temp-reel-video-cache/`
@@ -90,6 +100,10 @@ const statusByReelId = new Map<string, TemporaryReelVideoCacheStatus>()
 const listenersByReelId = new Map<string, Set<(status: TemporaryReelVideoCacheStatus) => void>>()
 
 let activeDownloadCount = 0
+let areDownloadsEnabledByLifecycle = true
+let areDownloadsEnabledByPreference = true
+
+const areDownloadsEnabled = () => areDownloadsEnabledByLifecycle && areDownloadsEnabledByPreference
 
 const ensureCacheDirectoryAvailable = () => {
   if (!FileSystem.cacheDirectory) {
@@ -220,6 +234,14 @@ const removeRecords = async (records: ReelVideoCacheRecordModel[]) => {
   })
 }
 
+const mergeMaxBytes = (current?: number, next?: number) => {
+  if (typeof current === 'number' && typeof next === 'number') {
+    return Math.min(current, next)
+  }
+
+  return typeof next === 'number' ? next : current
+}
+
 const cleanupTempDirectories = async () => {
   try {
     await ensureDirectory(TEMP_REEL_VIDEO_CACHE_DIR)
@@ -242,8 +264,10 @@ const cleanupTempDirectories = async () => {
 
 const evictTemporaryReelVideoCache = async (
   records: ReelVideoCacheRecordModel[],
+  options: TemporaryReelVideoCacheCleanupOptions = {},
 ): Promise<ReelVideoCacheRecordModel[]> => {
   const now = Date.now()
+  const maxBytes = options.maxBytes ?? MAX_TEMP_VIDEO_CACHE_BYTES
   const uniqueByReelId = new Map<string, ReelVideoCacheRecordModel>()
   const recordsToDelete = new Map<string, ReelVideoCacheRecordModel>()
 
@@ -281,10 +305,7 @@ const evictTemporaryReelVideoCache = async (
   let keptRecords = sortedRecords
   let totalBytes = keptRecords.reduce((sum, record) => sum + record.sizeBytes, 0)
 
-  while (
-    keptRecords.length > MAX_TEMP_VIDEO_CACHE_REELS ||
-    totalBytes > MAX_TEMP_VIDEO_CACHE_BYTES
-  ) {
+  while (keptRecords.length > MAX_TEMP_VIDEO_CACHE_REELS || totalBytes > maxBytes) {
     const recordToRemove = keptRecords[keptRecords.length - 1]
 
     if (!recordToRemove) {
@@ -303,9 +324,12 @@ const evictTemporaryReelVideoCache = async (
   return keptRecords
 }
 
-const upsertIndexRecord = async (record: TemporaryReelVideoCacheRecord) => {
+const upsertIndexRecord = async (
+  record: TemporaryReelVideoCacheRecord,
+  options: TemporaryReelVideoCacheCleanupOptions = {},
+) => {
   await upsertReelVideoCacheRecord(toReelVideoCacheRecordInput(record))
-  await evictTemporaryReelVideoCache(await getAllReelVideoCacheRecords())
+  await evictTemporaryReelVideoCache(await getAllReelVideoCacheRecords(), options)
 }
 
 const toAbsoluteUrl = (baseUrl: string, value: string) => {
@@ -544,6 +568,7 @@ const downloadThumbnail = async (thumbnailUrl: string | undefined, cacheDir: str
 
 const downloadReelVideoNow = async (
   reel: TemporaryReelVideoCacheInput,
+  options: TemporaryReelVideoCacheCleanupOptions = {},
 ): Promise<TemporaryReelVideoCacheRecord> => {
   ensureCacheDirectoryAvailable()
 
@@ -598,7 +623,7 @@ const downloadReelVideoNow = async (
       sizeBytes: segmentBytes + manifestBytes + (thumbnailResult?.sizeBytes ?? 0),
     }
 
-    await upsertIndexRecord(record)
+    await upsertIndexRecord(record, options)
     notifyCacheStatus(reel.id, 'CACHED')
 
     return record
@@ -610,7 +635,7 @@ const downloadReelVideoNow = async (
 }
 
 const pumpDownloadQueue = () => {
-  if (activeDownloadCount >= MAX_ACTIVE_REEL_DOWNLOADS) {
+  if (!areDownloadsEnabled() || activeDownloadCount >= MAX_ACTIVE_REEL_DOWNLOADS) {
     return
   }
 
@@ -637,7 +662,9 @@ const runDownloadJob = async (job: DownloadJob) => {
   notifyCacheStatus(job.reel.id, 'DOWNLOADING')
 
   try {
-    const record = await downloadReelVideoNow(job.reel)
+    const record = await downloadReelVideoNow(job.reel, {
+      ...(typeof job.maxBytes === 'number' ? { maxBytes: job.maxBytes } : {}),
+    })
     job.resolve(record)
   } catch {
     job.resolve(null)
@@ -688,7 +715,7 @@ export const getCachedTemporaryReelVideo = async (
 
 export const cacheTemporaryReelVideo = async (
   reel: TemporaryReelVideoCacheInput,
-  options: { priority?: number } = {},
+  options: TemporaryReelVideoCacheOptions = {},
 ): Promise<TemporaryReelVideoCacheRecord | null> => {
   if (!reel.streamUrl) {
     return null
@@ -705,6 +732,14 @@ export const cacheTemporaryReelVideo = async (
 
   if (existingJob) {
     existingJob.priority = Math.min(existingJob.priority, options.priority ?? existingJob.priority)
+    const nextMaxBytes = mergeMaxBytes(existingJob.maxBytes, options.maxBytes)
+
+    if (typeof nextMaxBytes === 'number') {
+      existingJob.maxBytes = nextMaxBytes
+    } else {
+      delete existingJob.maxBytes
+    }
+
     pumpDownloadQueue()
     return existingJob.promise
   }
@@ -718,6 +753,7 @@ export const cacheTemporaryReelVideo = async (
   const job: DownloadJob = {
     reel,
     priority: options.priority ?? 50,
+    ...(typeof options.maxBytes === 'number' ? { maxBytes: options.maxBytes } : {}),
     addedAt: Date.now(),
     status: 'QUEUED',
     promise,
@@ -733,7 +769,7 @@ export const cacheTemporaryReelVideo = async (
 
 export const enqueueTemporaryReelVideoCache = (
   reel: TemporaryReelVideoCacheInput | undefined | null,
-  options: { priority?: number } = {},
+  options: TemporaryReelVideoCacheOptions = {},
 ) => {
   if (!reel?.id || !reel.streamUrl) {
     return
@@ -750,6 +786,7 @@ export const warmTemporaryReelVideoCache = (
     | undefined
     | null
   )[],
+  options: TemporaryReelVideoCacheCleanupOptions = {},
 ) => {
   reels.forEach((reel) => {
     if (!reel || reel.status !== 'COMPLETED') {
@@ -762,17 +799,38 @@ export const warmTemporaryReelVideoCache = (
         streamUrl: reel.streamUrl,
         ...(reel.thumbnailUrl ? { thumbnailUrl: reel.thumbnailUrl } : {}),
       },
-      { priority: reel.priority ?? 50 },
+      {
+        priority: reel.priority ?? 50,
+        ...(typeof options.maxBytes === 'number' ? { maxBytes: options.maxBytes } : {}),
+      },
     )
   })
 }
 
-export const cleanupTemporaryReelVideoCache = async () => {
+export const cleanupTemporaryReelVideoCache = async (
+  options: TemporaryReelVideoCacheCleanupOptions = {},
+) => {
   ensureCacheDirectoryAvailable()
   await ensureDirectory(TEMP_REEL_VIDEO_CACHE_DIR)
   await cleanupTempDirectories()
 
-  await evictTemporaryReelVideoCache(await getAllReelVideoCacheRecords())
+  await evictTemporaryReelVideoCache(await getAllReelVideoCacheRecords(), options)
+}
+
+export const setTemporaryReelVideoCacheDownloadsEnabled = (enabled: boolean) => {
+  areDownloadsEnabledByLifecycle = enabled
+
+  if (enabled) {
+    pumpDownloadQueue()
+  }
+}
+
+export const setTemporaryReelVideoCacheUserPreferenceEnabled = (enabled: boolean) => {
+  areDownloadsEnabledByPreference = enabled
+
+  if (enabled) {
+    pumpDownloadQueue()
+  }
 }
 
 export const clearTemporaryReelVideoCache = async () => {

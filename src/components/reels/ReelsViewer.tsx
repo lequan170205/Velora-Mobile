@@ -1,7 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useIsFocused } from '@react-navigation/native'
 import { useQueryClient } from '@tanstack/react-query'
-import { Image as ExpoImage } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
@@ -22,16 +21,18 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { scheduleOnRN } from 'react-native-worklets'
 
-import { useIsOnline } from '@/hooks/useIsOnline'
 import { useReelAnalyticsTracker } from '@/hooks/useReelAnalyticsTracker'
+import { useReelSavingMode } from '@/hooks/useReelSavingMode'
 import { getCachedTemporaryReelVideo } from '@/lib/offlineReelVideoCache'
-import { prefetchReelsForTemporaryOfflinePlayback } from '@/lib/reel-prefetch'
+import { prefetchReelAssets, prefetchReelsForTemporaryOfflinePlayback } from '@/lib/reel-prefetch'
+import { getReelCachePolicyForNetworkState } from '@/lib/reelCachePolicy'
 import type { InfiniteData } from '@tanstack/react-query'
 
 import { reelsApi } from '../../api/reels.api'
 import { queryKeys } from '../../constants/queryKeys'
 import { DEFAULT_REELS_LIMIT } from '../../constants/reels'
 import { useReelContext, useReelsFeed } from '../../hooks/useReels'
+import { useNetworkStatus } from '../../providers/NetworkProvider'
 
 import { ReelFeedItem } from './ReelFeedItem'
 import { ReelLoadingRail } from './ReelLoadingRail'
@@ -70,26 +71,51 @@ interface ReelsViewerProps {
   tabBarHeight?: number
 }
 
-const prefetchReelAssets = (reel?: Reel | null) => {
-  if (!reel) {
-    return
-  }
-
-  if (reel.thumbnailUrl) {
-    void ExpoImage.prefetch(reel.thumbnailUrl).catch(() => undefined)
-  }
-
-  if (reel.streamUrl) {
-    void fetch(reel.streamUrl, { method: 'GET' }).catch(() => undefined)
-  }
-}
-
 const areStringArraysEqual = (left: string[], right: string[]) => {
   if (left.length !== right.length) {
     return false
   }
 
   return left.every((value, index) => value === right[index])
+}
+
+const buildReelVideoPrefetchPlan = (
+  reels: Reel[],
+  activeIndex: number,
+  policy: ReturnType<typeof getReelCachePolicyForNetworkState>,
+) => {
+  if (activeIndex < 0 || reels.length === 0) {
+    return []
+  }
+
+  const plannedReels: (Reel & { priority: number })[] = []
+  const seenIds = new Set<string>()
+
+  const appendReel = (reel: Reel | undefined, priority: number) => {
+    if (!reel || seenIds.has(reel.id)) {
+      return
+    }
+
+    seenIds.add(reel.id)
+    plannedReels.push({
+      ...reel,
+      priority,
+    })
+  }
+
+  if (policy.preloadCurrent) {
+    appendReel(reels[activeIndex], 0)
+  }
+
+  for (let offset = 1; offset <= policy.preloadAheadCount; offset += 1) {
+    appendReel(reels[activeIndex + offset], offset * 10)
+  }
+
+  if (policy.preloadPrevious) {
+    appendReel(reels[activeIndex - 1], 30)
+  }
+
+  return plannedReels
 }
 
 export function ReelsViewer({
@@ -108,7 +134,8 @@ export function ReelsViewer({
   const insets = useSafeAreaInsets()
   const isFocused = useIsFocused()
   const { height: windowHeight } = useWindowDimensions()
-  const isOnline = useIsOnline()
+  const { isOnline, networkState } = useNetworkStatus()
+  const { isReelSavingModeHydrated, reelSavingModeEnabled } = useReelSavingMode()
   const { startReelSession, endCurrentReelSession, updateActiveMutedState, flushReelEvents } =
     useReelAnalyticsTracker()
 
@@ -264,6 +291,25 @@ export function ReelsViewer({
   const activeIndex = useMemo(
     () => reels.findIndex((reel) => reel.id === effectiveActiveReelId),
     [effectiveActiveReelId, reels],
+  )
+  const reelCachePolicy = useMemo(
+    () => getReelCachePolicyForNetworkState(networkState, { isOnline }),
+    [isOnline, networkState],
+  )
+  const reelVideoPrefetchPlan = useMemo(
+    () => buildReelVideoPrefetchPlan(reels, activeIndex, reelCachePolicy),
+    [activeIndex, reelCachePolicy, reels],
+  )
+  const shouldSaveNearbyReelVideos = isReelSavingModeHydrated && reelSavingModeEnabled
+  const offlineVideoCachePriorities = useMemo(
+    () =>
+      new Map(
+        (reelCachePolicy.shouldCacheVideo && shouldSaveNearbyReelVideos
+          ? reelVideoPrefetchPlan
+          : []
+        ).map((reel) => [reel.id, reel.priority]),
+      ),
+    [reelCachePolicy.shouldCacheVideo, reelVideoPrefetchPlan, shouldSaveNearbyReelVideos],
   )
   const reelIdsKey = useMemo(() => reels.map((reel) => reel.id).join('|'), [reels])
   const offlineReadyReelIdSet = useMemo(() => new Set(offlineReadyReelIds), [offlineReadyReelIds])
@@ -441,25 +487,38 @@ export function ReelsViewer({
       return
     }
 
-    const previousReel = reels[activeIndex - 1]
-    const currentReel = reels[activeIndex]
-    const nextReel = reels[activeIndex + 1]
-    const nextNextReel = reels[activeIndex + 2]
-
-    void prefetchReelAssets(nextReel)
-    void prefetchReelAssets(nextNextReel)
-
     if (!isOnline) {
       return
     }
 
-    prefetchReelsForTemporaryOfflinePlayback([
-      currentReel ? { ...currentReel, priority: 0 } : null,
-      nextReel ? { ...nextReel, priority: 10 } : null,
-      nextNextReel ? { ...nextNextReel, priority: 20 } : null,
-      previousReel ? { ...previousReel, priority: 30 } : null,
-    ])
-  }, [activeIndex, isFocused, isOnline, reels])
+    reelVideoPrefetchPlan.forEach((reel) => {
+      void prefetchReelAssets(reel)
+    })
+
+    if (
+      !shouldSaveNearbyReelVideos ||
+      !reelCachePolicy.shouldCacheVideo ||
+      reelVideoPrefetchPlan.length === 0
+    ) {
+      return
+    }
+
+    prefetchReelsForTemporaryOfflinePlayback(
+      reelVideoPrefetchPlan,
+      ...(typeof reelCachePolicy.maxVideoCacheBytes === 'number'
+        ? [{ maxBytes: reelCachePolicy.maxVideoCacheBytes }]
+        : []),
+    )
+  }, [
+    activeIndex,
+    isFocused,
+    isOnline,
+    reelCachePolicy.maxVideoCacheBytes,
+    reelCachePolicy.shouldCacheVideo,
+    reelVideoPrefetchPlan,
+    reels.length,
+    shouldSaveNearbyReelVideos,
+  ])
 
   const isInitialLoading = shouldFetchReelContext ? isContextPending : isPending
   const isActiveError = shouldFetchReelContext ? isContextError : isError
@@ -1118,6 +1177,7 @@ export function ReelsViewer({
       const shouldWarmVideo =
         isCurrentItem ||
         (isFocused && activeIndex >= 0 && Math.abs(index - activeIndex) <= PRELOAD_RADIUS)
+      const offlineVideoCachePriority = offlineVideoCachePriorities.get(item.id)
 
       return (
         <View
@@ -1134,6 +1194,9 @@ export function ReelsViewer({
             height={viewportHeight}
             isActive={isActiveItem}
             shouldWarmVideo={shouldWarmVideo}
+            {...(typeof offlineVideoCachePriority === 'number'
+              ? { offlineVideoCachePriority }
+              : {})}
             enableStatusPolling={isActiveItem}
             hideCaption={hideDescriptions}
             isMuted={isMuted}
@@ -1155,6 +1218,7 @@ export function ReelsViewer({
       hideDescriptions,
       isFocused,
       isMuted,
+      offlineVideoCachePriorities,
       viewportHeight,
     ],
   )

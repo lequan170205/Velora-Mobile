@@ -8,7 +8,7 @@ import { Stack, usePathname, useRouter } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
 import { useEffect, useState } from 'react'
-import { Platform, Text, TouchableOpacity, View } from 'react-native'
+import { AppState, Platform, Text, TouchableOpacity, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { PaperProvider } from 'react-native-paper'
@@ -18,6 +18,13 @@ import { CallErrorModal } from '../src/components/call/CallErrorModal'
 import { IncomingCallModal } from '../src/components/call/IncomingCallModal'
 import { paperTheme } from '../src/constants/paperTheme'
 import { colors } from '../src/constants/theme'
+import { useReelSavingMode } from '../src/hooks/useReelSavingMode'
+import { setTemporaryReelVideoCacheUserPreferenceEnabled } from '../src/lib/offlineReelVideoCache'
+import {
+  runReelOfflineAppActiveMaintenance,
+  runReelOfflineBackgroundMaintenance,
+  runReelOfflineStartupMaintenance,
+} from '../src/lib/reelOfflineMaintenance'
 import { AuthProvider } from '../src/providers/AuthProvider'
 import { CallProvider, useCall } from '../src/providers/CallProvider'
 import { ChatMediaUploadProvider } from '../src/providers/ChatMediaUploadProvider'
@@ -130,6 +137,7 @@ export default function RootLayout() {
     Inter_400Regular,
     Inter_500Medium,
   })
+  const { isReelSavingModeHydrated, reelSavingModeEnabled } = useReelSavingMode()
 
   useEffect(() => {
     if (loaded || error) {
@@ -142,6 +150,31 @@ export default function RootLayout() {
   useEffect(() => {
     hydrateAuth()
   }, [hydrateAuth])
+
+  useEffect(() => {
+    setTemporaryReelVideoCacheUserPreferenceEnabled(
+      isReelSavingModeHydrated ? reelSavingModeEnabled : false,
+    )
+  }, [isReelSavingModeHydrated, reelSavingModeEnabled])
+
+  useEffect(() => {
+    void runReelOfflineStartupMaintenance().catch(() => undefined)
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        void runReelOfflineAppActiveMaintenance().catch(() => undefined)
+        return
+      }
+
+      if (nextState === 'background' || nextState === 'inactive') {
+        void runReelOfflineBackgroundMaintenance().catch(() => undefined)
+      }
+    })
+
+    return () => {
+      subscription.remove()
+    }
+  }, [])
 
   if (!loaded && !error) {
     return null

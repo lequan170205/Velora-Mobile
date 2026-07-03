@@ -6,8 +6,7 @@ import {
   getTemporaryReelVideoCacheStatus,
   subscribeTemporaryReelVideoCacheStatus,
 } from '../lib/offlineReelVideoCache'
-
-import { useIsOnline } from './useIsOnline'
+import { useNetworkStatus } from '../providers/NetworkProvider'
 
 import type {
   TemporaryReelVideoCacheRecord,
@@ -19,18 +18,22 @@ interface UseOfflineReelVideoSourceOptions {
   enabled?: boolean
   preferOffline?: boolean
   cachePriority?: number
+  shouldPrepareOfflineVideo?: boolean
 }
 
 export function useOfflineReelVideoSource(
   reel: Pick<Reel, 'id' | 'streamUrl' | 'thumbnailUrl' | 'localThumbnailUri' | 'status'>,
   options: UseOfflineReelVideoSourceOptions = {},
 ) {
-  const isOnline = useIsOnline()
+  const { isOnline } = useNetworkStatus()
   const [offlineRecord, setOfflineRecord] = useState<TemporaryReelVideoCacheRecord | null>(null)
   const [cacheStatus, setCacheStatus] = useState<TemporaryReelVideoCacheStatus>('NOT_CACHED')
 
   const shouldPrepareOfflineVideo =
-    (options.enabled ?? true) && reel.status === 'COMPLETED' && Boolean(reel.streamUrl)
+    (options.enabled ?? true) &&
+    (options.shouldPrepareOfflineVideo ?? true) &&
+    reel.status === 'COMPLETED' &&
+    Boolean(reel.streamUrl)
 
   useEffect(() => {
     if (!reel.id) {
