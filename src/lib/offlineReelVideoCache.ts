@@ -71,6 +71,7 @@ interface DownloadJob {
   reel: TemporaryReelVideoCacheInput
   priority: number
   maxBytes?: number
+  sessionVersion: number
   addedAt: number
   status: TemporaryReelVideoCacheStatus
   promise: Promise<TemporaryReelVideoCacheRecord | null>
@@ -94,14 +95,21 @@ const MAX_TEMP_VIDEO_CACHE_REELS = 40
 
 const MAX_ACTIVE_REEL_DOWNLOADS = 1
 const SEGMENT_DOWNLOAD_CONCURRENCY = 4
+const INITIAL_FAILED_RETRY_BACKOFF_MS = 30 * 1000
+const REPEATED_FAILED_RETRY_BACKOFF_MS = 2 * 60 * 1000
 
 const downloadJobs = new Map<string, DownloadJob>()
 const statusByReelId = new Map<string, TemporaryReelVideoCacheStatus>()
 const listenersByReelId = new Map<string, Set<(status: TemporaryReelVideoCacheStatus) => void>>()
+const failedDownloadBackoffByReelId = new Map<
+  string,
+  { failureCount: number; retryAfter: number }
+>()
 
 let activeDownloadCount = 0
 let areDownloadsEnabledByLifecycle = true
 let areDownloadsEnabledByPreference = true
+let downloadSessionVersion = 0
 
 const areDownloadsEnabled = () => areDownloadsEnabledByLifecycle && areDownloadsEnabledByPreference
 
@@ -240,6 +248,41 @@ const mergeMaxBytes = (current?: number, next?: number) => {
   }
 
   return typeof next === 'number' ? next : current
+}
+
+const clearFailedDownloadBackoff = (reelId: string) => {
+  failedDownloadBackoffByReelId.delete(reelId)
+}
+
+const recordFailedDownloadBackoff = (reelId: string) => {
+  const previousEntry = failedDownloadBackoffByReelId.get(reelId)
+  const nextFailureCount = (previousEntry?.failureCount ?? 0) + 1
+  const retryDelayMs =
+    nextFailureCount <= 1 ? INITIAL_FAILED_RETRY_BACKOFF_MS : REPEATED_FAILED_RETRY_BACKOFF_MS
+
+  failedDownloadBackoffByReelId.set(reelId, {
+    failureCount: nextFailureCount,
+    retryAfter: Date.now() + retryDelayMs,
+  })
+}
+
+const isFailedDownloadInCooldown = (reelId: string) => {
+  const entry = failedDownloadBackoffByReelId.get(reelId)
+
+  if (!entry) {
+    return false
+  }
+
+  if (entry.retryAfter <= Date.now()) {
+    return false
+  }
+
+  return true
+}
+
+const notifyStoredCacheStatus = async (reelId: string) => {
+  const existingRecord = await findReelVideoCacheRecordByReelId(reelId)
+  notifyCacheStatus(reelId, existingRecord ? 'CACHED' : 'NOT_CACHED')
 }
 
 const cleanupTempDirectories = async () => {
@@ -569,7 +612,8 @@ const downloadThumbnail = async (thumbnailUrl: string | undefined, cacheDir: str
 const downloadReelVideoNow = async (
   reel: TemporaryReelVideoCacheInput,
   options: TemporaryReelVideoCacheCleanupOptions = {},
-): Promise<TemporaryReelVideoCacheRecord> => {
+  sessionVersion: number,
+): Promise<TemporaryReelVideoCacheRecord | null> => {
   ensureCacheDirectoryAvailable()
 
   await ensureDirectory(TEMP_REEL_VIDEO_CACHE_DIR)
@@ -603,6 +647,11 @@ const downloadReelVideoNow = async (
     const manifestBytes = await getFileSize(localManifestUri)
     const thumbnailResult = await downloadThumbnail(reel.thumbnailUrl, tempDir)
 
+    if (sessionVersion !== downloadSessionVersion) {
+      await FileSystem.deleteAsync(tempDir, { idempotent: true }).catch(() => undefined)
+      return null
+    }
+
     await FileSystem.deleteAsync(finalDir, { idempotent: true }).catch(() => undefined)
     await FileSystem.moveAsync({ from: tempDir, to: finalDir })
 
@@ -621,6 +670,11 @@ const downloadReelVideoNow = async (
       lastAccessedAt: downloadedAt,
       segmentCount: resources.length,
       sizeBytes: segmentBytes + manifestBytes + (thumbnailResult?.sizeBytes ?? 0),
+    }
+
+    if (sessionVersion !== downloadSessionVersion) {
+      await FileSystem.deleteAsync(finalDir, { idempotent: true }).catch(() => undefined)
+      return null
     }
 
     await upsertIndexRecord(record, options)
@@ -662,11 +716,24 @@ const runDownloadJob = async (job: DownloadJob) => {
   notifyCacheStatus(job.reel.id, 'DOWNLOADING')
 
   try {
-    const record = await downloadReelVideoNow(job.reel, {
-      ...(typeof job.maxBytes === 'number' ? { maxBytes: job.maxBytes } : {}),
-    })
+    const record = await downloadReelVideoNow(
+      job.reel,
+      {
+        ...(typeof job.maxBytes === 'number' ? { maxBytes: job.maxBytes } : {}),
+      },
+      job.sessionVersion,
+    )
+
+    if (record) {
+      clearFailedDownloadBackoff(job.reel.id)
+      job.resolve(record)
+      return
+    }
+
+    await notifyStoredCacheStatus(job.reel.id)
     job.resolve(record)
   } catch {
+    recordFailedDownloadBackoff(job.reel.id)
     job.resolve(null)
   } finally {
     activeDownloadCount = Math.max(0, activeDownloadCount - 1)
@@ -744,6 +811,10 @@ export const cacheTemporaryReelVideo = async (
     return existingJob.promise
   }
 
+  if (isFailedDownloadInCooldown(reel.id)) {
+    return null
+  }
+
   let resolveJob!: (record: TemporaryReelVideoCacheRecord | null) => void
 
   const promise = new Promise<TemporaryReelVideoCacheRecord | null>((resolve) => {
@@ -754,6 +825,7 @@ export const cacheTemporaryReelVideo = async (
     reel,
     priority: options.priority ?? 50,
     ...(typeof options.maxBytes === 'number' ? { maxBytes: options.maxBytes } : {}),
+    sessionVersion: downloadSessionVersion,
     addedAt: Date.now(),
     status: 'QUEUED',
     promise,
@@ -776,6 +848,29 @@ export const enqueueTemporaryReelVideoCache = (
   }
 
   void cacheTemporaryReelVideo(reel, options).catch(() => null)
+}
+
+export const cancelQueuedTemporaryReelVideoCacheExcept = (allowedReelIds: string[]) => {
+  const allowedReelIdSet = new Set(allowedReelIds)
+  const canceledReelIds: string[] = []
+
+  downloadJobs.forEach((job, reelId) => {
+    if (job.status !== 'QUEUED' || allowedReelIdSet.has(reelId)) {
+      return
+    }
+
+    downloadJobs.delete(reelId)
+    canceledReelIds.push(reelId)
+    job.resolve(null)
+  })
+
+  if (canceledReelIds.length === 0) {
+    return
+  }
+
+  void Promise.all(canceledReelIds.map((reelId) => notifyStoredCacheStatus(reelId))).catch(
+    () => undefined,
+  )
 }
 
 export const warmTemporaryReelVideoCache = (
@@ -834,6 +929,17 @@ export const setTemporaryReelVideoCacheUserPreferenceEnabled = (enabled: boolean
 }
 
 export const clearTemporaryReelVideoCache = async () => {
+  downloadSessionVersion += 1
+  failedDownloadBackoffByReelId.clear()
+
+  const queuedJobs = [...downloadJobs.values()].filter((job) => job.status === 'QUEUED')
+  const queuedReelIds = queuedJobs.map((job) => job.reel.id)
+
+  queuedJobs.forEach((job) => {
+    downloadJobs.delete(job.reel.id)
+    job.resolve(null)
+  })
+
   const records = await getAllReelVideoCacheRecords()
 
   await FileSystem.deleteAsync(TEMP_REEL_VIDEO_CACHE_DIR, { idempotent: true }).catch(
@@ -841,10 +947,7 @@ export const clearTemporaryReelVideoCache = async () => {
   )
   await deleteReelVideoCacheRecords(records)
 
-  records.forEach((record) => {
-    notifyCacheStatus(record.reelId, 'NOT_CACHED')
+  new Set([...records.map((record) => record.reelId), ...queuedReelIds]).forEach((reelId) => {
+    notifyCacheStatus(reelId, 'NOT_CACHED')
   })
-
-  downloadJobs.clear()
-  statusByReelId.clear()
 }

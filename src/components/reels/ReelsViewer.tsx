@@ -23,7 +23,10 @@ import { scheduleOnRN } from 'react-native-worklets'
 
 import { useReelAnalyticsTracker } from '@/hooks/useReelAnalyticsTracker'
 import { useReelSavingMode } from '@/hooks/useReelSavingMode'
-import { getCachedTemporaryReelVideo } from '@/lib/offlineReelVideoCache'
+import {
+  cancelQueuedTemporaryReelVideoCacheExcept,
+  getCachedTemporaryReelVideo,
+} from '@/lib/offlineReelVideoCache'
 import { prefetchReelAssets, prefetchReelsForTemporaryOfflinePlayback } from '@/lib/reel-prefetch'
 import { getReelCachePolicyForNetworkState } from '@/lib/reelCachePolicy'
 import type { InfiniteData } from '@tanstack/react-query'
@@ -483,6 +486,13 @@ export function ReelsViewer({
   }, [isAtOfflineBoundary, resetOfflineBoundaryFeedback])
 
   useEffect(() => {
+    const allowedReelIds =
+      isFocused && isOnline && shouldSaveNearbyReelVideos && reelCachePolicy.shouldCacheVideo
+        ? reelVideoPrefetchPlan.map((reel) => reel.id)
+        : []
+
+    cancelQueuedTemporaryReelVideoCacheExcept(allowedReelIds)
+
     if (!isFocused || activeIndex < 0 || reels.length === 0) {
       return
     }
