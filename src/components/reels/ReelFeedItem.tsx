@@ -19,7 +19,7 @@ import { scheduleOnRN } from 'react-native-worklets'
 
 import { useOfflineReelVideoSource } from '@/hooks/useOfflineReelVideoSource'
 
-import { useReelProcessingStatus, useDeleteReel } from '../../hooks/useReels'
+import { useReelProcessingStatus, useDeleteReel, useReprocessReel } from '../../hooks/useReels'
 import { getInitials } from '../../lib/profile'
 import { useAuthStore } from '../../stores/authStore'
 
@@ -191,6 +191,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
     enabled: enableStatusPolling,
   })
   const deleteReel = useDeleteReel()
+  const reprocessReel = useReprocessReel()
   const displayReel = useMemo<ReelWithLocalThumbnail>(() => {
     const sourceReel = reel as ReelWithLocalThumbnail
     const nextReel: ReelWithLocalThumbnail = {
@@ -800,15 +801,24 @@ const ReelFeedItemComponent = function ReelFeedItem({
                   <Text className="mt-2 text-center text-sm2 leading-5 text-white">
                     {processingMessage || 'Something went wrong while uploading this reel.'}
                   </Text>
-                  <TouchableOpacity
-                    className="mt-4 rounded-full bg-white px-5 py-3"
-                    activeOpacity={0.84}
-                    onPress={() => {
-                      router.push('/reels/create')
-                    }}
-                  >
-                    <Text className="text-center font-medium text-[#17120F]">Try again</Text>
-                  </TouchableOpacity>
+
+                  {canManageReel ? (
+                    <TouchableOpacity
+                      className="mt-4 rounded-full bg-white px-5 py-3"
+                      activeOpacity={0.84}
+                      disabled={reprocessReel.isPending}
+                      onPress={() => {
+                        setHasPlaybackError(false)
+
+                        reprocessReel.mutate(displayReel.id)
+                      }}
+                      style={reprocessReel.isPending ? { opacity: 0.72 } : undefined}
+                    >
+                      <Text className="text-center font-medium text-[#17120F]">
+                        {reprocessReel.isPending ? 'Retrying...' : 'Try again'}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </>
               ) : typeof processingProgress === 'number' ? (
                 <>
