@@ -116,6 +116,7 @@ export const prefetchReelsForTemporaryOfflinePlayback = (
     | undefined
     | null
   )[],
+  options: { maxBytes?: number } = {},
 ) => {
-  warmTemporaryReelVideoCache(reels)
+  warmTemporaryReelVideoCache(reels, options)
 }

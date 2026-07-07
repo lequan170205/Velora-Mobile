@@ -68,4 +68,8 @@ export const reelsApi = {
   delete: async (id: string) => {
     await apiClient.delete(`/content/reels/${id}`)
   },
+  reprocess: async (id: string) => {
+    const response = await apiClient.post<ReelDetail>(`/content/reels/${id}/reprocess`)
+    return response.data
+  },
 }

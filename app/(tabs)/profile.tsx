@@ -17,6 +17,7 @@ import {
   ScrollView,
   Share,
   StyleSheet,
+  Switch,
   Text,
   View,
   useWindowDimensions,
@@ -39,19 +40,30 @@ import { resetLocalDatabase } from '../../src/database/DatabaseManager'
 import { useFriends } from '../../src/hooks/useFriends'
 import { useUpdateAvatar } from '../../src/hooks/useProfile'
 import { useReelsFeed } from '../../src/hooks/useReels'
+import { useReelSavingMode } from '../../src/hooks/useReelSavingMode'
+import { clearTemporaryReelVideoCache } from '../../src/lib/offlineReelVideoCache'
 import { getDisplayName, getInitials, getProfileHandle } from '../../src/lib/profile'
+import { getSavedReelVideoStorageStats } from '../../src/lib/reelVideoStorageStats'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useChatStore } from '../../src/stores/chatStore'
 import { useProfileUiStore } from '../../src/stores/profileUiStore'
 
+import type { SavedReelVideoStorageStats } from '../../src/lib/reelVideoStorageStats'
 import type { FriendSummary } from '../../src/types/friend.types'
 import type { Reel, ReelVisibility } from '../../src/types/reel.types'
 
 const PROFILE_REELS_LIMIT = 24
-type SheetMode = 'settings' | 'clear-cache' | 'clear-local-database' | 'sign-out' | null
+type SheetMode =
+  | 'settings'
+  | 'clear-cache'
+  | 'clear-local-database'
+  | 'clear-saved-reel-data'
+  | 'sign-out'
+  | null
 type DeferredSheetAction =
   | 'clear-cache'
   | 'clear-local-database'
+  | 'clear-saved-reel-data'
   | 'edit-profile'
   | 'sign-out'
   | null
@@ -240,6 +252,39 @@ function SheetActionRow({
   )
 }
 
+function SheetToggleRow({
+  description,
+  icon,
+  label,
+  value,
+  onValueChange,
+}: {
+  label: string
+  description: string
+  icon: keyof typeof MaterialIcons.glyphMap
+  value: boolean
+  onValueChange: (nextValue: boolean) => void
+}) {
+  return (
+    <View className="flex-row items-center rounded-[24px] bg-surface-muted px-4 py-4">
+      <View className="h-12 w-12 items-center justify-center rounded-full bg-white">
+        <MaterialIcons name={icon} size={20} color="#161616" />
+      </View>
+      <View className="ml-3 flex-1 pr-4">
+        <Text className="font-medium text-md text-text-primary">{label}</Text>
+        <Text className="mt-1 text-sm2 text-text-secondary">{description}</Text>
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        thumbColor="#FFFFFF"
+        trackColor={{ false: '#D9D9D9', true: 'rgba(255,107,44,0.72)' }}
+        ios_backgroundColor="#D9D9D9"
+      />
+    </View>
+  )
+}
+
 export default function ProfileScreen() {
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -252,6 +297,7 @@ export default function ProfileScreen() {
 
   const { user, clearAuth } = useAuthStore()
   const { clearCache } = useChatStore()
+  const { reelSavingModeEnabled, setReelSavingModeEnabled } = useReelSavingMode()
   const clearPendingFeedbackMessage = useProfileUiStore(
     (state) => state.clearPendingFeedbackMessage,
   )
@@ -296,7 +342,10 @@ export default function ProfileScreen() {
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
   const [isClearingCache, setIsClearingCache] = useState(false)
   const [isClearingLocalDatabase, setIsClearingLocalDatabase] = useState(false)
+  const [isClearingSavedReelData, setIsClearingSavedReelData] = useState(false)
   const [isSigningOut, setIsSigningOut] = useState(false)
+  const [savedReelVideoStorageStats, setSavedReelVideoStorageStats] =
+    useState<SavedReelVideoStorageStats | null>(null)
   const sheetBackdropOpacity = useSharedValue(0)
   const sheetTranslateY = useSharedValue(48)
   const sheetScale = useSharedValue(0.985)
@@ -323,7 +372,16 @@ export default function ProfileScreen() {
     lastName: user?.lastName,
   })
   const memberSinceLabel = getMemberSince(user?.createdAt)
-  const isSheetBusy = isClearingCache || isClearingLocalDatabase || isSigningOut
+  const isSheetBusy =
+    isClearingCache || isClearingLocalDatabase || isClearingSavedReelData || isSigningOut
+
+  const loadSavedReelVideoStorageStats = useCallback(async () => {
+    const stats = await getSavedReelVideoStorageStats()
+
+    if (isMountedRef.current) {
+      setSavedReelVideoStorageStats(stats)
+    }
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -359,6 +417,14 @@ export default function ProfileScreen() {
       clearPendingFeedbackMessage()
     }, [clearPendingFeedbackMessage, pendingFeedbackMessage]),
   )
+
+  useEffect(() => {
+    if (!isSheetVisible || sheetMode !== 'settings') {
+      return
+    }
+
+    void loadSavedReelVideoStorageStats()
+  }, [isSheetVisible, loadSavedReelVideoStorageStats, sheetMode])
 
   const handleCreateReel = useCallback(() => {
     router.push('/reels/create')
@@ -439,6 +505,30 @@ export default function ProfileScreen() {
         return
       }
 
+      if (action === 'clear-saved-reel-data') {
+        try {
+          await clearTemporaryReelVideoCache()
+
+          if (isMountedRef.current) {
+            setFeedbackMessage('Saved reel data cleared')
+          }
+
+          await loadSavedReelVideoStorageStats()
+        } catch (error) {
+          console.error('[Profile] Failed to clear saved reel data', error)
+
+          if (isMountedRef.current) {
+            setFeedbackMessage('Failed to clear saved reel data')
+          }
+        } finally {
+          if (isMountedRef.current) {
+            setIsClearingSavedReelData(false)
+          }
+        }
+
+        return
+      }
+
       if (action === 'sign-out') {
         try {
           const logoutPromise = authApi.logout().catch((error) => {
@@ -457,7 +547,7 @@ export default function ProfileScreen() {
         }
       }
     },
-    [clearAuth, clearCache, queryClient, router],
+    [clearAuth, clearCache, loadSavedReelVideoStorageStats, queryClient, router],
   )
 
   const closeSheet = useCallback(
@@ -567,6 +657,15 @@ export default function ProfileScreen() {
     closeSheet('clear-local-database')
   }, [closeSheet, isSheetBusy])
 
+  const handleClearSavedReelDataConfirmed = useCallback(() => {
+    if (isSheetBusy) {
+      return
+    }
+
+    setIsClearingSavedReelData(true)
+    closeSheet('clear-saved-reel-data')
+  }, [closeSheet, isSheetBusy])
+
   const handleSignOutConfirmed = useCallback(() => {
     if (isSheetBusy) {
       return
@@ -583,6 +682,11 @@ export default function ProfileScreen() {
   const sheetAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: sheetTranslateY.value }, { scale: sheetScale.value }],
   }))
+
+  const clearSavedReelDataDescription =
+    savedReelVideoStorageStats && savedReelVideoStorageStats.videoCount > 0
+      ? `Removes temporary reel videos stored on this device. Reel videos: ${savedReelVideoStorageStats.sizeLabel}.`
+      : 'Removes temporary reel videos stored on this device.'
 
   const renderReelItem = useCallback(
     ({ item, index }: { item: Reel; index: number }) => {
@@ -1012,6 +1116,29 @@ export default function ProfileScreen() {
 
                   <View className="mt-5">
                     <Text className="mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">
+                      Reels
+                    </Text>
+                    <View className="gap-3">
+                      <SheetToggleRow
+                        icon="play-circle-outline"
+                        label="Reel saving mode"
+                        description="Save nearby reels on this device so they can play when your connection is poor."
+                        value={reelSavingModeEnabled}
+                        onValueChange={setReelSavingModeEnabled}
+                      />
+                      <SheetActionRow
+                        icon="delete-sweep"
+                        label="Clear saved reel data"
+                        description={clearSavedReelDataDescription}
+                        onPress={() => {
+                          setSheetMode('clear-saved-reel-data')
+                        }}
+                      />
+                    </View>
+                  </View>
+
+                  <View className="mt-5">
+                    <Text className="mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">
                       System
                     </Text>
                     <View className="gap-3">
@@ -1139,6 +1266,55 @@ export default function ProfileScreen() {
                     >
                       <Text className="text-center font-medium text-white">
                         {isClearingLocalDatabase ? 'Clearing...' : 'Delete'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </>
+              ) : null}
+
+              {sheetMode === 'clear-saved-reel-data' ? (
+                <>
+                  <View className="mt-3 flex-row items-start justify-between">
+                    <View className="flex-1 pr-4">
+                      <Text className="font-heading text-xl text-text-primary">
+                        Clear saved reel data?
+                      </Text>
+                      <Text className="mt-2 text-base2 leading-6 text-text-secondary">
+                        This removes temporary reel videos stored on this device.
+                      </Text>
+                    </View>
+
+                    <Pressable
+                      className="h-11 w-11 items-center justify-center rounded-full bg-surface-muted"
+                      disabled={isSheetBusy}
+                      onPress={() => {
+                        closeSheet()
+                      }}
+                    >
+                      <MaterialIcons name="close" size={20} color="#161616" />
+                    </Pressable>
+                  </View>
+
+                  <View className="mt-6 flex-row">
+                    <Pressable
+                      className="mr-3 flex-1 rounded-full border border-border-light bg-surface-muted py-3"
+                      disabled={isSheetBusy}
+                      onPress={() => {
+                        setSheetMode('settings')
+                      }}
+                    >
+                      <Text className="text-center font-medium text-text-primary">Back</Text>
+                    </Pressable>
+
+                    <Pressable
+                      className="flex-1 rounded-full bg-brand py-3"
+                      disabled={isSheetBusy}
+                      onPress={() => {
+                        void handleClearSavedReelDataConfirmed()
+                      }}
+                    >
+                      <Text className="text-center font-medium text-white">
+                        {isClearingSavedReelData ? 'Clearing...' : 'Clear'}
                       </Text>
                     </Pressable>
                   </View>

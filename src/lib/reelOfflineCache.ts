@@ -26,7 +26,7 @@ const MAX_CACHE_AGE_MS = 1000 * 60 * 60 * 24 * 7
 
 const getPageAgeMs = (cachedAt: number) => Date.now() - cachedAt
 
-const pruneCachedReelFeedPages = async () => {
+export const pruneCachedReelOfflineMetadata = async () => {
   const now = Date.now()
   const allPages = await getAllCachedReelFeedPages()
   const pagesByFreshness = [...allPages].sort((a, b) => b.cachedAt - a.cachedAt)
@@ -85,7 +85,7 @@ export const cacheReelFeedPage = async (
     }),
   )
 
-  await pruneCachedReelFeedPages()
+  await pruneCachedReelOfflineMetadata()
 }
 
 export const readCachedReelFeedPage = async (
@@ -101,7 +101,7 @@ export const readCachedReelFeedPage = async (
 
   if (getPageAgeMs(page.cachedAt) > MAX_CACHE_AGE_MS) {
     await deleteCachedReelFeedPages([page])
-    void pruneCachedReelFeedPages().catch(() => undefined)
+    void pruneCachedReelOfflineMetadata().catch(() => undefined)
     return null
   }
 

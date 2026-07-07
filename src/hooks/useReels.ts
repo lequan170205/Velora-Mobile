@@ -653,6 +653,44 @@ export function useUpdateReel() {
   })
 }
 
+export function useReprocessReel() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (id: string) => reelsApi.reprocess(id),
+    onSuccess: (reprocessedReel) => {
+      queryClient.setQueryData(queryKeys.reels.detail(reprocessedReel.id), reprocessedReel)
+
+      queryClient.setQueriesData<ReelsInfiniteData>({ queryKey: queryKeys.reels.lists() }, (data) =>
+        updateReelInInfiniteData(data, reprocessedReel),
+      )
+
+      queryClient.setQueriesData<ReelContextData>(
+        { queryKey: queryKeys.reels.contexts() },
+        (data) => updateReelInContextData(data, reprocessedReel),
+      )
+
+      queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(), (current) =>
+        mergePendingCreatedReels(current, reprocessedReel),
+      )
+
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.reels.status(reprocessedReel.id),
+      })
+
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.reels.lists(),
+        refetchType: 'none',
+      })
+
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.reels.contexts(),
+        refetchType: 'none',
+      })
+    },
+  })
+}
+
 export function useShareReel() {
   const queryClient = useQueryClient()
   const currentUser = useAuthStore((state) => state.user)
