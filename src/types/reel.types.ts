@@ -37,6 +37,8 @@ export interface Reel {
   author?: ReelAuthor | null
 }
 
+export type ReelFeedListItem = Reel
+
 export interface ReelDetail extends Reel {
   description?: string
   transcript?: string

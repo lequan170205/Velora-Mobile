@@ -35,6 +35,10 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { OfflineNetworkToggle } from '@/components/dev/OfflineNetworkToggle'
 
 import { authApi } from '../../src/api/auth.api'
+import {
+  ReelThumbnailGridSkeleton,
+  ReelThumbnailTile,
+} from '../../src/components/reels/ReelThumbnailGrid'
 import { queryKeys } from '../../src/constants/queryKeys'
 import { resetLocalDatabase } from '../../src/database/DatabaseManager'
 import { useFriends } from '../../src/hooks/useFriends'
@@ -77,33 +81,6 @@ const getMemberSince = (createdAt?: string) => {
   } catch {
     return 'Recently joined'
   }
-}
-
-const getPlaybackBadge = (status?: string | null) => {
-  const normalized = status?.trim().toLowerCase()
-
-  if (
-    !normalized ||
-    normalized === 'ready' ||
-    normalized === 'completed' ||
-    normalized === 'published'
-  ) {
-    return null
-  }
-
-  if (normalized === 'processing') {
-    return 'Processing'
-  }
-
-  if (normalized === 'pending') {
-    return 'Queued'
-  }
-
-  if (normalized === 'failed') {
-    return 'Unavailable'
-  }
-
-  return null
 }
 
 const isRfcUuid = (value?: string | null) => {
@@ -191,21 +168,7 @@ function EmptyReelsState({
 }
 
 function ReelsLoadingGrid({ tileSize }: { tileSize: number }) {
-  return (
-    <View className="flex-row flex-wrap px-[1px] pt-[2px]">
-      {Array.from({ length: 6 }).map((_, index) => (
-        <View
-          key={`reel-skeleton-${index}`}
-          className="mb-[2px] bg-surface-muted"
-          style={{
-            width: tileSize,
-            height: tileSize,
-            marginRight: (index + 1) % 3 === 0 ? 0 : 2,
-          }}
-        />
-      ))}
-    </View>
-  )
+  return <ReelThumbnailGridSkeleton tileSize={tileSize} />
 }
 
 function SheetActionRow({
@@ -690,54 +653,18 @@ export default function ProfileScreen() {
 
   const renderReelItem = useCallback(
     ({ item, index }: { item: Reel; index: number }) => {
-      const playbackBadge = getPlaybackBadge(item.status)
-      const thumbnailUri = item.thumbnailUrl ?? item.localThumbnailUri
-
       return (
-        <Pressable
-          className="mb-[2px] overflow-hidden bg-surface-muted"
+        <ReelThumbnailTile
+          index={index}
           onPress={() => {
             router.push({
               pathname: '/reels/[id]',
               params: { id: item.id, source: 'profile', returnTo: 'profile' },
             })
           }}
-          style={{
-            width: tileSize,
-            height: tileSize,
-            marginRight: (index + 1) % 3 === 0 ? 0 : 2,
-          }}
-        >
-          {thumbnailUri ? (
-            <Image
-              source={{ uri: thumbnailUri }}
-              style={{ width: '100%', height: '100%' }}
-              contentFit="cover"
-            />
-          ) : (
-            <View className="flex-1 items-center justify-center bg-[#141414]">
-              <MaterialIcons name="play-arrow" size={28} color="#FFFFFF" />
-            </View>
-          )}
-
-          <LinearGradient
-            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.62)']}
-            className="absolute inset-x-0 bottom-0 h-16"
-          />
-
-          <View className="absolute bottom-2 left-2 right-2 flex-row items-end justify-between">
-            <Text className="flex-1 text-xs2 font-medium text-white" numberOfLines={1}>
-              {item.title}
-            </Text>
-            <MaterialIcons name="play-arrow" size={18} color="#FFFFFF" />
-          </View>
-
-          {playbackBadge ? (
-            <View className="absolute left-2 top-2 rounded-full bg-black/58 px-2.5 py-1">
-              <Text className="text-xs2 font-medium text-white">{playbackBadge}</Text>
-            </View>
-          ) : null}
-        </Pressable>
+          reel={item}
+          tileSize={tileSize}
+        />
       )
     },
     [router, tileSize],

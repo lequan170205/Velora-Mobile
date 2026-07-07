@@ -28,6 +28,11 @@ export const queryKeys = {
     detail: (id: string) => ['reels', id] as const,
     status: (id: string) => ['reels', id, 'status'] as const,
   },
+  search: {
+    all: ['search'] as const,
+    global: (q: string, type: 'all' | 'users' | 'reels', limit?: number) =>
+      ['search', 'global', { q, type, limit: limit ?? null }] as const,
+  },
   users: {
     all: ['users'] as const,
     detail: (id: string) => ['users', id] as const,

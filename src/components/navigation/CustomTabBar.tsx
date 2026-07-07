@@ -92,7 +92,7 @@ type TabIconSlotProps = {
 
 const TABS: TabMeta[] = [
   { name: 'index', icon: 'chat-bubble-outline', size: 24 },
-  { name: 'contacts', icon: 'people-outline', size: 26 },
+  { name: 'contacts', icon: 'search', size: 26 },
   { name: 'reels', icon: 'play-circle-outline', size: 26 },
   { name: 'calls', icon: 'call', size: 23 },
   { name: 'profile', icon: 'person-outline', size: 25 },
