@@ -2,10 +2,10 @@ import axios from 'axios'
 import { Platform } from 'react-native'
 
 const getNotificationApiBaseUrl = () => {
-  const baseUrl = process.env.EXPO_PUBLIC_NOTIFICATION_API_URL
+  const baseUrl = process.env.EXPO_PUBLIC_API_URL
 
   if (!baseUrl) {
-    throw new Error('Missing EXPO_PUBLIC_NOTIFICATION_API_URL')
+    throw new Error('Missing EXPO_PUBLIC_API_URL')
   }
 
   return baseUrl.replace(/\/$/, '')
