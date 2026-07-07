@@ -22,7 +22,7 @@ module.exports = {
     ecmaVersion: 2022,
     sourceType: 'module',
     ecmaFeatures: { jsx: true },
-    project: './tsconfig.json',
+    project: './tsconfig.eslint.json',
   },
   rules: {
     // TypeScript
@@ -86,12 +86,20 @@ module.exports = {
     'import/resolver': {
       typescript: {
         alwaysTryTypes: true,
-        project: './tsconfig.json',
+        project: './tsconfig.eslint.json',
       },
       node: {
         extensions: ['.js', '.jsx', '.ts', '.tsx'],
       },
     },
   },
+  overrides: [
+    {
+      files: ['plugins/**/*.js'],
+      rules: {
+        '@typescript-eslint/no-var-requires': 'off',
+      },
+    },
+  ],
   ignorePatterns: ['node_modules/', '.expo/', 'dist/', '*.config.js'],
 }

@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts",
+    "nativewind-env.d.ts",
+    ".eslintrc.js",
+    "babel.config.js",
+    "plugins/**/*.js"
+  ],
+  "exclude": ["node_modules", "android", "ios"]
+}

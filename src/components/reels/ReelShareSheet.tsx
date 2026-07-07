@@ -81,9 +81,14 @@ const getDirectShareTargetUserId = (conversation: Conversation, currentUserId?: 
   )
 }
 
-const isBotParticipant = (participant: { email?: string; id?: string; name?: string }) => {
+const isBotParticipant = (participant: {
+  email?: string
+  fullName?: string
+  id?: string
+  name?: string
+}) => {
   const normalizedEmail = participant.email?.trim().toLowerCase()
-  const normalizedName = participant.name?.trim().toLowerCase()
+  const normalizedName = (participant.name ?? participant.fullName)?.trim().toLowerCase()
 
   return (
     Boolean(BOT_USER_ID && participant.id === BOT_USER_ID) ||
