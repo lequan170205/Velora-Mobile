@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "velora",
+    "name": "veloraDev",
     "slug": "velora-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -20,7 +20,11 @@
         "NSCameraUsageDescription": "Velora uses the camera to record reels.",
         "NSMicrophoneUsageDescription": "Velora uses the microphone to record audio for reels."
       },
-      "bundleIdentifier": "com.quan.velora.dev"
+      "bundleIdentifier": "com.quan.velora.dev",
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "entitlements": {
+        "aps-environment": "development"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -35,9 +39,11 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_MICROPHONE"
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.POST_NOTIFICATIONS"
       ],
-      "package": "com.yourcompany.velora"
+      "package": "com.quan.velora.dev",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "bundler": "metro",
@@ -49,6 +55,8 @@
       "expo-secure-store",
       "expo-font",
       "expo-web-browser",
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging",
       [
         "expo-camera",
         {
@@ -57,6 +65,7 @@
           "recordAudioAndroid": true
         }
       ],
+      "@config-plugins/react-native-webrtc",
       [
         "@react-native-google-signin/google-signin",
         {
@@ -76,6 +85,9 @@
         "expo-build-properties",
         {
           "ios": {
+            "useFrameworks": "static",
+            "buildReactNativeFromSource": false,
+            "forceStaticLinking": ["RNFBApp", "RNFBMessaging"],
             "extraPods": [
               {
                 "name": "simdjson",
