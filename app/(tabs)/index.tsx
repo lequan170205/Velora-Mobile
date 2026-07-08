@@ -49,7 +49,7 @@ function useMatches(conversations: Conversation[] | undefined): MatchSummary[] {
         {
           id: other.id,
           conversationId: conversation.id,
-          name: other.name || other.email?.split('@')[0] || '?',
+          name: other.name || other.fullName || other.email?.split('@')[0] || '?',
           ...(other.picture ? { picture: other.picture } : {}),
         },
       ]
@@ -97,7 +97,11 @@ export default function ConversationsScreen() {
       const otherParticipant = conversation.participants?.find(
         (participant: ChatParticipant) => participant.id !== useAuthStore.getState().user?.id,
       )
-      const otherName = otherParticipant?.name || otherParticipant?.email?.split('@')[0] || ''
+      const otherName =
+        otherParticipant?.name ||
+        otherParticipant?.fullName ||
+        otherParticipant?.email?.split('@')[0] ||
+        ''
 
       return otherName.toLowerCase().includes(normalizedQuery)
     })

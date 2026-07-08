@@ -841,7 +841,7 @@ export default function ChatScreen() {
         (p: ChatParticipant) => p.id !== user?.id,
       )
       if (otherUser) {
-        displayName = otherUser.name || otherUser.email || 'Unknown'
+        displayName = otherUser.name || otherUser.fullName || otherUser.email || 'Unknown'
         avatarUrl = otherUser.picture
         otherUserId = otherUser.id
       }

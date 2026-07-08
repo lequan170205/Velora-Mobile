@@ -3,6 +3,7 @@ import type { UserSummary } from './user.types'
 export interface ChatParticipant {
   id: string
   name?: string
+  fullName?: string
   picture?: string
   email?: string
 }
@@ -51,12 +52,7 @@ export interface ReplyPreviewData {
 export type MessageMediaStatus = 'ready' | 'processing' | 'failed'
 
 export type MessageMediaUploadStage =
-  | 'queued'
-  | 'uploading'
-  | 'syncing'
-  | 'ready'
-  | 'processing'
-  | 'failed'
+  'queued' | 'uploading' | 'syncing' | 'ready' | 'processing' | 'failed'
 
 export interface MessageMedia {
   fileKey?: string

@@ -78,7 +78,7 @@ const ConversationItemComponent = function ConversationItem({
     const otherUser = conversation.participants?.find((participant) => participant.id !== user?.id)
 
     if (otherUser) {
-      displayName = otherUser.name || otherUser.email || 'Unknown'
+      displayName = otherUser.name || otherUser.fullName || otherUser.email || 'Unknown'
       otherUserId = otherUser.id
     }
 

@@ -124,7 +124,7 @@ const collectBootstrapUsers = ({
       toNullableString(participant.email) ??
       existingUser?.email ??
       buildFallbackEmail(participant.id)
-    const fullName = toNullableString(participant.name) ?? existingUser?.fullName ?? null
+    const fullName = toNullableString(participant.fullName) ?? existingUser?.fullName ?? null
     const picture = toNullableString(participant.picture ?? null) ?? existingUser?.picture ?? null
 
     upsertUser({

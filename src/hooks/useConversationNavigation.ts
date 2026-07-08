@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useRouter } from 'expo-router'
+import { usePathname, useRouter } from 'expo-router'
 import { useCallback } from 'react'
 
 import { useNetworkStatus } from '../providers/NetworkProvider'
@@ -17,9 +17,30 @@ const lockConversationNavigation = () => {
   conversationNavigationLockedUntil = Date.now() + CONVERSATION_NAVIGATION_LOCK_MS
 }
 
+const getConversationIdFromPathname = (pathname: string) => {
+  const conversationPrefix = '/conversation/'
+
+  if (!pathname.startsWith(conversationPrefix)) {
+    return null
+  }
+
+  const conversationId = pathname.slice(conversationPrefix.length).split('/')[0]
+
+  try {
+    return decodeURIComponent(conversationId)
+  } catch {
+    return conversationId
+  }
+}
+
 export const navigationBypass = { targetId: null as string | null, timestamp: 0 }
 
+type OpenConversationOptions = {
+  replaceCurrentConversation?: boolean
+}
+
 export function useConversationNavigation() {
+  const pathname = usePathname()
   const router = useRouter()
   const queryClient = useQueryClient()
   const { isNetworkResolved, isOnline } = useNetworkStatus()
@@ -36,8 +57,18 @@ export function useConversationNavigation() {
   )
 
   const openConversation = useCallback(
-    (conversationId: string) => {
-      if (!conversationId || isConversationNavigationLocked()) {
+    (conversationId: string, options?: OpenConversationOptions) => {
+      if (!conversationId) {
+        return false
+      }
+
+      const currentConversationId = getConversationIdFromPathname(pathname)
+
+      if (currentConversationId === conversationId) {
+        return true
+      }
+
+      if (isConversationNavigationLocked()) {
         return false
       }
 
@@ -47,10 +78,15 @@ export function useConversationNavigation() {
       navigationBypass.targetId = conversationId
       navigationBypass.timestamp = Date.now()
 
-      router.push(`/conversation/${conversationId}`)
+      if (options?.replaceCurrentConversation && currentConversationId) {
+        router.replace(`/conversation/${conversationId}`)
+      } else {
+        router.push(`/conversation/${conversationId}`)
+      }
+
       return true
     },
-    [prefetchConversation, router],
+    [pathname, prefetchConversation, router],
   )
 
   const runConversationEntry = useCallback(async <T>(key: string, task: () => Promise<T>) => {
