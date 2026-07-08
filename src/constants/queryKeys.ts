@@ -21,6 +21,8 @@ export const queryKeys = {
     all: ['reels'] as const,
     lists: () => ['reels', 'list'] as const,
     list: (params?: Record<string, unknown>) => ['reels', 'list', params ?? {}] as const,
+    recommended: (params?: Record<string, unknown>) =>
+      ['reels', 'list', 'recommended', params ?? {}] as const,
     contexts: () => ['reels', 'context'] as const,
     context: (id: string, params?: Record<string, unknown>) =>
       ['reels', 'context', id, params ?? {}] as const,

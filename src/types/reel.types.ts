@@ -52,11 +52,19 @@ export interface ListReelsParams {
   ranked?: boolean
 }
 
-export interface ListReelsResponse {
-  items: Reel[]
+export interface PaginatedReels<T> {
+  items: T[]
   nextCursor?: string | null
   fromOfflineCache?: boolean
   cachedAt?: number
+}
+
+export type ListReelsResponse = PaginatedReels<Reel>
+
+export interface RecommendedReelsParams {
+  limit?: number
+  cursor?: string | null
+  excludeRecentlySeen?: boolean
 }
 
 export type ReelContextSource = 'profile'

@@ -16,7 +16,7 @@ import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { friendApi } from '../../src/api/friend.api'
-import { AppTextInput } from '../../src/components/base'
+import { AppSearchBar } from '../../src/components/common/AppSearchBar'
 import { ReelThumbnailGrid } from '../../src/components/reels/ReelThumbnailGrid'
 import { queryKeys } from '../../src/constants/queryKeys'
 import { colors } from '../../src/constants/theme'
@@ -499,7 +499,7 @@ function LoadMoreButton({ isPending, onPress }: { isPending: boolean; onPress: (
   )
 }
 
-export default function ContactsScreen() {
+export default function SearchScreen() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const inputRef = useRef<TextInput | null>(null)
@@ -573,7 +573,7 @@ export default function ContactsScreen() {
               staleTime: 0,
             })
           } catch (error) {
-            console.warn('[Contacts] Failed to refresh conversations cache', error)
+            console.warn('[Search] Failed to refresh conversations cache', error)
             void queryClient.invalidateQueries({
               queryKey: conversationsQueryOptions.queryKey,
             })
@@ -754,28 +754,19 @@ export default function ContactsScreen() {
         contentContainerStyle={{ paddingBottom: 120 }}
       >
         <View className="px-4 pb-1 pt-2">
-          <View className="h-10 flex-row items-center rounded-[20px] bg-surface-input px-3">
-            <MaterialIcons name="search" size={18} color="#8A8379" />
-            <AppTextInput
-              ref={inputRef}
-              className="ml-2 flex-1 text-base text-text-primary"
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search reels, contacts, topics"
-              placeholderTextColor="#9B958C"
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="search"
-            />
-
-            {isSearchTyping ? (
-              <ActivityIndicator color={colors.brand.tertiary} size="small" />
-            ) : normalizedQuery.length > 0 ? (
-              <Pressable className="ml-2" onPress={() => setQuery('')}>
-                <MaterialIcons name="close" size={18} color="#8A8379" />
-              </Pressable>
-            ) : null}
-          </View>
+          <AppSearchBar
+            ref={inputRef}
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search reels, contacts, topics"
+            placeholderTextColor="#9B958C"
+            iconColor="#8A8379"
+            iconPlacement="left"
+            isLoading={isSearchTyping}
+            loadingColor={colors.brand.tertiary}
+            onClear={() => setQuery('')}
+            size="compact"
+          />
 
           <View className="mt-2 flex-row border-b border-border-light">
             <SearchTabButton
@@ -802,6 +793,8 @@ export default function ContactsScreen() {
           </View>
         </View>
 
+        {shouldShowRequestSections ? renderRequestSections() : null}
+
         <SearchResultsPanel
           backendType={backendType}
           debouncedQuery={debouncedQuery}
@@ -813,8 +806,6 @@ export default function ContactsScreen() {
           selectedTab={selectedTab}
           tileSize={tileSize}
         />
-
-        {shouldShowRequestSections ? renderRequestSections() : null}
       </ScrollView>
     </SafeAreaView>
   )

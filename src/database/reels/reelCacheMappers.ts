@@ -10,7 +10,10 @@ import type {
 import type { CachedReelFeedPageModel } from '../models/CachedReelFeedPageModel'
 import type { CachedReelModel } from '../models/CachedReelModel'
 
-export type CacheableFeedParams = Omit<ListReelsParams, 'cursor'>
+export interface CacheableFeedParams extends Omit<ListReelsParams, 'cursor'> {
+  excludeRecentlySeen?: boolean
+  recommended?: boolean
+}
 
 export interface CachedReelInput {
   reelId: string
@@ -86,6 +89,10 @@ export const normalizeFeedParams = (params: CacheableFeedParams = {}) => ({
   ...(params.userId ? { userId: params.userId } : {}),
   ...(params.visibility ? { visibility: params.visibility } : {}),
   ...(params.ranked !== undefined ? { ranked: params.ranked } : {}),
+  ...(params.excludeRecentlySeen !== undefined
+    ? { excludeRecentlySeen: params.excludeRecentlySeen }
+    : {}),
+  ...(params.recommended ? { recommended: true } : {}),
 })
 
 export const serializeAuthor = (author?: ReelAuthor | null) => {
@@ -160,6 +167,9 @@ export const deserializeFeedParams = (paramsJson: string | null): CacheableFeedP
   const userId = toNullableTrimmedString(parsed.userId)
   const visibility = toNullableTrimmedString(parsed.visibility)
   const ranked = typeof parsed.ranked === 'boolean' ? parsed.ranked : undefined
+  const excludeRecentlySeen =
+    typeof parsed.excludeRecentlySeen === 'boolean' ? parsed.excludeRecentlySeen : undefined
+  const recommended = parsed.recommended === true
 
   return normalizeFeedParams({
     ...(limit !== undefined ? { limit } : {}),
@@ -168,6 +178,8 @@ export const deserializeFeedParams = (paramsJson: string | null): CacheableFeedP
       ? { visibility: visibility as ReelVisibility }
       : {}),
     ...(ranked !== undefined ? { ranked } : {}),
+    ...(excludeRecentlySeen !== undefined ? { excludeRecentlySeen } : {}),
+    ...(recommended ? { recommended: true } : {}),
   })
 }
 

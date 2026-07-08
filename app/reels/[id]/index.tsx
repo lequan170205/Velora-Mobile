@@ -11,6 +11,7 @@ import {
   PROFILE_TAB_INDEX,
 } from '../../../src/components/navigation/CustomTabBar'
 import { ReelsViewer } from '../../../src/components/reels/ReelsViewer'
+import { buildSharedReelFromMessage, isSharedReelMessage } from '../../../src/lib/chatReels'
 
 import type { Message } from '../../../src/types/conversation.types'
 import type { Reel } from '../../../src/types/reel.types'
@@ -23,11 +24,6 @@ const getMessageCreatedAtMs = (message: Message) => {
   const createdAtMs = new Date(message.createdAt).getTime()
   return Number.isFinite(createdAtMs) ? createdAtMs : 0
 }
-
-const isReelMessage = (message: Message) =>
-  message.type === 'reel' ||
-  message.media?.mimeType === 'application/vnd.velora.reel' ||
-  Boolean(message.media?.reelId)
 
 const getCachedMessagePages = (
   data: InfiniteData<Message[]> | Message[] | AnchoredMessagesCache | undefined,
@@ -45,60 +41,6 @@ const getCachedMessagePages = (
   }
 
   return Array.isArray(data) ? data : []
-}
-
-const getReelOwnerIdentity = (media: Message['media'], reelId: string) => {
-  const ownerUsername = media?.reelOwnerUsername
-  const normalizedOwnerUsername = ownerUsername?.trim().replace(/^@+/, '')
-  const ownerId =
-    media?.reelOwnerId ??
-    (normalizedOwnerUsername ? `username:${normalizedOwnerUsername}` : `reel:${reelId}`)
-
-  return {
-    ownerId,
-    ownerUsername: normalizedOwnerUsername ?? null,
-  }
-}
-
-const buildReelFromMessage = (message: Message): Reel | null => {
-  const media = message.media
-  const reelId = media?.reelId
-  const streamUrl = media?.fileUrl
-  const hasAuthorMetadata =
-    media?.reelOwnerUsername || media?.reelOwnerId || media?.reelOwnerAvatarUrl
-
-  if (!media || !reelId || !streamUrl) {
-    return null
-  }
-
-  const { ownerId, ownerUsername } = getReelOwnerIdentity(media, reelId)
-
-  return {
-    id: reelId,
-    userId: ownerId,
-    mediaKey: media.fileKey ?? reelId,
-    title: media.reelTitle ?? message.content,
-    ...(media.reelDescription ? { description: media.reelDescription } : {}),
-    tags: [],
-    status: 'COMPLETED',
-    visibility: 'public',
-    viewCount: 0,
-    ...(hasAuthorMetadata
-      ? {
-          author: {
-            id: ownerId,
-            username: ownerUsername,
-            displayName: null,
-            avatarUrl: media.reelOwnerAvatarUrl ?? null,
-            isVerified: null,
-          },
-        }
-      : {}),
-    ...(media.thumbnailKey ? { thumbnailKey: media.thumbnailKey } : {}),
-    ...(media.thumbnailUrl ? { thumbnailUrl: media.thumbnailUrl } : {}),
-    streamUrl,
-    createdAt: message.createdAt,
-  }
 }
 
 export default function ReelContextScreen() {
@@ -136,10 +78,10 @@ export default function ReelContextScreen() {
     const reelsById = new Map<string, Reel>()
 
     messages
-      .filter(isReelMessage)
+      .filter(isSharedReelMessage)
       .sort((left, right) => getMessageCreatedAtMs(left) - getMessageCreatedAtMs(right))
       .forEach((message) => {
-        const reel = buildReelFromMessage(message)
+        const reel = buildSharedReelFromMessage(message)
         if (reel && !reelsById.has(reel.id)) {
           reelsById.set(reel.id, reel)
         }

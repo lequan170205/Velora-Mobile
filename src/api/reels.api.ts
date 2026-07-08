@@ -7,8 +7,11 @@ import type {
   CreateReelShareLinkPayload,
   ListReelsParams,
   ListReelsResponse,
+  PaginatedReels,
   ReelDetail,
   ReelProcessingStatusResponse,
+  RecommendedReelsParams,
+  ReelFeedListItem,
   ReelShareLinkResponse,
   ReelShareResponse,
   ShareReelPayload,
@@ -16,11 +19,22 @@ import type {
   UpdateReelPayload,
 } from '../types/reel.types'
 
+export async function getRecommendedReels(
+  params: RecommendedReelsParams = {},
+): Promise<PaginatedReels<ReelFeedListItem>> {
+  const response = await apiClient.get<PaginatedReels<ReelFeedListItem>>(
+    '/content/reels/recommended',
+    { params },
+  )
+  return response.data
+}
+
 export const reelsApi = {
   list: async (params: ListReelsParams = {}) => {
     const response = await apiClient.get<ListReelsResponse>('/content/reels', { params })
     return response.data
   },
+  getRecommendedReels,
   getById: async (id: string) => {
     const response = await apiClient.get<ReelDetail>(`/content/reels/${id}`)
     return response.data

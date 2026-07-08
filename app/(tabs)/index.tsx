@@ -1,15 +1,14 @@
-import { MaterialIcons } from '@expo/vector-icons'
 import { useIsFocused } from '@react-navigation/native'
 import { useQueryClient } from '@tanstack/react-query'
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Alert, AppState, FlatList, Image, ScrollView, View } from 'react-native'
+import { ActivityIndicator, AppState, FlatList, Image, ScrollView, View } from 'react-native'
 import Animated, { FadeInDown } from 'react-native-reanimated'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
-import { AppPressable, AppText, AppTextInput } from '../../src/components/base'
+import { AppPressable, AppText } from '../../src/components/base'
 import { ConversationItem } from '../../src/components/chat/ConversationItem'
+import { AppSearchBar } from '../../src/components/common/AppSearchBar'
 import { SafeTouchableOpacity } from '../../src/components/common/SafeTouchableOpacity'
-import { useBotChat } from '../../src/hooks/useBotChat'
 import { useConversationNavigation } from '../../src/hooks/useConversationNavigation'
 import { useConversations } from '../../src/hooks/useConversations'
 import {
@@ -61,10 +60,8 @@ export default function ConversationsScreen() {
   const queryClient = useQueryClient()
   const isFocused = useIsFocused()
   const { data: conversations, isLoading, isError, refetch } = useConversations()
-  const { mutateAsync: startBotChat, isPending: isBotLoading } = useBotChat()
   const { isConnected, requestPresence } = useSocket()
-  const { openConversation, prefetchConversation, runConversationEntry } =
-    useConversationNavigation()
+  const { openConversation, prefetchConversation } = useConversationNavigation()
 
   const matches = useMatches(conversations)
 
@@ -72,16 +69,6 @@ export default function ConversationsScreen() {
   const deferredSearchQuery = useDeferredValue(searchQuery)
   const [relativeTimeTick, setRelativeTimeTick] = useState(() => Date.now())
   const warmedConversationSignatureRef = useRef('')
-
-  const handleBotChat = useCallback(() => {
-    void runConversationEntry('bot-conversation', async () => {
-      try {
-        await startBotChat()
-      } catch {
-        Alert.alert('Error', 'Could not open bot conversation. Please try again.')
-      }
-    })
-  }, [runConversationEntry, startBotChat])
 
   const filteredConversations = useMemo(() => {
     if (!conversations) return []
@@ -270,26 +257,10 @@ export default function ConversationsScreen() {
         contentContainerStyle={{ paddingBottom: 120 }}
         ListHeaderComponent={
           <View className="pb-2">
-            <Animated.View
-              entering={SECTION_ENTERING}
-              className="flex-row items-center justify-between px-5 pt-2"
-            >
+            <Animated.View entering={SECTION_ENTERING} className="px-5 pt-2">
               <AppText className="text-[20px] font-bold tracking-[-0.6px] text-brand-dark">
                 VELORA
               </AppText>
-
-              <AppPressable
-                className="h-10 w-10 items-center justify-center rounded-full bg-surface-input"
-                onPress={handleBotChat}
-                activeOpacity={0.82}
-                disabled={isBotLoading}
-              >
-                {isBotLoading ? (
-                  <ActivityIndicator color="#FF6B2C" size="small" />
-                ) : (
-                  <MaterialIcons name="smart-toy" size={20} color="#161616" />
-                )}
-              </AppPressable>
             </Animated.View>
 
             {matches.length > 0 ? (
@@ -339,16 +310,12 @@ export default function ConversationsScreen() {
             ) : null}
 
             <Animated.View entering={SECTION_ENTERING.delay(80)} className="px-5 pt-5">
-              <View className="flex-row items-center rounded-full bg-surface-input px-4 py-3.5">
-                <AppTextInput
-                  className="flex-1 text-base text-text-primary"
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  placeholder="Search"
-                  placeholderTextColor="#A6A6A6"
-                />
-                <MaterialIcons name="search" size={20} color="#A6A6A6" />
-              </View>
+              <AppSearchBar
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Search"
+                placeholderTextColor="#A6A6A6"
+              />
             </Animated.View>
 
             <Animated.View entering={SECTION_ENTERING.delay(120)} className="pt-6">

@@ -19,7 +19,13 @@ import { scheduleOnRN } from 'react-native-worklets'
 
 import { useOfflineReelVideoSource } from '@/hooks/useOfflineReelVideoSource'
 
-import { useReelProcessingStatus, useDeleteReel, useReprocessReel } from '../../hooks/useReels'
+import {
+  useReelDetail,
+  useReelProcessingStatus,
+  useDeleteReel,
+  useReprocessReel,
+} from '../../hooks/useReels'
+import { CHAT_SHARED_REEL_FALLBACK_ID_PREFIX } from '../../lib/chatReels'
 import { getInitials } from '../../lib/profile'
 import { useAuthStore } from '../../stores/authStore'
 
@@ -53,6 +59,7 @@ type ReelWithLocalThumbnail = Reel & {
 }
 
 const SCRUBBER_TOUCH_ZONE_HEIGHT = 40
+const METADATA_GAP_ABOVE_SCRUB_RAIL = 34
 const TIMELINE_ACTIVE_HEIGHT = 10
 const TIMELINE_CHIP_WIDTH = 74
 const TIMELINE_CHIP_BOTTOM_OFFSET = 4
@@ -190,6 +197,15 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const { data: processingStatus } = useReelProcessingStatus(reel, {
     enabled: enableStatusPolling,
   })
+  const shouldFetchReelDetail =
+    !reel.id.startsWith(CHAT_SHARED_REEL_FALLBACK_ID_PREFIX) &&
+    (!reel.author?.username ||
+      !reel.author?.avatarUrl ||
+      reel.tags.length === 0 ||
+      !reel.description?.trim())
+  const { data: reelDetail } = useReelDetail(reel.id, {
+    enabled: shouldFetchReelDetail,
+  })
   const deleteReel = useDeleteReel()
   const reprocessReel = useReprocessReel()
   const displayReel = useMemo<ReelWithLocalThumbnail>(() => {
@@ -234,8 +250,31 @@ const ReelFeedItemComponent = function ReelFeedItem({
       nextReel.processingProgress = progress
     }
 
+    if (reelDetail?.title?.trim()) {
+      nextReel.title = reelDetail.title
+    }
+
+    if (reelDetail?.description?.trim()) {
+      nextReel.description = reelDetail.description
+    }
+
+    if (reelDetail?.tags.length) {
+      nextReel.tags = reelDetail.tags
+    }
+
+    if (reelDetail?.author) {
+      nextReel.author = {
+        ...(nextReel.author ?? {}),
+        ...reelDetail.author,
+      }
+    }
+
+    if (reelDetail?.thumbnailUrl) {
+      nextReel.thumbnailUrl = reelDetail.thumbnailUrl
+    }
+
     return nextReel
-  }, [processingStatus, reel])
+  }, [processingStatus, reel, reelDetail])
   const offlineVideoSource = useOfflineReelVideoSource(displayReel, {
     enabled: shouldWarmVideo,
     shouldPrepareOfflineVideo: typeof offlineVideoCachePriority === 'number',
@@ -253,7 +292,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
     () => getPlaybackState(displayReel.status, offlineVideoSource.uri),
     [displayReel.status, offlineVideoSource.uri],
   )
-  const descriptionText = description?.trim()
+  const descriptionText = displayReel.description?.trim() || description?.trim()
   const titleText = displayReel.title?.trim()
   const metaLine = getCreatedAtLabel(displayReel.createdAt)
   const effectiveAuthor =
@@ -275,6 +314,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
     authorHandle && normalizeAuthorLabel(authorNameLine) !== normalizeAuthorLabel(authorHandle)
       ? `@${authorHandle}`
       : null
+  const canOpenAuthorProfile = Boolean(authorHandle) || displayReel.userId === user?.id
   const captionText = hideCaption ? '' : descriptionText || titleText || 'Shared a new reel.'
   const hashtagLine = hideCaption
     ? ''
@@ -302,7 +342,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const bufferedRatio = durationSeconds > 0 ? clamp(bufferedPosition / durationSeconds, 0, 1) : 0
   const safeBottomContentInset = Math.max(0, bottomContentInset)
   const scrubRailBottom = safeBottomContentInset
-  const metadataBottom = safeBottomContentInset + SCRUBBER_TOUCH_ZONE_HEIGHT + 14
+  const metadataBottom = safeBottomContentInset + METADATA_GAP_ABOVE_SCRUB_RAIL
   const timelineLabel = formatPlaybackTime(timelinePosition)
   const timelineChipWidth = TIMELINE_CHIP_WIDTH
   const processingMessage = displayReel.message ?? displayReel.processingMessage
@@ -322,6 +362,17 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const triggerScrubSettleHaptic = useCallback(() => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
   }, [])
+
+  const handleAuthorPress = useCallback(() => {
+    if (displayReel.userId === user?.id) {
+      router.push('/profile')
+      return
+    }
+
+    if (authorHandle) {
+      router.push(`/users/${authorHandle}`)
+    }
+  }, [authorHandle, displayReel.userId, router, user?.id])
 
   const handleProgress = ({
     bufferedPosition: nextBufferedPosition,
@@ -855,7 +906,11 @@ const ReelFeedItemComponent = function ReelFeedItem({
           <View className="px-4">
             <View className="flex-row items-start">
               <View className="max-w-[78%] flex-1 flex-row items-start">
-                <View>
+                <TouchableOpacity
+                  activeOpacity={0.84}
+                  disabled={!canOpenAuthorProfile}
+                  onPress={handleAuthorPress}
+                >
                   {effectiveAuthor?.avatarUrl ? (
                     <Image
                       source={{ uri: effectiveAuthor.avatarUrl }}
@@ -872,7 +927,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                       <Text className="font-heading text-sm text-white">{avatarInitials}</Text>
                     </View>
                   )}
-                </View>
+                </TouchableOpacity>
 
                 <View className="ml-3 flex-1">
                   <View className="min-w-0 flex-row items-center">

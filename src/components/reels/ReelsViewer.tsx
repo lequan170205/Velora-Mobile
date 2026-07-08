@@ -4,8 +4,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { InteractionManager, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import PagerView from 'react-native-pager-view'
 import Animated, {
@@ -34,7 +34,7 @@ import type { InfiniteData } from '@tanstack/react-query'
 import { reelsApi } from '../../api/reels.api'
 import { queryKeys } from '../../constants/queryKeys'
 import { DEFAULT_REELS_LIMIT } from '../../constants/reels'
-import { useReelContext, useReelsFeed } from '../../hooks/useReels'
+import { useRecommendedReelsFeed, useReelContext } from '../../hooks/useReels'
 import { useNetworkStatus } from '../../providers/NetworkProvider'
 
 import { ReelFeedItem } from './ReelFeedItem'
@@ -178,7 +178,11 @@ export function ReelsViewer({
   const shouldAllowRefresh = mode === 'public'
 
   const publicReelsQueryKey = useMemo(
-    () => queryKeys.reels.list({ limit: DEFAULT_REELS_LIMIT, visibility: 'public', ranked: true }),
+    () =>
+      queryKeys.reels.recommended({
+        limit: DEFAULT_REELS_LIMIT,
+        excludeRecentlySeen: true,
+      }),
     [],
   )
 
@@ -191,18 +195,26 @@ export function ReelsViewer({
   }, [])
 
   const {
-    data,
-    isPending,
-    isError,
-    error,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    isRefetching,
-  } = useReelsFeed(
-    { limit: DEFAULT_REELS_LIMIT, visibility: 'public', ranked: true },
-    { enabled: shouldLoadPublicFeed },
-  )
+    data: recommendedData,
+    isPending: isRecommendedPending,
+    isError: isRecommendedError,
+    error: recommendedError,
+    fetchNextPage: fetchRecommendedNextPage,
+    hasNextPage: hasRecommendedNextPage,
+    isFetchingNextPage: isFetchingRecommendedNextPage,
+    isRefetching: isRefetchingRecommended,
+  } = useRecommendedReelsFeed({
+    limit: DEFAULT_REELS_LIMIT,
+    enabled: shouldLoadPublicFeed,
+  })
+  const publicFeedData = recommendedData
+  const isPublicFeedPending = isRecommendedPending
+  const isPublicFeedError = isRecommendedError
+  const publicFeedError = recommendedError
+  const fetchPublicNextPage = fetchRecommendedNextPage
+  const hasPublicNextPage = hasRecommendedNextPage
+  const isFetchingPublicNextPage = isFetchingRecommendedNextPage
+  const isRefetchingPublicFeed = isRefetchingRecommended
 
   const {
     data: reelContext,
@@ -246,12 +258,14 @@ export function ReelsViewer({
     }
 
     return (
-      data?.pages.flatMap((page) => page.items).filter((item) => !deletedReelIds.has(item.id)) ?? []
+      publicFeedData?.pages
+        .flatMap((page) => page.items)
+        .filter((item) => !deletedReelIds.has(item.id)) ?? []
     )
   }, [
     contextExtraItems,
     contextItems,
-    data,
+    publicFeedData,
     deletedReelIds,
     reelContext,
     shouldUseLocalContext,
@@ -501,24 +515,30 @@ export function ReelsViewer({
       return
     }
 
-    reelVideoPrefetchPlan.forEach((reel) => {
-      void prefetchReelAssets(reel)
+    const interactionTask = InteractionManager.runAfterInteractions(() => {
+      reelVideoPrefetchPlan.forEach((reel) => {
+        void prefetchReelAssets(reel)
+      })
+
+      if (
+        !shouldSaveNearbyReelVideos ||
+        !reelCachePolicy.shouldCacheVideo ||
+        reelVideoPrefetchPlan.length === 0
+      ) {
+        return
+      }
+
+      prefetchReelsForTemporaryOfflinePlayback(
+        reelVideoPrefetchPlan,
+        ...(typeof reelCachePolicy.maxVideoCacheBytes === 'number'
+          ? [{ maxBytes: reelCachePolicy.maxVideoCacheBytes }]
+          : []),
+      )
     })
 
-    if (
-      !shouldSaveNearbyReelVideos ||
-      !reelCachePolicy.shouldCacheVideo ||
-      reelVideoPrefetchPlan.length === 0
-    ) {
-      return
+    return () => {
+      interactionTask.cancel()
     }
-
-    prefetchReelsForTemporaryOfflinePlayback(
-      reelVideoPrefetchPlan,
-      ...(typeof reelCachePolicy.maxVideoCacheBytes === 'number'
-        ? [{ maxBytes: reelCachePolicy.maxVideoCacheBytes }]
-        : []),
-    )
   }, [
     activeIndex,
     isFocused,
@@ -530,10 +550,10 @@ export function ReelsViewer({
     shouldSaveNearbyReelVideos,
   ])
 
-  const isInitialLoading = shouldFetchReelContext ? isContextPending : isPending
-  const isActiveError = shouldFetchReelContext ? isContextError : isError
+  const isInitialLoading = shouldFetchReelContext ? isContextPending : isPublicFeedPending
+  const isActiveError = shouldFetchReelContext ? isContextError : isPublicFeedError
   const isShowingOfflineCache =
-    !shouldFetchReelContext && Boolean(data?.pages.some((page) => page.fromOfflineCache))
+    !shouldFetchReelContext && Boolean(publicFeedData?.pages.some((page) => page.fromOfflineCache))
 
   const pullRefreshContainerStyle = useAnimatedStyle(() => {
     const opacity = interpolate(pullProgress.value, [0, 0.22, 1], [0, 1, 1], Extrapolation.CLAMP)
@@ -733,7 +753,7 @@ export function ReelsViewer({
     setActiveByIndex(currentPageIndexRef.current)
   }, [effectiveActiveReelId, reels, setActiveByIndex])
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const wasFocused = wasFocusedRef.current
     wasFocusedRef.current = isFocused
 
@@ -752,12 +772,18 @@ export function ReelsViewer({
 
     currentPageIndexRef.current = safeIndex
 
-    requestAnimationFrame(() => {
-      pagerRef.current?.setPageWithoutAnimation(safeIndex)
+    const interactionTask = InteractionManager.runAfterInteractions(() => {
+      requestAnimationFrame(() => {
+        pagerRef.current?.setPageWithoutAnimation(safeIndex)
+      })
     })
+
+    return () => {
+      interactionTask.cancel()
+    }
   }, [isFocused])
 
-  const activeError = shouldFetchReelContext ? contextError : error
+  const activeError = shouldFetchReelContext ? contextError : publicFeedError
   const errorMessage =
     (activeError as (Error & { response?: { data?: { message?: string } } }) | null)?.response?.data
       ?.message ||
@@ -842,8 +868,8 @@ export function ReelsViewer({
         return
       }
 
-      if (shouldLoadPublicFeed && hasNextPage && !isFetchingNextPage) {
-        void fetchNextPage()
+      if (shouldLoadPublicFeed && hasPublicNextPage && !isFetchingPublicNextPage) {
+        void fetchPublicNextPage()
         return
       }
 
@@ -859,10 +885,10 @@ export function ReelsViewer({
     [
       contextNextCursor,
       fetchNextContextPage,
-      fetchNextPage,
-      hasNextPage,
+      fetchPublicNextPage,
+      hasPublicNextPage,
       isFetchingContextNextPage,
-      isFetchingNextPage,
+      isFetchingPublicNextPage,
       reels.length,
       shouldLoadPublicFeed,
       shouldUseLocalContext,
@@ -881,7 +907,7 @@ export function ReelsViewer({
   )
 
   const handleRefresh = useCallback(async () => {
-    if (!shouldAllowRefresh || isManualRefreshing || isRefetching) {
+    if (!shouldAllowRefresh || isManualRefreshing || isRefetchingPublicFeed) {
       return
     }
 
@@ -895,10 +921,9 @@ export function ReelsViewer({
       handledRequestedReelIdRef.current = null
       currentPageIndexRef.current = 0
 
-      const freshPage = await reelsApi.list({
+      const freshPage = await reelsApi.getRecommendedReels({
         limit: DEFAULT_REELS_LIMIT,
-        visibility: 'public',
-        ranked: true,
+        excludeRecentlySeen: true,
       })
 
       queryClient.setQueryData<InfiniteData<ListReelsResponse, string | undefined>>(
@@ -930,7 +955,7 @@ export function ReelsViewer({
     endCurrentReelSession,
     flushReelEvents,
     isManualRefreshing,
-    isRefetching,
+    isRefetchingPublicFeed,
     publicReelsQueryKey,
     queryClient,
     shouldAllowRefresh,
@@ -946,7 +971,7 @@ export function ReelsViewer({
             activeIndex <= 0 &&
             !isTimelineInteracting &&
             !isManualRefreshing &&
-            !isRefetching,
+            !isRefetchingPublicFeed,
         )
         .activeOffsetY([-100000, 22])
         .failOffsetX([-36, 36])
@@ -983,7 +1008,7 @@ export function ReelsViewer({
       handleRefresh,
       isFocused,
       isManualRefreshing,
-      isRefetching,
+      isRefetchingPublicFeed,
       isTimelineInteracting,
       pullProgress,
       reels.length,
@@ -1000,7 +1025,7 @@ export function ReelsViewer({
             isAtOfflineBoundary &&
             !isTimelineInteracting &&
             !isManualRefreshing &&
-            !isRefetching,
+            !isRefetchingPublicFeed,
         )
         .activeOffsetY([-22, 100000])
         .failOffsetX([-36, 36])
@@ -1052,7 +1077,7 @@ export function ReelsViewer({
       isAtOfflineBoundary,
       isFocused,
       isManualRefreshing,
-      isRefetching,
+      isRefetchingPublicFeed,
       isTimelineInteracting,
       offlineBoundaryLoading,
       offlineBoundaryProgress,

@@ -24,6 +24,7 @@ import {
   getResolvedMediaPosterUri,
   getResolvedMediaUri,
 } from '../../lib/chatMedia'
+import { getSharedReelRouteId, isSharedReelMessage } from '../../lib/chatReels'
 import { cn } from '../../lib/cn'
 import {
   getPreferredReelReplyPreviewContent,
@@ -163,14 +164,34 @@ const getReplyPreviewMeta = ({
   if (!normalizedReplyPreview) return null
 
   if (typeof normalizedReplyPreview === 'string') {
+    const inferredType =
+      replyTo?.type === 'image' || replyTo?.type === 'video' || replyTo?.type === 'reel'
+        ? replyTo.type
+        : 'text'
+    const normalizedContent = normalizeReplyPreviewContent(normalizedReplyPreview)
+    const contentLabel =
+      inferredType === 'reel'
+        ? getPreferredReelReplyPreviewContent({
+            content: normalizedReplyPreview,
+            reelTitle: replyTo?.media?.reelTitle,
+          })
+        : inferredType === 'text'
+          ? normalizedContent || RECALLED_PREVIEW_TEXT
+          : URI_LIKE_PATTERN.test(normalizedContent) || !normalizedContent
+            ? REPLY_PREVIEW_FALLBACK_LABELS[inferredType]
+            : normalizedContent
+    const senderLabel =
+      currentUserId && replyTo?.senderId === currentUserId
+        ? 'You'
+        : replyTo?.sender?.email?.split('@')[0] || 'Original message'
+
     return {
-      senderLabel: 'Original message',
-      contentLabel: normalizeReplyPreviewContent(normalizedReplyPreview) || RECALLED_PREVIEW_TEXT,
-      iconName: REPLY_PREVIEW_ICONS.text,
-      mediaWidth: null,
-      mediaHeight: null,
-      thumbnailUri: null,
-      type: 'text' as const,
+      senderLabel,
+      contentLabel,
+      iconName: REPLY_PREVIEW_ICONS[inferredType],
+      ...getReplyPreviewMediaSize(normalizedReplyPreview, replyTo),
+      thumbnailUri: getReplyPreviewThumbnailUri(normalizedReplyPreview, replyTo),
+      type: inferredType,
     }
   }
 
@@ -300,6 +321,12 @@ const areMediaEqual = (left?: Message['media'], right?: Message['media']) => {
     left.durationMs === right.durationMs &&
     left.status === right.status &&
     left.failureReason === right.failureReason &&
+    left.reelId === right.reelId &&
+    left.reelOwnerId === right.reelOwnerId &&
+    left.reelOwnerUsername === right.reelOwnerUsername &&
+    left.reelOwnerAvatarUrl === right.reelOwnerAvatarUrl &&
+    left.reelTitle === right.reelTitle &&
+    left.reelDescription === right.reelDescription &&
     left.localFileUri === right.localFileUri &&
     left.localPosterUri === right.localPosterUri &&
     left.displayWidth === right.displayWidth &&
@@ -412,10 +439,7 @@ const MessageBubbleComponent = function MessageBubble({
     })
   }, [primaryMetaProgress, primaryMetaVisible])
 
-  const isReel =
-    message.type === 'reel' ||
-    message.media?.mimeType === 'application/vnd.velora.reel' ||
-    Boolean(message.media?.reelId)
+  const isReel = isSharedReelMessage(message)
   const isRecalled = message.isRecalled === true || message.is_recalled === true
   const isMedia = message.type === 'image' || message.type === 'video'
   const shouldRenderMediaBubble = isMedia && !isRecalled
@@ -712,21 +736,25 @@ const MessageBubbleComponent = function MessageBubble({
     () => getSenderDisplayName({ isOwn, senderInfo }),
     [isOwn, senderInfo],
   )
-  const reelId = message.media?.reelId
+  const canonicalReelId = message.media?.reelId?.trim() || null
+  const resolvedReelRouteId = getSharedReelRouteId(message)
   const shouldFetchReelDetail =
     isReel &&
-    Boolean(reelId) &&
+    Boolean(canonicalReelId) &&
     !message.media?.reelOwnerUsername &&
     !message.media?.reelOwnerAvatarUrl
-  const { data: reelDetail } = useReelDetail(reelId, { enabled: shouldFetchReelDetail })
-  const reelThumbnailUri = message.media?.thumbnailUrl
+  const { data: reelDetail } = useReelDetail(canonicalReelId ?? undefined, {
+    enabled: shouldFetchReelDetail,
+  })
+  const reelThumbnailUri = message.media?.thumbnailUrl || reelDetail?.thumbnailUrl || null
   const reelCreatorUsername = (message.media?.reelOwnerUsername ?? reelDetail?.author?.username)
     ?.trim()
     .replace(/^@+/, '')
   const reelCreatorDisplayName = reelDetail?.author?.displayName?.trim()
+  const reelCreatorFallbackLabel = reelCreatorDisplayName || 'Creator'
   const reelCreatorLabel = reelCreatorUsername
     ? `@${reelCreatorUsername}`
-    : reelCreatorDisplayName || message.media?.reelTitle?.trim() || 'Reel'
+    : reelCreatorFallbackLabel
   const reelCreatorAvatarUri =
     message.media?.reelOwnerAvatarUrl || reelDetail?.author?.avatarUrl || null
   const hasReelCreatorIdentity = Boolean(
@@ -736,7 +764,7 @@ const MessageBubbleComponent = function MessageBubble({
   const reelCardWidth = Math.max(196, Math.min(Math.floor(screenWidth * 0.58), 238))
   const reelCardHeight = Math.round(reelCardWidth * 1.38)
   const handleOpenReel = useCallback(() => {
-    if (!reelId) {
+    if (!resolvedReelRouteId) {
       return
     }
 
@@ -744,12 +772,12 @@ const MessageBubbleComponent = function MessageBubble({
       pathname: '/reels/[id]',
       params: {
         conversationId: resolvedConversationId,
-        id: reelId,
+        id: resolvedReelRouteId,
         returnTo: 'conversation',
         source: 'chat',
       },
     })
-  }, [reelId, resolvedConversationId, router])
+  }, [resolvedConversationId, resolvedReelRouteId, router])
   const hasReactions = Object.keys(reactionSummary).length > 0
   const bubbleClassName = useMemo(
     () =>
@@ -814,22 +842,7 @@ const MessageBubbleComponent = function MessageBubble({
     swipeOffsetX,
     timestampRevealGesture,
   ])
-  const reelTapGesture = useMemo(
-    () =>
-      Gesture.Tap()
-        .enabled(isReel && !isRecalled && Boolean(reelId))
-        .maxDistance(8)
-        .onEnd((_, success) => {
-          if (success) {
-            scheduleOnRN(handleOpenReel)
-          }
-        }),
-    [handleOpenReel, isRecalled, isReel, reelId],
-  )
-  const contentGesture = useMemo(
-    () => (isReel ? Gesture.Simultaneous(swipeGesture, reelTapGesture) : swipeGesture),
-    [isReel, reelTapGesture, swipeGesture],
-  )
+  const contentGesture = swipeGesture
 
   return (
     <View className={cn('w-full px-4', isGroupedBottom ? 'mb-[2px]' : 'mb-3')}>
@@ -876,12 +889,82 @@ const MessageBubbleComponent = function MessageBubble({
                       >
                         {replyPreviewMeta.contentLabel}
                       </Text>
+                    ) : replyPreviewMeta.type === 'reel' ? (
+                      <View className="flex-row items-center">
+                        {resolvedReplyPreviewThumbnailUri ? (
+                          <View
+                            style={{
+                              width: 38,
+                              height: 52,
+                              borderRadius: 12,
+                              overflow: 'hidden',
+                              backgroundColor: '#111111',
+                              marginRight: 10,
+                            }}
+                          >
+                            <Image
+                              source={{ uri: resolvedReplyPreviewThumbnailUri }}
+                              resizeMode="cover"
+                              style={{ width: 38, height: 52 }}
+                            />
+                            <View
+                              pointerEvents="none"
+                              style={{
+                                position: 'absolute',
+                                left: 0,
+                                right: 0,
+                                top: 0,
+                                bottom: 0,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: 'rgba(0,0,0,0.18)',
+                              }}
+                            >
+                              <MaterialIcons name="play-arrow" size={18} color="#FFFFFF" />
+                            </View>
+                          </View>
+                        ) : (
+                          <View
+                            style={{
+                              width: 38,
+                              height: 52,
+                              borderRadius: 12,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              backgroundColor: '#111111',
+                              marginRight: 10,
+                              overflow: 'hidden',
+                            }}
+                          >
+                            <MaterialIcons name="play-arrow" size={18} color="#FFFFFF" />
+                          </View>
+                        )}
+
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={{
+                              fontSize: 12,
+                              fontWeight: '700',
+                              color: '#161616',
+                              marginBottom: 2,
+                            }}
+                            numberOfLines={1}
+                          >
+                            {replyPreviewMeta.senderLabel}
+                          </Text>
+                          <Text
+                            style={{ fontSize: 13, color: '#777777', lineHeight: 17 }}
+                            numberOfLines={1}
+                          >
+                            {replyPreviewMeta.contentLabel}
+                          </Text>
+                        </View>
+                      </View>
                     ) : (
                       <View>
                         {((resolvedReplyPreviewThumbnailUri &&
                           (replyPreviewMeta.type === 'image' ||
-                            replyPreviewMeta.type === 'video' ||
-                            replyPreviewMeta.type === 'reel')) ||
+                            replyPreviewMeta.type === 'video')) ||
                           (replyPreviewMeta.type === 'video' && repliedVideoUri)) &&
                         replyPreviewMediaSize ? (
                           <View
@@ -891,10 +974,7 @@ const MessageBubbleComponent = function MessageBubble({
                               borderRadius: 16,
                               overflow: 'hidden',
                               backgroundColor:
-                                replyPreviewMeta.type === 'video' ||
-                                replyPreviewMeta.type === 'reel'
-                                  ? '#111111'
-                                  : '#EFEFEF',
+                                replyPreviewMeta.type === 'video' ? '#111111' : '#EFEFEF',
                               alignSelf: 'flex-start',
                             }}
                           >
@@ -921,11 +1001,10 @@ const MessageBubbleComponent = function MessageBubble({
                                   width: replyPreviewMediaSize.displayWidth,
                                   height: replyPreviewMediaSize.displayHeight,
                                 }}
-                                resizeMode={replyPreviewMeta.type === 'reel' ? 'cover' : 'contain'}
+                                resizeMode="contain"
                               />
                             ) : null}
-                            {replyPreviewMeta.type === 'video' ||
-                            replyPreviewMeta.type === 'reel' ? (
+                            {replyPreviewMeta.type === 'video' ? (
                               <View
                                 pointerEvents="none"
                                 style={{
@@ -1007,6 +1086,11 @@ const MessageBubbleComponent = function MessageBubble({
                         </Animated.View>
 
                         <Pressable
+                          {...(isReel && !isRecalled && resolvedReelRouteId
+                            ? {
+                                onPress: handleOpenReel,
+                              }
+                            : null)}
                           {...(!isRecalled
                             ? {
                                 onPressIn: handlePressIn,
@@ -1050,7 +1134,6 @@ const MessageBubbleComponent = function MessageBubble({
                                 <View
                                   pointerEvents="none"
                                   className="absolute inset-x-0 top-0 flex-row items-center px-3 py-3"
-                                  style={{ backgroundColor: 'rgba(0,0,0,0.18)' }}
                                 >
                                   {reelCreatorAvatarUri ? (
                                     <Image

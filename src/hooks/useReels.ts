@@ -16,6 +16,7 @@ import {
 } from '../lib/chatMessageCache'
 import { useAuthStore } from '../stores/authStore'
 
+import type { CacheableFeedParams } from '../database/reels/reelCacheMappers'
 import type { Conversation, Message } from '../types/conversation.types'
 import type {
   AllowedVideoType,
@@ -26,6 +27,7 @@ import type {
   Reel,
   ReelDetail,
   ReelProcessingStatusResponse,
+  RecommendedReelsParams,
   ReelShareResponse,
   ReelVisibility,
   ShareReelPayload,
@@ -220,13 +222,15 @@ const removeReelFromContextData = (
 }
 
 const getListParamsFromQueryKey = (queryKey: QueryKey): Partial<ListReelsParams> => {
-  const params = queryKey[2]
+  for (let index = queryKey.length - 1; index >= 0; index -= 1) {
+    const params = queryKey[index]
 
-  if (!params || typeof params !== 'object' || Array.isArray(params)) {
-    return {}
+    if (params && typeof params === 'object' && !Array.isArray(params)) {
+      return params as Partial<ListReelsParams>
+    }
   }
 
-  return params as Partial<ListReelsParams>
+  return {}
 }
 
 const shouldUpsertCreatedReelIntoList = (reel: Reel, params: Partial<ListReelsParams>) => {
@@ -407,10 +411,67 @@ const normalizeListParams = (params: Omit<ListReelsParams, 'cursor'> = {}) => ({
   ...(params.ranked !== undefined ? { ranked: params.ranked } : {}),
 })
 
+const normalizeRecommendedParams = (
+  params: Pick<RecommendedReelsParams, 'excludeRecentlySeen' | 'limit'> = {},
+) => ({
+  limit: params.limit ?? DEFAULT_REELS_LIMIT,
+  excludeRecentlySeen: params.excludeRecentlySeen ?? true,
+})
+
 const normalizeContextParams = (params: ReelContextParams = {}) => ({
   source: params.source ?? 'profile',
   before: params.before ?? Math.max(1, DEFAULT_REELS_LIMIT - 1),
   after: params.after ?? Math.max(1, DEFAULT_REELS_LIMIT - 1),
+})
+
+const createInfiniteReelsFeedQueryOptions = ({
+  cacheParams,
+  enabled,
+  fetchPage,
+  queryClient,
+  queryKey,
+}: {
+  cacheParams: CacheableFeedParams
+  enabled: boolean
+  fetchPage: (cursor?: string) => Promise<ListReelsResponse>
+  queryClient: QueryClient
+  queryKey: QueryKey
+}) => ({
+  queryKey,
+  enabled,
+  initialPageParam: undefined as string | undefined,
+  queryFn: async ({ pageParam }: { pageParam: string | undefined }) => {
+    try {
+      const response = await fetchPage(pageParam)
+
+      const mergedResponse = mergePendingCreatedReelsIntoResponse(
+        response,
+        queryClient.getQueryData<Reel[]>(queryKeys.reels.pendingCreated()),
+        cacheParams,
+        !pageParam,
+      )
+
+      void cacheReelFeedPage(cacheParams, pageParam, mergedResponse)
+
+      return mergedResponse
+    } catch (error) {
+      const cachedResponse = await readCachedReelFeedPage(cacheParams, pageParam)
+
+      if (cachedResponse) {
+        return mergePendingCreatedReelsIntoResponse(
+          cachedResponse,
+          queryClient.getQueryData<Reel[]>(queryKeys.reels.pendingCreated()),
+          cacheParams,
+          !pageParam,
+        )
+      }
+
+      throw error
+    }
+  },
+  getNextPageParam: (lastPage: ListReelsResponse) => lastPage.nextCursor ?? undefined,
+  staleTime: REELS_QUERY_STALE_TIME_MS,
+  retry: 1,
 })
 
 export function useReelsFeed(
@@ -421,46 +482,45 @@ export function useReelsFeed(
   const normalizedParams =
     Object.keys(params).length > 0 ? normalizeListParams(params) : { limit: DEFAULT_REELS_LIMIT }
 
-  return useInfiniteQuery({
-    queryKey: queryKeys.reels.list(normalizedParams),
-    enabled: options.enabled ?? true,
-    initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) => {
-      try {
-        const response = await reelsApi.list({
+  return useInfiniteQuery(
+    createInfiniteReelsFeedQueryOptions({
+      queryClient,
+      queryKey: queryKeys.reels.list(normalizedParams),
+      cacheParams: normalizedParams,
+      enabled: options.enabled ?? true,
+      fetchPage: (pageParam) =>
+        reelsApi.list({
           ...normalizedParams,
           ...(pageParam ? { cursor: pageParam } : {}),
-        })
+        }),
+    }),
+  )
+}
 
-        const mergedResponse = mergePendingCreatedReelsIntoResponse(
-          response,
-          queryClient.getQueryData<Reel[]>(queryKeys.reels.pendingCreated()),
-          normalizedParams,
-          !pageParam,
-        )
+export function useRecommendedReelsFeed(params: { enabled?: boolean; limit?: number } = {}) {
+  const queryClient = useQueryClient()
+  const normalizedParams = normalizeRecommendedParams(
+    typeof params.limit === 'number' ? { limit: params.limit } : {},
+  )
+  const cacheParams: CacheableFeedParams = {
+    ...normalizedParams,
+    recommended: true,
+    visibility: 'public',
+  }
 
-        void cacheReelFeedPage(normalizedParams, pageParam, mergedResponse)
-
-        return mergedResponse
-      } catch (error) {
-        const cachedResponse = await readCachedReelFeedPage(normalizedParams, pageParam)
-
-        if (cachedResponse) {
-          return mergePendingCreatedReelsIntoResponse(
-            cachedResponse,
-            queryClient.getQueryData<Reel[]>(queryKeys.reels.pendingCreated()),
-            normalizedParams,
-            !pageParam,
-          )
-        }
-
-        throw error
-      }
-    },
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    staleTime: REELS_QUERY_STALE_TIME_MS,
-    retry: 1,
-  })
+  return useInfiniteQuery(
+    createInfiniteReelsFeedQueryOptions({
+      queryClient,
+      queryKey: queryKeys.reels.recommended(normalizedParams),
+      cacheParams,
+      enabled: params.enabled ?? true,
+      fetchPage: (pageParam) =>
+        reelsApi.getRecommendedReels({
+          ...normalizedParams,
+          ...(pageParam ? { cursor: pageParam } : {}),
+        }),
+    }),
+  )
 }
 
 export function useReelDetail(id?: string, options: { enabled?: boolean } = {}) {

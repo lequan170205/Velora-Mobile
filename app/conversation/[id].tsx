@@ -79,6 +79,10 @@ import {
   type MessageLayout,
 } from '../../src/lib/messageListState'
 import { formatLastSeenLabel } from '../../src/lib/presence'
+import {
+  buildReplyPreviewFromMessage,
+  normalizeReplyPreviewContent,
+} from '../../src/lib/replyPreview'
 import { useCall } from '../../src/providers/CallProvider'
 import { useChatMediaViewer } from '../../src/providers/ChatMediaViewerProvider'
 import { useSocket } from '../../src/providers/SocketProvider'
@@ -100,6 +104,14 @@ const EMPTY_READ_RECEIPT_PARTICIPANTS: ChatParticipant[] = []
 const renderableOptimisticMessagesCache = new WeakMap<Message[], Message[]>()
 const ANCHOR_MEDIA_VIEWER_WINDOW_RADIUS = 4
 const TIMESTAMP_REVEAL_MAX_OFFSET = 64
+const GENERIC_REEL_REPLY_PREVIEW_CONTENT = new Set([
+  'Tin nhắn mới',
+  'Tin nhan moi',
+  'New message',
+  'new message',
+  '[Reel]',
+  'Reel',
+])
 const isPersistedServerMessageId = (messageId?: string | null) =>
   Boolean(messageId && !messageId.startsWith('temp-'))
 const getClientMessageIdentity = (message?: Message | null) => {
@@ -152,12 +164,49 @@ const getRenderableOptimisticMessages = (messages?: Message[]) => {
   return nextMessages
 }
 
-const backfillReplyPreviewSenderId = (message: Message, replyTo?: Message | null) => {
+const backfillReplyPreviewFromResolvedTarget = ({
+  conversation,
+  currentUserId,
+  message,
+  replyTo,
+}: {
+  conversation?: Conversation | null
+  currentUserId?: string | null
+  message: Message
+  replyTo?: Message | null
+}) => {
+  if (!replyTo) {
+    return message
+  }
+
+  const localReplyPreview = buildReplyPreviewFromMessage({
+    conversation: conversation ?? null,
+    currentUserId: currentUserId ?? null,
+    message: replyTo,
+  })
+
+  const shouldReplaceWithLocalReelPreview =
+    replyTo.type === 'reel' &&
+    localReplyPreview &&
+    (!message.replyPreview ||
+      typeof message.replyPreview === 'string' ||
+      message.replyPreview.type !== 'reel' ||
+      GENERIC_REEL_REPLY_PREVIEW_CONTENT.has(
+        normalizeReplyPreviewContent(message.replyPreview.content),
+      ))
+
+  if (shouldReplaceWithLocalReelPreview) {
+    return {
+      ...message,
+      replyPreview: localReplyPreview,
+    }
+  }
+
   if (
     !message.replyPreview ||
     typeof message.replyPreview === 'string' ||
     message.replyPreview.senderId ||
-    !replyTo?.senderId
+    !replyTo.senderId
   ) {
     return message
   }
@@ -1845,7 +1894,12 @@ export default function ChatScreen() {
       const replyToId = item.replyToId ?? item.reply_to_id
       const repliedMessage = replyToId ? (messageById.get(replyToId) ?? null) : null
       const resolvedReplyTarget = repliedMessage ?? item.replyTo ?? null
-      const normalizedMessage = backfillReplyPreviewSenderId(item, resolvedReplyTarget)
+      const normalizedMessage = backfillReplyPreviewFromResolvedTarget({
+        conversation: currentConversation ?? null,
+        currentUserId: user?.id ?? null,
+        message: item,
+        replyTo: resolvedReplyTarget,
+      })
       const primaryStatusLabel = messageIdentityKey
         ? (primaryStatusByIdentityKey.get(messageIdentityKey) ?? null)
         : null
@@ -1877,6 +1931,7 @@ export default function ChatScreen() {
     [
       activeContextMenuMessageId,
       conversationId,
+      currentConversation,
       handleReply,
       handleScrollToMessage,
       handleOpenContextMenu,
