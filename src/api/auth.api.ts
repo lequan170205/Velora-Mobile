@@ -53,9 +53,9 @@ export const authApi = {
     const response = await apiClient.post<LoginResponse>('/auth/login', data)
     return response.data
   },
-  logout: async () => {
-    const response = await apiClient.post<MessageResponse>('/auth/logout', undefined, {
-      timeout: 2500,
+  logout: async (data?: { pushToken?: string }) => {
+    const response = await apiClient.post<MessageResponse>('/auth/logout', data, {
+      timeout: 5000,
     })
     return response.data
   },

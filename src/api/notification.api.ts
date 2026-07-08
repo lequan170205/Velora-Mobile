@@ -1,20 +1,6 @@
-import axios from 'axios'
 import { Platform } from 'react-native'
 
-const getNotificationApiBaseUrl = () => {
-  const baseUrl = process.env.EXPO_PUBLIC_API_URL
-
-  if (!baseUrl) {
-    throw new Error('Missing EXPO_PUBLIC_API_URL')
-  }
-
-  return baseUrl.replace(/\/$/, '')
-}
-
-const notificationClient = axios.create({
-  timeout: 10000,
-  withCredentials: true,
-})
+import { apiClient } from './client'
 
 export type RegisterPushTokenInput = {
   token: string
@@ -23,21 +9,30 @@ export type RegisterPushTokenInput = {
 }
 
 export async function registerPushToken(input: RegisterPushTokenInput) {
-  return notificationClient.post(`${getNotificationApiBaseUrl()}/notifications/push-tokens`, {
-    provider: 'fcm',
-    platform: Platform.OS === 'ios' ? 'ios' : 'android',
-    token: input.token,
-    deviceId: input.deviceId,
-    appVersion: input.appVersion,
-  })
+  return apiClient.post(
+    '/notifications/push-tokens',
+    {
+      provider: 'fcm',
+      platform: Platform.OS === 'ios' ? 'ios' : 'android',
+      token: input.token,
+      deviceId: input.deviceId,
+      appVersion: input.appVersion,
+    },
+    {
+      timeout: 10000,
+    },
+  )
 }
 
 export async function deactivatePushToken(token: string) {
-  return notificationClient.post(
-    `${getNotificationApiBaseUrl()}/notifications/push-tokens/deactivate`,
+  return apiClient.post(
+    '/notifications/push-tokens/deactivate',
     {
       provider: 'fcm',
       token,
+    },
+    {
+      timeout: 10000,
     },
   )
 }

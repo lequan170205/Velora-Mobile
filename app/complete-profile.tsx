@@ -14,10 +14,10 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
-import { authApi } from '../src/api/auth.api'
 import { userApi } from '../src/api/user.api'
 import { useUsernameAvailability } from '../src/hooks/useUsernameAvailability'
 import { cn } from '../src/lib/cn'
+import { performLogoutPushTokenCleanup } from '../src/lib/notifications/pushTokenLifecycle'
 import { MAX_USERNAME_LENGTH, getUsernameError, normalizeUsername } from '../src/lib/profile'
 import { useAuthStore } from '../src/stores/authStore'
 
@@ -159,9 +159,12 @@ export default function CompleteProfileScreen() {
     }
   }
 
-  const handleSignOut = () => {
-    void authApi.logout().catch(() => undefined)
-    clearAuth()
+  const handleSignOut = async () => {
+    try {
+      await performLogoutPushTokenCleanup()
+    } finally {
+      clearAuth()
+    }
   }
 
   return (
@@ -183,7 +186,9 @@ export default function CompleteProfileScreen() {
           <View className="flex-row justify-end">
             <TouchableOpacity
               className="h-11 w-11 items-center justify-center rounded-full border border-[#F1E3D7] bg-white"
-              onPress={handleSignOut}
+              onPress={() => {
+                void handleSignOut()
+              }}
               activeOpacity={0.8}
             >
               <MaterialIcons name="logout" size={20} color="#1C1C1E" />

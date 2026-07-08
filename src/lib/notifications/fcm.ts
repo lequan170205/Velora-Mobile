@@ -1,5 +1,6 @@
 import {
   AuthorizationStatus,
+  deleteToken,
   getAPNSToken,
   getMessaging,
   getToken,
@@ -312,6 +313,15 @@ export const getFcmTokenForDebug = async (): Promise<FcmTokenResult> => {
       ...(apnsError ? { apnsError } : {}),
     }
   }
+}
+
+export const getCurrentFcmToken = async () => {
+  const token = await getToken(getMessaging())
+  return token.trim() || null
+}
+
+export const deleteCurrentFcmToken = async () => {
+  await deleteToken(getMessaging())
 }
 
 export const subscribeToFcmTokenRefresh = (

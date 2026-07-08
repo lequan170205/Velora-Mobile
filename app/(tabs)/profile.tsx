@@ -34,7 +34,6 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { OfflineNetworkToggle } from '@/components/dev/OfflineNetworkToggle'
 
-import { authApi } from '../../src/api/auth.api'
 import {
   ReelThumbnailGridSkeleton,
   ReelThumbnailTile,
@@ -45,6 +44,7 @@ import { useFriends } from '../../src/hooks/useFriends'
 import { useUpdateAvatar } from '../../src/hooks/useProfile'
 import { useReelsFeed } from '../../src/hooks/useReels'
 import { useReelSavingMode } from '../../src/hooks/useReelSavingMode'
+import { performLogoutPushTokenCleanup } from '../../src/lib/notifications/pushTokenLifecycle'
 import { clearTemporaryReelVideoCache } from '../../src/lib/offlineReelVideoCache'
 import { getDisplayName, getInitials, getProfileHandle } from '../../src/lib/profile'
 import { getSavedReelVideoStorageStats } from '../../src/lib/reelVideoStorageStats'
@@ -58,12 +58,7 @@ import type { Reel, ReelVisibility } from '../../src/types/reel.types'
 
 const PROFILE_REELS_LIMIT = 24
 type SheetMode =
-  | 'settings'
-  | 'clear-cache'
-  | 'clear-local-database'
-  | 'clear-saved-reel-data'
-  | 'sign-out'
-  | null
+  'settings' | 'clear-cache' | 'clear-local-database' | 'clear-saved-reel-data' | 'sign-out' | null
 type DeferredSheetAction =
   | 'clear-cache'
   | 'clear-local-database'
@@ -494,13 +489,14 @@ export default function ProfileScreen() {
 
       if (action === 'sign-out') {
         try {
-          const logoutPromise = authApi.logout().catch((error) => {
-            console.error(error)
-          })
+          const logoutResult = await performLogoutPushTokenCleanup()
+
+          if (!logoutResult.ok) {
+            console.error('[Profile] Logout cleanup will retry when possible')
+          }
 
           await clearCache()
           queryClient.clear()
-          void logoutPromise
 
           if (isMountedRef.current) {
             setIsSigningOut(false)

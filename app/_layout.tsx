@@ -31,6 +31,7 @@ import { ChatMediaUploadProvider } from '../src/providers/ChatMediaUploadProvide
 import { ChatMediaViewerProvider } from '../src/providers/ChatMediaViewerProvider'
 import { FcmDebugProvider } from '../src/providers/FcmDebugProvider'
 import { NetworkProvider } from '../src/providers/NetworkProvider'
+import { PushTokenLifecycleProvider } from '../src/providers/PushTokenLifecycleProvider'
 import { QueryProvider } from '../src/providers/QueryProvider'
 import { SocketProvider } from '../src/providers/SocketProvider'
 import { useAuthStore } from '../src/stores/authStore'
@@ -191,51 +192,53 @@ export default function RootLayout() {
               <QueryProvider>
                 <NetworkProvider>
                   <AuthProvider>
-                    <FcmDebugProvider>
-                      <SocketProvider>
-                        <CallProvider>
-                          <ChatMediaUploadProvider>
-                            <ChatMediaViewerProvider>
-                              <Stack
-                                screenOptions={{
-                                  headerShown: false,
-                                  contentStyle: { backgroundColor: colors.bg.secondary },
-                                  freezeOnBlur: true,
-                                }}
-                              >
-                                <Stack.Screen name="(tabs)" />
-                                <Stack.Screen name="(auth)" />
-                                <Stack.Screen
-                                  name="reels/[id]/index"
-                                  options={{
-                                    animation: 'slide_from_right',
-                                    animationDuration: 220,
-                                    freezeOnBlur: false,
+                    <PushTokenLifecycleProvider>
+                      <FcmDebugProvider>
+                        <SocketProvider>
+                          <CallProvider>
+                            <ChatMediaUploadProvider>
+                              <ChatMediaViewerProvider>
+                                <Stack
+                                  screenOptions={{
+                                    headerShown: false,
+                                    contentStyle: { backgroundColor: colors.bg.secondary },
+                                    freezeOnBlur: true,
                                   }}
-                                />
-                                <Stack.Screen
-                                  name="conversation/[id]"
-                                  options={{
-                                    animation: 'slide_from_right',
-                                    animationDuration: 250,
-                                  }}
-                                />
-                                <Stack.Screen
-                                  name="reels/create"
-                                  options={{ presentation: 'fullScreenModal' }}
-                                />
-                                <Stack.Screen
-                                  name="call/[id]"
-                                  options={{ presentation: 'fullScreenModal' }}
-                                />
-                              </Stack>
+                                >
+                                  <Stack.Screen name="(tabs)" />
+                                  <Stack.Screen name="(auth)" />
+                                  <Stack.Screen
+                                    name="reels/[id]/index"
+                                    options={{
+                                      animation: 'slide_from_right',
+                                      animationDuration: 220,
+                                      freezeOnBlur: false,
+                                    }}
+                                  />
+                                  <Stack.Screen
+                                    name="conversation/[id]"
+                                    options={{
+                                      animation: 'slide_from_right',
+                                      animationDuration: 250,
+                                    }}
+                                  />
+                                  <Stack.Screen
+                                    name="reels/create"
+                                    options={{ presentation: 'fullScreenModal' }}
+                                  />
+                                  <Stack.Screen
+                                    name="call/[id]"
+                                    options={{ presentation: 'fullScreenModal' }}
+                                  />
+                                </Stack>
 
-                              <CallUiOverlays />
-                            </ChatMediaViewerProvider>
-                          </ChatMediaUploadProvider>
-                        </CallProvider>
-                      </SocketProvider>
-                    </FcmDebugProvider>
+                                <CallUiOverlays />
+                              </ChatMediaViewerProvider>
+                            </ChatMediaUploadProvider>
+                          </CallProvider>
+                        </SocketProvider>
+                      </FcmDebugProvider>
+                    </PushTokenLifecycleProvider>
                   </AuthProvider>
                 </NetworkProvider>
               </QueryProvider>
