@@ -22,6 +22,32 @@ export type NativeCallAction = NativeCallPayload & {
   actionId: string
 }
 
+export type AudioSessionActivatedEvent = {
+  at: string
+  timestampMs: number
+  activeCallIds: string[]
+  pendingAnswerCallIds: string[]
+  category: string
+  mode: string
+  sampleRate: number
+  outputVolume: number
+}
+
+export type AudioSessionConfiguredEvent = {
+  at: string
+  timestampMs: number
+  activeCallIds: string[]
+  pendingAnswerCallIds: string[]
+  category: string
+  mode: string
+  sampleRate: number
+  outputVolume: number
+  outputRoutes: { type: string; name: string }[]
+  inputRoutes: { type: string; name: string }[]
+  forcedSpeaker: boolean
+  error?: string
+}
+
 type VeloraSystemCallsModule = {
   setAuthenticatedUserId: (userId?: string | null) => void
   getVoipToken: () => string | null
@@ -105,6 +131,26 @@ export const veloraSystemCalls = {
 
     return nativeModule.addListener('onVoipTokenUpdated', (event) => {
       listener(event as { token: string })
+    })
+  },
+
+  addAudioSessionActivatedListener(listener: (event: AudioSessionActivatedEvent) => void) {
+    if (!nativeModule?.addListener || Platform.OS !== 'ios') {
+      return { remove: () => undefined }
+    }
+
+    return nativeModule.addListener('onAudioSessionActivated', (event) => {
+      listener(event as AudioSessionActivatedEvent)
+    })
+  },
+
+  addAudioSessionConfiguredListener(listener: (event: AudioSessionConfiguredEvent) => void) {
+    if (!nativeModule?.addListener || Platform.OS !== 'ios') {
+      return { remove: () => undefined }
+    }
+
+    return nativeModule.addListener('onAudioSessionConfigured', (event) => {
+      listener(event as AudioSessionConfiguredEvent)
     })
   },
 }

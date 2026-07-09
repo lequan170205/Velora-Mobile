@@ -23,6 +23,8 @@ import {
 } from '../lib/call/mediasoup'
 import {
   veloraSystemCalls,
+  type AudioSessionActivatedEvent,
+  type AudioSessionConfiguredEvent,
   type NativeCallAction,
   type NativeCallPayload,
 } from '../lib/systemCalls/veloraSystemCalls'
@@ -62,12 +64,104 @@ const getOutgoingRingWaitTimeoutMs = (noAnswerTimeoutMs?: number) =>
     : DEFAULT_CALL_NO_ANSWER_TIMEOUT_MS) + CALL_JOINED_TIMEOUT_MS
 const REMOTE_PRODUCER_TIMEOUT_MS = 30_000
 const REMOTE_AUDIO_WAIT_FALLBACK_MS = 10_000
+const RTC_STATS_LOG_DELAY_MS = 1_500
 const PEER_LEFT_GRACE_MS = 750
 const DEFAULT_RECONNECT_GRACE_MS = 15_000
 const RECONNECT_RECOVERY_TIMEOUT_MS = (() => {
   const configured = Number(process.env.EXPO_PUBLIC_CALL_RECONNECT_GRACE_MS)
   return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_RECONNECT_GRACE_MS
 })()
+
+const normalizeRtcStatsEntries = (report: RTCStatsReport | unknown) => {
+  if (report instanceof Map) {
+    return [...report.values()] as Record<string, unknown>[]
+  }
+
+  if (Array.isArray(report)) {
+    return report as Record<string, unknown>[]
+  }
+
+  if (report && typeof report === 'object') {
+    return Object.values(report as Record<string, unknown>).filter(
+      (value): value is Record<string, unknown> => Boolean(value && typeof value === 'object'),
+    )
+  }
+
+  return []
+}
+
+const pickRtcStat = (entries: Record<string, unknown>[], type: string, kind = 'audio') =>
+  entries.find(
+    (entry) =>
+      entry.type === type &&
+      (entry.kind === kind ||
+        entry.mediaType === kind ||
+        entry.id === kind ||
+        typeof entry.id !== 'string'),
+  ) ?? null
+
+const summarizeRtcStatsReport = (report: RTCStatsReport | unknown) => {
+  const entries = normalizeRtcStatsEntries(report)
+  const outboundRtp = pickRtcStat(entries, 'outbound-rtp')
+  const inboundRtp = pickRtcStat(entries, 'inbound-rtp')
+  const remoteInboundRtp = pickRtcStat(entries, 'remote-inbound-rtp')
+  const track = pickRtcStat(entries, 'track')
+  const mediaSource = pickRtcStat(entries, 'media-source')
+  const candidatePair =
+    entries.find(
+      (entry) =>
+        entry.type === 'candidate-pair' &&
+        (entry.selected === true || entry.nominated === true || entry.state === 'succeeded'),
+    ) ?? null
+
+  return {
+    entryCount: entries.length,
+    outboundRtp: outboundRtp && {
+      packetsSent: outboundRtp.packetsSent,
+      bytesSent: outboundRtp.bytesSent,
+      retransmittedPacketsSent: outboundRtp.retransmittedPacketsSent,
+      retransmittedBytesSent: outboundRtp.retransmittedBytesSent,
+      targetBitrate: outboundRtp.targetBitrate,
+      totalPacketSendDelay: outboundRtp.totalPacketSendDelay,
+    },
+    inboundRtp: inboundRtp && {
+      packetsReceived: inboundRtp.packetsReceived,
+      bytesReceived: inboundRtp.bytesReceived,
+      packetsLost: inboundRtp.packetsLost,
+      jitter: inboundRtp.jitter,
+      audioLevel: inboundRtp.audioLevel,
+      totalAudioEnergy: inboundRtp.totalAudioEnergy,
+      totalSamplesDuration: inboundRtp.totalSamplesDuration,
+    },
+    remoteInboundRtp: remoteInboundRtp && {
+      packetsLost: remoteInboundRtp.packetsLost,
+      roundTripTime: remoteInboundRtp.roundTripTime,
+      jitter: remoteInboundRtp.jitter,
+    },
+    track: track && {
+      audioLevel: track.audioLevel,
+      totalAudioEnergy: track.totalAudioEnergy,
+      totalSamplesDuration: track.totalSamplesDuration,
+      jitterBufferDelay: track.jitterBufferDelay,
+      jitterBufferEmittedCount: track.jitterBufferEmittedCount,
+      concealedSamples: track.concealedSamples,
+      silentConcealedSamples: track.silentConcealedSamples,
+    },
+    mediaSource: mediaSource && {
+      audioLevel: mediaSource.audioLevel,
+      totalAudioEnergy: mediaSource.totalAudioEnergy,
+      totalSamplesDuration: mediaSource.totalSamplesDuration,
+    },
+    candidatePair: candidatePair && {
+      state: candidatePair.state,
+      nominated: candidatePair.nominated,
+      selected: candidatePair.selected,
+      bytesSent: candidatePair.bytesSent,
+      bytesReceived: candidatePair.bytesReceived,
+      currentRoundTripTime: candidatePair.currentRoundTripTime,
+    },
+  }
+}
 
 const CallContext = createContext<UseCallValue>({
   startVoiceCall: async () => {},
@@ -233,6 +327,48 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       nativeActionRetryTimeoutRef.current = null
     }
   }, [])
+
+  const scheduleRtcStatsLog = useCallback(
+    ({
+      callId,
+      label,
+      mediaId,
+      getStats,
+    }: {
+      callId: string
+      label: string
+      mediaId: string
+      getStats: () => Promise<RTCStatsReport>
+    }) => {
+      setTimeout(() => {
+        void (async () => {
+          try {
+            const stats = await getStats()
+            console.warn(
+              `[Call] ${label} stats`,
+              JSON.stringify({
+                callId,
+                mediaId,
+                at: new Date().toISOString(),
+                timestampMs: Date.now(),
+                summary: summarizeRtcStatsReport(stats),
+              }),
+            )
+          } catch (error) {
+            console.warn(
+              `[Call] Failed to read ${label} stats`,
+              JSON.stringify({
+                callId,
+                mediaId,
+                error: error instanceof Error ? error.message : 'unknown_error',
+              }),
+            )
+          }
+        })()
+      }, RTC_STATS_LOG_DELAY_MS)
+    },
+    [],
+  )
 
   const getCurrentCallId = useCallback(
     () => activeCallIdRef.current ?? useCallStore.getState().callId,
@@ -898,6 +1034,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             producerId: payload.producerId,
           }),
         )
+        scheduleRtcStatsLog({
+          callId,
+          label: 'Remote consumer',
+          mediaId: consumer.id,
+          getStats: () => consumer.getStats(),
+        })
         const wasWaitingForPeerAudio = reconnectModeRef.current === 'peer'
         handledRemoteProducerIdsRef.current.add(payload.producerId)
         queuedRemoteProducerMapRef.current.delete(payload.producerId)
@@ -960,6 +1102,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       clearRemoteAudioFallback,
       currentUserId,
       getCurrentCallId,
+      scheduleRtcStatsLog,
       startTimer,
       teardownOnce,
     ],
@@ -1038,6 +1181,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const sendTransport = await createTransport(socket, callId, 'send', device)
       sendTransportRef.current = sendTransport
 
+      console.warn(
+        '[Call] Requesting local media',
+        JSON.stringify({
+          callId,
+          at: new Date().toISOString(),
+          timestampMs: Date.now(),
+        }),
+      )
       const localStream = await mediaDevices.getUserMedia({
         audio: true,
         video: false,
@@ -1051,14 +1202,33 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const muted = useCallStore.getState().muted
       localAudioTrack.enabled = !muted
       localStreamRef.current = localStream
+      console.warn(
+        '[Call] Local audio track ready',
+        JSON.stringify({
+          callId,
+          at: new Date().toISOString(),
+          timestampMs: Date.now(),
+          trackId: localAudioTrack.id,
+          enabled: localAudioTrack.enabled,
+          muted: localAudioTrack.muted,
+          readyState: localAudioTrack.readyState,
+        }),
+      )
 
       if (!device.canProduce('audio')) {
         throw new Error('Device cannot produce audio')
       }
 
-      audioProducerRef.current = await sendTransport.produce({
+      const audioProducer = await sendTransport.produce({
         track: localAudioTrack as never,
         stopTracks: false,
+      })
+      audioProducerRef.current = audioProducer
+      scheduleRtcStatsLog({
+        callId,
+        label: 'Local producer',
+        mediaId: audioProducer.id,
+        getStats: () => audioProducer.getStats(),
       })
 
       callAnsweredRef.current = true
@@ -1090,6 +1260,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       ensureDeviceLoaded,
       flushQueuedRemoteProducers,
       primeRecvTransportConnection,
+      scheduleRtcStatsLog,
       startTimer,
     ],
   )
@@ -1437,8 +1608,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         reconnectDeadlineMs: null,
       })
       router.push(`/call/${callId}` as never)
-      await postAnswerSetup(joined)
       veloraSystemCalls.setCallActive(callId)
+      await postAnswerSetup(joined)
       socket.emit('answer_call', { callId })
     } catch (error) {
       if (joinedCall && socket?.connected) {
@@ -1743,6 +1914,30 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       subscription.remove()
     }
   }, [processNativeCallAction])
+
+  useEffect(() => {
+    const subscription = veloraSystemCalls.addAudioSessionActivatedListener(
+      (event: AudioSessionActivatedEvent) => {
+        console.warn('[Call] Native audio session activated', JSON.stringify(event))
+      },
+    )
+
+    return () => {
+      subscription.remove()
+    }
+  }, [])
+
+  useEffect(() => {
+    const subscription = veloraSystemCalls.addAudioSessionConfiguredListener(
+      (event: AudioSessionConfiguredEvent) => {
+        console.warn('[Call] Native audio session configured', JSON.stringify(event))
+      },
+    )
+
+    return () => {
+      subscription.remove()
+    }
+  }, [])
 
   useEffect(() => {
     if (isLoading || !isAuthenticated || !currentUserId || !username?.trim()) {

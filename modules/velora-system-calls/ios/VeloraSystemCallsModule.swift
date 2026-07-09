@@ -7,6 +7,8 @@ import WebRTC
 
 private let callActionEvent = "onCallAction"
 private let voipTokenEvent = "onVoipTokenUpdated"
+private let audioSessionActivatedEvent = "onAudioSessionActivated"
+private let audioSessionConfiguredEvent = "onAudioSessionConfigured"
 private let voipTokenStorageKey = "velora.calls.voipToken"
 private let callUuidStorageKey = "velora.calls.uuidByCallId"
 private let reportedIncomingCallIdsStorageKey = "velora.calls.reportedIncomingCallIds"
@@ -16,7 +18,7 @@ private let suppressedIncomingCallRetentionSeconds: TimeInterval = 10 * 60
 public class VeloraSystemCallsModule: Module {
   public func definition() -> ModuleDefinition {
     Name("VeloraSystemCalls")
-    Events(callActionEvent, voipTokenEvent)
+    Events(callActionEvent, voipTokenEvent, audioSessionActivatedEvent, audioSessionConfiguredEvent)
 
     OnCreate {
       VeloraSystemCallCenter.shared.eventSink = { [weak self] name, body in
@@ -317,12 +319,40 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
   }
 
   func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
+    let activatedAt = Date()
+    let activatedAtIso = ISO8601DateFormatter().string(from: activatedAt)
+    let activeCallIds = Array(activeCallIds)
+    let pendingAnswerCallIds = Array(pendingAnswerCallIds)
+    NSLog(
+      "VeloraSystemCalls didActivate audioSession at=%@ activeCallIds=%@ pendingAnswerCallIds=%@ category=%@ mode=%@ sampleRate=%.0f outputVolume=%.2f",
+      activatedAtIso as NSString,
+      activeCallIds.joined(separator: ",") as NSString,
+      pendingAnswerCallIds.joined(separator: ",") as NSString,
+      audioSession.category.rawValue as NSString,
+      audioSession.mode.rawValue as NSString,
+      audioSession.sampleRate,
+      audioSession.outputVolume
+    )
+    eventSink?(
+      audioSessionActivatedEvent,
+      [
+        "at": activatedAtIso,
+        "timestampMs": Int(activatedAt.timeIntervalSince1970 * 1000),
+        "activeCallIds": activeCallIds,
+        "pendingAnswerCallIds": pendingAnswerCallIds,
+        "category": audioSession.category.rawValue,
+        "mode": audioSession.mode.rawValue,
+        "sampleRate": audioSession.sampleRate,
+        "outputVolume": audioSession.outputVolume,
+      ]
+    )
     configureWebRtcAudioSession(audioSession)
   }
 
   func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
-    RTCAudioSession.sharedInstance().audioSessionDidDeactivate(audioSession)
-    RTCAudioSession.sharedInstance().isAudioEnabled = false
+    let rtcAudioSession = RTCAudioSession.sharedInstance()
+    rtcAudioSession.audioSessionDidDeactivate(audioSession)
+    rtcAudioSession.isAudioEnabled = false
   }
 
   func providerDidReset(_ provider: CXProvider) {
@@ -573,11 +603,92 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     configuration.category = AVAudioSession.Category.playAndRecord.rawValue
     configuration.mode = AVAudioSession.Mode.voiceChat.rawValue
     configuration.categoryOptions = [.allowBluetoothHFP, .allowBluetoothA2DP, .defaultToSpeaker]
+    var forcedSpeaker = false
     do {
       _ = try rtcAudioSession.setConfiguration(configuration, active: true)
+
+      let outputPortTypes = Set(audioSession.currentRoute.outputs.map(\.portType))
+      let hasExternalOutput =
+        outputPortTypes.contains(.bluetoothA2DP) ||
+        outputPortTypes.contains(.bluetoothHFP) ||
+        outputPortTypes.contains(.bluetoothLE) ||
+        outputPortTypes.contains(.headphones) ||
+        outputPortTypes.contains(.airPlay) ||
+        outputPortTypes.contains(.carAudio) ||
+        outputPortTypes.contains(.lineOut) ||
+        outputPortTypes.contains(.usbAudio)
+
+      if !hasExternalOutput {
+        try audioSession.overrideOutputAudioPort(.speaker)
+        forcedSpeaker = true
+      }
+
+      let outputRoute = audioSession.currentRoute.outputs
+        .map { "\($0.portType.rawValue):\($0.portName)" }
+        .joined(separator: ",")
+      let inputRoute = audioSession.currentRoute.inputs
+        .map { "\($0.portType.rawValue):\($0.portName)" }
+        .joined(separator: ",")
+      NSLog(
+        "VeloraSystemCalls configured audio route outputs=%@ inputs=%@ forcedSpeaker=%@ category=%@ mode=%@",
+        outputRoute as NSString,
+        inputRoute as NSString,
+        (!hasExternalOutput ? "true" : "false") as NSString,
+        audioSession.category.rawValue as NSString,
+        audioSession.mode.rawValue as NSString
+      )
+      emitAudioSessionConfigured(audioSession, forcedSpeaker: forcedSpeaker)
     } catch {
       NSLog("VeloraSystemCalls failed to configure WebRTC audio session: \(error)")
+      emitAudioSessionConfigured(
+        audioSession,
+        forcedSpeaker: forcedSpeaker,
+        error: String(describing: error)
+      )
     }
     rtcAudioSession.isAudioEnabled = true
+  }
+
+  private func emitAudioSessionConfigured(
+    _ audioSession: AVAudioSession,
+    forcedSpeaker: Bool,
+    error: String? = nil
+  ) {
+    let configuredAt = Date()
+    let configuredAtIso = ISO8601DateFormatter().string(from: configuredAt)
+    let activeCallIds = Array(activeCallIds)
+    let pendingAnswerCallIds = Array(pendingAnswerCallIds)
+    let outputRoutes = audioSession.currentRoute.outputs.map { output in
+      [
+        "type": output.portType.rawValue,
+        "name": output.portName,
+      ]
+    }
+    let inputRoutes = audioSession.currentRoute.inputs.map { input in
+      [
+        "type": input.portType.rawValue,
+        "name": input.portName,
+      ]
+    }
+
+    var payload: [String: Any] = [
+      "at": configuredAtIso,
+      "timestampMs": Int(configuredAt.timeIntervalSince1970 * 1000),
+      "activeCallIds": activeCallIds,
+      "pendingAnswerCallIds": pendingAnswerCallIds,
+      "category": audioSession.category.rawValue,
+      "mode": audioSession.mode.rawValue,
+      "sampleRate": audioSession.sampleRate,
+      "outputVolume": audioSession.outputVolume,
+      "outputRoutes": outputRoutes,
+      "inputRoutes": inputRoutes,
+      "forcedSpeaker": forcedSpeaker,
+    ]
+
+    if let error {
+      payload["error"] = error
+    }
+
+    eventSink?(audioSessionConfiguredEvent, payload)
   }
 }

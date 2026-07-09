@@ -11,7 +11,7 @@ class VeloraSystemCallsModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("VeloraSystemCalls")
-    Events("onCallAction", "onVoipTokenUpdated")
+    Events("onCallAction", "onVoipTokenUpdated", "onAudioSessionActivated", "onAudioSessionConfigured")
 
     OnStartObserving("onCallAction") {
       val weakModule = WeakReference(this@VeloraSystemCallsModule)
