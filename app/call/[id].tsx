@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
 import { Image, Text, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { RTCView } from 'react-native-webrtc'
 
 import { useCall } from '../../src/providers/CallProvider'
 import { useCallStore } from '../../src/stores/callStore'
@@ -26,6 +27,7 @@ export default function ActiveCallScreen() {
     peerName,
     phase,
     remoteAudioState,
+    remoteStreamUrl,
     reconnectDeadlineMs,
   } = useCallStore()
   const [nowMs, setNowMs] = useState(Date.now())
@@ -103,6 +105,12 @@ export default function ActiveCallScreen() {
 
   return (
     <View className="flex-1 bg-bg-primary">
+      {remoteStreamUrl ? (
+        <RTCView
+          streamURL={remoteStreamUrl}
+          style={{ height: 1, opacity: 0, position: 'absolute', width: 1 }}
+        />
+      ) : null}
       <SafeAreaView className="flex-1 justify-between" edges={['top', 'bottom']}>
         <View className="z-10 flex-row items-center justify-between px-4 pt-4">
           <TouchableOpacity

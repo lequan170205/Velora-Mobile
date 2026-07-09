@@ -1,10 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import { Camera } from 'expo-camera'
 import { useRouter } from 'expo-router'
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react'
-import { AppState, Platform } from 'react-native'
+import { Platform } from 'react-native'
 import { MediaStream, mediaDevices } from 'react-native-webrtc'
 
+import { getCallState, type CallStateResponse } from '../api/call.api'
 import { queryKeys } from '../constants/queryKeys'
 import {
   clearWaitRegistry,
@@ -19,6 +21,11 @@ import {
   toRouterRtpCapabilities,
   toTransportOptions,
 } from '../lib/call/mediasoup'
+import {
+  veloraSystemCalls,
+  type NativeCallAction,
+  type NativeCallPayload,
+} from '../lib/systemCalls/veloraSystemCalls'
 import { useAuthStore } from '../stores/authStore'
 import { useCallStore } from '../stores/callStore'
 
@@ -41,7 +48,6 @@ import type {
 import type { Conversation } from '../types/conversation.types'
 import type { Device as MediasoupDevice } from 'mediasoup-client'
 import type * as MediasoupTypes from 'mediasoup-client/types'
-import type { AppStateStatus } from 'react-native'
 import type { MediaStreamTrack } from 'react-native-webrtc'
 
 const CALL_JOINED_TIMEOUT_MS = 10_000
@@ -147,6 +153,38 @@ const getCallRejectedMessage = (payload: CallRejectedPayload) => {
 const isWaitTimeoutError = (error: unknown) =>
   error instanceof Error && error.message.startsWith('Timed out')
 
+const isRetryableCallStateError = (error: unknown) => {
+  if (!isAxiosError(error)) {
+    return true
+  }
+
+  const status = error.response?.status
+  return !status || status === 408 || status === 429 || status >= 500
+}
+
+const toNativeIncomingCallPayload = (
+  payload: IncomingCallPayload | CallStateResponse,
+): NativeCallPayload => {
+  const nativePayload: NativeCallPayload = {
+    type: 'INCOMING_CALL',
+    callId: payload.callId,
+    conversationId: payload.conversationId,
+    initiatorId: payload.initiatorId,
+    targetUserId: payload.targetUserId,
+    recipientUserId: payload.recipientUserId,
+    callType: payload.callType,
+    initiatorDisplayName: payload.initiatorDisplayName,
+    ringTimeoutMs: payload.ringTimeoutMs,
+    expiresAt: payload.expiresAt,
+  }
+
+  if (payload.initiatorAvatarUrl) {
+    nativePayload.initiatorAvatarUrl = payload.initiatorAvatarUrl
+  }
+
+  return nativePayload
+}
+
 export const useCall = () => useContext(CallContext)
 
 export function CallProvider({ children }: { children: React.ReactNode }) {
@@ -154,6 +192,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const { isAuthenticated, isLoading, user } = useAuthStore()
   const currentUserId = user?.id ?? null
+  const username = user?.username ?? null
   const callPhase = useCallStore((state) => state.phase)
   const callId = useCallStore((state) => state.callId)
 
@@ -184,7 +223,47 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reconnectRecoveryInFlightRef = useRef(false)
   const reconnectModeRef = useRef<'local' | 'peer' | null>(null)
-  const appStateRef = useRef<AppStateStatus>(AppState.currentState)
+  const nativeActionRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const processingNativeActionIdsRef = useRef(new Set<string>())
+  const completedNativeActionIdsRef = useRef(new Set<string>())
+
+  const clearNativeActionRetryTimeout = useCallback(() => {
+    if (nativeActionRetryTimeoutRef.current) {
+      clearTimeout(nativeActionRetryTimeoutRef.current)
+      nativeActionRetryTimeoutRef.current = null
+    }
+  }, [])
+
+  const getCurrentCallId = useCallback(
+    () => activeCallIdRef.current ?? useCallStore.getState().callId,
+    [],
+  )
+
+  const isCurrentCall = useCallback(
+    (payloadCallId: string) => payloadCallId === getCurrentCallId(),
+    [getCurrentCallId],
+  )
+
+  const completeNativeCallAction = useCallback(
+    (actionId: string) => {
+      clearNativeActionRetryTimeout()
+      veloraSystemCalls.clearPendingCallAction(actionId)
+
+      const completedActionIds = completedNativeActionIdsRef.current
+      completedActionIds.add(actionId)
+
+      // Keep the dedupe window bounded for long-lived app sessions.
+      while (completedActionIds.size > 64) {
+        const oldestActionId = completedActionIds.values().next().value
+        if (!oldestActionId) {
+          break
+        }
+
+        completedActionIds.delete(oldestActionId)
+      }
+    },
+    [clearNativeActionRetryTimeout],
+  )
 
   const stopTimer = useCallback((options?: { resetDuration?: boolean }) => {
     if (timerIntervalRef.current) {
@@ -371,6 +450,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     retryingProducerIdsRef.current.clear()
     queuedRemoteProducerMapRef.current.clear()
     remoteStreamRef.current = null
+    useCallStore.getState().patch({ remoteStreamUrl: null })
   }, [])
 
   const teardownOnce = useCallback(
@@ -380,7 +460,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
 
       teardownInProgressRef.current = true
+      const endingCallId = activeCallIdRef.current ?? useCallStore.getState().callId
       stopTimer()
+      if (endingCallId) {
+        veloraSystemCalls.endCall(endingCallId)
+      }
       disposeMediaRuntime()
       useCallStore.getState().reset()
 
@@ -651,7 +735,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const consumeRemoteProducer = useCallback(
     async (payload: NewProducerPayload) => {
       const socket = socketRef.current
-      const callId = activeCallIdRef.current
+      const callId = getCurrentCallId()
       const device = deviceRef.current
       const recvTransport = recvTransportRef.current
 
@@ -788,6 +872,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
 
         remoteStreamRef.current.addTrack(consumer.track as unknown as MediaStreamTrack)
+        useCallStore.getState().patch({ remoteStreamUrl: remoteStreamRef.current.toURL() })
 
         await emitAndWaitForEvent<'resume_consumer', 'consumer_resumed'>(
           socket,
@@ -870,7 +955,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         consumingProducerIdsRef.current.delete(payload.producerId)
       }
     },
-    [clearReconnectTimeout, clearRemoteAudioFallback, currentUserId, startTimer, teardownOnce],
+    [
+      clearReconnectTimeout,
+      clearRemoteAudioFallback,
+      currentUserId,
+      getCurrentCallId,
+      startTimer,
+      teardownOnce,
+    ],
   )
 
   const flushQueuedRemoteProducers = useCallback(async () => {
@@ -974,15 +1066,26 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         phase: 'active',
         muted,
         remoteAudioState: 'waiting',
+        remoteStreamUrl: null,
         reconnectDeadlineMs: null,
       })
       startTimer(options?.resumeDurationSec ?? 0)
       armRemoteAudioFallback()
 
+      for (const producer of payload.activeProducers ?? []) {
+        await consumeRemoteProducer({
+          callId,
+          userId: producer.userId,
+          producerId: producer.producerId,
+          kind: producer.kind,
+        })
+      }
+
       await flushQueuedRemoteProducers()
     },
     [
       armRemoteAudioFallback,
+      consumeRemoteProducer,
       createTransport,
       ensureDeviceLoaded,
       flushQueuedRemoteProducers,
@@ -1071,6 +1174,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     useCallStore.getState().patch({
       phase: 'reconnecting',
       remoteAudioState: 'idle',
+      remoteStreamUrl: null,
       reconnectDeadlineMs,
     })
 
@@ -1079,7 +1183,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const handlePeerReconnecting = useCallback(
     (payload: PeerReconnectingPayload) => {
-      if (payload.callId !== activeCallIdRef.current || payload.userId === currentUserId) {
+      if (!isCurrentCall(payload.callId) || payload.userId === currentUserId) {
         return
       }
 
@@ -1095,6 +1199,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       useCallStore.getState().patch({
         phase: 'reconnecting',
         remoteAudioState: 'waiting',
+        remoteStreamUrl: null,
         reconnectDeadlineMs: Date.parse(payload.reconnectDeadlineAt) || null,
       })
 
@@ -1108,6 +1213,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       armReconnectTimeout,
       clearRemoteAudioFallback,
       currentUserId,
+      isCurrentCall,
       resetRemoteConsumerRuntime,
       stopTimer,
     ],
@@ -1115,7 +1221,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const handlePeerReconnected = useCallback(
     (payload: PeerReconnectedPayload) => {
-      if (payload.callId !== activeCallIdRef.current || payload.userId === currentUserId) {
+      if (!isCurrentCall(payload.callId) || payload.userId === currentUserId) {
         return
       }
 
@@ -1134,12 +1240,20 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       })
       armReconnectTimeout('peer_audio_reconnect_timeout')
     },
-    [armReconnectTimeout, currentUserId],
+    [armReconnectTimeout, currentUserId, isCurrentCall],
   )
 
   const rejectIncomingCall = useCallback(async () => {
-    const socket = socketRef.current
     const state = useCallStore.getState()
+    let socket = socketRef.current
+
+    if (!socket?.connected && state.callId) {
+      try {
+        socket = await ensureSocketConnected()
+      } catch {
+        socket = null
+      }
+    }
 
     if (socket?.connected && state.callId) {
       socket.emit('reject_call', {
@@ -1147,8 +1261,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       })
     }
 
+    if (state.callId) {
+      veloraSystemCalls.dismissIncomingCall(state.callId)
+    }
     await teardownOnce('reject_incoming_call')
-  }, [teardownOnce])
+  }, [ensureSocketConnected, teardownOnce])
 
   const endCall = useCallback(
     async (reason?: string) => {
@@ -1179,6 +1296,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
+      const currentState = useCallStore.getState()
+
+      if (currentState.callId === payload.callId) {
+        return
+      }
+
       if (payload.callType === 'VIDEO') {
         socketRef.current?.emit('reject_call', {
           callId: payload.callId,
@@ -1188,7 +1311,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
-      if (isBusyPhase(useCallStore.getState().phase)) {
+      if (isBusyPhase(currentState.phase)) {
         socketRef.current?.emit('reject_call', {
           callId: payload.callId,
           reason: 'busy',
@@ -1202,6 +1325,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         fallbackPeerUserId: payload.initiatorId,
         queryClient,
       })
+      const nativePayload = toNativeIncomingCallPayload(payload)
 
       activeCallIdRef.current = payload.callId
       callAnsweredRef.current = false
@@ -1212,31 +1336,76 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         callId: payload.callId,
         conversationId: payload.conversationId,
         peerUserId: peerInfo.peerUserId,
-        peerName: peerInfo.peerName ?? 'Unknown',
-        peerAvatarUrl: peerInfo.peerAvatarUrl,
+        peerName: payload.initiatorDisplayName || peerInfo.peerName || 'Unknown',
+        peerAvatarUrl: payload.initiatorAvatarUrl ?? peerInfo.peerAvatarUrl,
         callType: payload.callType,
         muted: false,
         remoteAudioState: 'idle',
+        remoteStreamUrl: null,
         reconnectDeadlineMs: null,
         error: null,
         durationSec: 0,
       })
+      veloraSystemCalls.presentIncomingCall(nativePayload)
     },
     [currentUserId, presentError, queryClient],
   )
 
+  const prepareIncomingCallFromState = useCallback(
+    (callState: CallStateResponse) => {
+      if (!currentUserId) {
+        return false
+      }
+
+      const peerInfo = getPeerInfoFromConversation({
+        conversationId: callState.conversationId,
+        currentUserId,
+        fallbackPeerUserId: callState.initiatorId,
+        queryClient,
+      })
+
+      activeCallIdRef.current = callState.callId
+      callAnsweredRef.current = false
+      routerRtpCapabilitiesRef.current = null
+      useCallStore.getState().patch({
+        phase: 'incoming_ringing',
+        direction: 'incoming',
+        callId: callState.callId,
+        conversationId: callState.conversationId,
+        peerUserId: peerInfo.peerUserId,
+        peerName: callState.initiatorDisplayName || peerInfo.peerName || 'Unknown',
+        peerAvatarUrl: callState.initiatorAvatarUrl ?? peerInfo.peerAvatarUrl,
+        callType: callState.callType,
+        muted: false,
+        remoteAudioState: 'idle',
+        remoteStreamUrl: null,
+        reconnectDeadlineMs: null,
+        error: null,
+        durationSec: 0,
+      })
+
+      return true
+    },
+    [currentUserId, queryClient],
+  )
+
   const acceptIncomingCall = useCallback(async () => {
     const state = useCallStore.getState()
-    const socket = socketRef.current
+    let socket = socketRef.current
+    const callId = state.callId
 
-    if (!state.callId || !socket) {
+    if (!callId) {
       return
+    }
+
+    if (!socket?.connected) {
+      socket = await ensureSocketConnected()
     }
 
     const hasPermission = await ensureMicPermission()
     if (!hasPermission) {
       socket.emit('reject_call', {
-        callId: state.callId,
+        callId,
         reason: 'mic_permission_denied',
       })
       await teardownOnce('accept_incoming_call_permission_denied', {
@@ -1245,34 +1414,44 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
+    let joinedCall = false
+
     try {
       const joined = await emitAndWaitForEvent<'join_call', 'call_joined'>(
         socket,
         'join_call',
-        { callId: state.callId },
+        { callId },
         {
           event: 'call_joined',
           timeoutMs: CALL_JOINED_TIMEOUT_MS,
           registry: waitRegistryRef.current,
-          filter: (payload) => payload.callId === state.callId,
+          filter: (payload) => payload.callId === callId,
         },
       )
 
-      callAnsweredRef.current = true
-      socket.emit('answer_call', { callId: state.callId })
+      joinedCall = true
       useCallStore.getState().patch({
         phase: 'connecting',
         remoteAudioState: 'idle',
+        remoteStreamUrl: null,
         reconnectDeadlineMs: null,
       })
-      router.push(`/call/${state.callId}` as never)
+      router.push(`/call/${callId}` as never)
       await postAnswerSetup(joined)
+      veloraSystemCalls.setCallActive(callId)
+      socket.emit('answer_call', { callId })
     } catch (error) {
+      if (joinedCall && socket?.connected) {
+        socket.emit('leave_call', {
+          callId,
+          reason: 'disconnected',
+        })
+      }
       await teardownOnce('accept_incoming_call_failed', {
         errorMessage: 'Unable to set up the call',
       })
     }
-  }, [ensureMicPermission, postAnswerSetup, router, teardownOnce])
+  }, [ensureMicPermission, ensureSocketConnected, postAnswerSetup, router, teardownOnce])
 
   const startVoiceCall = useCallback(
     async (input: StartVoiceCallInput) => {
@@ -1307,6 +1486,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
         activeCallIdRef.current = joined.callId
         callAnsweredRef.current = false
+        veloraSystemCalls.registerOutgoingCall({
+          callId: joined.callId,
+          conversationId: input.conversationId,
+          peerName: input.peerName ?? 'Unknown',
+        })
         useCallStore.getState().patch({
           phase: 'outgoing_ringing',
           direction: 'outgoing',
@@ -1318,6 +1502,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           callType: 'VOICE',
           muted: false,
           remoteAudioState: 'idle',
+          remoteStreamUrl: null,
           reconnectDeadlineMs: null,
           error: null,
           durationSec: 0,
@@ -1355,6 +1540,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
 
         callAnsweredRef.current = true
+        veloraSystemCalls.setCallActive(joined.callId)
         useCallStore.getState().patch({ phase: 'connecting', reconnectDeadlineMs: null })
         await postAnswerSetup(joined)
       } catch (error) {
@@ -1381,6 +1567,136 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     ],
   )
 
+  const processNativeCallAction = useCallback(
+    async (action: NativeCallAction) => {
+      if (
+        completedNativeActionIdsRef.current.has(action.actionId) ||
+        processingNativeActionIdsRef.current.has(action.actionId)
+      ) {
+        return
+      }
+
+      if (isLoading || !isAuthenticated || !currentUserId || !username?.trim()) {
+        return
+      }
+
+      try {
+        processingNativeActionIdsRef.current.add(action.actionId)
+
+        let callState: CallStateResponse
+        try {
+          callState = await getCallState(action.callId)
+        } catch (error) {
+          if (isRetryableCallStateError(error)) {
+            clearNativeActionRetryTimeout()
+            nativeActionRetryTimeoutRef.current = setTimeout(() => {
+              nativeActionRetryTimeoutRef.current = null
+              const pendingAction = veloraSystemCalls.getPendingCallAction()
+
+              if (pendingAction?.actionId === action.actionId) {
+                void processNativeCallAction(pendingAction)
+              }
+            }, 1500)
+            return
+          }
+
+          veloraSystemCalls.dismissIncomingCall(action.callId)
+          completeNativeCallAction(action.actionId)
+          return
+        }
+
+        if (callState.callType === 'VIDEO') {
+          veloraSystemCalls.dismissIncomingCall(action.callId)
+          completeNativeCallAction(action.actionId)
+          return
+        }
+
+        if (
+          callState.status === 'ended' ||
+          callState.status === 'cancelled' ||
+          callState.status === 'rejected'
+        ) {
+          if (isCurrentCall(action.callId)) {
+            await teardownOnce('native_action_terminal_state')
+          } else {
+            veloraSystemCalls.dismissIncomingCall(action.callId)
+          }
+          completeNativeCallAction(action.actionId)
+          return
+        }
+
+        if (action.action === 'answer') {
+          if (callState.status !== 'initiated' && callState.status !== 'ringing') {
+            veloraSystemCalls.dismissIncomingCall(action.callId)
+            completeNativeCallAction(action.actionId)
+            return
+          }
+
+          if (prepareIncomingCallFromState(callState)) {
+            await acceptIncomingCall()
+          }
+          completeNativeCallAction(action.actionId)
+          return
+        }
+
+        if (action.action === 'end') {
+          const state = useCallStore.getState()
+          if (state.callId === action.callId && isBusyPhase(state.phase)) {
+            await endCall('ended')
+          } else if (callState.status === 'active') {
+            const socket = await ensureSocketConnected()
+            socket.emit('leave_call', {
+              callId: action.callId,
+              reason: 'ended',
+            })
+            await teardownOnce('native_end_call')
+          } else {
+            veloraSystemCalls.dismissIncomingCall(action.callId)
+          }
+
+          completeNativeCallAction(action.actionId)
+          return
+        }
+
+        if (callState.status === 'initiated' || callState.status === 'ringing') {
+          prepareIncomingCallFromState(callState)
+          await rejectIncomingCall()
+        } else {
+          veloraSystemCalls.dismissIncomingCall(action.callId)
+        }
+
+        completeNativeCallAction(action.actionId)
+      } catch (error) {
+        console.warn(
+          '[Call] Failed to process native call action',
+          JSON.stringify({
+            callId: action.callId,
+            action: action.action,
+            actionId: action.actionId,
+            error: error instanceof Error ? error.message : 'unknown_error',
+          }),
+        )
+      } finally {
+        processingNativeActionIdsRef.current.delete(action.actionId)
+      }
+    },
+    [
+      acceptIncomingCall,
+      clearNativeActionRetryTimeout,
+      completeNativeCallAction,
+      currentUserId,
+      endCall,
+      ensureSocketConnected,
+      isAuthenticated,
+      isCurrentCall,
+      isLoading,
+      prepareIncomingCallFromState,
+      rejectIncomingCall,
+      teardownOnce,
+      username,
+    ],
+  )
+
   const toggleMute = useCallback(() => {
     const localAudioTrack = localStreamRef.current?.getAudioTracks()[0]
     if (!localAudioTrack) {
@@ -1401,34 +1717,43 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      const previousAppState = appStateRef.current
-      appStateRef.current = nextAppState
-
-      if (Platform.OS !== 'web' && previousAppState === 'active' && nextAppState !== 'active') {
-        void leaveCallFromLifecycle('app_backgrounded')
-      }
-    }
-
     const handlePageExit = () => {
       void leaveCallFromLifecycle('app_closed')
     }
 
-    const appStateSubscription = AppState.addEventListener('change', handleAppStateChange)
-
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      window.addEventListener('pagehide', handlePageExit)
-      window.addEventListener('beforeunload', handlePageExit)
+    if (Platform.OS !== 'web' || typeof window === 'undefined') {
+      return
     }
+
+    window.addEventListener('pagehide', handlePageExit)
+    window.addEventListener('beforeunload', handlePageExit)
 
     return () => {
-      appStateSubscription.remove()
-      if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        window.removeEventListener('pagehide', handlePageExit)
-        window.removeEventListener('beforeunload', handlePageExit)
-      }
+      window.removeEventListener('pagehide', handlePageExit)
+      window.removeEventListener('beforeunload', handlePageExit)
     }
   }, [callId, callPhase, leaveCallFromLifecycle])
+
+  useEffect(() => {
+    const subscription = veloraSystemCalls.addCallActionListener((action) => {
+      void processNativeCallAction(action)
+    })
+
+    return () => {
+      subscription.remove()
+    }
+  }, [processNativeCallAction])
+
+  useEffect(() => {
+    if (isLoading || !isAuthenticated || !currentUserId || !username?.trim()) {
+      return
+    }
+
+    const pendingAction = veloraSystemCalls.getPendingCallAction()
+    if (pendingAction) {
+      void processNativeCallAction(pendingAction)
+    }
+  }, [currentUserId, isAuthenticated, isLoading, processNativeCallAction, username])
 
   useEffect(() => {
     if (isLoading) {
@@ -1488,7 +1813,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
 
     const handleCallRejected = (payload: CallRejectedPayload) => {
-      if (payload.callId !== activeCallIdRef.current) {
+      if (!isCurrentCall(payload.callId)) {
         return
       }
 
@@ -1498,7 +1823,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
 
     const handleCallEnded = (payload: CallEndedPayload) => {
-      if (payload.callId !== activeCallIdRef.current) {
+      if (!isCurrentCall(payload.callId)) {
         return
       }
 
@@ -1510,7 +1835,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
 
     const handlePeerLeft = (payload: PeerLeftPayload) => {
-      if (payload.callId !== activeCallIdRef.current) {
+      if (!isCurrentCall(payload.callId)) {
         return
       }
 
@@ -1531,7 +1856,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       void consumeRemoteProducer(payload)
     })
     socket.on('call_answered', (payload) => {
-      if (payload.callId === activeCallIdRef.current) {
+      if (isCurrentCall(payload.callId)) {
         callAnsweredRef.current = true
       }
     })
@@ -1567,6 +1892,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     handlePeerReconnecting,
     handleIncomingCall,
     isAuthenticated,
+    isCurrentCall,
     isLoading,
     presentError,
     recoverActiveCall,
@@ -1582,11 +1908,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socketRef.current?.disconnect()
       socketRef.current = null
       stopTimer()
+      clearNativeActionRetryTimeout()
       clearRemoteAudioFallback()
       clearPeerLeftFallback()
       clearWaitRegistry(waitRegistry)
     }
-  }, [clearPeerLeftFallback, clearRemoteAudioFallback, stopTimer])
+  }, [clearNativeActionRetryTimeout, clearPeerLeftFallback, clearRemoteAudioFallback, stopTimer])
 
   const value = useMemo<UseCallValue>(
     () => ({

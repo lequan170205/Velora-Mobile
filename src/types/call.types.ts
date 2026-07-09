@@ -18,6 +18,11 @@ export interface CallSessionPayload {
   conversationId: string
   initiatorId: string
   targetUserId: string
+  recipientUserId?: string
+  initiatorDisplayName?: string
+  initiatorAvatarUrl?: string
+  ringTimeoutMs?: number
+  expiresAt?: string
   callType: CallType
   status: 'initiated' | 'ringing' | 'active' | 'cancelled' | 'ended' | 'rejected'
   participantIds: string[]
@@ -86,6 +91,11 @@ export interface IncomingCallPayload {
   conversationId: string
   initiatorId: string
   targetUserId: string
+  recipientUserId: string
+  initiatorDisplayName: string
+  initiatorAvatarUrl?: string
+  ringTimeoutMs: number
+  expiresAt: string
   callType: CallType
 }
 
@@ -94,6 +104,11 @@ export interface CallJoinedPayload {
   role: 'host' | 'guest'
   session: CallSessionPayload
   rtpCapabilities: Record<string, unknown>
+  activeProducers?: {
+    userId: string
+    producerId: string
+    kind: 'audio' | 'video'
+  }[]
   noAnswerTimeoutMs?: number
 }
 
@@ -102,6 +117,11 @@ export interface CallRejoinedPayload {
   role: 'host' | 'guest'
   session: CallSessionPayload
   rtpCapabilities: Record<string, unknown>
+  activeProducers?: {
+    userId: string
+    producerId: string
+    kind: 'audio' | 'video'
+  }[]
 }
 
 export interface NewPeerPayload {
@@ -230,6 +250,7 @@ export interface CallUiState {
   error: string | null
   durationSec: number
   remoteAudioState: RemoteAudioState
+  remoteStreamUrl: string | null
   reconnectDeadlineMs: number | null
 }
 

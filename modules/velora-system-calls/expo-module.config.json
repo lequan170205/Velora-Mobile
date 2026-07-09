@@ -1,0 +1,10 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["VeloraSystemCallsModule"],
+    "appDelegateSubscribers": ["VeloraSystemCallsAppDelegateSubscriber"]
+  },
+  "android": {
+    "modules": ["expo.modules.velorasystemcalls.VeloraSystemCallsModule"]
+  }
+}

@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "UIBackgroundModes": ["audio", "voip"],
+        "UIBackgroundModes": ["audio", "voip", "remote-notification"],
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Velora uses the camera to record reels.",
         "NSMicrophoneUsageDescription": "Velora uses the microphone to record audio for reels."
@@ -40,9 +40,12 @@
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.FOREGROUND_SERVICE_PHONE_CALL",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.INTERNET",
+        "android.permission.MANAGE_OWN_CALLS",
+        "android.permission.USE_FULL_SCREEN_INTENT",
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.WAKE_LOCK",
         "android.permission.BLUETOOTH",
@@ -66,6 +69,7 @@
       "@react-native-firebase/app",
       "@react-native-firebase/messaging",
       "./plugins/withVeloraNotificationChannel",
+      "./plugins/withVeloraSystemCalls",
       [
         "expo-camera",
         {

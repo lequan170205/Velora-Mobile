@@ -15,7 +15,6 @@ import { PaperProvider } from 'react-native-paper'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { CallErrorModal } from '../src/components/call/CallErrorModal'
-import { IncomingCallModal } from '../src/components/call/IncomingCallModal'
 import { paperTheme } from '../src/constants/paperTheme'
 import { colors } from '../src/constants/theme'
 import { useReelSavingMode } from '../src/hooks/useReelSavingMode'
@@ -34,6 +33,7 @@ import { NetworkProvider } from '../src/providers/NetworkProvider'
 import { PushTokenLifecycleProvider } from '../src/providers/PushTokenLifecycleProvider'
 import { QueryProvider } from '../src/providers/QueryProvider'
 import { SocketProvider } from '../src/providers/SocketProvider'
+import { SystemCallProvider } from '../src/providers/SystemCallProvider'
 import { useAuthStore } from '../src/stores/authStore'
 import { useCallStore } from '../src/stores/callStore'
 
@@ -110,22 +110,11 @@ function ActiveCallBanner() {
 }
 
 function CallUiOverlays() {
-  const { phase, peerName, callType, error } = useCallStore()
-  const { acceptIncomingCall, rejectIncomingCall, dismissCallError } = useCall()
+  const { error } = useCallStore()
+  const { dismissCallError } = useCall()
 
   return (
     <>
-      <IncomingCallModal
-        visible={phase === 'incoming_ringing'}
-        callerName={peerName || 'Unknown'}
-        type={callType ?? 'VOICE'}
-        onAccept={() => {
-          void acceptIncomingCall()
-        }}
-        onReject={() => {
-          void rejectIncomingCall()
-        }}
-      />
       <CallErrorModal visible={Boolean(error)} message={error} onDismiss={dismissCallError} />
       <ActiveCallBanner />
     </>
@@ -193,51 +182,53 @@ export default function RootLayout() {
                 <NetworkProvider>
                   <AuthProvider>
                     <PushTokenLifecycleProvider>
-                      <FcmDebugProvider>
-                        <SocketProvider>
-                          <CallProvider>
-                            <ChatMediaUploadProvider>
-                              <ChatMediaViewerProvider>
-                                <Stack
-                                  screenOptions={{
-                                    headerShown: false,
-                                    contentStyle: { backgroundColor: colors.bg.secondary },
-                                    freezeOnBlur: true,
-                                  }}
-                                >
-                                  <Stack.Screen name="(tabs)" />
-                                  <Stack.Screen name="(auth)" />
-                                  <Stack.Screen
-                                    name="reels/[id]/index"
-                                    options={{
-                                      animation: 'slide_from_right',
-                                      animationDuration: 220,
-                                      freezeOnBlur: false,
+                      <SystemCallProvider>
+                        <FcmDebugProvider>
+                          <SocketProvider>
+                            <CallProvider>
+                              <ChatMediaUploadProvider>
+                                <ChatMediaViewerProvider>
+                                  <Stack
+                                    screenOptions={{
+                                      headerShown: false,
+                                      contentStyle: { backgroundColor: colors.bg.secondary },
+                                      freezeOnBlur: true,
                                     }}
-                                  />
-                                  <Stack.Screen
-                                    name="conversation/[id]"
-                                    options={{
-                                      animation: 'slide_from_right',
-                                      animationDuration: 250,
-                                    }}
-                                  />
-                                  <Stack.Screen
-                                    name="reels/create"
-                                    options={{ presentation: 'fullScreenModal' }}
-                                  />
-                                  <Stack.Screen
-                                    name="call/[id]"
-                                    options={{ presentation: 'fullScreenModal' }}
-                                  />
-                                </Stack>
+                                  >
+                                    <Stack.Screen name="(tabs)" />
+                                    <Stack.Screen name="(auth)" />
+                                    <Stack.Screen
+                                      name="reels/[id]/index"
+                                      options={{
+                                        animation: 'slide_from_right',
+                                        animationDuration: 220,
+                                        freezeOnBlur: false,
+                                      }}
+                                    />
+                                    <Stack.Screen
+                                      name="conversation/[id]"
+                                      options={{
+                                        animation: 'slide_from_right',
+                                        animationDuration: 250,
+                                      }}
+                                    />
+                                    <Stack.Screen
+                                      name="reels/create"
+                                      options={{ presentation: 'fullScreenModal' }}
+                                    />
+                                    <Stack.Screen
+                                      name="call/[id]"
+                                      options={{ presentation: 'fullScreenModal' }}
+                                    />
+                                  </Stack>
 
-                                <CallUiOverlays />
-                              </ChatMediaViewerProvider>
-                            </ChatMediaUploadProvider>
-                          </CallProvider>
-                        </SocketProvider>
-                      </FcmDebugProvider>
+                                  <CallUiOverlays />
+                                </ChatMediaViewerProvider>
+                              </ChatMediaUploadProvider>
+                            </CallProvider>
+                          </SocketProvider>
+                        </FcmDebugProvider>
+                      </SystemCallProvider>
                     </PushTokenLifecycleProvider>
                   </AuthProvider>
                 </NetworkProvider>
