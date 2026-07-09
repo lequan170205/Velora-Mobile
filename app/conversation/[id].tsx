@@ -114,6 +114,10 @@ const GENERIC_REEL_REPLY_PREVIEW_CONTENT = new Set([
 ])
 const isPersistedServerMessageId = (messageId?: string | null) =>
   Boolean(messageId && !messageId.startsWith('temp-'))
+const hasRecommendationMessageContent = (message: Message) =>
+  message.metadata?.kind === 'velora_ai_reel_recommendations' &&
+  ((message.metadata.recommendedReels?.length ?? 0) > 0 ||
+    (message.metadata.suggestedQueries?.length ?? 0) > 0)
 const getClientMessageIdentity = (message?: Message | null) => {
   if (!message) {
     return null
@@ -306,6 +310,7 @@ interface MessageRowProps {
   isContextMenuActive: boolean
   onPressReplyPreview: (replyToId?: string) => void
   onReply: (message: Message) => void
+  onSendSuggestedQuery: (query: string) => void
   onOpenContextMenu: (payload: MessageBubbleContextMenuPayload) => void
   onOpenMedia: (payload: ChatMediaViewerOpenPayload) => void
 }
@@ -326,6 +331,7 @@ const MessageRow = memo(
     isContextMenuActive,
     onPressReplyPreview,
     onReply,
+    onSendSuggestedQuery,
     onOpenContextMenu,
     onOpenMedia,
   }: MessageRowProps) {
@@ -369,6 +375,7 @@ const MessageRow = memo(
           isContextMenuActive={isContextMenuActive}
           onPressReplyPreview={handlePressReplyPreview}
           onReply={handleReply}
+          onSendSuggestedQuery={onSendSuggestedQuery}
           onOpenContextMenu={onOpenContextMenu}
           onOpenMedia={onOpenMedia}
           conversationId={conversationId}
@@ -391,6 +398,7 @@ const MessageRow = memo(
     prevProps.isContextMenuActive === nextProps.isContextMenuActive &&
     prevProps.onPressReplyPreview === nextProps.onPressReplyPreview &&
     prevProps.onReply === nextProps.onReply &&
+    prevProps.onSendSuggestedQuery === nextProps.onSendSuggestedQuery &&
     prevProps.onOpenContextMenu === nextProps.onOpenContextMenu &&
     prevProps.onOpenMedia === nextProps.onOpenMedia,
 )
@@ -1572,6 +1580,13 @@ export default function ChatScreen() {
     ],
   )
 
+  const handleSendSuggestedQuery = useCallback(
+    (query: string) => {
+      handleSendText(query)
+    },
+    [handleSendText],
+  )
+
   const handleRecall = useCallback(
     (messageId: string) => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
@@ -1923,6 +1938,7 @@ export default function ChatScreen() {
           isContextMenuActive={messageIdentityKey === activeContextMenuMessageId}
           onPressReplyPreview={handleScrollToMessage}
           onReply={handleReply}
+          onSendSuggestedQuery={handleSendSuggestedQuery}
           onOpenContextMenu={handleOpenContextMenu}
           onOpenMedia={handleOpenMedia}
         />
@@ -1933,6 +1949,7 @@ export default function ChatScreen() {
       conversationId,
       currentConversation,
       handleReply,
+      handleSendSuggestedQuery,
       handleScrollToMessage,
       handleOpenContextMenu,
       handleOpenMedia,
@@ -1952,10 +1969,25 @@ export default function ChatScreen() {
       return 'recalled'
     }
 
+    if (hasRecommendationMessageContent(item)) {
+      return `${item.type || 'text'}:velora_ai_reel_recommendations`
+    }
+
     return item.type || 'text'
   }, [])
   const keyExtractor = useCallback((item: Message, index: number) => {
-    return getMessageIdentityKey(item) ?? item.id ?? item._id ?? `fallback-${index}`
+    const baseKey = getMessageIdentityKey(item) ?? item.id ?? item._id ?? `fallback-${index}`
+
+    if (!hasRecommendationMessageContent(item)) {
+      return baseKey
+    }
+
+    return [
+      baseKey,
+      item.metadata?.kind ?? 'metadata',
+      item.metadata?.recommendedReels?.length ?? 0,
+      item.metadata?.suggestedQueries?.length ?? 0,
+    ].join(':')
   }, [])
 
   const colorScheme = useColorScheme()

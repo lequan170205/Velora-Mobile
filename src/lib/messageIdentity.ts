@@ -1,7 +1,7 @@
 import { mergeReplyPreview } from './replyPreview'
 
 import type { OptimisticSortAnchor } from '../stores/chatStore'
-import type { Message, MessageMedia } from '../types/conversation.types'
+import type { Message, MessageMedia, MessageMetadata } from '../types/conversation.types'
 
 type MessageLike = Partial<
   Pick<
@@ -12,6 +12,7 @@ type MessageLike = Partial<
     | 'createdAt'
     | 'updatedAt'
     | 'media'
+    | 'metadata'
     | 'readBy'
     | 'replyPreview'
   >
@@ -208,6 +209,38 @@ export const mergeMessageStatus = (existingStatus?: string, incomingStatus?: str
     : safeIncomingStatus
 }
 
+export const mergeMessageMetadata = (
+  existing?: MessageMetadata | null,
+  incoming?: MessageMetadata | null,
+): MessageMetadata | undefined => {
+  if (!existing && !incoming) {
+    return undefined
+  }
+
+  const kind =
+    incoming && Object.prototype.hasOwnProperty.call(incoming, 'kind')
+      ? incoming.kind
+      : existing?.kind
+  const recommendedReels =
+    incoming && Object.prototype.hasOwnProperty.call(incoming, 'recommendedReels')
+      ? incoming.recommendedReels
+      : existing?.recommendedReels
+  const suggestedQueries =
+    incoming && Object.prototype.hasOwnProperty.call(incoming, 'suggestedQueries')
+      ? incoming.suggestedQueries
+      : existing?.suggestedQueries
+
+  if (!kind && recommendedReels === undefined && suggestedQueries === undefined) {
+    return undefined
+  }
+
+  return {
+    ...(kind ? { kind } : {}),
+    ...(recommendedReels !== undefined ? { recommendedReels } : {}),
+    ...(suggestedQueries !== undefined ? { suggestedQueries } : {}),
+  }
+}
+
 export const mergeMessageRecords = <T extends MessageLike>(existing: T, incoming: T): T => {
   const existingHasStableId = Boolean(existing.id && !isTempId(existing.id))
   const incomingHasStableId = Boolean(incoming.id && !isTempId(incoming.id))
@@ -229,6 +262,7 @@ export const mergeMessageRecords = <T extends MessageLike>(existing: T, incoming
   }
 
   const mergedMedia = mergeMessageMedia(existing.media, incoming.media)
+  const mergedMetadata = mergeMessageMetadata(existing.metadata, incoming.metadata)
   const mergedReadBy = mergeReadByEntries(existing.readBy, incoming.readBy)
   const mergedReplyPreview = mergeReplyPreview(existing.replyPreview, incoming.replyPreview)
   const mergedStatus = mergeMessageStatus(existing.status, incoming.status)
@@ -237,6 +271,7 @@ export const mergeMessageRecords = <T extends MessageLike>(existing: T, incoming
     ...fallback,
     ...preferred,
     ...(mergedMedia ? { media: mergedMedia } : {}),
+    ...(mergedMetadata ? { metadata: mergedMetadata } : {}),
     ...(mergedReadBy ? { readBy: mergedReadBy } : {}),
     ...(mergedReplyPreview ? { replyPreview: mergedReplyPreview } : {}),
     ...(mergedStatus ? { status: mergedStatus } : {}),

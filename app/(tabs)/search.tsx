@@ -624,8 +624,11 @@ export default function SearchScreen() {
     void runConversationEntry('bot-conversation', async () => {
       try {
         await startBotChat()
-      } catch {
-        Alert.alert('Error', 'Could not open bot conversation. Please try again.')
+      } catch (error) {
+        Alert.alert(
+          'Error',
+          getErrorMessage(error, 'Could not open bot conversation. Please try again.'),
+        )
       }
     })
   }, [runConversationEntry, startBotChat])

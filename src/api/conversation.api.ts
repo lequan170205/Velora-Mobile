@@ -1,11 +1,8 @@
+import { normalizeMessageMetadata } from '../lib/messageMetadata'
+
 import { apiClient } from './client'
 
-import type {
-  BotChatResponse,
-  Conversation,
-  ConversationMember,
-  Message,
-} from '../types/conversation.types'
+import type { Conversation, ConversationMember, Message } from '../types/conversation.types'
 
 export interface AnchorWindowResponse {
   targetMessageId: string
@@ -25,6 +22,29 @@ export interface AnchorExpansionResponse {
 interface CreateConversationResponse {
   id: string
 }
+
+const normalizeMessage = (message: Message): Message => {
+  const metadata = normalizeMessageMetadata(
+    (message as Message & Record<string, unknown>).metadata ??
+      (message as Message & Record<string, unknown>).message_metadata,
+  )
+
+  if (metadata) {
+    return {
+      ...message,
+      metadata,
+    }
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(message, 'metadata')) {
+    return message
+  }
+
+  const { metadata: _metadata, ...rest } = message as Message & { metadata?: unknown }
+  return rest as Message
+}
+
+const normalizeMessages = (messages: Message[]) => messages.map(normalizeMessage)
 
 export const conversationApi = {
   getAll: async () => {
@@ -59,7 +79,7 @@ export const conversationApi = {
   getMessages: async (id: string, params: { page?: number; limit?: number; cursor?: string }) => {
     const response = await apiClient.get<Message[]>(`/conversations/${id}/messages`, { params })
 
-    return response.data
+    return normalizeMessages(response.data)
   },
   getMessagesAround: async (
     id: string,
@@ -77,7 +97,10 @@ export const conversationApi = {
       },
     )
 
-    return response.data
+    return {
+      ...response.data,
+      messages: normalizeMessages(response.data.messages),
+    }
   },
   getMessagesAnchorOlder: async (
     id: string,
@@ -94,7 +117,10 @@ export const conversationApi = {
       },
     )
 
-    return response.data
+    return {
+      ...response.data,
+      messages: normalizeMessages(response.data.messages),
+    }
   },
   getMessagesAnchorNewer: async (
     id: string,
@@ -111,7 +137,10 @@ export const conversationApi = {
       },
     )
 
-    return response.data
+    return {
+      ...response.data,
+      messages: normalizeMessages(response.data.messages),
+    }
   },
   sendMessage: async (
     id: string,
@@ -126,7 +155,7 @@ export const conversationApi = {
   ) => {
     const response = await apiClient.post<Message>(`/conversations/${id}/messages`, data)
 
-    return response.data
+    return normalizeMessage(response.data)
   },
   deleteMessage: async (id: string, messageId: string) => {
     await apiClient.delete(`/conversations/${id}/messages/${messageId}`)
@@ -136,7 +165,7 @@ export const conversationApi = {
       `/conversations/${id}/messages/${messageId}`,
       data,
     )
-    return response.data
+    return normalizeMessage(response.data)
   },
   readMessage: async (id: string, data: { messageId: string }) => {
     await apiClient.post(`/conversations/${id}/read`, data)
@@ -148,7 +177,7 @@ export const conversationApi = {
     const response = await apiClient.post<Message>(
       `/conversations/${conversationId}/messages/${messageId}/recall`,
     )
-    return response.data
+    return normalizeMessage(response.data)
   },
 
   addReaction: async (messageId: string, userId: string, emoji: string) => {
@@ -156,12 +185,12 @@ export const conversationApi = {
       userId,
       emoji,
     })
-    return response.data
+    return normalizeMessage(response.data)
   },
 
   removeReaction: async (messageId: string, userId: string) => {
     const response = await apiClient.delete<Message>(`/messages/${messageId}/reactions/${userId}`)
-    return response.data
+    return normalizeMessage(response.data)
   },
   getMembers: async (id: string) => {
     const response = await apiClient.get<ConversationMember[]>(`/conversations/${id}/members`)
@@ -173,15 +202,5 @@ export const conversationApi = {
   },
   removeMember: async (id: string, userId: string) => {
     await apiClient.delete(`/conversations/${id}/members/${userId}`)
-  },
-
-  /** Creates (or retrieves) a bot conversation and sends the initial message. */
-  chatWithBot: async (data: { content: string }) => {
-    const response = await apiClient.post<BotChatResponse>('/conversations/chat', {
-      type: 'text',
-      signalType: 0,
-      content: data.content,
-    })
-    return response.data
   },
 }

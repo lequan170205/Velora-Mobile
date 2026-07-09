@@ -11,6 +11,7 @@ import type { MessageSyncRangeModel } from './MessageSyncRangeModel'
 import type {
   Message as ConversationMessage,
   MessageMedia,
+  MessageMetadata,
   ReplyPreviewData,
   ReactionMap,
 } from '../../types/conversation.types'
@@ -25,6 +26,7 @@ export type AddMessageInput = {
   clientMessageId?: string | null
   content: string
   media?: MessageMedia | null
+  metadata?: MessageMetadata | null
   type?: MessageTypeValue
   status?: MessageStatusValue
   readBy?: MessageReadBy | null
@@ -79,6 +81,7 @@ export class ConversationModel extends Model {
       message.clientMessageId = input.clientMessageId ?? null
       message.content = input.content
       message.media = input.media ?? null
+      message.metadata = input.metadata ?? null
       message.type = messageType
       message.status = messageStatus
       message.readBy = input.readBy ?? null

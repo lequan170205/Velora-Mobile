@@ -11,7 +11,11 @@ import {
   PROFILE_TAB_INDEX,
 } from '../../../src/components/navigation/CustomTabBar'
 import { ReelsViewer } from '../../../src/components/reels/ReelsViewer'
-import { buildSharedReelFromMessage, isSharedReelMessage } from '../../../src/lib/chatReels'
+import {
+  buildSharedReelFromMessage,
+  isSharedReelMessage,
+  parseChatReelRouteContext,
+} from '../../../src/lib/chatReels'
 
 import type { Message } from '../../../src/types/conversation.types'
 import type { Reel } from '../../../src/types/reel.types'
@@ -47,12 +51,14 @@ export default function ReelContextScreen() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const insets = useSafeAreaInsets()
-  const { conversationId, id, returnTo, returnUsername } = useLocalSearchParams<{
+  const { contextReels, conversationId, id, returnTo, returnUsername } = useLocalSearchParams<{
+    contextReels?: string | string[]
     conversationId?: string | string[]
     id?: string | string[]
     returnTo?: string | string[]
     returnUsername?: string | string[]
   }>()
+  const normalizedContextReels = Array.isArray(contextReels) ? contextReels[0] : contextReels
   const normalizedConversationId = Array.isArray(conversationId)
     ? conversationId[0]
     : conversationId
@@ -61,6 +67,10 @@ export default function ReelContextScreen() {
   const normalizedReturnUsername = Array.isArray(returnUsername)
     ? returnUsername[0]
     : returnUsername
+  const routeContextReels = useMemo(
+    () => parseChatReelRouteContext(normalizedContextReels),
+    [normalizedContextReels],
+  )
   const isConversationReturn = normalizedReturnTo === 'conversation'
   const tabBarHeight = getDockedTabBarHeight(insets.bottom)
   const conversationReels = useMemo(() => {
@@ -90,12 +100,20 @@ export default function ReelContextScreen() {
     return Array.from(reelsById.values())
   }, [isConversationReturn, normalizedConversationId, queryClient])
   const contextItems = useMemo(() => {
+    if (routeContextReels.length > 0) {
+      if (!reelId || routeContextReels.some((reel) => reel.id === reelId)) {
+        return routeContextReels
+      }
+
+      return []
+    }
+
     if (!reelId || conversationReels.some((reel) => reel.id === reelId)) {
       return conversationReels
     }
 
     return []
-  }, [conversationReels, reelId])
+  }, [conversationReels, reelId, routeContextReels])
   const handleTabSelect = useCallback(
     (_nextIndex: number, routeName: string) => {
       if (routeName === 'index') {
@@ -120,6 +138,7 @@ export default function ReelContextScreen() {
         reelId={reelId}
         contextItems={contextItems}
         contextSource="profile"
+        routeContextParam={normalizedContextReels}
         returnConversationId={normalizedConversationId}
         returnTo={normalizedReturnTo}
         returnUsername={normalizedReturnUsername}

@@ -12,6 +12,7 @@ import type { Relation } from '@nozbe/watermelondb'
 
 import {
   sanitizeMessageMedia,
+  sanitizeMessageMetadata,
   sanitizeReadBy,
   sanitizeReactions,
   sanitizeReplyPreview,
@@ -23,6 +24,7 @@ import type { UserModel } from './UserModel'
 import type {
   Message as ConversationMessage,
   MessageMedia,
+  MessageMetadata,
   ReplyPreviewData,
   ReactionMap,
 } from '../../types/conversation.types'
@@ -47,6 +49,8 @@ export class MessageModel extends Model {
   @text('client_message_id') clientMessageId!: string | null
   @text('content') content!: string
   @json('media', sanitizeMessageMedia, { memo: true }) media!: MessageMedia | null
+  @json('message_metadata', sanitizeMessageMetadata, { memo: true })
+  metadata!: MessageMetadata | null
   @text('type') type!: MessageTypeValue
   @text('status') status!: MessageStatusValue
   @json('read_by', sanitizeReadBy, { memo: true }) readBy!: MessageReadBy | null

@@ -102,7 +102,7 @@ export const REEL_EVENT_OUTBOX_ITEMS_TABLE_SCHEMA: TableSchemaSpec = {
 }
 
 export const schema = appSchema({
-  version: 3,
+  version: 4,
   tables: [
     tableSchema({
       name: TABLES.users,
@@ -142,6 +142,7 @@ export const schema = appSchema({
         { name: 'client_message_id', type: 'string', isOptional: true, isIndexed: true },
         { name: 'content', type: 'string' },
         { name: 'media', type: 'string', isOptional: true },
+        { name: 'message_metadata', type: 'string', isOptional: true },
         { name: 'type', type: 'string' },
         { name: 'status', type: 'string' },
         { name: 'read_by', type: 'string', isOptional: true },

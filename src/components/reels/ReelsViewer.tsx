@@ -68,6 +68,7 @@ interface ReelsViewerProps {
   hideDescriptions?: boolean
   mode: ReelsViewerMode
   reelId?: string | undefined
+  routeContextParam?: string | undefined
   returnConversationId?: string | undefined
   returnTo?: string | undefined
   returnUsername?: string | undefined
@@ -128,6 +129,7 @@ export function ReelsViewer({
   hideDescriptions = false,
   mode,
   reelId,
+  routeContextParam,
   returnConversationId,
   returnTo,
   returnUsername,
@@ -1164,6 +1166,7 @@ export function ReelsViewer({
             id: nextReel.id,
             source: contextSource,
             ...(returnConversationId ? { conversationId: returnConversationId } : {}),
+            ...(routeContextParam ? { contextReels: routeContextParam } : {}),
             ...(hideDescriptions ? { hideDescriptions: '1' } : {}),
             ...(returnTo ? { returnTo } : {}),
             ...(returnUsername ? { returnUsername } : {}),
@@ -1197,6 +1200,7 @@ export function ReelsViewer({
       hideDescriptions,
       reelId,
       refetchContext,
+      routeContextParam,
       returnConversationId,
       returnTo,
       returnUsername,

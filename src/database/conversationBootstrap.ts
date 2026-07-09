@@ -323,6 +323,7 @@ export const toConversationMessageFromModel = ({
     updatedAt,
     ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}),
     ...(message.media ? { media: message.media } : {}),
+    ...(message.metadata ? { metadata: message.metadata } : {}),
     ...(message.readBy ? { readBy: message.readBy } : {}),
     ...(message.replyToId ? { replyToId: message.replyToId, reply_to_id: message.replyToId } : {}),
     ...(replyPreviewValue

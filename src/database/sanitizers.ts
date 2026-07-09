@@ -1,6 +1,9 @@
+import { normalizeMessageMetadata } from '../lib/messageMetadata'
+
 import type {
   Message as ConversationMessage,
   MessageMedia,
+  MessageMetadata,
   ReplyPreviewData,
   ReactionMap,
 } from '../types/conversation.types'
@@ -50,6 +53,20 @@ export const sanitizeParticipantIds = (value: unknown): string[] => {
   )
 }
 
+const sanitizeStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value.reduce<string[]>((items, item) => {
+    const normalizedItem = sanitizeString(item)
+    if (normalizedItem) {
+      items.push(normalizedItem)
+    }
+    return items
+  }, [])
+}
+
 export const sanitizeMessageMedia = (value: unknown): MessageMedia | null => {
   if (!isRecord(value)) {
     return null
@@ -71,6 +88,7 @@ export const sanitizeMessageMedia = (value: unknown): MessageMedia | null => {
   )
   const reelTitle = sanitizeString(value.reelTitle)
   const reelDescription = sanitizeString(value.reelDescription)
+  const reelTags = sanitizeStringArray(value.reelTags)
   const width = sanitizeNumber(value.width)
   const height = sanitizeNumber(value.height)
   const durationMs = sanitizeNumber(value.durationMs)
@@ -95,6 +113,7 @@ export const sanitizeMessageMedia = (value: unknown): MessageMedia | null => {
   if (reelOwnerUsername) nextMedia.reelOwnerUsername = reelOwnerUsername
   if (reelTitle) nextMedia.reelTitle = reelTitle
   if (reelDescription) nextMedia.reelDescription = reelDescription
+  if (reelTags.length > 0) nextMedia.reelTags = reelTags
   if (width !== null) nextMedia.width = width
   if (height !== null) nextMedia.height = height
   if (durationMs !== null) nextMedia.durationMs = durationMs
@@ -170,6 +189,10 @@ export const sanitizeReplyPreview = (value: unknown): MessageReplyPreview => {
     ...(mediaHeight !== null ? { mediaHeight } : {}),
     type: type as ReplyPreviewData['type'],
   }
+}
+
+export const sanitizeMessageMetadata = (value: unknown): MessageMetadata | null => {
+  return normalizeMessageMetadata(value) ?? null
 }
 
 export const sanitizeReactions = (value: unknown): ReactionMap | null => {

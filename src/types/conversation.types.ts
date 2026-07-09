@@ -1,3 +1,4 @@
+import type { ReelFeedListItem } from './reel.types'
 import type { UserSummary } from './user.types'
 
 export interface ChatParticipant {
@@ -52,7 +53,12 @@ export interface ReplyPreviewData {
 export type MessageMediaStatus = 'ready' | 'processing' | 'failed'
 
 export type MessageMediaUploadStage =
-  'queued' | 'uploading' | 'syncing' | 'ready' | 'processing' | 'failed'
+  | 'queued'
+  | 'uploading'
+  | 'syncing'
+  | 'ready'
+  | 'processing'
+  | 'failed'
 
 export interface MessageMedia {
   fileKey?: string
@@ -66,6 +72,7 @@ export interface MessageMedia {
   reelOwnerUsername?: string
   reelTitle?: string
   reelDescription?: string
+  reelTags?: string[]
   width?: number
   height?: number
   durationMs?: number
@@ -82,6 +89,12 @@ export interface MessageMedia {
   lastProgressAt?: number
 }
 
+export interface MessageMetadata {
+  kind?: 'velora_ai_reel_recommendations'
+  recommendedReels?: ReelFeedListItem[]
+  suggestedQueries?: string[]
+}
+
 export interface Message {
   id: string
   conversationId: string
@@ -90,6 +103,7 @@ export interface Message {
   sender: UserSummary
   content: string
   media?: MessageMedia
+  metadata?: MessageMetadata
   type: 'text' | 'image' | 'video' | 'file' | 'voice' | 'call' | 'reel'
   status: 'PENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED'
   readBy?: { userId: string; at: string }[]
@@ -118,18 +132,4 @@ export interface ConversationMember {
   userId: string
   user: UserSummary
   joinedAt: string
-}
-
-/** Response from POST /conversations/chat (bot auto-reply endpoint) */
-export interface BotChatResponse {
-  id: string
-  conversationId: string
-  senderId: string
-  content: string
-  media?: MessageMedia
-  type: 'text' | 'image' | 'video' | 'file' | 'voice' | 'call' | 'reel'
-  signalType: number
-  createdAt: string
-  createdAtMs: number
-  readBy: { userId: string; at: string }[]
 }

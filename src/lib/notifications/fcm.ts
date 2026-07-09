@@ -13,7 +13,12 @@ import * as ReactNative from 'react-native'
 import { Platform } from 'react-native'
 
 type PermissionStatus =
-  'authorized' | 'provisional' | 'ephemeral' | 'denied' | 'not-determined' | 'unknown'
+  | 'authorized'
+  | 'provisional'
+  | 'ephemeral'
+  | 'denied'
+  | 'not-determined'
+  | 'unknown'
 
 export type FcmDebugErrorCode =
   | 'apns-token-unavailable'

@@ -4,7 +4,11 @@ import { useRouter } from 'expo-router'
 import * as VideoThumbnails from 'expo-video-thumbnails'
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Image, Pressable, Text, View, useWindowDimensions } from 'react-native'
-import { Gesture, GestureDetector } from 'react-native-gesture-handler'
+import {
+  Gesture,
+  GestureDetector,
+  ScrollView as GestureHandlerScrollView,
+} from 'react-native-gesture-handler'
 import Animated, {
   interpolate,
   type SharedValue,
@@ -15,16 +19,19 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated'
-import Svg, { Path } from 'react-native-svg'
 import { scheduleOnRN } from 'react-native-worklets'
 
-import { useReelDetail } from '../../hooks/useReels'
 import {
   calculateChatMediaDisplaySize,
   getResolvedMediaPosterUri,
   getResolvedMediaUri,
 } from '../../lib/chatMedia'
-import { getSharedReelRouteId, isSharedReelMessage } from '../../lib/chatReels'
+import {
+  buildChatReelMediaFromReel,
+  getSharedReelRouteId,
+  isSharedReelMessage,
+  serializeChatReelRouteContext,
+} from '../../lib/chatReels'
 import { cn } from '../../lib/cn'
 import {
   getPreferredReelReplyPreviewContent,
@@ -36,6 +43,7 @@ import {
 import { useAuthStore } from '../../stores/authStore'
 import { ReelVideo } from '../reels/ReelVideo'
 
+import { ChatReelCard, getChatReelCardHeight } from './ChatReelCard'
 import { MessageBubbleContent } from './MessageBubbleContent'
 
 import type { ChatMediaViewerOpenPayload } from './ChatMediaViewer'
@@ -46,6 +54,7 @@ import type {
   ReactionMap,
   ReplyPreviewData,
 } from '../../types/conversation.types'
+import type { ReelFeedListItem } from '../../types/reel.types'
 
 // Valid emojis for reactions (matching backend)
 export const VALID_EMOJIS = ['👍', '❤️', '😂', '😢', '😮', '😡', '👏', '🎉']
@@ -75,21 +84,8 @@ const URI_LIKE_PATTERN = /^(https?:\/\/|file:\/\/|content:\/\/|data:|blob:)/i
 const VIDEO_FILE_URI_PATTERN = /\.(mp4|m4v|mov|webm)(?:[?#].*)?$/i
 const SWIPE_REPLY_TRIGGER_DISTANCE = 72
 const TIMESTAMP_REVEAL_MAX_OFFSET = 64
+const MAX_SUGGESTED_QUERIES = 3
 const generatedReplyVideoThumbnailCache = new Map<string, string | null>()
-
-const RoundedPlayIcon = memo(function RoundedPlayIcon() {
-  return (
-    <Svg width={56} height={56} viewBox="0 0 56 56">
-      <Path
-        d="M19 14 L19 42 L42 28 Z"
-        fill="#FFFFFF"
-        stroke="#FFFFFF"
-        strokeLinejoin="round"
-        strokeWidth={5}
-      />
-    </Svg>
-  )
-})
 
 const getReplyPreviewThumbnailUri = (replyPreview?: Message['replyPreview'], replyTo?: Message) => {
   if (isReplyPreviewRecalled({ replyPreview, replyTo })) {
@@ -245,8 +241,66 @@ const getSenderDisplayName = ({
   return namedSender || senderInfo?.email?.split('@')[0] || 'Someone'
 }
 
-const getInitialFromLabel = (label: string) =>
-  label.replace(/^@+/, '').charAt(0).toUpperCase() || '?'
+const areStringArraysEqual = (left?: string[], right?: string[]) => {
+  if (left === right) {
+    return true
+  }
+
+  if (!left || !right) {
+    return !left && !right
+  }
+
+  if (left.length !== right.length) {
+    return false
+  }
+
+  return left.every((value, index) => value === right[index])
+}
+
+const areRecommendedReelsEqual = (left?: ReelFeedListItem[], right?: ReelFeedListItem[]) => {
+  if (left === right) {
+    return true
+  }
+
+  if (!left || !right) {
+    return !left && !right
+  }
+
+  if (left.length !== right.length) {
+    return false
+  }
+
+  return left.every((reel, index) => {
+    const other = right[index]
+
+    return (
+      reel.id === other?.id &&
+      reel.title === other?.title &&
+      reel.thumbnailUrl === other?.thumbnailUrl &&
+      reel.localThumbnailUri === other?.localThumbnailUri &&
+      reel.author?.id === other?.author?.id &&
+      reel.author?.username === other?.author?.username &&
+      reel.author?.displayName === other?.author?.displayName &&
+      reel.author?.avatarUrl === other?.author?.avatarUrl
+    )
+  })
+}
+
+const areMessageMetadataEqual = (left?: Message['metadata'], right?: Message['metadata']) => {
+  if (left === right) {
+    return true
+  }
+
+  if (!left || !right) {
+    return !left && !right
+  }
+
+  return (
+    left.kind === right.kind &&
+    areRecommendedReelsEqual(left.recommendedReels, right.recommendedReels) &&
+    areStringArraysEqual(left.suggestedQueries, right.suggestedQueries)
+  )
+}
 
 const areReadReceiptsEqual = (left?: Message['readBy'], right?: Message['readBy']) => {
   if (left === right) return true
@@ -327,6 +381,7 @@ const areMediaEqual = (left?: Message['media'], right?: Message['media']) => {
     left.reelOwnerAvatarUrl === right.reelOwnerAvatarUrl &&
     left.reelTitle === right.reelTitle &&
     left.reelDescription === right.reelDescription &&
+    areStringArraysEqual(left.reelTags, right.reelTags) &&
     left.localFileUri === right.localFileUri &&
     left.localPosterUri === right.localPosterUri &&
     left.displayWidth === right.displayWidth &&
@@ -365,6 +420,7 @@ interface MessageBubbleProps {
   highlightToken?: number
   isContextMenuActive?: boolean
   onPressReplyPreview?: () => void
+  onSendSuggestedQuery?: (query: string) => void
   onOpenContextMenu?: (payload: MessageBubbleContextMenuPayload) => void
   onOpenMedia?: (payload: ChatMediaViewerOpenPayload) => void
 }
@@ -398,6 +454,7 @@ const MessageBubbleComponent = function MessageBubble({
   highlightToken = 0,
   isContextMenuActive = false,
   onPressReplyPreview,
+  onSendSuggestedQuery,
   onOpenContextMenu,
   onOpenMedia,
 }: MessageBubbleProps) {
@@ -443,6 +500,10 @@ const MessageBubbleComponent = function MessageBubble({
   const isRecalled = message.isRecalled === true || message.is_recalled === true
   const isMedia = message.type === 'image' || message.type === 'video'
   const shouldRenderMediaBubble = isMedia && !isRecalled
+  const recommendationMetadata =
+    !isRecalled && message.metadata?.kind === 'velora_ai_reel_recommendations'
+      ? message.metadata
+      : undefined
   const swipeDirection = isOwn ? -1 : 1
 
   const measureAnchor = useCallback((onMeasured: (nextAnchor: BubbleAnchor) => void) => {
@@ -736,48 +797,122 @@ const MessageBubbleComponent = function MessageBubble({
     () => getSenderDisplayName({ isOwn, senderInfo }),
     [isOwn, senderInfo],
   )
-  const canonicalReelId = message.media?.reelId?.trim() || null
   const resolvedReelRouteId = getSharedReelRouteId(message)
-  const shouldFetchReelDetail =
-    isReel &&
-    Boolean(canonicalReelId) &&
-    !message.media?.reelOwnerUsername &&
-    !message.media?.reelOwnerAvatarUrl
-  const { data: reelDetail } = useReelDetail(canonicalReelId ?? undefined, {
-    enabled: shouldFetchReelDetail,
-  })
-  const reelThumbnailUri = message.media?.thumbnailUrl || reelDetail?.thumbnailUrl || null
-  const reelCreatorUsername = (message.media?.reelOwnerUsername ?? reelDetail?.author?.username)
-    ?.trim()
-    .replace(/^@+/, '')
-  const reelCreatorDisplayName = reelDetail?.author?.displayName?.trim()
-  const reelCreatorFallbackLabel = reelCreatorDisplayName || 'Creator'
-  const reelCreatorLabel = reelCreatorUsername
-    ? `@${reelCreatorUsername}`
-    : reelCreatorFallbackLabel
-  const reelCreatorAvatarUri =
-    message.media?.reelOwnerAvatarUrl || reelDetail?.author?.avatarUrl || null
-  const hasReelCreatorIdentity = Boolean(
-    reelCreatorUsername || reelCreatorDisplayName || reelCreatorAvatarUri,
-  )
-  const reelCreatorInitial = getInitialFromLabel(reelCreatorLabel)
   const reelCardWidth = Math.max(196, Math.min(Math.floor(screenWidth * 0.58), 238))
-  const reelCardHeight = Math.round(reelCardWidth * 1.38)
+  const recommendationCardWidth = Math.max(124, Math.min(Math.floor(screenWidth * 0.34), 144))
+  const recommendationCardHeight = getChatReelCardHeight(recommendationCardWidth, 'compact')
+  const recommendedReels = useMemo(
+    () => recommendationMetadata?.recommendedReels ?? [],
+    [recommendationMetadata?.recommendedReels],
+  )
+  const serializedRecommendedReels = useMemo(
+    () => serializeChatReelRouteContext(recommendedReels),
+    [recommendedReels],
+  )
+  const recommendedReelMessages = useMemo<Message[]>(
+    () =>
+      recommendedReels.map((reel, index) => ({
+        id: `${message.id}:recommended-reel:${reel.id}:${index}`,
+        conversationId: resolvedConversationId,
+        senderId: message.senderId,
+        sender: message.sender,
+        content: reel.title?.trim() || 'Velora reel',
+        media: buildChatReelMediaFromReel(reel),
+        type: 'reel',
+        status: 'SENT',
+        createdAt: message.createdAt,
+        updatedAt: message.updatedAt,
+      })),
+    [
+      message.createdAt,
+      message.id,
+      message.sender,
+      message.senderId,
+      message.updatedAt,
+      recommendedReels,
+      resolvedConversationId,
+    ],
+  )
+  const recommendationRailWidth = useMemo(
+    () => Math.max(recommendationCardWidth, Math.floor(screenWidth * 0.78)),
+    [recommendationCardWidth, screenWidth],
+  )
+  const suggestedQueries = useMemo(() => {
+    const uniqueQueries = new Set<string>()
+
+    return (recommendationMetadata?.suggestedQueries ?? [])
+      .reduce<string[]>((items, query) => {
+        const normalizedQuery = query.trim()
+        if (!normalizedQuery) {
+          return items
+        }
+
+        const identity = normalizedQuery.toLowerCase()
+        if (uniqueQueries.has(identity)) {
+          return items
+        }
+
+        uniqueQueries.add(identity)
+        items.push(normalizedQuery)
+        return items
+      }, [])
+      .slice(0, MAX_SUGGESTED_QUERIES)
+  }, [recommendationMetadata?.suggestedQueries])
+  const openReelRoute = useCallback(
+    (reelId: string, routeContext?: string | null) => {
+      if (!reelId) {
+        return
+      }
+
+      router.push({
+        pathname: '/reels/[id]',
+        params: {
+          conversationId: resolvedConversationId,
+          id: reelId,
+          returnTo: 'conversation',
+          source: 'chat',
+          ...(routeContext ? { contextReels: routeContext } : {}),
+        },
+      })
+    },
+    [resolvedConversationId, router],
+  )
   const handleOpenReel = useCallback(() => {
     if (!resolvedReelRouteId) {
       return
     }
 
-    router.push({
-      pathname: '/reels/[id]',
-      params: {
-        conversationId: resolvedConversationId,
-        id: resolvedReelRouteId,
-        returnTo: 'conversation',
-        source: 'chat',
-      },
-    })
-  }, [resolvedConversationId, resolvedReelRouteId, router])
+    openReelRoute(resolvedReelRouteId)
+  }, [openReelRoute, resolvedReelRouteId])
+  const handleSendSuggestion = useCallback(
+    (query: string) => {
+      const normalizedQuery = query.trim()
+      if (!normalizedQuery) {
+        return
+      }
+
+      onSendSuggestedQuery?.(normalizedQuery)
+    },
+    [onSendSuggestedQuery],
+  )
+  const hasRecommendedReels = recommendedReels.length > 0
+  const hasSuggestedQueries = !hasRecommendedReels && suggestedQueries.length > 0
+  const hasRecommendationContent = hasRecommendedReels || hasSuggestedQueries
+  const handleOpenRecommendedReel = useCallback(
+    (reelId: string) => {
+      openReelRoute(reelId, serializedRecommendedReels)
+    },
+    [openReelRoute, serializedRecommendedReels],
+  )
+  const recommendationRailGesture = useMemo(() => {
+    const gesture = Gesture.Native()
+
+    if (timestampRevealGesture) {
+      gesture.blocksExternalGesture(timestampRevealGesture)
+    }
+
+    return gesture
+  }, [timestampRevealGesture])
   const hasReactions = Object.keys(reactionSummary).length > 0
   const bubbleClassName = useMemo(
     () =>
@@ -1102,78 +1237,12 @@ const MessageBubbleComponent = function MessageBubble({
                           className={bubbleClassName}
                         >
                           {isReel && !isRecalled ? (
-                            <View
-                              className="overflow-hidden rounded-[18px] bg-[#101010]"
-                              style={{ width: reelCardWidth, height: reelCardHeight }}
-                            >
-                              <View style={{ flex: 1 }}>
-                                {reelThumbnailUri ? (
-                                  <Image
-                                    source={{ uri: reelThumbnailUri }}
-                                    style={{
-                                      width: reelCardWidth,
-                                      height: reelCardHeight,
-                                      backgroundColor: '#111111',
-                                    }}
-                                    resizeMode="cover"
-                                  />
-                                ) : (
-                                  <View
-                                    style={{
-                                      width: reelCardWidth,
-                                      height: reelCardHeight,
-                                      backgroundColor: '#111111',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                    }}
-                                  >
-                                    <RoundedPlayIcon />
-                                  </View>
-                                )}
-
-                                <View
-                                  pointerEvents="none"
-                                  className="absolute inset-x-0 top-0 flex-row items-center px-3 py-3"
-                                >
-                                  {reelCreatorAvatarUri ? (
-                                    <Image
-                                      source={{ uri: reelCreatorAvatarUri }}
-                                      style={{
-                                        width: 22,
-                                        height: 22,
-                                        borderRadius: 11,
-                                        backgroundColor: 'rgba(255,255,255,0.18)',
-                                      }}
-                                      resizeMode="cover"
-                                    />
-                                  ) : (
-                                    <View className="h-[22px] w-[22px] items-center justify-center rounded-full bg-white/20">
-                                      {hasReelCreatorIdentity ? (
-                                        <Text className="text-[10px] font-semibold text-white">
-                                          {reelCreatorInitial}
-                                        </Text>
-                                      ) : (
-                                        <MaterialIcons
-                                          name="movie-filter"
-                                          size={13}
-                                          color="#FFFFFF"
-                                        />
-                                      )}
-                                    </View>
-                                  )}
-                                  <Text
-                                    className="ml-2 flex-1 text-[12px] font-semibold text-white"
-                                    numberOfLines={1}
-                                  >
-                                    {reelCreatorLabel}
-                                  </Text>
-                                </View>
-
-                                <View className="absolute inset-0 items-center justify-center">
-                                  <RoundedPlayIcon />
-                                </View>
-                              </View>
-                            </View>
+                            <ChatReelCard
+                              message={message}
+                              variant="default"
+                              width={reelCardWidth}
+                              {...(resolvedReelRouteId ? { onPress: handleOpenReel } : {})}
+                            />
                           ) : (
                             <MessageBubbleContent
                               message={message}
@@ -1194,6 +1263,79 @@ const MessageBubbleComponent = function MessageBubble({
                   </View>
                 </View>
               </GestureDetector>
+
+              {hasRecommendationContent ? (
+                <View className={cn('mt-2', isOwn ? 'items-end' : 'items-start')}>
+                  {hasRecommendedReels ? (
+                    <GestureDetector gesture={recommendationRailGesture}>
+                      <View
+                        style={{
+                          width: recommendationRailWidth,
+                          height: recommendationCardHeight,
+                        }}
+                      >
+                        <GestureHandlerScrollView
+                          horizontal
+                          bounces
+                          directionalLockEnabled
+                          nestedScrollEnabled
+                          showsHorizontalScrollIndicator={false}
+                          style={{
+                            width: recommendationRailWidth,
+                            height: recommendationCardHeight,
+                          }}
+                          contentContainerStyle={{
+                            paddingRight: 4,
+                            alignItems: 'flex-start',
+                          }}
+                        >
+                          {recommendedReelMessages.map((recommendedMessage, index) => (
+                            <View
+                              key={recommendedMessage.id}
+                              style={{
+                                marginRight: index === recommendedReelMessages.length - 1 ? 0 : 10,
+                              }}
+                            >
+                              <ChatReelCard
+                                message={recommendedMessage}
+                                onPress={() =>
+                                  handleOpenRecommendedReel(
+                                    recommendedMessage.media?.reelId ?? recommendedMessage.id,
+                                  )
+                                }
+                                variant="compact"
+                                width={recommendationCardWidth}
+                              />
+                            </View>
+                          ))}
+                        </GestureHandlerScrollView>
+                      </View>
+                    </GestureDetector>
+                  ) : null}
+
+                  {hasSuggestedQueries ? (
+                    <View
+                      className={cn(
+                        'flex-row flex-wrap gap-2',
+                        hasRecommendedReels ? 'mt-2' : undefined,
+                        isOwn ? 'justify-end' : 'justify-start',
+                      )}
+                      style={{ maxWidth: recommendationRailWidth }}
+                    >
+                      {suggestedQueries.map((query) => (
+                        <Pressable
+                          key={`${message.id}:suggested-query:${query}`}
+                          disabled={!onSendSuggestedQuery}
+                          onPress={() => handleSendSuggestion(query)}
+                          className="rounded-full border border-border-light bg-surface-card px-3 py-2"
+                        >
+                          <Text className="text-[12px] font-medium text-text-primary">{query}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
 
               {hasReactions && (
                 <View
@@ -1280,6 +1422,7 @@ export const MessageBubble = memo(MessageBubbleComponent, (prevProps, nextProps)
     prevProps.message.senderId === nextProps.message.senderId &&
     prevProps.message.status === nextProps.message.status &&
     areReadReceiptsEqual(prevProps.message.readBy, nextProps.message.readBy) &&
+    areMessageMetadataEqual(prevProps.message.metadata, nextProps.message.metadata) &&
     areReactionsEqual(prevProps.message.reactions, nextProps.message.reactions) &&
     prevProps.isOwn === nextProps.isOwn &&
     prevProps.showAvatar === nextProps.showAvatar &&
@@ -1295,6 +1438,7 @@ export const MessageBubble = memo(MessageBubbleComponent, (prevProps, nextProps)
     areReplyTargetsEqual(prevProps.message.replyTo, nextProps.message.replyTo) &&
     areReplyTargetsEqual(prevProps.repliedMessage, nextProps.repliedMessage) &&
     prevProps.isContextMenuActive === nextProps.isContextMenuActive &&
+    prevProps.onSendSuggestedQuery === nextProps.onSendSuggestedQuery &&
     prevProps.onOpenMedia === nextProps.onOpenMedia &&
     isReplyEqual
   )

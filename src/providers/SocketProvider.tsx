@@ -25,6 +25,7 @@ import {
   isSameMessageIdentity,
   mergeMessageRecords,
 } from '../lib/messageIdentity'
+import { normalizeMessageMetadata } from '../lib/messageMetadata'
 import {
   buildReplyPreviewFromMessage,
   mergeReplyPreview,
@@ -66,6 +67,118 @@ const SocketContext = createContext<SocketContextType>({
 })
 
 const OFFLINE_MESSAGE_ACK_TIMEOUT_MS = 15000
+const BOT_USER_ID = process.env.EXPO_PUBLIC_BOT_USER_ID
+const BOT_FALLBACK_EMAIL = 'bot@system.local'
+const BOT_STREAM_TEMP_ID_PREFIX = 'temp-bot-stream:'
+
+type NormalizedBotTokenPayload = {
+  content?: string
+  conversationId: string
+  senderId?: string
+  tokenChunk?: string
+}
+
+const getTrimmedString = (value: unknown) =>
+  typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+
+const getStreamingText = (value: unknown) =>
+  typeof value === 'string' && value.length > 0 ? value : null
+
+const isBotParticipant = (
+  participant:
+    | {
+        email?: string
+        fullName?: string
+        id?: string
+        name?: string
+      }
+    | undefined,
+) => {
+  if (!participant) {
+    return false
+  }
+
+  const normalizedEmail = participant.email?.trim().toLowerCase()
+  const normalizedName = (participant.name ?? participant.fullName)?.trim().toLowerCase()
+
+  return (
+    Boolean(BOT_USER_ID && participant.id === BOT_USER_ID) ||
+    normalizedEmail === BOT_FALLBACK_EMAIL ||
+    normalizedName === 'system_bot' ||
+    normalizedName === 'velora bot'
+  )
+}
+
+const conversationIncludesBot = (conversation?: Conversation | null) => {
+  if (!conversation) {
+    return false
+  }
+
+  return (
+    Boolean(BOT_USER_ID && conversation.participantIds.includes(BOT_USER_ID)) ||
+    Boolean(conversation.participants?.some(isBotParticipant))
+  )
+}
+
+const getBotStreamTempId = (conversationId: string) =>
+  `${BOT_STREAM_TEMP_ID_PREFIX}${conversationId}`
+
+const normalizeBotTokenPayload = (value: unknown): NormalizedBotTokenPayload | null => {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const payload = value as Record<string, unknown>
+  const conversationId = getTrimmedString(
+    payload.conversationId ?? payload.roomId ?? payload.chatId,
+  )
+  const content = getStreamingText(payload.content ?? payload.text)
+  const tokenChunk = getStreamingText(payload.token ?? payload.delta ?? payload.chunk)
+  const senderId = getTrimmedString(payload.senderId)
+
+  if (!conversationId || (!content && !tokenChunk)) {
+    return null
+  }
+
+  return {
+    conversationId,
+    ...(content ? { content } : {}),
+    ...(senderId ? { senderId } : {}),
+    ...(tokenChunk ? { tokenChunk } : {}),
+  }
+}
+
+const clearStreamingBotMessages = (conversationId?: string) => {
+  useChatStore.setState((state) => {
+    let didChange = false
+
+    const nextOptimisticMessages = Object.fromEntries(
+      Object.entries(state.optimisticMessages).flatMap(([currentConversationId, messages]) => {
+        if (conversationId && currentConversationId !== conversationId) {
+          return [[currentConversationId, messages] as const]
+        }
+
+        const nextMessages = messages.filter(
+          (message) => !message.id.startsWith(BOT_STREAM_TEMP_ID_PREFIX),
+        )
+
+        if (nextMessages.length !== messages.length) {
+          didChange = true
+        }
+
+        return nextMessages.length > 0 ? [[currentConversationId, nextMessages] as const] : []
+      }),
+    )
+
+    if (!didChange) {
+      return state
+    }
+
+    return {
+      optimisticMessages: nextOptimisticMessages,
+    }
+  })
+}
 
 const isMessageAtOrBeforeReadFrontier = ({
   frontierCreatedAt,
@@ -398,6 +511,105 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       })
     }
 
+    const getCachedConversation = (conversationId: string) => {
+      const conversations =
+        queryClient.getQueryData<Conversation[] | undefined>(queryKeys.conversations.all) ?? []
+      return conversations.find((conversation) => conversation.id === conversationId) ?? null
+    }
+
+    const resolveStreamingBotSender = ({
+      conversationId,
+      senderId,
+    }: {
+      conversationId: string
+      senderId?: string
+    }) => {
+      const conversation = getCachedConversation(conversationId)
+      const botParticipant = conversation?.participants?.find(isBotParticipant)
+      const resolvedSenderId = senderId ?? botParticipant?.id ?? BOT_USER_ID ?? 'velora-bot'
+
+      return {
+        sender: {
+          id: resolvedSenderId,
+          email: botParticipant?.email?.trim() || BOT_FALLBACK_EMAIL,
+          ...(botParticipant?.picture ? { picture: botParticipant.picture } : {}),
+        },
+        senderId: resolvedSenderId,
+      }
+    }
+
+    const upsertStreamingBotMessage = (payload: NormalizedBotTokenPayload) => {
+      const store = useChatStore.getState()
+      const tempId = getBotStreamTempId(payload.conversationId)
+      const existingStreamMessage =
+        store.optimisticMessages[payload.conversationId]?.find(
+          (message) => message.id === tempId,
+        ) ?? null
+      const { sender, senderId } = resolveStreamingBotSender({
+        conversationId: payload.conversationId,
+        ...(payload.senderId ? { senderId: payload.senderId } : {}),
+      })
+      const nextContent =
+        payload.content ?? `${existingStreamMessage?.content ?? ''}${payload.tokenChunk ?? ''}`
+
+      if (!nextContent) {
+        return
+      }
+
+      store.markAsBotConversation(payload.conversationId)
+
+      if (existingStreamMessage) {
+        store.updateOptimisticMessage(payload.conversationId, tempId, (message) => ({
+          ...message,
+          content: nextContent,
+          sender,
+          senderId,
+          status: 'SENT',
+          updatedAt: new Date().toISOString(),
+        }))
+        return
+      }
+
+      const timestamp = new Date().toISOString()
+      store.addOptimisticMessage(payload.conversationId, {
+        id: tempId,
+        clientMessageId: tempId,
+        conversationId: payload.conversationId,
+        senderId,
+        sender,
+        content: nextContent,
+        type: 'text',
+        status: 'SENT',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      })
+    }
+
+    const reconcileStreamingBotMessage = (message: Message) => {
+      const tempId = getBotStreamTempId(message.conversationId)
+      const store = useChatStore.getState()
+      const streamMessage =
+        store.optimisticMessages[message.conversationId]?.find(
+          (candidate) => candidate.id === tempId,
+        ) ?? null
+
+      if (!streamMessage) {
+        return
+      }
+
+      if (
+        streamMessage.senderId !== message.senderId &&
+        !store.isBotConversation(message.conversationId) &&
+        !conversationIncludesBot(getCachedConversation(message.conversationId))
+      ) {
+        return
+      }
+
+      store.confirmMessage(tempId, message)
+    }
+
+    clearStreamingBotMessages()
+
     newSocket.on('connect', () => {
       if (serverDisconnectReconnectTimeoutRef.current) {
         clearTimeout(serverDisconnectReconnectTimeoutRef.current)
@@ -427,6 +639,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       clearAllOfflineMessageAckTimeouts()
       useChatStore.getState().clearOnlineUsers()
       useChatStore.setState({ typingUsers: {} })
+      clearStreamingBotMessages()
       joinedConversationIds.clear()
 
       if (reason === 'io server disconnect') {
@@ -458,6 +671,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       flushingOfflineMessageIdsRef.current.clear()
       flushingOfflineConversationIdsRef.current.clear()
       clearAllOfflineMessageAckTimeouts()
+      clearStreamingBotMessages()
       if (lastConnectErrorMessageRef.current === error.message) {
         return
       }
@@ -702,6 +916,27 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    const normalizeIncomingMessage = (message: Message) => {
+      const metadata = normalizeMessageMetadata(
+        (message as Message & Record<string, unknown>).metadata ??
+          (message as Message & Record<string, unknown>).message_metadata,
+      )
+
+      if (metadata) {
+        return {
+          ...message,
+          metadata,
+        }
+      }
+
+      if (!Object.prototype.hasOwnProperty.call(message, 'metadata')) {
+        return message
+      }
+
+      const { metadata: _metadata, ...rest } = message as Message & { metadata?: unknown }
+      return rest as Message
+    }
+
     const mergeMessageWithOptimisticReplyPreview = (message: Message) => {
       const currentUser = useAuthStore.getState().user
 
@@ -767,12 +1002,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       const optimisticReplyTarget =
         useChatStore
           .getState()
-          .optimisticMessages[message.conversationId]?.find(
-            (candidate) =>
-              candidate.id === replyToId ||
-              candidate._id === replyToId ||
-              candidate.clientMessageId === replyToId,
-          ) ?? null
+          .optimisticMessages[
+            message.conversationId
+          ]?.find((candidate) => candidate.id === replyToId || candidate._id === replyToId || candidate.clientMessageId === replyToId) ??
+        null
 
       const resolvedReplyTarget = message.replyTo ?? cachedReplyTarget ?? optimisticReplyTarget
 
@@ -910,15 +1143,34 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       patchMessagesAcrossConversationCaches(queryClient, updateMessage)
     }
 
+    newSocket.on('bot_token', (payload: unknown) => {
+      const normalizedPayload = normalizeBotTokenPayload(payload)
+      if (!normalizedPayload) {
+        return
+      }
+
+      upsertStreamingBotMessage(normalizedPayload)
+    })
+
     newSocket.on('new_message', (incomingMessage: Message) => {
       const message = hydrateReplyContextFromLocalState(
-        mergeMessageWithOptimisticReplyPreview(incomingMessage),
+        mergeMessageWithOptimisticReplyPreview(normalizeIncomingMessage(incomingMessage)),
       )
       const currentUser = useAuthStore.getState().user
       const conversationId = message.conversationId
       const isOwnMessage = currentUser?.id === message.senderId
       const isPendingEcho =
         String((message as { status?: string }).status || '').toLowerCase() === 'sending'
+
+      if (
+        !isOwnMessage &&
+        (message.senderId === BOT_USER_ID ||
+          useChatStore.getState().isBotConversation(conversationId) ||
+          conversationIncludesBot(getCachedConversation(conversationId)))
+      ) {
+        useChatStore.getState().markAsBotConversation(conversationId)
+        reconcileStreamingBotMessage(message)
+      }
 
       persistSocketMessage(message, {
         incrementUnread: !isOwnMessage,
@@ -969,7 +1221,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       )
 
       let message = hydrateReplyContextFromLocalState(
-        mergeMessageWithOptimisticReplyPreview(incomingMessage),
+        mergeMessageWithOptimisticReplyPreview(normalizeIncomingMessage(incomingMessage)),
       )
 
       if (

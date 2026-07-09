@@ -5,9 +5,11 @@ import type { Collection, Model } from '@nozbe/watermelondb'
 import {
   getMessageAnchorIdentityKey,
   isMessageBeyondOptimisticReadFrontier,
+  mergeMessageMetadata,
   mergeMessageStatus,
   mergeReadByEntries,
 } from '../lib/messageIdentity'
+import { normalizeMessageMetadata } from '../lib/messageMetadata'
 import { mergeReplyPreview, toTextOnlyReplyPreview } from '../lib/replyPreview'
 import { useChatStore } from '../stores/chatStore'
 
@@ -18,7 +20,12 @@ import { TABLES } from './schema'
 import type { ConversationModel } from './models/ConversationModel'
 import type { MessageModel, MessageStatusValue } from './models/MessageModel'
 import type { UserModel } from './models/UserModel'
-import type { Conversation, Message, ReplyPreviewData } from '../types/conversation.types'
+import type {
+  Conversation,
+  Message,
+  MessageMetadata,
+  ReplyPreviewData,
+} from '../types/conversation.types'
 import type { UserSession } from '../types/user.types'
 
 type MutableRawRecord = Record<string, string | number | null>
@@ -120,6 +127,14 @@ const getMessageReplyToId = (message: Partial<Message>) => {
 
 const getMessageReplyPreview = (message: Partial<Message>) => {
   return message.replyPreview ?? message.reply_preview ?? null
+}
+
+const getMessageMetadata = (message: Partial<Message> & Record<string, unknown>) => {
+  return (
+    normalizeMessageMetadata(
+      message.metadata ?? message.message_metadata ?? message.messageMetadata,
+    ) ?? null
+  )
 }
 
 const getMessageRecalledAt = (message: Partial<Message>) => {
@@ -247,6 +262,7 @@ const prepareMessageRecord = ({
   content,
   createdAt,
   existingReadBy,
+  existingMetadata,
   existingReplyPreview,
   existingStatus,
   message,
@@ -257,6 +273,7 @@ const prepareMessageRecord = ({
   content: string
   createdAt: number
   existingReadBy?: Message['readBy'] | null
+  existingMetadata?: MessageMetadata | null
   existingReplyPreview?: string | ReplyPreviewData | null
   existingStatus?: MessageStatusValue | null
   message: Message
@@ -267,6 +284,11 @@ const prepareMessageRecord = ({
   record.clientMessageId = message.clientMessageId ?? null
   record.content = content
   record.media = message.media ?? null
+  record.metadata =
+    mergeMessageMetadata(
+      existingMetadata ?? null,
+      getMessageMetadata(message as Message & Record<string, unknown>),
+    ) ?? null
   record.type = message.type
   record.status = toMessageStatusValue(mergeMessageStatus(existingStatus ?? undefined, status))
   record.readBy = mergeReadByEntries(existingReadBy ?? null, message.readBy ?? null) ?? null
@@ -285,6 +307,7 @@ const prepareMessageRecord = ({
 }
 
 const prepareRemoteMessage = (message: Message): PreparedRemoteMessage => {
+  const normalizedMetadata = getMessageMetadata(message as Message & Record<string, unknown>)
   const normalizedMessage: Message = {
     ...message,
     id: message.id || message._id || message.clientMessageId || '',
@@ -292,6 +315,7 @@ const prepareRemoteMessage = (message: Message): PreparedRemoteMessage => {
     createdAt: message.createdAt ?? toIsoString(Date.now()),
     updatedAt: message.updatedAt ?? message.createdAt ?? toIsoString(Date.now()),
     status: normalizeMessageStatus(message.status),
+    ...(normalizedMetadata ? { metadata: normalizedMetadata } : {}),
   }
 
   return {
@@ -724,6 +748,7 @@ export const upsertRemoteMessages = async ({
               content: preparedMessage.content,
               createdAt: preparedMessage.createdAt,
               existingReadBy: record.readBy,
+              existingMetadata: record.metadata,
               existingReplyPreview: record.replyPreview,
               existingStatus: record.status,
               message: normalizedMessage,
@@ -746,6 +771,7 @@ export const upsertRemoteMessages = async ({
             content: preparedMessage.content,
             createdAt: preparedMessage.createdAt,
             existingReadBy: pendingLocalRecord?.readBy ?? null,
+            existingMetadata: pendingLocalRecord?.metadata ?? null,
             existingReplyPreview: pendingLocalRecord?.replyPreview ?? null,
             existingStatus: pendingLocalRecord?.status ?? null,
             message: normalizedMessage,
