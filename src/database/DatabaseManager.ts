@@ -4,6 +4,7 @@ import SQLiteAdapter from '@nozbe/watermelondb/adapters/sqlite'
 import { migrations } from './migrations'
 import { CachedReelFeedPageModel } from './models/CachedReelFeedPageModel'
 import { CachedReelModel } from './models/CachedReelModel'
+import { CallTelemetryOutboxItemModel } from './models/CallTelemetryOutboxItemModel'
 import { ConversationModel } from './models/ConversationModel'
 import { MessageModel } from './models/MessageModel'
 import { MessageSyncRangeModel } from './models/MessageSyncRangeModel'
@@ -41,6 +42,7 @@ export class DatabaseManager {
         CachedReelFeedPageModel,
         ReelVideoCacheRecordModel,
         ReelEventOutboxItemModel,
+        CallTelemetryOutboxItemModel,
       ],
     })
   }

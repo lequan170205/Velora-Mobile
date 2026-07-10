@@ -21,51 +21,91 @@ public class VeloraSystemCallsModule: Module {
     Events(callActionEvent, voipTokenEvent, audioSessionActivatedEvent, audioSessionConfiguredEvent)
 
     OnCreate {
-      VeloraSystemCallCenter.shared.eventSink = { [weak self] name, body in
-        self?.sendEvent(name, body)
+      let callCenter = VeloraSystemCallCenter.shared
+      callCenter.runOnMain {
+        callCenter.eventSink = { [weak self] name, body in
+          self?.sendEvent(name, body)
+        }
+        callCenter.start()
       }
-      VeloraSystemCallCenter.shared.start()
     }
 
     OnDestroy {
-      VeloraSystemCallCenter.shared.eventSink = nil
+      let callCenter = VeloraSystemCallCenter.shared
+      callCenter.runOnMain {
+        callCenter.eventSink = nil
+      }
     }
 
     Function("setAuthenticatedUserId") { (userId: String?) in
-      VeloraSystemCallCenter.shared.setAuthenticatedUserId(userId)
+      let callCenter = VeloraSystemCallCenter.shared
+      callCenter.runOnMain {
+        callCenter.setAuthenticatedUserId(userId)
+      }
     }
 
     Function("getVoipToken") { () -> String? in
-      VeloraSystemCallCenter.shared.ensureStarted()
-      return VeloraSystemCallCenter.shared.voipToken
+      let callCenter = VeloraSystemCallCenter.shared
+      return callCenter.runOnMain {
+        callCenter.ensureStarted()
+        return callCenter.voipToken
+      }
     }
 
     Function("getPendingCallAction") { () -> [String: Any]? in
-      VeloraSystemCallCenter.shared.pendingCallAction()
+      let callCenter = VeloraSystemCallCenter.shared
+      return callCenter.runOnMain {
+        callCenter.pendingCallAction()
+      }
+    }
+
+    Function("getAudioSessionConfigurationState") { () -> [String: Any] in
+      let callCenter = VeloraSystemCallCenter.shared
+      return callCenter.runOnMain {
+        callCenter.audioSessionConfigurationState()
+      }
     }
 
     Function("clearPendingCallAction") { (actionId: String?) in
-      VeloraSystemCallCenter.shared.clearPendingCallAction(actionId: actionId)
+      let callCenter = VeloraSystemCallCenter.shared
+      callCenter.runOnMain {
+        callCenter.clearPendingCallAction(actionId: actionId)
+      }
     }
 
     Function("presentIncomingCall") { (payload: [String: Any]) in
-      VeloraSystemCallCenter.shared.presentIncomingCall(payload: payload)
+      let callCenter = VeloraSystemCallCenter.shared
+      callCenter.runOnMain {
+        callCenter.presentIncomingCall(payload: payload)
+      }
     }
 
     Function("registerOutgoingCall") { (payload: [String: Any]) in
-      VeloraSystemCallCenter.shared.registerOutgoingCall(payload: payload)
+      let callCenter = VeloraSystemCallCenter.shared
+      callCenter.runOnMain {
+        callCenter.registerOutgoingCall(payload: payload)
+      }
     }
 
-    Function("setCallActive") { (callId: String) in
-      VeloraSystemCallCenter.shared.setCallActive(callId: callId)
+    Function("setCallActive") { (callId: String) -> Bool in
+      let callCenter = VeloraSystemCallCenter.shared
+      return callCenter.runOnMain {
+        callCenter.setCallActive(callId: callId)
+      }
     }
 
     Function("endCall") { (callId: String) in
-      VeloraSystemCallCenter.shared.endCall(callId: callId)
+      let callCenter = VeloraSystemCallCenter.shared
+      callCenter.runOnMain {
+        callCenter.endCall(callId: callId)
+      }
     }
 
     Function("dismissIncomingCall") { (callId: String) in
-      VeloraSystemCallCenter.shared.endCall(callId: callId)
+      let callCenter = VeloraSystemCallCenter.shared
+      callCenter.runOnMain {
+        callCenter.endCall(callId: callId)
+      }
     }
   }
 }
@@ -75,6 +115,11 @@ public class VeloraSystemCallsAppDelegateSubscriber: ExpoAppDelegateSubscriber {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    
+    let rtcAudioSession = RTCAudioSession.sharedInstance()
+    rtcAudioSession.useManualAudio = true
+    rtcAudioSession.isAudioEnabled = false
+
     VeloraSystemCallCenter.shared.start()
     return true
   }
@@ -88,7 +133,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
 
   private let userDefaults = UserDefaults.standard
   private let provider: CXProvider
-  private let callController = CXCallController()
+  private let callController: CXCallController
   private var pushRegistry: PKPushRegistry?
   private var callIdsByUuid: [UUID: String] = [:]
   private var uuidsByCallId: [String: UUID] = [:]
@@ -96,6 +141,9 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
   private var programmaticEndingCallIds = Set<String>()
   private var activeCallIds = Set<String>()
   private var pendingAnswerCallIds = Set<String>()
+  private var isAudioSessionConfigured = false
+  private var audioSessionConfigurationErrorCode: String?
+  private var lastAudioSessionConfiguration: [String: Any]?
   private var reportingIncomingCallIds = Set<String>()
   private var reportedIncomingCallIds = Set<String>()
   private var suppressedIncomingCallDeadlinesById: [String: TimeInterval] = [:]
@@ -108,12 +156,21 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     configuration.includesCallsInRecents = false
     configuration.iconTemplateImageData = nil
     provider = CXProvider(configuration: configuration)
+    callController = CXCallController(queue: .main)
     voipToken = userDefaults.string(forKey: voipTokenStorageKey)
     super.init()
     restoreCallUuidMappings()
     restoreReportedIncomingCallIds()
     restoreSuppressedIncomingCallDeadlines()
-    provider.setDelegate(self, queue: nil)
+    provider.setDelegate(self, queue: .main)
+  }
+
+  func runOnMain<T>(_ operation: @escaping () -> T) -> T {
+    if Thread.isMainThread {
+      return operation()
+    }
+
+    return DispatchQueue.main.sync(execute: operation)
   }
 
   func start() {
@@ -145,6 +202,20 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
 
   func pendingCallAction() -> [String: Any]? {
     userDefaults.dictionary(forKey: "velora.calls.pendingAction")
+  }
+
+  func audioSessionConfigurationState() -> [String: Any] {
+    var state: [String: Any] = ["configured": isAudioSessionConfigured]
+
+    if let lastAudioSessionConfiguration {
+      state.merge(lastAudioSessionConfiguration) { _, latest in latest }
+    }
+
+    if let audioSessionConfigurationErrorCode {
+      state["errorCode"] = audioSessionConfigurationErrorCode
+    }
+
+    return state
   }
 
   func clearPendingCallAction(actionId: String?) {
@@ -208,6 +279,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       return
     }
 
+    resetAudioConfigurationState()
     let uuid = uuidForCallId(callId)
     payloadsByCallId[callId] = payload
     let action = CXStartCallAction(
@@ -223,11 +295,20 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     }
   }
 
-  func setCallActive(callId: String) {
-    let uuid = uuidForCallId(callId)
+  func setCallActive(callId: String) -> Bool {
+    guard let uuid = uuidsByCallId[callId], payloadsByCallId[callId] != nil else {
+      NSLog("VeloraSystemCalls ignored setCallActive for unknown callId=%@", callId)
+      return false
+    }
+
     pendingAnswerCallIds.remove(callId)
     activeCallIds.insert(callId)
-    provider.reportOutgoingCall(with: uuid, connectedAt: Date())
+
+    if payloadsByCallId[callId]?["type"] as? String != "INCOMING_CALL" {
+      provider.reportOutgoingCall(with: uuid, connectedAt: Date())
+    }
+
+    return true
   }
 
   func endCall(callId: String) {
@@ -288,6 +369,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       return
     }
 
+    resetAudioConfigurationState()
     pendingAnswerCallIds.insert(callId)
     storePendingAction(action: "answer", callId: callId)
     action.fulfill()
@@ -319,31 +401,26 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
   }
 
   func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
+    resetAudioConfigurationState()
     let activatedAt = Date()
     let activatedAtIso = ISO8601DateFormatter().string(from: activatedAt)
-    let activeCallIds = Array(activeCallIds)
-    let pendingAnswerCallIds = Array(pendingAnswerCallIds)
+    #if DEBUG
     NSLog(
-      "VeloraSystemCalls didActivate audioSession at=%@ activeCallIds=%@ pendingAnswerCallIds=%@ category=%@ mode=%@ sampleRate=%.0f outputVolume=%.2f",
+      "VeloraSystemCalls didActivate audioSession at=%@ category=%@ mode=%@ sampleRate=%.0f outputVolume=%.2f",
       activatedAtIso as NSString,
-      activeCallIds.joined(separator: ",") as NSString,
-      pendingAnswerCallIds.joined(separator: ",") as NSString,
       audioSession.category.rawValue as NSString,
       audioSession.mode.rawValue as NSString,
       audioSession.sampleRate,
       audioSession.outputVolume
     )
+    #endif
     eventSink?(
       audioSessionActivatedEvent,
       [
         "at": activatedAtIso,
         "timestampMs": Int(activatedAt.timeIntervalSince1970 * 1000),
-        "activeCallIds": activeCallIds,
-        "pendingAnswerCallIds": pendingAnswerCallIds,
         "category": audioSession.category.rawValue,
         "mode": audioSession.mode.rawValue,
-        "sampleRate": audioSession.sampleRate,
-        "outputVolume": audioSession.outputVolume,
       ]
     )
     configureWebRtcAudioSession(audioSession)
@@ -353,6 +430,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     let rtcAudioSession = RTCAudioSession.sharedInstance()
     rtcAudioSession.audioSessionDidDeactivate(audioSession)
     rtcAudioSession.isAudioEnabled = false
+    resetAudioConfigurationState()
   }
 
   func providerDidReset(_ provider: CXProvider) {
@@ -362,6 +440,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     programmaticEndingCallIds.removeAll()
     activeCallIds.removeAll()
     pendingAnswerCallIds.removeAll()
+    resetAudioConfigurationState()
     reportingIncomingCallIds.removeAll()
     reportedIncomingCallIds.removeAll()
     persistCallUuidMappings()
@@ -602,93 +681,55 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     let configuration = RTCAudioSessionConfiguration.webRTC()
     configuration.category = AVAudioSession.Category.playAndRecord.rawValue
     configuration.mode = AVAudioSession.Mode.voiceChat.rawValue
-    configuration.categoryOptions = [.allowBluetoothHFP, .allowBluetoothA2DP, .defaultToSpeaker]
-    var forcedSpeaker = false
+    configuration.categoryOptions = [.allowBluetoothHFP, .allowBluetoothA2DP]
+
     do {
-      _ = try rtcAudioSession.setConfiguration(configuration, active: true)
-
-      let outputPortTypes = Set(audioSession.currentRoute.outputs.map(\.portType))
-      let hasExternalOutput =
-        outputPortTypes.contains(.bluetoothA2DP) ||
-        outputPortTypes.contains(.bluetoothHFP) ||
-        outputPortTypes.contains(.bluetoothLE) ||
-        outputPortTypes.contains(.headphones) ||
-        outputPortTypes.contains(.airPlay) ||
-        outputPortTypes.contains(.carAudio) ||
-        outputPortTypes.contains(.lineOut) ||
-        outputPortTypes.contains(.usbAudio)
-
-      if !hasExternalOutput {
-        try audioSession.overrideOutputAudioPort(.speaker)
-        forcedSpeaker = true
-      }
-
-      let outputRoute = audioSession.currentRoute.outputs
-        .map { "\($0.portType.rawValue):\($0.portName)" }
-        .joined(separator: ",")
-      let inputRoute = audioSession.currentRoute.inputs
-        .map { "\($0.portType.rawValue):\($0.portName)" }
-        .joined(separator: ",")
-      NSLog(
-        "VeloraSystemCalls configured audio route outputs=%@ inputs=%@ forcedSpeaker=%@ category=%@ mode=%@",
-        outputRoute as NSString,
-        inputRoute as NSString,
-        (!hasExternalOutput ? "true" : "false") as NSString,
-        audioSession.category.rawValue as NSString,
-        audioSession.mode.rawValue as NSString
-      )
-      emitAudioSessionConfigured(audioSession, forcedSpeaker: forcedSpeaker)
+      _ = try rtcAudioSession.setConfiguration(configuration)
     } catch {
+      audioSessionConfigurationErrorCode = "audio_session_configuration_failed"
       NSLog("VeloraSystemCalls failed to configure WebRTC audio session: \(error)")
       emitAudioSessionConfigured(
         audioSession,
-        forcedSpeaker: forcedSpeaker,
-        error: String(describing: error)
+        errorCode: audioSessionConfigurationErrorCode
       )
+      return
     }
+
     rtcAudioSession.isAudioEnabled = true
+    isAudioSessionConfigured = true
+    emitAudioSessionConfigured(audioSession)
+  }
+
+  private func resetAudioConfigurationState() {
+    isAudioSessionConfigured = false
+    audioSessionConfigurationErrorCode = nil
+    lastAudioSessionConfiguration = nil
   }
 
   private func emitAudioSessionConfigured(
     _ audioSession: AVAudioSession,
-    forcedSpeaker: Bool,
-    error: String? = nil
+    errorCode: String? = nil
   ) {
     let configuredAt = Date()
     let configuredAtIso = ISO8601DateFormatter().string(from: configuredAt)
-    let activeCallIds = Array(activeCallIds)
-    let pendingAnswerCallIds = Array(pendingAnswerCallIds)
-    let outputRoutes = audioSession.currentRoute.outputs.map { output in
-      [
-        "type": output.portType.rawValue,
-        "name": output.portName,
-      ]
-    }
-    let inputRoutes = audioSession.currentRoute.inputs.map { input in
-      [
-        "type": input.portType.rawValue,
-        "name": input.portName,
-      ]
-    }
+    let outputRouteTypes = audioSession.currentRoute.outputs.map(\.portType.rawValue)
+    let inputRouteTypes = audioSession.currentRoute.inputs.map(\.portType.rawValue)
 
     var payload: [String: Any] = [
       "at": configuredAtIso,
       "timestampMs": Int(configuredAt.timeIntervalSince1970 * 1000),
-      "activeCallIds": activeCallIds,
-      "pendingAnswerCallIds": pendingAnswerCallIds,
       "category": audioSession.category.rawValue,
       "mode": audioSession.mode.rawValue,
-      "sampleRate": audioSession.sampleRate,
-      "outputVolume": audioSession.outputVolume,
-      "outputRoutes": outputRoutes,
-      "inputRoutes": inputRoutes,
-      "forcedSpeaker": forcedSpeaker,
+      "outputRouteTypes": outputRouteTypes,
+      "inputRouteTypes": inputRouteTypes,
+      "forcedSpeaker": false,
     ]
 
-    if let error {
-      payload["error"] = error
+    if let errorCode {
+      payload["errorCode"] = errorCode
     }
 
+    lastAudioSessionConfiguration = payload
     eventSink?(audioSessionConfiguredEvent, payload)
   }
 }

@@ -3,7 +3,7 @@ import { isAxiosError } from 'axios'
 import { Camera } from 'expo-camera'
 import { useRouter } from 'expo-router'
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react'
-import { Platform } from 'react-native'
+import { AppState, Platform } from 'react-native'
 import { MediaStream, mediaDevices } from 'react-native-webrtc'
 
 import { getCallState, type CallStateResponse } from '../api/call.api'
@@ -15,6 +15,11 @@ import {
   type CallWaitRegistry,
   waitForEventWhere,
 } from '../lib/call/callSocket'
+import {
+  CallTelemetrySession,
+  flushCallTelemetry,
+  type CallTelemetryAudioRoute,
+} from '../lib/call/callTelemetry'
 import {
   createMediasoupDevice,
   ensureMediasoupGlobalsRegistered,
@@ -45,6 +50,7 @@ import type {
   PeerLeftPayload,
   StartVoiceCallInput,
   TransportCreatedPayload,
+  IceRestartedPayload,
   UseCallValue,
 } from '../types/call.types'
 import type { Conversation } from '../types/conversation.types'
@@ -65,8 +71,11 @@ const getOutgoingRingWaitTimeoutMs = (noAnswerTimeoutMs?: number) =>
 const REMOTE_PRODUCER_TIMEOUT_MS = 30_000
 const REMOTE_AUDIO_WAIT_FALLBACK_MS = 10_000
 const RTC_STATS_LOG_DELAY_MS = 1_500
+const RTC_QUALITY_SAMPLE_INTERVAL_MS = 10_000
+const AUDIO_FLOW_CONFIRMATION_DELAY_MS = 1_000
 const PEER_LEFT_GRACE_MS = 750
 const DEFAULT_RECONNECT_GRACE_MS = 15_000
+const CALL_SETUP_CANCELLED_ERROR = 'Call setup was cancelled'
 const RECONNECT_RECOVERY_TIMEOUT_MS = (() => {
   const configured = Number(process.env.EXPO_PUBLIC_CALL_RECONNECT_GRACE_MS)
   return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_RECONNECT_GRACE_MS
@@ -163,6 +172,117 @@ const summarizeRtcStatsReport = (report: RTCStatsReport | unknown) => {
   }
 }
 
+type RtcQualityCounters = {
+  packetsLost: number | null
+  packetsReceived: number | null
+  bytesReceived: number | null
+  concealedSamples: number | null
+  totalSamples: number | null
+  jitterBufferDelay: number | null
+  jitterBufferEmittedCount: number | null
+}
+
+type CachedMediasoupDevice = {
+  device: MediasoupDevice
+  rtpCapabilitiesKey: string
+}
+
+type AudioSessionConfiguration =
+  | AudioSessionConfiguredEvent
+  | {
+      configured: boolean
+      category?: string
+      mode?: string
+      outputRouteTypes?: string[]
+      inputRouteTypes?: string[]
+      forcedSpeaker?: boolean
+      errorCode?: string
+    }
+
+const debugCall = (...args: Parameters<typeof console.warn>) => {
+  if (__DEV__) {
+    console.warn(...args)
+  }
+}
+
+const stableJson = (value: unknown): string => {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(',')}]`
+  }
+
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => `${JSON.stringify(key)}:${stableJson(child)}`)
+      .join(',')}}`
+  }
+
+  return JSON.stringify(value)
+}
+
+const toAudioRouteType = (value: string): CallTelemetryAudioRoute['outputRouteTypes'][number] => {
+  const routeTypes: Record<string, CallTelemetryAudioRoute['outputRouteTypes'][number]> = {
+    Receiver: 'receiver',
+    Speaker: 'speaker',
+    BluetoothHFP: 'bluetooth_hfp',
+    BluetoothA2DP: 'bluetooth_a2dp',
+    BluetoothLE: 'bluetooth_le',
+    Headphones: 'headphones',
+    AirPlay: 'airplay',
+    CarAudio: 'car_audio',
+    USBAudio: 'usb_audio',
+    LineOut: 'line_out',
+  }
+
+  return routeTypes[value] ?? 'other'
+}
+
+const toAudioRouteTelemetry = (
+  configuration: AudioSessionConfiguration | undefined,
+): CallTelemetryAudioRoute | null => {
+  if (!configuration?.category || !configuration.mode) {
+    return null
+  }
+
+  return {
+    category:
+      configuration.category === 'AVAudioSessionCategoryPlayAndRecord' ||
+      configuration.category === 'playAndRecord'
+        ? 'play_and_record'
+        : 'other',
+    mode:
+      configuration.mode === 'AVAudioSessionModeVoiceChat' || configuration.mode === 'voiceChat'
+        ? 'voice_chat'
+        : 'other',
+    outputRouteTypes: [
+      ...new Set((configuration.outputRouteTypes ?? []).map(toAudioRouteType)),
+    ].slice(0, 4),
+    inputRouteTypes: [
+      ...new Set((configuration.inputRouteTypes ?? []).map(toAudioRouteType)),
+    ].slice(0, 4),
+    forcedSpeaker: configuration.forcedSpeaker === true,
+  }
+}
+
+const getRtcQualityCounters = (report: RTCStatsReport | unknown): RtcQualityCounters => {
+  const entries = normalizeRtcStatsEntries(report)
+  const inbound = pickRtcStat(entries, 'inbound-rtp')
+  const track = pickRtcStat(entries, 'track')
+
+  const asNumber = (value: unknown) =>
+    typeof value === 'number' && Number.isFinite(value) ? value : null
+
+  return {
+    packetsLost: asNumber(inbound?.packetsLost),
+    packetsReceived: asNumber(inbound?.packetsReceived),
+    bytesReceived: asNumber(inbound?.bytesReceived),
+    concealedSamples: asNumber(track?.concealedSamples),
+    totalSamples: asNumber(track?.totalSamplesReceived ?? track?.totalSamplesDuration),
+    jitterBufferDelay: asNumber(track?.jitterBufferDelay),
+    jitterBufferEmittedCount: asNumber(track?.jitterBufferEmittedCount),
+  }
+}
+
 const CallContext = createContext<UseCallValue>({
   startVoiceCall: async () => {},
   acceptIncomingCall: async () => {},
@@ -173,6 +293,9 @@ const CallContext = createContext<UseCallValue>({
 })
 
 const isBusyPhase = (phase: ReturnType<typeof useCallStore.getState>['phase']) => phase !== 'idle'
+
+const isCallSetupCancelledError = (error: unknown) =>
+  error instanceof Error && error.message === CALL_SETUP_CANCELLED_ERROR
 
 const getConversationsFromCache = (value: unknown) => {
   if (Array.isArray(value)) {
@@ -256,6 +379,43 @@ const isRetryableCallStateError = (error: unknown) => {
   return !status || status === 408 || status === 429 || status >= 500
 }
 
+const isConnectedTransportState = (state: string) => state === 'connected' || state === 'completed'
+
+const waitForTransportConnection = (
+  transport: MediasoupTypes.Transport<Record<string, unknown>>,
+  timeoutMs = TRANSPORT_CONNECTED_TIMEOUT_MS,
+) => {
+  if (isConnectedTransportState(transport.connectionState)) {
+    return Promise.resolve()
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    let timeout: ReturnType<typeof setTimeout> | null = null
+    const cleanup = () => {
+      if (timeout) {
+        clearTimeout(timeout)
+      }
+      transport.off('connectionstatechange', onConnectionState)
+    }
+    const onConnectionState = (state: string) => {
+      if (isConnectedTransportState(state)) {
+        cleanup()
+        resolve()
+      } else if (state === 'failed' || state === 'closed') {
+        cleanup()
+        reject(new Error(`Transport entered ${state} state during ICE restart`))
+      }
+    }
+
+    timeout = setTimeout(() => {
+      cleanup()
+      reject(new Error('Timed out waiting for transport after ICE restart'))
+    }, timeoutMs)
+    transport.on('connectionstatechange', onConnectionState)
+    onConnectionState(transport.connectionState)
+  })
+}
+
 const toNativeIncomingCallPayload = (
   payload: IncomingCallPayload | CallStateResponse,
 ): NativeCallPayload => {
@@ -298,6 +458,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const localStreamRef = useRef<MediaStream | null>(null)
   const remoteStreamRef = useRef<MediaStream | null>(null)
   const audioProducerRef = useRef<MediasoupTypes.Producer<Record<string, unknown>> | null>(null)
+  const cachedDeviceRef = useRef<CachedMediasoupDevice | null>(null)
   const consumerMapRef = useRef<Map<string, MediasoupTypes.Consumer<Record<string, unknown>>>>(
     new Map(),
   )
@@ -307,6 +468,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const consumingProducerIdsRef = useRef<Set<string>>(new Set())
   const retryingProducerIdsRef = useRef<Set<string>>(new Set())
   const activeCallIdRef = useRef<string | null>(null)
+  const telemetrySessionRef = useRef<CallTelemetrySession | null>(null)
+  const rtcQualityCountersRef = useRef<RtcQualityCounters | null>(null)
+  const audioFlowingRef = useRef(false)
+  const audioFlowConfirmationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const callSetupGenerationRef = useRef(0)
   const teardownInProgressRef = useRef(false)
   const callAnsweredRef = useRef(false)
   const routerRtpCapabilitiesRef = useRef<Record<string, unknown> | null>(null)
@@ -328,6 +494,92 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  const beginCallSetup = useCallback(() => {
+    callSetupGenerationRef.current += 1
+    return callSetupGenerationRef.current
+  }, [])
+
+  const invalidateCallSetup = useCallback(() => {
+    callSetupGenerationRef.current += 1
+  }, [])
+
+  const isCallSetupCurrent = useCallback((setupToken: number, expectedCallId: string) => {
+    const currentCallId = activeCallIdRef.current ?? useCallStore.getState().callId
+
+    return (
+      setupToken === callSetupGenerationRef.current &&
+      currentCallId === expectedCallId &&
+      useCallStore.getState().callId === expectedCallId
+    )
+  }, [])
+
+  const assertCallSetupCurrent = useCallback(
+    (setupToken: number, expectedCallId: string) => {
+      if (!isCallSetupCurrent(setupToken, expectedCallId)) {
+        throw new Error(CALL_SETUP_CANCELLED_ERROR)
+      }
+    },
+    [isCallSetupCurrent],
+  )
+
+  const waitForConfiguredAudioSession = useCallback(
+    async (
+      setupToken: number,
+      callId: string,
+      timeoutMs = 5000,
+    ): Promise<AudioSessionConfiguration | undefined> => {
+      if (Platform.OS !== 'ios') {
+        return
+      }
+
+      assertCallSetupCurrent(setupToken, callId)
+
+      return new Promise<AudioSessionConfiguration>((resolve, reject) => {
+        let settled = false
+        let subscription: { remove: () => void } | null = null
+
+        const settle = (configuration?: AudioSessionConfiguration, error?: Error) => {
+          if (settled) {
+            return
+          }
+
+          settled = true
+          clearTimeout(timeout)
+          subscription?.remove()
+
+          if (error) {
+            reject(error)
+            return
+          }
+
+          if (!isCallSetupCurrent(setupToken, callId)) {
+            reject(new Error(CALL_SETUP_CANCELLED_ERROR))
+            return
+          }
+
+          resolve(configuration ?? { configured: true })
+        }
+
+        const timeout = setTimeout(() => {
+          console.warn('[Call] Audio session wait timed out')
+          settle(undefined, new Error('Audio session was not configured'))
+        }, timeoutMs)
+
+        subscription = veloraSystemCalls.addAudioSessionConfiguredListener((event) => {
+          settle(event, event.errorCode ? new Error(event.errorCode) : undefined)
+        })
+
+        const state = veloraSystemCalls.getAudioSessionConfigurationState()
+        if (state.errorCode) {
+          settle(state, new Error(state.errorCode))
+        } else if (state.configured) {
+          settle(state)
+        }
+      })
+    },
+    [assertCallSetupCurrent, isCallSetupCurrent],
+  )
+
   const scheduleRtcStatsLog = useCallback(
     ({
       callId,
@@ -340,6 +592,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       mediaId: string
       getStats: () => Promise<RTCStatsReport>
     }) => {
+      if (!__DEV__) {
+        return
+      }
+
       setTimeout(() => {
         void (async () => {
           try {
@@ -369,6 +625,87 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     },
     [],
   )
+
+  const sampleRtcQuality = useCallback(async () => {
+    const telemetry = telemetrySessionRef.current
+    const consumer = consumerMapRef.current.values().next().value as
+      MediasoupTypes.Consumer | undefined
+
+    if (!telemetry || !consumer) {
+      return
+    }
+
+    try {
+      const report = await consumer.getStats()
+      const entries = normalizeRtcStatsEntries(report)
+      const inbound = pickRtcStat(entries, 'inbound-rtp')
+      const remoteInbound = pickRtcStat(entries, 'remote-inbound-rtp')
+      const candidatePair =
+        entries.find(
+          (entry) =>
+            entry.type === 'candidate-pair' &&
+            (entry.selected === true || entry.nominated === true || entry.state === 'succeeded'),
+        ) ?? null
+      const counters = getRtcQualityCounters(report)
+      const previous = rtcQualityCountersRef.current
+      rtcQualityCountersRef.current = counters
+      const delta = (current: number | null, before: number | null) =>
+        current === null || before === null ? null : Math.max(0, current - before)
+      const lost = delta(counters.packetsLost, previous?.packetsLost ?? null)
+      const received = delta(counters.packetsReceived, previous?.packetsReceived ?? null)
+      const receivedBytes = delta(counters.bytesReceived, previous?.bytesReceived ?? null)
+      const concealed = delta(counters.concealedSamples, previous?.concealedSamples ?? null)
+      const samples = delta(counters.totalSamples, previous?.totalSamples ?? null)
+      const jitterDelay = delta(counters.jitterBufferDelay, previous?.jitterBufferDelay ?? null)
+      const jitterEmitted = delta(
+        counters.jitterBufferEmittedCount,
+        previous?.jitterBufferEmittedCount ?? null,
+      )
+      const numberValue = (value: unknown) =>
+        typeof value === 'number' && Number.isFinite(value) ? value : null
+      const jitter = numberValue(inbound?.jitter)
+      const roundTripTime =
+        numberValue(remoteInbound?.roundTripTime) ??
+        numberValue(candidatePair?.currentRoundTripTime)
+
+      if (telemetrySessionRef.current !== telemetry || !consumerMapRef.current.has(consumer.id)) {
+        return
+      }
+
+      telemetry.record('audio_quality', {
+        eventType: 'quality_sample',
+        metrics: {
+          packetLossRate:
+            lost === null || received === null || lost + received === 0
+              ? null
+              : lost / (lost + received),
+          jitterMs: jitter === null ? null : jitter * 1000,
+          roundTripTimeMs: roundTripTime === null ? null : roundTripTime * 1000,
+          concealmentRate:
+            concealed === null || samples === null || concealed + samples === 0
+              ? null
+              : concealed / (concealed + samples),
+          jitterBufferDelayMs:
+            jitterDelay === null || jitterEmitted === null || jitterEmitted === 0
+              ? null
+              : (jitterDelay / jitterEmitted) * 1000,
+          packetsReceivedDelta: received,
+          bytesReceivedDelta: receivedBytes,
+        },
+      })
+
+      if (
+        !audioFlowingRef.current &&
+        ((received !== null && received > 0) || (receivedBytes !== null && receivedBytes > 0))
+      ) {
+        audioFlowingRef.current = true
+        telemetry.record('audio_flowing', { outcome: 'succeeded' })
+        telemetry.record('media_ready', { outcome: 'succeeded' })
+      }
+    } catch {
+      // Stats are optional diagnostic data and must never affect call media.
+    }
+  }, [])
 
   const getCurrentCallId = useCallback(
     () => activeCallIdRef.current ?? useCallStore.getState().callId,
@@ -440,6 +777,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  const clearAudioFlowConfirmation = useCallback(() => {
+    if (audioFlowConfirmationTimeoutRef.current) {
+      clearTimeout(audioFlowConfirmationTimeoutRef.current)
+      audioFlowConfirmationTimeoutRef.current = null
+    }
+  }, [])
+
   const clearPeerLeftFallback = useCallback(() => {
     if (peerLeftTimeoutRef.current) {
       clearTimeout(peerLeftTimeoutRef.current)
@@ -470,6 +814,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const resetRuntimeRefs = useCallback(
     (options?: { preserveActiveCall?: boolean }) => {
+      clearAudioFlowConfirmation()
       clearRemoteAudioFallback()
       clearPeerLeftFallback()
       clearReconnectTimeout()
@@ -479,6 +824,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       handledRemoteProducerIdsRef.current.clear()
       consumingProducerIdsRef.current.clear()
       retryingProducerIdsRef.current.clear()
+      audioFlowingRef.current = false
       consumerMapRef.current.clear()
       deviceRef.current = null
       sendTransportRef.current = null
@@ -495,7 +841,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         callAnsweredRef.current = false
       }
     },
-    [clearPeerLeftFallback, clearReconnectTimeout, clearRemoteAudioFallback],
+    [
+      clearAudioFlowConfirmation,
+      clearPeerLeftFallback,
+      clearReconnectTimeout,
+      clearRemoteAudioFallback,
+    ],
   )
 
   const disposeMediaRuntime = useCallback(
@@ -596,6 +947,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
 
       teardownInProgressRef.current = true
+      invalidateCallSetup()
+      telemetrySessionRef.current?.terminal(
+        reason,
+        options?.errorMessage ? new Error(options.errorMessage) : undefined,
+      )
+      telemetrySessionRef.current = null
+      rtcQualityCountersRef.current = null
       const endingCallId = activeCallIdRef.current ?? useCallStore.getState().callId
       stopTimer()
       if (endingCallId) {
@@ -609,9 +967,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
 
       teardownInProgressRef.current = false
-      console.warn(`[Call] Teardown completed (${reason})`)
+      debugCall(`[Call] Teardown completed (${reason})`)
     },
-    [disposeMediaRuntime, stopTimer],
+    [disposeMediaRuntime, invalidateCallSetup, stopTimer],
   )
 
   const teardownRecoveryFailure = useCallback(
@@ -715,21 +1073,35 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const ensureDeviceLoaded = useCallback(async (payload: CallJoinedPayload) => {
-    let device = deviceRef.current
+    const rtpCapabilitiesKey = stableJson(payload.rtpCapabilities)
+    const activeDevice = deviceRef.current
 
-    if (!device) {
-      ensureMediasoupGlobalsRegistered()
-      device = createMediasoupDevice()
-      deviceRef.current = device
+    if (activeDevice) {
+      if (stableJson(routerRtpCapabilitiesRef.current) !== rtpCapabilitiesKey) {
+        throw new Error('Router RTP capabilities changed during an active call')
+      }
+
+      return activeDevice
     }
 
-    if (!device.loaded) {
-      await device.load({
-        routerRtpCapabilities: toRouterRtpCapabilities(payload.rtpCapabilities),
-      })
+    const cachedDevice = cachedDeviceRef.current
+    if (cachedDevice?.rtpCapabilitiesKey === rtpCapabilitiesKey) {
+      deviceRef.current = cachedDevice.device
+      routerRtpCapabilitiesRef.current = payload.rtpCapabilities
+      telemetrySessionRef.current?.record('device_cache_hit', { outcome: 'succeeded' })
+      return cachedDevice.device
     }
 
+    ensureMediasoupGlobalsRegistered()
+    const device = createMediasoupDevice()
+    await device.load({
+      routerRtpCapabilities: toRouterRtpCapabilities(payload.rtpCapabilities),
+    })
+
+    cachedDeviceRef.current = { device, rtpCapabilitiesKey }
+    deviceRef.current = device
     routerRtpCapabilitiesRef.current = payload.rtpCapabilities
+    telemetrySessionRef.current?.record('device_cache_miss', { outcome: 'succeeded' })
     return device
   }, [])
 
@@ -760,7 +1132,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           : device.createRecvTransport<Record<string, unknown>>(transportOptions)
 
       transport.on('connectionstatechange', (state) => {
-        console.warn(
+        debugCall(
           `[Call] ${direction} transport connection state changed`,
           JSON.stringify({ callId, transportId: transport.id, state }),
         )
@@ -769,7 +1141,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       transport.on('connect', ({ dtlsParameters }, callback, errback) => {
         void (async () => {
           try {
-            console.warn(
+            debugCall(
               `[Call] Connecting ${direction} transport`,
               JSON.stringify({ callId, transportId: transport.id }),
             )
@@ -791,7 +1163,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             )
 
             connectedTransportIdsRef.current.add(transport.id)
-            console.warn(
+            telemetrySessionRef.current?.record(`${direction}_transport_connected`, {
+              outcome: 'succeeded',
+            })
+            debugCall(
               `[Call] ${direction} transport connected`,
               JSON.stringify({ callId, transportId: transport.id }),
             )
@@ -814,7 +1189,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         transport.on('produce', ({ kind, rtpParameters }, callback, errback) => {
           void (async () => {
             try {
-              console.warn(
+              debugCall(
                 '[Call] Producing local media',
                 JSON.stringify({ callId, transportId: transport.id, kind }),
               )
@@ -838,7 +1213,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                 },
               )
 
-              console.warn(
+              debugCall(
                 '[Call] Local producer announced',
                 JSON.stringify({
                   callId,
@@ -869,14 +1244,28 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   )
 
   const consumeRemoteProducer = useCallback(
-    async (payload: NewProducerPayload) => {
+    async (
+      payload: NewProducerPayload,
+      options?: { propagateFailure?: boolean; setupToken?: number },
+    ) => {
       const socket = socketRef.current
       const callId = getCurrentCallId()
       const device = deviceRef.current
       const recvTransport = recvTransportRef.current
+      const setupToken = options?.setupToken ?? callSetupGenerationRef.current
 
-      if (!socket || !callId || !device?.loaded || !recvTransport) {
-        console.warn(
+      if (!callId || payload.callId !== callId) {
+        return
+      }
+
+      assertCallSetupCurrent(setupToken, callId)
+
+      if (!socket || !device?.loaded || !recvTransport) {
+        if (options?.propagateFailure) {
+          throw new Error('Remote consumer runtime is unavailable')
+        }
+
+        debugCall(
           '[Call] Queueing remote producer until runtime is ready',
           JSON.stringify({
             payloadCallId: payload.callId,
@@ -891,19 +1280,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
-      if (!connectedTransportIdsRef.current.has(recvTransport.id)) {
-        console.warn(
-          '[Call] Queueing remote producer until recv transport connects',
-          JSON.stringify({
-            callId,
-            recvTransportId: recvTransport.id,
-            producerId: payload.producerId,
-          }),
-        )
-        queuedRemoteProducerMapRef.current.set(payload.producerId, payload)
-        return
-      }
-
       if (
         payload.callId !== callId ||
         payload.userId === currentUserId ||
@@ -911,7 +1287,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         handledRemoteProducerIdsRef.current.has(payload.producerId) ||
         consumingProducerIdsRef.current.has(payload.producerId)
       ) {
-        console.warn(
+        debugCall(
           '[Call] Ignoring new_producer event',
           JSON.stringify({
             payloadCallId: payload.callId,
@@ -931,7 +1307,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       consumingProducerIdsRef.current.add(payload.producerId)
 
       try {
-        console.warn(
+        debugCall(
           '[Call] Consuming remote producer',
           JSON.stringify({
             callId,
@@ -957,8 +1333,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
               eventPayload.callId === callId && eventPayload.producerId === payload.producerId,
           },
         )
+        assertCallSetupCurrent(setupToken, callId)
 
-        console.warn(
+        debugCall(
           '[Call] Remote consumer created',
           JSON.stringify({
             callId,
@@ -974,9 +1351,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           kind: consumerCreated.kind,
           rtpParameters: consumerCreated.rtpParameters as never,
         })
+        if (!isCallSetupCurrent(setupToken, callId)) {
+          consumer.close()
+          throw new Error(CALL_SETUP_CANCELLED_ERROR)
+        }
 
         consumerMapRef.current.set(consumer.id, consumer)
-        console.warn(
+        telemetrySessionRef.current?.record('remote_consumer_ready', { outcome: 'succeeded' })
+        debugCall(
           '[Call] Remote consumer attached locally',
           JSON.stringify({
             callId,
@@ -990,14 +1372,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         )
 
         consumer.track.addEventListener('mute', () => {
-          console.warn(
+          debugCall(
             '[Call] Remote audio track muted',
             JSON.stringify({ callId, consumerId: consumer.id, trackId: consumer.track.id }),
           )
         })
 
         consumer.track.addEventListener('unmute', () => {
-          console.warn(
+          debugCall(
             '[Call] Remote audio track unmuted',
             JSON.stringify({ callId, consumerId: consumer.id, trackId: consumer.track.id }),
           )
@@ -1025,8 +1407,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
               eventPayload.callId === callId && eventPayload.consumerId === consumer.id,
           },
         )
+        assertCallSetupCurrent(setupToken, callId)
 
-        console.warn(
+        debugCall(
           '[Call] Remote consumer resumed',
           JSON.stringify({
             callId,
@@ -1041,6 +1424,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           getStats: () => consumer.getStats(),
         })
         const wasWaitingForPeerAudio = reconnectModeRef.current === 'peer'
+        const firstRemoteAudio = handledRemoteProducerIdsRef.current.size === 0
         handledRemoteProducerIdsRef.current.add(payload.producerId)
         queuedRemoteProducerMapRef.current.delete(payload.producerId)
         reconnectModeRef.current = null
@@ -1050,11 +1434,27 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           ...(wasWaitingForPeerAudio ? { phase: 'active', reconnectDeadlineMs: null } : {}),
           remoteAudioState: 'connected',
         })
+        if (firstRemoteAudio) {
+          telemetrySessionRef.current?.record('remote_consumer_resumed', { outcome: 'succeeded' })
+          void sampleRtcQuality()
+          clearAudioFlowConfirmation()
+          audioFlowConfirmationTimeoutRef.current = setTimeout(() => {
+            audioFlowConfirmationTimeoutRef.current = null
+            void sampleRtcQuality()
+          }, AUDIO_FLOW_CONFIRMATION_DELAY_MS)
+        }
 
         if (wasWaitingForPeerAudio) {
           startTimer(useCallStore.getState().durationSec)
         }
       } catch (error) {
+        if (!isCallSetupCurrent(setupToken, callId)) {
+          if (options?.propagateFailure) {
+            throw new Error(CALL_SETUP_CANCELLED_ERROR)
+          }
+          return
+        }
+
         const state = useCallStore.getState()
         console.warn(
           '[Call] Failed to consume remote producer',
@@ -1090,6 +1490,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           return
         }
 
+        if (options?.propagateFailure) {
+          throw error instanceof Error ? error : new Error('Failed to consume remote producer')
+        }
+
         await teardownOnce('consume_remote_producer', {
           errorMessage: 'Unable to set up the call',
         })
@@ -1100,72 +1504,36 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     [
       clearReconnectTimeout,
       clearRemoteAudioFallback,
+      clearAudioFlowConfirmation,
       currentUserId,
+      assertCallSetupCurrent,
       getCurrentCallId,
+      isCallSetupCurrent,
       scheduleRtcStatsLog,
+      sampleRtcQuality,
       startTimer,
       teardownOnce,
     ],
   )
 
-  const flushQueuedRemoteProducers = useCallback(async () => {
-    const queuedProducers = [...queuedRemoteProducerMapRef.current.values()]
+  const flushQueuedRemoteProducers = useCallback(
+    async (options: { setupToken: number }) => {
+      const queuedProducers = [...queuedRemoteProducerMapRef.current.values()]
 
-    for (const payload of queuedProducers) {
-      await consumeRemoteProducer(payload)
-    }
-  }, [consumeRemoteProducer])
-
-  const primeRecvTransportConnection = useCallback(
-    async (transport: MediasoupTypes.Transport<Record<string, unknown>>) => {
-      if (connectedTransportIdsRef.current.has(transport.id)) {
-        return
+      for (const payload of queuedProducers) {
+        await consumeRemoteProducer(payload, {
+          propagateFailure: true,
+          setupToken: options.setupToken,
+        })
       }
-
-      const handler = transport.handler as {
-        _forcedLocalDtlsRole?: 'client' | 'server'
-        _pc?: {
-          addTransceiver: (kind: 'audio', init: { direction: 'recvonly' }) => unknown
-          createOffer: () => Promise<{ sdp?: string | null }>
-        }
-        _transportReady?: boolean
-        setupTransport?: (options: {
-          localDtlsRole: 'client' | 'server'
-          localSdpObject: unknown
-        }) => Promise<void>
-      }
-
-      if (handler._transportReady || connectedTransportIdsRef.current.has(transport.id)) {
-        return
-      }
-
-      if (!handler._pc || typeof handler.setupTransport !== 'function') {
-        throw new Error('Receive transport handler is unavailable')
-      }
-
-      handler._pc.addTransceiver('audio', { direction: 'recvonly' })
-
-      const offer = await handler._pc.createOffer()
-      if (!offer.sdp) {
-        throw new Error('Receive transport offer is unavailable')
-      }
-
-      const sdpTransform = (await import('sdp-transform')) as {
-        parse: (sdp: string) => unknown
-      }
-
-      await handler.setupTransport({
-        localDtlsRole: handler._forcedLocalDtlsRole ?? 'client',
-        localSdpObject: sdpTransform.parse(offer.sdp),
-      })
     },
-    [],
+    [consumeRemoteProducer],
   )
 
   const postAnswerSetup = useCallback(
     async (
       payload: CallJoinedPayload | CallRejoinedPayload,
-      options?: { resumeDurationSec?: number },
+      options: { resumeDurationSec?: number; setupToken: number },
     ) => {
       const socket = socketRef.current
       if (!socket) {
@@ -1173,15 +1541,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
 
       const callId = payload.callId
+      const telemetry = telemetrySessionRef.current
+      assertCallSetupCurrent(options.setupToken, callId)
       const device = await ensureDeviceLoaded(payload)
-      const recvTransport = await createTransport(socket, callId, 'recv', device)
-      recvTransportRef.current = recvTransport
-      await primeRecvTransportConnection(recvTransport)
-
-      const sendTransport = await createTransport(socket, callId, 'send', device)
-      sendTransportRef.current = sendTransport
-
-      console.warn(
+      telemetry?.record('device_loaded', { outcome: 'succeeded' })
+      assertCallSetupCurrent(options.setupToken, callId)
+      debugCall(
         '[Call] Requesting local media',
         JSON.stringify({
           callId,
@@ -1189,20 +1554,61 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           timestampMs: Date.now(),
         }),
       )
-      const localStream = await mediaDevices.getUserMedia({
-        audio: true,
-        video: false,
-      })
+      const [recvTransportResult, sendTransportResult, localStreamResult] =
+        await Promise.allSettled([
+          createTransport(socket, callId, 'recv', device),
+          createTransport(socket, callId, 'send', device),
+          mediaDevices.getUserMedia({ audio: true, video: false }),
+        ])
+
+      if (
+        recvTransportResult.status !== 'fulfilled' ||
+        sendTransportResult.status !== 'fulfilled' ||
+        localStreamResult.status !== 'fulfilled'
+      ) {
+        if (recvTransportResult.status === 'fulfilled') {
+          recvTransportResult.value.close()
+        }
+        if (sendTransportResult.status === 'fulfilled') {
+          sendTransportResult.value.close()
+        }
+        if (localStreamResult.status === 'fulfilled') {
+          localStreamResult.value.getTracks().forEach((track) => track.stop())
+        }
+
+        const failedResult = [recvTransportResult, sendTransportResult, localStreamResult].find(
+          (result) => result.status === 'rejected',
+        )
+        throw failedResult && failedResult.status === 'rejected'
+          ? failedResult.reason
+          : new Error('Unable to initialize call media')
+      }
+
+      const recvTransport = recvTransportResult.value
+      const sendTransport = sendTransportResult.value
+      const localStream = localStreamResult.value
+      telemetry?.record('recv_transport_created', { outcome: 'succeeded' })
+      telemetry?.record('send_transport_created', { outcome: 'succeeded' })
+      if (!isCallSetupCurrent(options.setupToken, callId)) {
+        recvTransport.close()
+        sendTransport.close()
+        localStream.getTracks().forEach((track) => track.stop())
+        throw new Error(CALL_SETUP_CANCELLED_ERROR)
+      }
+      recvTransportRef.current = recvTransport
+      sendTransportRef.current = sendTransport
       const localAudioTrack = localStream.getAudioTracks()[0]
 
       if (!localAudioTrack) {
+        localStream.getTracks().forEach((track) => track.stop())
         throw new Error('No local audio track available')
       }
 
       const muted = useCallStore.getState().muted
       localAudioTrack.enabled = !muted
       localStreamRef.current = localStream
-      console.warn(
+      telemetry?.record('microphone_ready', { outcome: 'succeeded' })
+      debugCall(
         '[Call] Local audio track ready',
         JSON.stringify({
           callId,
@@ -1223,7 +1629,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         track: localAudioTrack as never,
         stopTracks: false,
       })
+      if (!isCallSetupCurrent(options.setupToken, callId)) {
+        audioProducer.close()
+        throw new Error(CALL_SETUP_CANCELLED_ERROR)
+      }
       audioProducerRef.current = audioProducer
+      telemetry?.record('audio_producer_ready', { outcome: 'succeeded' })
       scheduleRtcStatsLog({
         callId,
         label: 'Local producer',
@@ -1231,39 +1642,79 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         getStats: () => audioProducer.getStats(),
       })
 
+      for (const producer of payload.activeProducers ?? []) {
+        await consumeRemoteProducer(
+          {
+            callId,
+            userId: producer.userId,
+            producerId: producer.producerId,
+            kind: producer.kind,
+          },
+          {
+            propagateFailure: true,
+            setupToken: options.setupToken,
+          },
+        )
+      }
+
+      await flushQueuedRemoteProducers({ setupToken: options.setupToken })
+      assertCallSetupCurrent(options.setupToken, callId)
       callAnsweredRef.current = true
       useCallStore.getState().patch({
         phase: 'active',
         muted,
-        remoteAudioState: 'waiting',
-        remoteStreamUrl: null,
+        remoteAudioState: handledRemoteProducerIdsRef.current.size > 0 ? 'connected' : 'waiting',
+        remoteStreamUrl: remoteStreamRef.current?.toURL() ?? null,
         reconnectDeadlineMs: null,
       })
-      startTimer(options?.resumeDurationSec ?? 0)
+      startTimer(options.resumeDurationSec ?? 0)
       armRemoteAudioFallback()
-
-      for (const producer of payload.activeProducers ?? []) {
-        await consumeRemoteProducer({
-          callId,
-          userId: producer.userId,
-          producerId: producer.producerId,
-          kind: producer.kind,
-        })
-      }
-
-      await flushQueuedRemoteProducers()
     },
     [
       armRemoteAudioFallback,
+      assertCallSetupCurrent,
       consumeRemoteProducer,
       createTransport,
       ensureDeviceLoaded,
       flushQueuedRemoteProducers,
-      primeRecvTransportConnection,
+      isCallSetupCurrent,
       scheduleRtcStatsLog,
       startTimer,
     ],
   )
+
+  const restartConnectedTransports = useCallback(async (socket: CallSocket, callId: string) => {
+    const transports = [sendTransportRef.current, recvTransportRef.current].filter(
+      (transport): transport is MediasoupTypes.Transport<Record<string, unknown>> =>
+        Boolean(transport && connectedTransportIdsRef.current.has(transport.id)),
+    )
+
+    if (transports.length === 0) {
+      throw new Error('No connected media transport is available for ICE restart')
+    }
+
+    await Promise.all(
+      transports.map(async (transport) => {
+        const restarted = await emitAndWaitForEvent<'restart_ice', 'ice_restarted'>(
+          socket,
+          'restart_ice',
+          { callId, transportId: transport.id },
+          {
+            event: 'ice_restarted',
+            timeoutMs: TRANSPORT_CONNECTED_TIMEOUT_MS,
+            registry: waitRegistryRef.current,
+            filter: (payload: IceRestartedPayload) =>
+              payload.callId === callId && payload.transportId === transport.id,
+          },
+        )
+
+        await transport.restartIce({
+          iceParameters: restarted.iceParameters as MediasoupTypes.IceParameters,
+        })
+      }),
+    )
+    await Promise.all(transports.map((transport) => waitForTransportConnection(transport)))
+  }, [])
 
   const recoverActiveCall = useCallback(async () => {
     const socket = socketRef.current
@@ -1295,9 +1746,40 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       activeCallIdRef.current = rejoined.callId
       callAnsweredRef.current = true
+      telemetrySessionRef.current?.attachCall(rejoined.telemetryToken)
+      try {
+        await restartConnectedTransports(socket, rejoined.callId)
+        reconnectModeRef.current = null
+        clearReconnectTimeout()
+        useCallStore.getState().patch({
+          phase: 'active',
+          reconnectDeadlineMs: null,
+        })
+        startTimer(useCallStore.getState().durationSec)
+        telemetrySessionRef.current?.record('reconnect_transport_connected', {
+          outcome: 'succeeded',
+        })
+        telemetrySessionRef.current?.record('reconnect', { outcome: 'succeeded' })
+        return
+      } catch (error) {
+        console.warn(
+          '[Call] ICE restart failed; rebuilding media runtime',
+          JSON.stringify({
+            callId: rejoined.callId,
+            error: error instanceof Error ? error.message : 'unknown_error',
+          }),
+        )
+      }
+
+      invalidateCallSetup()
+      disposeMediaRuntime({ preserveActiveCall: true })
+      const setupToken = beginCallSetup()
       await postAnswerSetup(rejoined, {
         resumeDurationSec: useCallStore.getState().durationSec,
+        setupToken,
       })
+      telemetrySessionRef.current?.record('reconnect', { outcome: 'succeeded' })
+      assertCallSetupCurrent(setupToken, rejoined.callId)
 
       if (useCallStore.getState().remoteAudioState !== 'connected') {
         useCallStore.getState().patch({
@@ -1306,6 +1788,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         armReconnectTimeout('recover_audio_timeout')
       }
     } catch (error) {
+      if (isCallSetupCancelledError(error)) {
+        return
+      }
+
       if (isWaitTimeoutError(error)) {
         console.warn(
           '[Call] Recovery helper timed out before reconnect grace window expired',
@@ -1321,7 +1807,18 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     } finally {
       reconnectRecoveryInFlightRef.current = false
     }
-  }, [armReconnectTimeout, postAnswerSetup, teardownRecoveryFailure])
+  }, [
+    armReconnectTimeout,
+    assertCallSetupCurrent,
+    beginCallSetup,
+    clearReconnectTimeout,
+    disposeMediaRuntime,
+    invalidateCallSetup,
+    postAnswerSetup,
+    restartConnectedTransports,
+    startTimer,
+    teardownRecoveryFailure,
+  ])
 
   const beginReconnectRecovery = useCallback(() => {
     const state = useCallStore.getState()
@@ -1337,20 +1834,18 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
+    telemetrySessionRef.current?.record('reconnect', { outcome: 'started' })
     stopTimer({ resetDuration: false })
-    disposeMediaRuntime({ preserveActiveCall: true })
     reconnectModeRef.current = 'local'
 
     const reconnectDeadlineMs = Date.now() + RECONNECT_RECOVERY_TIMEOUT_MS
     useCallStore.getState().patch({
       phase: 'reconnecting',
-      remoteAudioState: 'idle',
-      remoteStreamUrl: null,
       reconnectDeadlineMs,
     })
 
     armReconnectTimeout('reconnect_timeout')
-  }, [armReconnectTimeout, currentUserId, disposeMediaRuntime, isAuthenticated, stopTimer])
+  }, [armReconnectTimeout, currentUserId, isAuthenticated, stopTimer])
 
   const handlePeerReconnecting = useCallback(
     (payload: PeerReconnectingPayload) => {
@@ -1569,12 +2064,40 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
+    const telemetry = new CallTelemetrySession('incoming')
+    telemetrySessionRef.current = telemetry
+    telemetry.record('call_attempt', { outcome: 'started' })
+
     if (!socket?.connected) {
-      socket = await ensureSocketConnected()
+      try {
+        socket = await ensureSocketConnected()
+        telemetry.record('socket_connected', { outcome: 'succeeded' })
+      } catch (error) {
+        telemetry.record('socket_connected', { outcome: 'failed', error })
+        await teardownOnce('accept_incoming_call_socket_failed', {
+          errorMessage: 'Unable to set up the call',
+        })
+        return
+      }
+    } else {
+      telemetry.record('socket_connected', { outcome: 'succeeded' })
     }
 
-    const hasPermission = await ensureMicPermission()
+    let hasPermission: boolean
+    try {
+      hasPermission = await ensureMicPermission()
+    } catch (error) {
+      telemetry.record('microphone_permission', { outcome: 'failed', error })
+      await teardownOnce('accept_incoming_call_permission_failed', {
+        errorMessage: 'Velora needs microphone access to place calls',
+      })
+      return
+    }
     if (!hasPermission) {
+      telemetry.record('microphone_permission', {
+        outcome: 'failed',
+        error: new Error('microphone permission denied'),
+      })
       socket.emit('reject_call', {
         callId,
         reason: 'mic_permission_denied',
@@ -1584,6 +2107,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       })
       return
     }
+    telemetry.record('microphone_permission', { outcome: 'succeeded' })
 
     let joinedCall = false
 
@@ -1601,6 +2125,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       )
 
       joinedCall = true
+      telemetry.attachCall(joined.telemetryToken)
+      telemetry.record('call_joined', { outcome: 'succeeded' })
+      const setupToken = beginCallSetup()
       useCallStore.getState().patch({
         phase: 'connecting',
         remoteAudioState: 'idle',
@@ -1608,21 +2135,49 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         reconnectDeadlineMs: null,
       })
       router.push(`/call/${callId}` as never)
-      veloraSystemCalls.setCallActive(callId)
-      await postAnswerSetup(joined)
+
+      debugCall('[Call] Waiting for configured native audio session...')
+      const audioSessionConfiguration = await waitForConfiguredAudioSession(setupToken, callId)
+      assertCallSetupCurrent(setupToken, callId)
+      const audioRoute = toAudioRouteTelemetry(audioSessionConfiguration)
+      telemetry.record('native_audio_configured', {
+        outcome: 'succeeded',
+        ...(audioRoute ? { details: { audioRoute } } : {}),
+      })
+
+      await postAnswerSetup(joined, { setupToken })
+      assertCallSetupCurrent(setupToken, callId)
+      if (!veloraSystemCalls.setCallActive(callId)) {
+        throw new Error('Native call is no longer active')
+      }
+      telemetry.record('control_plane_active', { outcome: 'succeeded' })
       socket.emit('answer_call', { callId })
     } catch (error) {
+      if (isCallSetupCancelledError(error)) {
+        return
+      }
+
       if (joinedCall && socket?.connected) {
         socket.emit('leave_call', {
           callId,
           reason: 'disconnected',
         })
       }
+      telemetry.record('setup_failed', { outcome: 'failed', error })
       await teardownOnce('accept_incoming_call_failed', {
         errorMessage: 'Unable to set up the call',
       })
     }
-  }, [ensureMicPermission, ensureSocketConnected, postAnswerSetup, router, teardownOnce])
+  }, [
+    assertCallSetupCurrent,
+    beginCallSetup,
+    ensureMicPermission,
+    ensureSocketConnected,
+    postAnswerSetup,
+    router,
+    teardownOnce,
+    waitForConfiguredAudioSession,
+  ])
 
   const startVoiceCall = useCallback(
     async (input: StartVoiceCallInput) => {
@@ -1630,8 +2185,28 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
-      const hasPermission = await ensureMicPermission()
+      const telemetry = new CallTelemetrySession('outgoing')
+      telemetrySessionRef.current = telemetry
+      telemetry.record('call_attempt', { outcome: 'started' })
+
+      let hasPermission: boolean
+      try {
+        hasPermission = await ensureMicPermission()
+      } catch (error) {
+        telemetry.record('microphone_permission', { outcome: 'failed', error })
+        telemetry.terminal('start_voice_call_failed', error)
+        telemetrySessionRef.current = null
+        presentError('Velora needs microphone access to place calls')
+        useCallStore.getState().patch({ phase: 'idle' })
+        return
+      }
       if (!hasPermission) {
+        telemetry.record('microphone_permission', {
+          outcome: 'failed',
+          error: new Error('microphone permission denied'),
+        })
+        telemetry.terminal('start_voice_call_failed', new Error('microphone permission denied'))
+        telemetrySessionRef.current = null
         presentError('Velora needs microphone access to place calls')
         useCallStore.getState().patch({ phase: 'idle' })
         return
@@ -1639,6 +2214,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       try {
         const socket = await ensureSocketConnected()
+        telemetry.record('socket_connected', { outcome: 'succeeded' })
         const joined = await emitAndWaitForEvent<'initiate_call', 'call_joined'>(
           socket,
           'initiate_call',
@@ -1656,6 +2232,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         )
 
         activeCallIdRef.current = joined.callId
+        telemetry.attachCall(joined.telemetryToken)
+        telemetry.record('call_joined', { outcome: 'succeeded' })
         callAnsweredRef.current = false
         veloraSystemCalls.registerOutgoingCall({
           callId: joined.callId,
@@ -1711,10 +2289,32 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
 
         callAnsweredRef.current = true
-        veloraSystemCalls.setCallActive(joined.callId)
+        const setupToken = beginCallSetup()
         useCallStore.getState().patch({ phase: 'connecting', reconnectDeadlineMs: null })
-        await postAnswerSetup(joined)
+
+        debugCall('[Call] Waiting for configured native audio session...')
+        const audioSessionConfiguration = await waitForConfiguredAudioSession(
+          setupToken,
+          joined.callId,
+        )
+        assertCallSetupCurrent(setupToken, joined.callId)
+        const audioRoute = toAudioRouteTelemetry(audioSessionConfiguration)
+        telemetry.record('native_audio_configured', {
+          outcome: 'succeeded',
+          ...(audioRoute ? { details: { audioRoute } } : {}),
+        })
+
+        await postAnswerSetup(joined, { setupToken })
+        assertCallSetupCurrent(setupToken, joined.callId)
+        if (!veloraSystemCalls.setCallActive(joined.callId)) {
+          throw new Error('Native call is no longer active')
+        }
+        telemetry.record('control_plane_active', { outcome: 'succeeded' })
       } catch (error) {
+        if (isCallSetupCancelledError(error)) {
+          return
+        }
+
         const activeCallId = activeCallIdRef.current
         if (socketRef.current?.connected && activeCallId) {
           socketRef.current.emit('leave_call', {
@@ -1722,12 +2322,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             reason: 'timeout',
           })
         }
+        telemetry.record('setup_failed', { outcome: 'failed', error })
         await teardownOnce('start_voice_call_failed', {
           errorMessage: 'Unable to set up the call',
         })
       }
     },
     [
+      assertCallSetupCurrent,
+      beginCallSetup,
       currentUserId,
       ensureMicPermission,
       ensureSocketConnected,
@@ -1735,6 +2338,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       presentError,
       router,
       teardownOnce,
+      waitForConfiguredAudioSession,
     ],
   )
 
@@ -1918,7 +2522,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const subscription = veloraSystemCalls.addAudioSessionActivatedListener(
       (event: AudioSessionActivatedEvent) => {
-        console.warn('[Call] Native audio session activated', JSON.stringify(event))
+        debugCall('[Call] Native audio session activated', JSON.stringify(event))
       },
     )
 
@@ -1930,7 +2534,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const subscription = veloraSystemCalls.addAudioSessionConfiguredListener(
       (event: AudioSessionConfiguredEvent) => {
-        console.warn('[Call] Native audio session configured', JSON.stringify(event))
+        debugCall('[Call] Native audio session configured', JSON.stringify(event))
       },
     )
 
@@ -1938,6 +2542,39 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       subscription.remove()
     }
   }, [])
+
+  useEffect(() => {
+    void flushCallTelemetry()
+    const interval = setInterval(() => {
+      void flushCallTelemetry()
+    }, 15_000)
+    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        void flushCallTelemetry()
+      }
+    })
+
+    return () => {
+      clearInterval(interval)
+      appStateSubscription.remove()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (callPhase !== 'active' || !callId) {
+      return
+    }
+
+    rtcQualityCountersRef.current = null
+    void sampleRtcQuality()
+    const interval = setInterval(() => {
+      void sampleRtcQuality()
+    }, RTC_QUALITY_SAMPLE_INTERVAL_MS)
+
+    return () => {
+      clearInterval(interval)
+    }
+  }, [callId, callPhase, sampleRtcQuality])
 
   useEffect(() => {
     if (isLoading || !isAuthenticated || !currentUserId || !username?.trim()) {

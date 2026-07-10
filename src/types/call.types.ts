@@ -86,6 +86,11 @@ export interface ResumeConsumerPayload {
   consumerId: string
 }
 
+export interface RestartIcePayload {
+  callId: string
+  transportId: string
+}
+
 export interface IncomingCallPayload {
   callId: string
   conversationId: string
@@ -110,6 +115,7 @@ export interface CallJoinedPayload {
     kind: 'audio' | 'video'
   }[]
   noAnswerTimeoutMs?: number
+  telemetryToken?: string
 }
 
 export interface CallRejoinedPayload {
@@ -122,6 +128,7 @@ export interface CallRejoinedPayload {
     producerId: string
     kind: 'audio' | 'video'
   }[]
+  telemetryToken?: string
 }
 
 export interface NewPeerPayload {
@@ -161,6 +168,12 @@ export interface ConsumerCreatedPayload {
 export interface ConsumerResumedPayload {
   callId: string
   consumerId: string
+}
+
+export interface IceRestartedPayload {
+  callId: string
+  transportId: string
+  iceParameters: Record<string, unknown>
 }
 
 export interface CallAnsweredPayload {
@@ -211,6 +224,7 @@ export interface CallServerEvents {
   new_producer: (payload: NewProducerPayload) => void
   consumer_created: (payload: ConsumerCreatedPayload) => void
   consumer_resumed: (payload: ConsumerResumedPayload) => void
+  ice_restarted: (payload: IceRestartedPayload) => void
   call_answered: (payload: CallAnsweredPayload) => void
   call_rejected: (payload: CallRejectedPayload) => void
   peer_reconnecting: (payload: PeerReconnectingPayload) => void
@@ -232,6 +246,7 @@ export interface CallClientEvents {
   produce: (payload: ProducePayload) => void
   consume: (payload: ConsumePayload) => void
   resume_consumer: (payload: ResumeConsumerPayload) => void
+  restart_ice: (payload: RestartIcePayload) => void
 }
 
 export type CallSocket = Socket<CallServerEvents, CallClientEvents>

@@ -100,6 +100,12 @@ module.exports = {
         '@typescript-eslint/no-var-requires': 'off',
       },
     },
+    {
+      files: ['apps/call-ops-dashboard/**/*.{ts,tsx}'],
+      rules: {
+        'react-native/no-raw-text': 'off',
+      },
+    },
   ],
   ignorePatterns: ['node_modules/', '.expo/', 'dist/', '*.config.js'],
 }

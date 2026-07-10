@@ -25,33 +25,36 @@ export type NativeCallAction = NativeCallPayload & {
 export type AudioSessionActivatedEvent = {
   at: string
   timestampMs: number
-  activeCallIds: string[]
-  pendingAnswerCallIds: string[]
   category: string
   mode: string
-  sampleRate: number
-  outputVolume: number
 }
 
 export type AudioSessionConfiguredEvent = {
   at: string
   timestampMs: number
-  activeCallIds: string[]
-  pendingAnswerCallIds: string[]
   category: string
   mode: string
-  sampleRate: number
-  outputVolume: number
-  outputRoutes: { type: string; name: string }[]
-  inputRoutes: { type: string; name: string }[]
+  outputRouteTypes: string[]
+  inputRouteTypes: string[]
   forcedSpeaker: boolean
-  error?: string
+  errorCode?: string
+}
+
+export type AudioSessionConfigurationState = {
+  configured: boolean
+  category?: string
+  mode?: string
+  outputRouteTypes?: string[]
+  inputRouteTypes?: string[]
+  forcedSpeaker?: boolean
+  errorCode?: string
 }
 
 type VeloraSystemCallsModule = {
   setAuthenticatedUserId: (userId?: string | null) => void
   getVoipToken: () => string | null
   getPendingCallAction: () => NativeCallAction | null
+  getAudioSessionConfigurationState: () => AudioSessionConfigurationState
   clearPendingCallAction: (actionId?: string | null) => void
   presentIncomingCall: (payload: NativeCallPayload) => void
   registerOutgoingCall: (payload: {
@@ -59,7 +62,7 @@ type VeloraSystemCallsModule = {
     conversationId: string
     peerName: string
   }) => void
-  setCallActive: (callId: string) => void
+  setCallActive: (callId: string) => boolean
   endCall: (callId: string) => void
   dismissIncomingCall: (callId: string) => void
 }
@@ -90,6 +93,10 @@ export const veloraSystemCalls = {
     return nativeModule?.getPendingCallAction() ?? null
   },
 
+  getAudioSessionConfigurationState() {
+    return nativeModule?.getAudioSessionConfigurationState() ?? { configured: false }
+  },
+
   clearPendingCallAction(actionId?: string | null) {
     nativeModule?.clearPendingCallAction(actionId ?? null)
   },
@@ -103,7 +110,7 @@ export const veloraSystemCalls = {
   },
 
   setCallActive(callId: string) {
-    nativeModule?.setCallActive(callId)
+    return nativeModule?.setCallActive(callId) ?? false
   },
 
   endCall(callId: string) {

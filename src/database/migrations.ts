@@ -2,6 +2,7 @@ import { addColumns, createTable, schemaMigrations } from '@nozbe/watermelondb/S
 
 import {
   CACHED_REEL_FEED_PAGES_TABLE_SCHEMA,
+  CALL_TELEMETRY_OUTBOX_ITEMS_TABLE_SCHEMA,
   CACHED_REELS_TABLE_SCHEMA,
   MESSAGE_SYNC_RANGES_TABLE_SCHEMA,
   REEL_EVENT_OUTBOX_ITEMS_TABLE_SCHEMA,
@@ -32,6 +33,10 @@ export const migrations = schemaMigrations({
           columns: [{ name: 'message_metadata', type: 'string', isOptional: true }],
         }),
       ],
+    },
+    {
+      toVersion: 5,
+      steps: [createTable(CALL_TELEMETRY_OUTBOX_ITEMS_TABLE_SCHEMA)],
     },
   ],
 })

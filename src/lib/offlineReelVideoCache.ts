@@ -38,11 +38,7 @@ type LegacyFileSystemModule = {
 const FileSystem = require('expo-file-system/legacy') as LegacyFileSystemModule
 
 export type TemporaryReelVideoCacheStatus =
-  | 'NOT_CACHED'
-  | 'QUEUED'
-  | 'DOWNLOADING'
-  | 'CACHED'
-  | 'FAILED'
+  'NOT_CACHED' | 'QUEUED' | 'DOWNLOADING' | 'CACHED' | 'FAILED'
 
 export interface TemporaryReelVideoCacheRecord {
   reelId: string

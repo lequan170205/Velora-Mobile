@@ -53,6 +53,7 @@ class VeloraSystemCallsModule : Module() {
 
     Function("setCallActive") { callId: String ->
       VeloraCallNotifications.setCallActive(context, callId)
+      true
     }
 
     Function("endCall") { callId: String ->

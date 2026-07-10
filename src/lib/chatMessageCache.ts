@@ -15,10 +15,7 @@ type AnchoredMessagesCollection = {
 }
 
 type MessagesCollection =
-  | InfiniteData<Message[]>
-  | Message[]
-  | AnchoredMessagesCollection
-  | undefined
+  InfiniteData<Message[]> | Message[] | AnchoredMessagesCollection | undefined
 
 const isInfiniteMessagesCollection = (
   value: MessagesCollection,

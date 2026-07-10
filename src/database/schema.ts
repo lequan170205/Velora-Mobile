@@ -11,6 +11,7 @@ export const TABLES = {
   cachedReelFeedPages: 'cached_reel_feed_pages',
   reelVideoCacheRecords: 'reel_video_cache_records',
   reelEventOutboxItems: 'reel_event_outbox_items',
+  callTelemetryOutboxItems: 'call_telemetry_outbox_items',
 } as const
 
 export const MESSAGE_SYNC_RANGES_TABLE_SCHEMA: TableSchemaSpec = {
@@ -101,8 +102,19 @@ export const REEL_EVENT_OUTBOX_ITEMS_TABLE_SCHEMA: TableSchemaSpec = {
   ],
 }
 
+export const CALL_TELEMETRY_OUTBOX_ITEMS_TABLE_SCHEMA: TableSchemaSpec = {
+  name: TABLES.callTelemetryOutboxItems,
+  columns: [
+    { name: 'event_id', type: 'string', isIndexed: true },
+    { name: 'payload_json', type: 'string' },
+    { name: 'created_at', type: 'number', isIndexed: true },
+    { name: 'retry_count', type: 'number' },
+    { name: 'last_attempted_at', type: 'number', isOptional: true },
+  ],
+}
+
 export const schema = appSchema({
-  version: 4,
+  version: 5,
   tables: [
     tableSchema({
       name: TABLES.users,
@@ -162,5 +174,6 @@ export const schema = appSchema({
     tableSchema(CACHED_REEL_FEED_PAGES_TABLE_SCHEMA),
     tableSchema(REEL_VIDEO_CACHE_RECORDS_TABLE_SCHEMA),
     tableSchema(REEL_EVENT_OUTBOX_ITEMS_TABLE_SCHEMA),
+    tableSchema(CALL_TELEMETRY_OUTBOX_ITEMS_TABLE_SCHEMA),
   ],
 })

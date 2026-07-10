@@ -1,0 +1,150 @@
+:root {
+  color: #1f2937;
+  background: #f5f7fb;
+  font-family: Inter, system-ui, sans-serif;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+main {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 32px;
+}
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+h1 {
+  margin-bottom: 0;
+}
+.eyebrow {
+  color: #5b6b8c;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.filters,
+.lookup {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+input,
+select,
+button {
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  padding: 10px 12px;
+  font: inherit;
+}
+button {
+  border: 0;
+  background: #1d4ed8;
+  color: white;
+  cursor: pointer;
+  font-weight: 700;
+}
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.cards article,
+.panel,
+.login-card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+  padding: 18px;
+}
+.cards span,
+dt {
+  color: #64748b;
+  font-size: 0.85rem;
+}
+.cards strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 1.25rem;
+}
+.panel {
+  margin-bottom: 18px;
+}
+dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 14px;
+  margin: 0;
+}
+dd {
+  margin: 5px 0 0;
+  font-weight: 700;
+}
+ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+li {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #edf2f7;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.86rem;
+}
+th,
+td {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 9px;
+  text-align: left;
+  white-space: nowrap;
+}
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+}
+.login-card {
+  width: min(400px, 100%);
+  display: grid;
+  gap: 14px;
+}
+.error {
+  color: #b91c1c;
+  font-weight: 600;
+}
+@media (max-width: 640px) {
+  main {
+    padding: 18px;
+  }
+  table {
+    display: block;
+    overflow-x: auto;
+  }
+}
