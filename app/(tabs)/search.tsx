@@ -25,6 +25,8 @@ import { useConversationNavigation } from '../../src/hooks/useConversationNaviga
 import { getConversationsQueryOptions } from '../../src/hooks/useConversations'
 import { useIncomingFriendRequests, useOutgoingFriendRequests } from '../../src/hooks/useFriends'
 import { useGlobalSearch } from '../../src/hooks/useGlobalSearch'
+import { useRecommendedUsers } from '../../src/hooks/useRecommendedUsers'
+import { useRecommendedReelsFeed } from '../../src/hooks/useReels'
 import { useSearchSuggestions } from '../../src/hooks/useSearchSuggestions'
 import { cn } from '../../src/lib/cn'
 import { getInitials } from '../../src/lib/profile'
@@ -301,20 +303,28 @@ function SearchResultsPanel({
   onSwitchTab,
   onUserPress,
   query,
+  recommendedReels,
+  recommendedUsers,
   selectedTab,
   showSuggestions,
   suggestions,
   tileSize,
+  isRecommendedReelsLoading,
+  isRecommendedUsersLoading,
 }: {
   backendType: GlobalSearchType
   debouncedQuery: string
   hasResolvedSuggestions: boolean
   isLoadingSuggestions: boolean
+  isRecommendedReelsLoading: boolean
+  isRecommendedUsersLoading: boolean
   onReelPress: (reel: ReelFeedListItem) => void
   onSuggestionPress: (value: string) => void
   onSwitchTab: (tab: SearchTabKey) => void
   onUserPress: (user: PublicUserProfile) => void
   query: string
+  recommendedReels: ReelFeedListItem[]
+  recommendedUsers: PublicUserProfile[]
   selectedTab: SearchTabKey
   showSuggestions: boolean
   suggestions: { label: string; query: string }[]
@@ -330,6 +340,59 @@ function SearchResultsPanel({
   })
 
   if (!normalizedQuery.length) {
+    if (selectedTab === 'reels') {
+      if (isRecommendedReelsLoading && recommendedReels.length === 0) {
+        return (
+          <View className="items-center px-4 pt-12">
+            <ActivityIndicator color={colors.brand.tertiary} size="small" />
+          </View>
+        )
+      }
+
+      if (recommendedReels.length === 0) {
+        return (
+          <SearchMessageState title="No recommended reels yet" description="Check back later" />
+        )
+      }
+
+      return (
+        <View>
+          <SearchSectionHeader title="Recommended reels" />
+          <ReelThumbnailGrid
+            onReelPress={onReelPress}
+            reels={recommendedReels}
+            tileSize={tileSize}
+          />
+        </View>
+      )
+    }
+
+    if (selectedTab === 'contacts') {
+      if (isRecommendedUsersLoading && recommendedUsers.length === 0) {
+        return (
+          <View className="items-center px-4 pt-12">
+            <ActivityIndicator color={colors.brand.tertiary} size="small" />
+          </View>
+        )
+      }
+
+      if (recommendedUsers.length === 0) {
+        return (
+          <SearchMessageState
+            title="No contact suggestions yet"
+            description="Try searching for someone"
+          />
+        )
+      }
+
+      return (
+        <View>
+          <SearchSectionHeader title="Suggested contacts" />
+          <ContactResultsList onUserPress={onUserPress} users={recommendedUsers} />
+        </View>
+      )
+    }
+
     return (
       <EmptyQueryState
         hasResolvedSuggestions={hasResolvedSuggestions}
@@ -573,6 +636,8 @@ export default function SearchScreen() {
   const normalizedQuery = query.trim()
   const backendType = getBackendType(selectedTab)
   const shouldShowSuggestionChips = selectedTab === 'all'
+  const shouldLoadRecommendedReels = normalizedQuery.length === 0 && selectedTab === 'reels'
+  const shouldLoadRecommendedUsers = normalizedQuery.length === 0 && selectedTab === 'contacts'
   const { data: searchSuggestionsData, isLoading: isSearchSuggestionsLoading } =
     useSearchSuggestions(
       {
@@ -581,6 +646,17 @@ export default function SearchScreen() {
       },
       { enabled: shouldShowSuggestionChips },
     )
+  const { data: recommendedReelsData, isLoading: isRecommendedReelsLoading } =
+    useRecommendedReelsFeed({
+      enabled: shouldLoadRecommendedReels,
+      limit: 24,
+    })
+  const { data: recommendedUsers = [], isLoading: isRecommendedUsersLoading } = useRecommendedUsers(
+    {
+      enabled: shouldLoadRecommendedUsers,
+      limit: 20,
+    },
+  )
   const tileSize = useMemo(() => Math.floor((windowWidth - 4) / 3), [windowWidth])
   const searchSuggestionChips = useMemo(
     () =>
@@ -589,6 +665,10 @@ export default function SearchScreen() {
         query: suggestion.query,
       })),
     [searchSuggestionsData?.suggestions],
+  )
+  const recommendedReels = useMemo(
+    () => recommendedReelsData?.pages.flatMap((page) => page.items) ?? [],
+    [recommendedReelsData],
   )
   const hasResolvedSearchSuggestions =
     shouldShowSuggestionChips &&
@@ -867,11 +947,15 @@ export default function SearchScreen() {
           debouncedQuery={debouncedQuery}
           hasResolvedSuggestions={hasResolvedSearchSuggestions}
           isLoadingSuggestions={isSearchSuggestionsLoading}
+          isRecommendedReelsLoading={isRecommendedReelsLoading}
+          isRecommendedUsersLoading={isRecommendedUsersLoading}
           onReelPress={handleReelPress}
           onSuggestionPress={handleSuggestionPress}
           onSwitchTab={handleSwitchSearchTab}
           onUserPress={handleUserPress}
           query={query}
+          recommendedReels={recommendedReels}
+          recommendedUsers={recommendedUsers}
           selectedTab={selectedTab}
           showSuggestions={shouldShowSuggestionChips}
           suggestions={searchSuggestionChips}

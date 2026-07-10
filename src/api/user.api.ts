@@ -46,6 +46,15 @@ export const userApi = {
 
     return response.data
   },
+  recommended: async (params: { limit?: number } = {}) => {
+    const response = await apiClient.get<PublicUserProfile[]>('/users/recommended', {
+      params: {
+        limit: params.limit ?? 20,
+      },
+    })
+
+    return response.data
+  },
   findPublicProfile: async (username: string) => {
     const normalizedUsername = username.trim().replace(/^@+/, '')
 

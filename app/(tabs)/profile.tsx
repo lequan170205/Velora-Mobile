@@ -58,7 +58,12 @@ import type { Reel, ReelVisibility } from '../../src/types/reel.types'
 
 const PROFILE_REELS_LIMIT = 24
 type SheetMode =
-  'settings' | 'clear-cache' | 'clear-local-database' | 'clear-saved-reel-data' | 'sign-out' | null
+  | 'settings'
+  | 'clear-cache'
+  | 'clear-local-database'
+  | 'clear-saved-reel-data'
+  | 'sign-out'
+  | null
 type DeferredSheetAction =
   | 'clear-cache'
   | 'clear-local-database'

@@ -1002,12 +1002,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       const optimisticReplyTarget =
         useChatStore
           .getState()
-          .optimisticMessages[message.conversationId]?.find(
-            (candidate) =>
-              candidate.id === replyToId ||
-              candidate._id === replyToId ||
-              candidate.clientMessageId === replyToId,
-          ) ?? null
+          .optimisticMessages[
+            message.conversationId
+          ]?.find((candidate) => candidate.id === replyToId || candidate._id === replyToId || candidate.clientMessageId === replyToId) ??
+        null
 
       const resolvedReplyTarget = message.replyTo ?? cachedReplyTarget ?? optimisticReplyTarget
 

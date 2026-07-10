@@ -41,6 +41,7 @@ export const queryKeys = {
     all: ['users'] as const,
     detail: (id: string) => ['users', id] as const,
     discover: (query: string) => ['users', 'discover', query] as const,
+    recommended: (limit?: number) => ['users', 'recommended', { limit: limit ?? null }] as const,
     publicProfile: (username: string) => ['users', 'public', username] as const,
     usernameAvailability: (username: string) =>
       ['users', 'username-availability', username] as const,
