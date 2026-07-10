@@ -38,6 +38,7 @@ export type AudioSessionConfiguredEvent = {
   inputRouteTypes: string[]
   forcedSpeaker: boolean
   errorCode?: string
+  routeErrorCode?: string
 }
 
 export type AudioSessionConfigurationState = {
@@ -48,6 +49,7 @@ export type AudioSessionConfigurationState = {
   inputRouteTypes?: string[]
   forcedSpeaker?: boolean
   errorCode?: string
+  routeErrorCode?: string
 }
 
 type VeloraSystemCallsModule = {
@@ -63,6 +65,7 @@ type VeloraSystemCallsModule = {
     peerName: string
   }) => void
   setCallActive: (callId: string) => boolean
+  setSpeakerEnabled: (enabled: boolean) => boolean
   endCall: (callId: string) => void
   dismissIncomingCall: (callId: string) => void
 }
@@ -111,6 +114,10 @@ export const veloraSystemCalls = {
 
   setCallActive(callId: string) {
     return nativeModule?.setCallActive(callId) ?? false
+  },
+
+  setSpeakerEnabled(enabled: boolean) {
+    return nativeModule?.setSpeakerEnabled(enabled) ?? false
   },
 
   endCall(callId: string) {

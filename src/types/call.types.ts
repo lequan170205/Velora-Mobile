@@ -261,6 +261,7 @@ export interface CallUiState {
   peerAvatarUrl: string | null
   callType: CallType | null
   muted: boolean
+  speakerEnabled: boolean
   hasMicPermission: boolean | null
   error: string | null
   durationSec: number
@@ -282,5 +283,6 @@ export interface UseCallValue {
   rejectIncomingCall: () => Promise<void>
   endCall: (reason?: string) => Promise<void>
   toggleMute: () => void
+  toggleSpeaker: () => void
   dismissCallError: () => void
 }

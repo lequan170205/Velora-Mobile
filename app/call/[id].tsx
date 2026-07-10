@@ -17,11 +17,12 @@ const formatDuration = (secs: number) => {
 export default function ActiveCallScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
-  const { endCall, toggleMute } = useCall()
+  const { endCall, toggleMute, toggleSpeaker } = useCall()
   const {
     callId,
     durationSec,
     muted,
+    speakerEnabled,
     peerAvatarUrl,
     peerName,
     phase,
@@ -179,9 +180,32 @@ export default function ActiveCallScreen() {
               />
             </TouchableOpacity>
 
-            <View className="h-16 w-16 items-center justify-center rounded-full bg-surface-card opacity-50">
-              <MaterialIcons name="volume-up" size={28} color="#1C1C1E" />
-            </View>
+            <TouchableOpacity
+              className={`h-16 w-16 items-center justify-center rounded-full ${speakerEnabled ? 'bg-brand' : 'bg-surface-card'} ${phase !== 'active' ? 'opacity-50' : ''}`}
+              onPress={toggleSpeaker}
+              activeOpacity={phase === 'active' ? 0.7 : 1}
+              disabled={phase !== 'active'}
+              accessibilityRole="button"
+              accessibilityLabel={speakerEnabled ? 'Turn speaker off' : 'Turn speaker on'}
+              accessibilityState={{ disabled: phase !== 'active', selected: speakerEnabled }}
+              style={
+                speakerEnabled
+                  ? {
+                      shadowColor: '#FF6B2C',
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.3,
+                      shadowRadius: 8,
+                      elevation: 6,
+                    }
+                  : undefined
+              }
+            >
+              <MaterialIcons
+                name="volume-up"
+                size={28}
+                color={speakerEnabled ? '#FFFFFF' : '#1C1C1E'}
+              />
+            </TouchableOpacity>
           </View>
 
           <View className="mt-10 w-full items-center">

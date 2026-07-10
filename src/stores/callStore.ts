@@ -18,6 +18,7 @@ const initialState: CallUiState = {
   peerAvatarUrl: null,
   callType: null,
   muted: false,
+  speakerEnabled: false,
   hasMicPermission: null,
   error: null,
   durationSec: 0,

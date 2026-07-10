@@ -94,6 +94,13 @@ public class VeloraSystemCallsModule: Module {
       }
     }
 
+    Function("setSpeakerEnabled") { (enabled: Bool) -> Bool in
+      let callCenter = VeloraSystemCallCenter.shared
+      return callCenter.runOnMain {
+        callCenter.setSpeakerEnabled(enabled)
+      }
+    }
+
     Function("endCall") { (callId: String) in
       let callCenter = VeloraSystemCallCenter.shared
       callCenter.runOnMain {
@@ -144,6 +151,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
   private var isAudioSessionConfigured = false
   private var audioSessionConfigurationErrorCode: String?
   private var lastAudioSessionConfiguration: [String: Any]?
+  private var speakerOverrideEnabled = false
   private var reportingIncomingCallIds = Set<String>()
   private var reportedIncomingCallIds = Set<String>()
   private var suppressedIncomingCallDeadlinesById: [String: TimeInterval] = [:]
@@ -280,6 +288,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     }
 
     resetAudioConfigurationState()
+    speakerOverrideEnabled = false
     let uuid = uuidForCallId(callId)
     payloadsByCallId[callId] = payload
     let action = CXStartCallAction(
@@ -309,6 +318,33 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     }
 
     return true
+  }
+
+  func setSpeakerEnabled(_ enabled: Bool) -> Bool {
+    guard isAudioSessionConfigured else {
+      return false
+    }
+
+    let audioSession = AVAudioSession.sharedInstance()
+    let rtcAudioSession = RTCAudioSession.sharedInstance()
+    rtcAudioSession.lockForConfiguration()
+    defer {
+      rtcAudioSession.unlockForConfiguration()
+    }
+
+    do {
+      try audioSession.overrideOutputAudioPort(enabled ? .speaker : .none)
+      speakerOverrideEnabled = enabled
+      emitAudioSessionConfigured(audioSession)
+      return true
+    } catch {
+      NSLog("VeloraSystemCalls failed to change speaker route: \(error)")
+      emitAudioSessionConfigured(
+        audioSession,
+        routeErrorCode: "audio_route_override_failed"
+      )
+      return false
+    }
   }
 
   func endCall(callId: String) {
@@ -370,6 +406,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     }
 
     resetAudioConfigurationState()
+    speakerOverrideEnabled = false
     pendingAnswerCallIds.insert(callId)
     storePendingAction(action: "answer", callId: callId)
     action.fulfill()
@@ -440,6 +477,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     programmaticEndingCallIds.removeAll()
     activeCallIds.removeAll()
     pendingAnswerCallIds.removeAll()
+    speakerOverrideEnabled = false
     resetAudioConfigurationState()
     reportingIncomingCallIds.removeAll()
     reportedIncomingCallIds.removeAll()
@@ -568,6 +606,9 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     programmaticEndingCallIds.remove(callId)
     activeCallIds.remove(callId)
     pendingAnswerCallIds.remove(callId)
+    if activeCallIds.isEmpty {
+      speakerOverrideEnabled = false
+    }
     reportingIncomingCallIds.remove(callId)
     reportedIncomingCallIds.remove(callId)
     persistCallUuidMappings()
@@ -695,9 +736,19 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       return
     }
 
+    var routeErrorCode: String?
+    if speakerOverrideEnabled {
+      do {
+        try audioSession.overrideOutputAudioPort(.speaker)
+      } catch {
+        routeErrorCode = "audio_route_override_failed"
+        NSLog("VeloraSystemCalls failed to restore speaker route: \(error)")
+      }
+    }
+
     rtcAudioSession.isAudioEnabled = true
     isAudioSessionConfigured = true
-    emitAudioSessionConfigured(audioSession)
+    emitAudioSessionConfigured(audioSession, routeErrorCode: routeErrorCode)
   }
 
   private func resetAudioConfigurationState() {
@@ -708,7 +759,8 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
 
   private func emitAudioSessionConfigured(
     _ audioSession: AVAudioSession,
-    errorCode: String? = nil
+    errorCode: String? = nil,
+    routeErrorCode: String? = nil
   ) {
     let configuredAt = Date()
     let configuredAtIso = ISO8601DateFormatter().string(from: configuredAt)
@@ -722,11 +774,14 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       "mode": audioSession.mode.rawValue,
       "outputRouteTypes": outputRouteTypes,
       "inputRouteTypes": inputRouteTypes,
-      "forcedSpeaker": false,
+      "forcedSpeaker": speakerOverrideEnabled,
     ]
 
     if let errorCode {
       payload["errorCode"] = errorCode
+    }
+    if let routeErrorCode {
+      payload["routeErrorCode"] = routeErrorCode
     }
 
     lastAudioSessionConfiguration = payload

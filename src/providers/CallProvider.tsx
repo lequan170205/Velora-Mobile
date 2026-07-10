@@ -289,6 +289,7 @@ const CallContext = createContext<UseCallValue>({
   rejectIncomingCall: async () => {},
   endCall: async () => {},
   toggleMute: () => {},
+  toggleSpeaker: () => {},
   dismissCallError: () => {},
 })
 
@@ -2483,6 +2484,21 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     useCallStore.getState().patch({ muted: nextMuted })
   }, [])
 
+  const toggleSpeaker = useCallback(() => {
+    const state = useCallStore.getState()
+    if (state.phase !== 'active') {
+      return
+    }
+
+    const nextSpeakerEnabled = !state.speakerEnabled
+    if (!veloraSystemCalls.setSpeakerEnabled(nextSpeakerEnabled)) {
+      console.warn('[Call] Failed to change speaker route')
+      return
+    }
+
+    state.patch({ speakerEnabled: nextSpeakerEnabled })
+  }, [])
+
   const dismissCallError = useCallback(() => {
     useCallStore.getState().patch({ error: null })
   }, [])
@@ -2754,9 +2770,18 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       rejectIncomingCall,
       endCall,
       toggleMute,
+      toggleSpeaker,
       dismissCallError,
     }),
-    [acceptIncomingCall, dismissCallError, endCall, rejectIncomingCall, startVoiceCall, toggleMute],
+    [
+      acceptIncomingCall,
+      dismissCallError,
+      endCall,
+      rejectIncomingCall,
+      startVoiceCall,
+      toggleMute,
+      toggleSpeaker,
+    ],
   )
 
   return <CallContext.Provider value={value}>{children}</CallContext.Provider>

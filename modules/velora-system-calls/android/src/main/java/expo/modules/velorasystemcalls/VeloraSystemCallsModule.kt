@@ -1,6 +1,9 @@
 package expo.modules.velorasystemcalls
 
 import android.content.Context
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
+import android.os.Build
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -54,6 +57,26 @@ class VeloraSystemCallsModule : Module() {
     Function("setCallActive") { callId: String ->
       VeloraCallNotifications.setCallActive(context, callId)
       true
+    }
+
+    Function("setSpeakerEnabled") { enabled: Boolean ->
+      val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (enabled) {
+          val speaker = audioManager.availableCommunicationDevices.firstOrNull {
+            it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+          }
+          speaker != null && audioManager.setCommunicationDevice(speaker)
+        } else {
+          audioManager.clearCommunicationDevice()
+          true
+        }
+      } else {
+        @Suppress("DEPRECATION")
+        audioManager.isSpeakerphoneOn = enabled
+        true
+      }
     }
 
     Function("endCall") { callId: String ->
