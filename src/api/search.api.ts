@@ -4,6 +4,8 @@ import type {
   GlobalSearchParams,
   GlobalSearchResponse,
   GlobalSearchType,
+  SearchSuggestionsParams,
+  SearchSuggestionsResponse,
 } from '../types/search.types'
 
 const buildEmptySearchResponse = (
@@ -39,6 +41,20 @@ export async function getGlobalSearch(params: GlobalSearchParams): Promise<Globa
   return response.data
 }
 
+export async function getSearchSuggestions(
+  params: SearchSuggestionsParams = {},
+): Promise<SearchSuggestionsResponse> {
+  const response = await apiClient.get<SearchSuggestionsResponse>('/search/suggestions', {
+    params: {
+      type: params.type ?? 'all',
+      ...(typeof params.limit === 'number' ? { limit: params.limit } : {}),
+    },
+  })
+
+  return response.data
+}
+
 export const searchApi = {
   getGlobalSearch,
+  getSearchSuggestions,
 }

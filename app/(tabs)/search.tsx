@@ -25,6 +25,7 @@ import { useConversationNavigation } from '../../src/hooks/useConversationNaviga
 import { getConversationsQueryOptions } from '../../src/hooks/useConversations'
 import { useIncomingFriendRequests, useOutgoingFriendRequests } from '../../src/hooks/useFriends'
 import { useGlobalSearch } from '../../src/hooks/useGlobalSearch'
+import { useSearchSuggestions } from '../../src/hooks/useSearchSuggestions'
 import { cn } from '../../src/lib/cn'
 import { getInitials } from '../../src/lib/profile'
 import { useNetworkStatus } from '../../src/providers/NetworkProvider'
@@ -39,7 +40,6 @@ const ROW_LAYOUT = LinearTransition.springify().damping(18).stiffness(170)
 const SEARCH_DEBOUNCE_MS = 400
 const ALL_CONTACTS_PREVIEW_LIMIT = 5
 const ALL_REELS_PREVIEW_LIMIT = 6
-const SUGGESTION_CHIPS = ['AI', 'food', 'gym', 'travel'] as const
 const SEARCH_LIMITS: Record<GlobalSearchType, number> = {
   all: 18,
   users: 20,
@@ -179,15 +179,43 @@ function SuggestionChip({ label, onPress }: { label: string; onPress: () => void
   )
 }
 
-function EmptyQueryState({ onSuggestionPress }: { onSuggestionPress: (value: string) => void }) {
+function EmptyQueryState({
+  hasResolvedSuggestions,
+  isLoadingSuggestions,
+  onSuggestionPress,
+  showSuggestions,
+  suggestions,
+}: {
+  hasResolvedSuggestions: boolean
+  isLoadingSuggestions: boolean
+  onSuggestionPress: (value: string) => void
+  showSuggestions: boolean
+  suggestions: { label: string; query: string }[]
+}) {
+  if (!showSuggestions) {
+    return null
+  }
+
+  const chips = showSuggestions && hasResolvedSuggestions ? suggestions : []
+
   return (
     <View className="px-4 pt-5">
       <Text className="font-medium text-md text-text-primary">Search reels, contacts, topics</Text>
 
       <View className="mt-4 flex-row flex-wrap">
-        {SUGGESTION_CHIPS.map((chip) => (
-          <SuggestionChip key={chip} label={chip} onPress={() => onSuggestionPress(chip)} />
+        {chips.map((chip) => (
+          <SuggestionChip
+            key={`${chip.query}:${chip.label}`}
+            label={chip.label}
+            onPress={() => onSuggestionPress(chip.query)}
+          />
         ))}
+
+        {showSuggestions && isLoadingSuggestions ? (
+          <View className="mb-2 mr-2 rounded-full border border-border-light bg-surface-muted px-4 py-2">
+            <Text className="font-medium text-sm2 text-text-secondary">Loading…</Text>
+          </View>
+        ) : null}
       </View>
     </View>
   )
@@ -266,22 +294,30 @@ function ContactResultsList({
 function SearchResultsPanel({
   backendType,
   debouncedQuery,
+  hasResolvedSuggestions,
+  isLoadingSuggestions,
   onReelPress,
   onSuggestionPress,
   onSwitchTab,
   onUserPress,
   query,
   selectedTab,
+  showSuggestions,
+  suggestions,
   tileSize,
 }: {
   backendType: GlobalSearchType
   debouncedQuery: string
+  hasResolvedSuggestions: boolean
+  isLoadingSuggestions: boolean
   onReelPress: (reel: ReelFeedListItem) => void
   onSuggestionPress: (value: string) => void
   onSwitchTab: (tab: SearchTabKey) => void
   onUserPress: (user: PublicUserProfile) => void
   query: string
   selectedTab: SearchTabKey
+  showSuggestions: boolean
+  suggestions: { label: string; query: string }[]
   tileSize: number
 }) {
   const normalizedQuery = query.trim()
@@ -294,7 +330,15 @@ function SearchResultsPanel({
   })
 
   if (!normalizedQuery.length) {
-    return <EmptyQueryState onSuggestionPress={onSuggestionPress} />
+    return (
+      <EmptyQueryState
+        hasResolvedSuggestions={hasResolvedSuggestions}
+        suggestions={suggestions}
+        isLoadingSuggestions={isLoadingSuggestions}
+        onSuggestionPress={onSuggestionPress}
+        showSuggestions={showSuggestions}
+      />
+    )
   }
 
   if (isNetworkResolved && !isOnline) {
@@ -528,7 +572,27 @@ export default function SearchScreen() {
 
   const normalizedQuery = query.trim()
   const backendType = getBackendType(selectedTab)
+  const shouldShowSuggestionChips = selectedTab === 'all'
+  const { data: searchSuggestionsData, isLoading: isSearchSuggestionsLoading } =
+    useSearchSuggestions(
+      {
+        type: backendType,
+        limit: 8,
+      },
+      { enabled: shouldShowSuggestionChips },
+    )
   const tileSize = useMemo(() => Math.floor((windowWidth - 4) / 3), [windowWidth])
+  const searchSuggestionChips = useMemo(
+    () =>
+      (searchSuggestionsData?.suggestions ?? []).map((suggestion) => ({
+        label: suggestion.label,
+        query: suggestion.query,
+      })),
+    [searchSuggestionsData?.suggestions],
+  )
+  const hasResolvedSearchSuggestions =
+    shouldShowSuggestionChips &&
+    (searchSuggestionsData !== undefined || !isSearchSuggestionsLoading)
   const incomingRequests = useMemo(
     () => incomingRequestsData?.pages.flatMap((page) => page.items) ?? [],
     [incomingRequestsData],
@@ -801,12 +865,16 @@ export default function SearchScreen() {
         <SearchResultsPanel
           backendType={backendType}
           debouncedQuery={debouncedQuery}
+          hasResolvedSuggestions={hasResolvedSearchSuggestions}
+          isLoadingSuggestions={isSearchSuggestionsLoading}
           onReelPress={handleReelPress}
           onSuggestionPress={handleSuggestionPress}
           onSwitchTab={handleSwitchSearchTab}
           onUserPress={handleUserPress}
           query={query}
           selectedTab={selectedTab}
+          showSuggestions={shouldShowSuggestionChips}
+          suggestions={searchSuggestionChips}
           tileSize={tileSize}
         />
       </ScrollView>

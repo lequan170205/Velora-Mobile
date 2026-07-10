@@ -21,3 +21,19 @@ export interface GlobalSearchResponse {
     reels: number
   }
 }
+
+export interface SearchSuggestionItem {
+  label: string
+  query: string
+  source: 'trending_reel_tag' | 'recent_reel_topic' | 'personalized_reel_tag'
+  score?: number
+}
+
+export interface SearchSuggestionsParams {
+  type?: GlobalSearchType
+  limit?: number
+}
+
+export interface SearchSuggestionsResponse {
+  suggestions: SearchSuggestionItem[]
+}
