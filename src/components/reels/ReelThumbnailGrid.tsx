@@ -107,7 +107,7 @@ export function ReelThumbnailGrid({
   tileSize: number
 }) {
   return (
-    <View className={cn('flex-row flex-wrap px-[1px] pt-[2px]', className)}>
+    <View className={cn('flex-row flex-wrap', className)}>
       {reels.map((reel, index) => (
         <ReelThumbnailTile
           key={reel.id}
@@ -131,7 +131,7 @@ export function ReelThumbnailGridSkeleton({
   tileSize: number
 }) {
   return (
-    <View className={cn('flex-row flex-wrap px-[1px] pt-[2px]', className)}>
+    <View className={cn('flex-row flex-wrap', className)}>
       {Array.from({ length: count }).map((_, index) => (
         <View
           key={`reel-skeleton-${index}`}
