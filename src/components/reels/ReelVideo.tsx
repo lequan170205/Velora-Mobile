@@ -10,6 +10,11 @@ import React, {
 } from 'react'
 import { StyleSheet } from 'react-native'
 
+import {
+  getReelPlaybackVideoUri,
+  shouldUseNativeReelVideoCaching,
+} from '../../lib/reelPlaybackVideoCache'
+
 import type { StyleProp, ViewStyle } from 'react-native'
 
 type ContentFit = 'cover' | 'contain'
@@ -160,17 +165,20 @@ const REEL_BUFFER_OPTIONS: VideoBufferOptions = {
 }
 
 const buildExpoVideoSource = (uri: string): ExpoVideoSource => {
+  const playbackUri = getReelPlaybackVideoUri(uri)
+  const useCaching = shouldUseNativeReelVideoCaching(uri)
+
   if (isHlsUri(uri)) {
     return {
-      uri,
+      uri: playbackUri,
       contentType: 'hls',
-      useCaching: true,
+      useCaching,
     }
   }
 
   return {
-    uri,
-    useCaching: true,
+    uri: playbackUri,
+    useCaching,
   }
 }
 

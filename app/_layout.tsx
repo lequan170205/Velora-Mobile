@@ -24,6 +24,7 @@ import {
   runReelOfflineBackgroundMaintenance,
   runReelOfflineStartupMaintenance,
 } from '../src/lib/reelOfflineMaintenance'
+import { initializeReelPlaybackVideoCache } from '../src/lib/reelPlaybackVideoCache'
 import { AuthProvider } from '../src/providers/AuthProvider'
 import { CallProvider, useCall } from '../src/providers/CallProvider'
 import { ChatMediaUploadProvider } from '../src/providers/ChatMediaUploadProvider'
@@ -129,12 +130,37 @@ export default function RootLayout() {
     Inter_500Medium,
   })
   const { isReelSavingModeHydrated, reelSavingModeEnabled } = useReelSavingMode()
+  const [isReelPlaybackVideoCacheReady, setIsReelPlaybackVideoCacheReady] = useState(
+    Platform.OS !== 'ios',
+  )
 
   useEffect(() => {
-    if (loaded || error) {
+    if ((loaded || error) && isReelPlaybackVideoCacheReady) {
       SplashScreen.hideAsync()
     }
-  }, [loaded, error])
+  }, [error, isReelPlaybackVideoCacheReady, loaded])
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios') {
+      return undefined
+    }
+
+    let isMounted = true
+
+    void initializeReelPlaybackVideoCache()
+      .catch((error: unknown) => {
+        console.warn('[ReelVideoCache] Failed to start iOS HLS cache', error)
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsReelPlaybackVideoCacheReady(true)
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   const hydrateAuth = useAuthStore((state) => state.hydrateAuth)
 
@@ -167,7 +193,7 @@ export default function RootLayout() {
     }
   }, [])
 
-  if (!loaded && !error) {
+  if ((!loaded && !error) || !isReelPlaybackVideoCacheReady) {
     return null
   }
 

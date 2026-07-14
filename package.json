@@ -71,6 +71,7 @@
     "expo-status-bar": "~3.0.9",
     "expo-symbols": "~1.0.8",
     "expo-video": "~3.0.16",
+    "expo-video-cache": "2.1.0",
     "expo-video-thumbnails": "~10.0.8",
     "expo-web-browser": "~15.0.10",
     "mediasoup-client": "3.20.0",

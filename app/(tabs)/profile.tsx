@@ -47,6 +47,7 @@ import { useReelSavingMode } from '../../src/hooks/useReelSavingMode'
 import { performLogoutPushTokenCleanup } from '../../src/lib/notifications/pushTokenLifecycle'
 import { clearTemporaryReelVideoCache } from '../../src/lib/offlineReelVideoCache'
 import { getDisplayName, getInitials, getProfileHandle } from '../../src/lib/profile'
+import { clearReelPlaybackVideoCache } from '../../src/lib/reelPlaybackVideoCache'
 import { getSavedReelVideoStorageStats } from '../../src/lib/reelVideoStorageStats'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useChatStore } from '../../src/stores/chatStore'
@@ -465,7 +466,7 @@ export default function ProfileScreen() {
 
       if (action === 'clear-saved-reel-data') {
         try {
-          await clearTemporaryReelVideoCache()
+          await Promise.all([clearTemporaryReelVideoCache(), clearReelPlaybackVideoCache()])
 
           if (isMountedRef.current) {
             setFeedbackMessage('Saved reel data cleared')
