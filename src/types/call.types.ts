@@ -209,12 +209,17 @@ export interface CallEndedPayload {
   reason: string
 }
 
+export interface CallSocketReadyPayload {
+  recentTerminalCalls: CallEndedPayload[]
+}
+
 export interface SocketExceptionPayload {
   status: string
   message: string
 }
 
 export interface CallServerEvents {
+  call_socket_ready: (payload: CallSocketReadyPayload) => void
   incoming_call: (payload: IncomingCallPayload) => void
   call_joined: (payload: CallJoinedPayload) => void
   call_rejoined: (payload: CallRejoinedPayload) => void

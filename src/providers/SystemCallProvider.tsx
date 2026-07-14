@@ -2,15 +2,25 @@ import Constants from 'expo-constants'
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Platform } from 'react-native'
 
-import { registerVoipPushToken } from '../api/notification.api'
-import { veloraSystemCalls } from '../lib/systemCalls/veloraSystemCalls'
+import { deactivateVoipPushToken, registerVoipPushToken } from '../api/notification.api'
+import { veloraSystemCalls, type VoipRegistrationState } from '../lib/systemCalls/veloraSystemCalls'
 import { useAuthStore } from '../stores/authStore'
+import { getValueFor, save } from '../utils/storage'
 
-const getIosBundleId = () => Constants.expoConfig?.ios?.bundleIdentifier ?? null
+const VOIP_INSTALLATION_ID_STORAGE_KEY = 'velora.calls.voipInstallationId'
 
-const getApnsEnvironment = (): 'development' | 'production' => {
-  const entitlement = Constants.expoConfig?.ios?.entitlements?.['aps-environment']
-  return entitlement === 'production' ? 'production' : 'development'
+const getAppVersion = () => Constants.nativeAppVersion ?? Constants.expoConfig?.version ?? undefined
+
+const getOrCreateVoipInstallationId = async () => {
+  const stored = await getValueFor(VOIP_INSTALLATION_ID_STORAGE_KEY)
+  if (stored) {
+    return stored
+  }
+
+  const nextInstallationId =
+    globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  await save(VOIP_INSTALLATION_ID_STORAGE_KEY, nextInstallationId)
+  return nextInstallationId
 }
 
 export function SystemCallProvider({ children }: { children: ReactNode }) {
@@ -18,13 +28,15 @@ export function SystemCallProvider({ children }: { children: ReactNode }) {
   const isLoading = useAuthStore((state) => state.isLoading)
   const userId = useAuthStore((state) => state.user?.id)
   const registeredVoipTokenRef = useRef<string | null>(null)
+  const lastRegisteredVoipTokenRef = useRef<string | null>(null)
+  const pendingInvalidatedVoipTokenRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (Platform.OS !== 'ios') {
       return
     }
 
-    veloraSystemCalls.getVoipToken()
+    veloraSystemCalls.getVoipRegistrationState()
   }, [])
 
   useEffect(() => {
@@ -36,48 +48,97 @@ export function SystemCallProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated, isLoading, userId])
 
   useEffect(() => {
-    if (Platform.OS !== 'ios' || isLoading || !isAuthenticated || !userId) {
+    if (Platform.OS !== 'ios' || isLoading) {
       return
     }
 
-    const bundleId = getIosBundleId()
-    if (!bundleId) {
-      return
-    }
+    let cancelled = false
 
-    const registerToken = (token: string) => {
-      const registrationKey = `${userId}:${token}`
-      const deliveryEnvironment = getApnsEnvironment()
+    const syncVoipRegistrationState = async (state: VoipRegistrationState) => {
+      if (state.invalidatedToken) {
+        pendingInvalidatedVoipTokenRef.current = state.invalidatedToken
+      }
 
-      if (!token || registeredVoipTokenRef.current === registrationKey) {
+      if (state.token) {
+        if (!state.bundleId || !state.apnsEnvironment) {
+          console.warn('[SystemCall] Missing native APNs registration context for VoIP token')
+          return
+        }
+
+        if (!isAuthenticated || !userId) {
+          registeredVoipTokenRef.current = null
+          return
+        }
+
+        const registrationKey = `${userId}:${state.bundleId}:${state.apnsEnvironment}:${state.token}`
+        if (registeredVoipTokenRef.current === registrationKey) {
+          return
+        }
+
+        const installationId = await getOrCreateVoipInstallationId()
+        if (cancelled) {
+          return
+        }
+
+        registeredVoipTokenRef.current = registrationKey
+        const appVersion = getAppVersion()
+
+        try {
+          await registerVoipPushToken({
+            token: state.token,
+            bundleId: state.bundleId,
+            deliveryEnvironment: state.apnsEnvironment,
+            deviceId: installationId,
+            ...(appVersion ? { appVersion } : {}),
+          })
+          if (cancelled) {
+            return
+          }
+
+          lastRegisteredVoipTokenRef.current = state.token
+          pendingInvalidatedVoipTokenRef.current = null
+        } catch {
+          if (!cancelled && registeredVoipTokenRef.current === registrationKey) {
+            registeredVoipTokenRef.current = null
+          }
+        }
         return
       }
 
-      registeredVoipTokenRef.current = registrationKey
-      const appVersion = Constants.expoConfig?.version
+      registeredVoipTokenRef.current = null
 
-      void registerVoipPushToken({
-        token,
-        bundleId,
-        deliveryEnvironment,
-        ...(appVersion ? { appVersion } : {}),
-      }).catch(() => {
-        if (registeredVoipTokenRef.current === registrationKey) {
-          registeredVoipTokenRef.current = null
+      const tokenToDeactivate =
+        pendingInvalidatedVoipTokenRef.current ?? lastRegisteredVoipTokenRef.current
+
+      if (!tokenToDeactivate || !isAuthenticated || !userId) {
+        return
+      }
+
+      try {
+        await deactivateVoipPushToken(tokenToDeactivate)
+        if (cancelled) {
+          return
         }
-      })
+
+        if (pendingInvalidatedVoipTokenRef.current === tokenToDeactivate) {
+          pendingInvalidatedVoipTokenRef.current = null
+        }
+        if (lastRegisteredVoipTokenRef.current === tokenToDeactivate) {
+          lastRegisteredVoipTokenRef.current = null
+        }
+      } catch {
+        // Keep the pending invalidation so a later auth/session change can retry.
+      }
     }
 
-    const currentToken = veloraSystemCalls.getVoipToken()
-    if (currentToken) {
-      registerToken(currentToken)
-    }
+    void syncVoipRegistrationState(veloraSystemCalls.getVoipRegistrationState())
 
     const subscription = veloraSystemCalls.addVoipTokenListener((event) => {
-      registerToken(event.token)
+      void syncVoipRegistrationState(event)
     })
 
     return () => {
+      cancelled = true
       subscription.remove()
     }
   }, [isAuthenticated, isLoading, userId])

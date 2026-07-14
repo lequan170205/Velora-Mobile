@@ -51,6 +51,23 @@ export async function registerVoipPushToken(input: RegisterVoipPushTokenInput) {
   )
 }
 
+export async function deactivateVoipPushToken(token: string) {
+  if (Platform.OS !== 'ios') {
+    return null
+  }
+
+  return apiClient.post(
+    '/notifications/push-tokens/deactivate',
+    {
+      provider: 'apns_voip',
+      token,
+    },
+    {
+      timeout: 10000,
+    },
+  )
+}
+
 export async function deactivatePushToken(token: string) {
   return apiClient.post(
     '/notifications/push-tokens/deactivate',

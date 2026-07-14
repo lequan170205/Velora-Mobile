@@ -1,6 +1,7 @@
 package expo.modules.velorasystemcalls
 
 import android.app.Activity
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
@@ -16,7 +17,32 @@ class VeloraIncomingCallActivity : Activity() {
     super.onCreate(savedInstanceState)
     showOverLockScreen()
     payload = VeloraSystemCallStore.payloadFromIntent(intent)
+
+    if (handleNotificationAction(intent)) {
+      return
+    }
+
     render()
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    payload = VeloraSystemCallStore.payloadFromIntent(intent)
+
+    if (!handleNotificationAction(intent)) {
+      render()
+    }
+  }
+
+  private fun handleNotificationAction(intent: Intent): Boolean {
+    val action = intent.getStringExtra("veloraAction")
+    if (action != "answer" && action != "reject") {
+      return false
+    }
+
+    complete(action)
+    return true
   }
 
   private fun render() {

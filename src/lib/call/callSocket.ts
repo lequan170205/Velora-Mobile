@@ -32,17 +32,21 @@ export const createCallSocket = () => {
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
     path: DEFAULT_SOCKET_PATH,
-    auth: (cb) => {
-      void authApi
-        .getSocketToken()
-        .then(({ accessToken }) => {
-          cb({ token: accessToken })
-        })
-        .catch(() => {
-          cb({})
-        })
-    },
+    auth: {},
   }) as CallSocket
+}
+
+export const authenticateCallSocket = async (socket: CallSocket) => {
+  try {
+    const { accessToken } = await authApi.getSocketToken()
+    if (!accessToken.trim()) {
+      throw new Error('socket_auth_failed')
+    }
+
+    socket.auth = { token: accessToken }
+  } catch {
+    throw new Error('socket_auth_failed')
+  }
 }
 
 export const clearWaitRegistry = (registry: CallWaitRegistry) => {

@@ -84,6 +84,7 @@ export type CallTelemetryEvent = {
 type StageOptions = {
   outcome?: CallTelemetryEvent['outcome']
   error?: unknown
+  errorCode?: string
   eventType?: CallTelemetryEvent['eventType']
   metrics?: CallTelemetryMetrics
   details?: CallTelemetryDetails
@@ -218,7 +219,11 @@ export class CallTelemetrySession {
       appVersion: Constants.expoConfig?.version ?? 'unknown',
       ...(Platform.Version ? { osVersion: String(Platform.Version) } : {}),
       direction: this.direction,
-      ...(options.error ? { errorCode: normalizeErrorCode(options.error) } : {}),
+      ...(options.errorCode
+        ? { errorCode: options.errorCode }
+        : options.error
+          ? { errorCode: normalizeErrorCode(options.error) }
+          : {}),
       ...(options.metrics ? { metrics: options.metrics } : {}),
       ...(options.details ? { details: options.details } : {}),
     }
@@ -227,11 +232,12 @@ export class CallTelemetrySession {
     return event
   }
 
-  terminal(stage: string, error?: unknown) {
+  terminal(stage: string, error?: unknown, errorCode?: string) {
     const event = this.record(stage, {
       eventType: 'terminal',
       outcome: error ? 'failed' : 'ended',
       ...(error ? { error } : {}),
+      ...(errorCode ? { errorCode } : {}),
     })
     void flushCallTelemetry()
     return event

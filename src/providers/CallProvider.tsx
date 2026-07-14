@@ -9,6 +9,7 @@ import { MediaStream, mediaDevices } from 'react-native-webrtc'
 import { getCallState, type CallStateResponse } from '../api/call.api'
 import { queryKeys } from '../constants/queryKeys'
 import {
+  authenticateCallSocket,
   clearWaitRegistry,
   createCallSocket,
   emitAndWaitForEvent,
@@ -31,6 +32,7 @@ import {
   type AudioSessionActivatedEvent,
   type AudioSessionConfiguredEvent,
   type NativeCallAction,
+  type NativeAudioSessionState,
   type NativeCallPayload,
 } from '../lib/systemCalls/veloraSystemCalls'
 import { useAuthStore } from '../stores/authStore'
@@ -39,6 +41,7 @@ import { useCallStore } from '../stores/callStore'
 import type {
   CallAnsweredPayload,
   CallEndedPayload,
+  CallSocketReadyPayload,
   CallJoinedPayload,
   CallRejoinedPayload,
   CallRejectedPayload,
@@ -59,6 +62,10 @@ import type * as MediasoupTypes from 'mediasoup-client/types'
 import type { MediaStreamTrack } from 'react-native-webrtc'
 
 const CALL_JOINED_TIMEOUT_MS = 10_000
+const SOCKET_CONNECT_TIMEOUT_MS = 10_000
+const SOCKET_DISCONNECT_GRACE_MS = 10_000
+const IOS_AUDIO_SESSION_READY_TIMEOUT_MS = 15_000
+const IOS_AUDIO_SESSION_SNAPSHOT_POLL_MS = 250
 const TRANSPORT_CREATED_TIMEOUT_MS = 10_000
 const TRANSPORT_CONNECTED_TIMEOUT_MS = 10_000
 const CONSUMER_CREATED_TIMEOUT_MS = 10_000
@@ -189,6 +196,7 @@ type CachedMediasoupDevice = {
 
 type AudioSessionConfiguration =
   | AudioSessionConfiguredEvent
+  | NativeAudioSessionState
   | {
       configured: boolean
       category?: string
@@ -349,6 +357,14 @@ const getCallEndedMessage = (
     return 'The call was interrupted'
   }
 
+  if (payload.reason === 'remote_audio_not_ready') {
+    return 'The other person could not activate call audio'
+  }
+
+  if (payload.reason === 'remote_accept_failed') {
+    return 'The other person could not answer the call'
+  }
+
   return null
 }
 
@@ -379,6 +395,30 @@ const isRetryableCallStateError = (error: unknown) => {
   const status = error.response?.status
   return !status || status === 408 || status === 429 || status >= 500
 }
+
+const getAcceptIncomingCallFailureCode = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+
+  if (/auth_not_restored/i.test(message)) return 'auth_not_restored'
+  if (/socket_connect_timeout/i.test(message)) return 'socket_connect_timeout'
+  if (/socket_auth_failed/i.test(message)) return 'socket_auth_failed'
+  if (/network_unavailable/i.test(message)) return 'network_unavailable'
+  if (/reconnect_exhausted/i.test(message)) return 'reconnect_exhausted'
+  if (/audio session|audio_session/i.test(message)) return 'remote_audio_not_ready'
+  if (/call not found|\b404\b/i.test(message)) return 'call_not_found'
+  if (/already (ended|accepted)|call.*ended/i.test(message)) return 'call_already_ended'
+  if (/timed out|timeout/i.test(message)) return 'accept_timeout'
+  if (isAxiosError(error)) {
+    return error.response?.status && error.response.status >= 400 && error.response.status < 500
+      ? 'server_rejected'
+      : 'network_error'
+  }
+
+  return /network|socket|connect/i.test(message) ? 'network_unavailable' : 'server_rejected'
+}
+
+const getRemoteSetupFailureReason = (errorCode: string) =>
+  errorCode === 'remote_audio_not_ready' ? errorCode : 'remote_accept_failed'
 
 const isConnectedTransportState = (state: string) => state === 'connected' || state === 'completed'
 
@@ -485,13 +525,27 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const reconnectRecoveryInFlightRef = useRef(false)
   const reconnectModeRef = useRef<'local' | 'peer' | null>(null)
   const nativeActionRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const socketDisconnectGraceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const processingNativeActionIdsRef = useRef(new Set<string>())
   const completedNativeActionIdsRef = useRef(new Set<string>())
+  const audioSessionWaitersRef = useRef(new Map<string, Promise<AudioSessionConfiguration>>())
+  const acceptingIncomingCallIdRef = useRef<string | null>(null)
+  const authRestorePromiseRef = useRef<Promise<void> | null>(null)
+  const socketConnectPromiseRef = useRef<Promise<CallSocket> | null>(null)
+  const callSocketPromisesRef = useRef(new Map<string, Promise<CallSocket>>())
+  const callSocketAuthenticatedRef = useRef(false)
 
   const clearNativeActionRetryTimeout = useCallback(() => {
     if (nativeActionRetryTimeoutRef.current) {
       clearTimeout(nativeActionRetryTimeoutRef.current)
       nativeActionRetryTimeoutRef.current = null
+    }
+  }, [])
+
+  const clearSocketDisconnectGraceTimeout = useCallback(() => {
+    if (socketDisconnectGraceTimeoutRef.current) {
+      clearTimeout(socketDisconnectGraceTimeoutRef.current)
+      socketDisconnectGraceTimeoutRef.current = null
     }
   }, [])
 
@@ -527,7 +581,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     async (
       setupToken: number,
       callId: string,
-      timeoutMs = 5000,
+      timeoutMs = IOS_AUDIO_SESSION_READY_TIMEOUT_MS,
     ): Promise<AudioSessionConfiguration | undefined> => {
       if (Platform.OS !== 'ios') {
         return
@@ -535,9 +589,19 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       assertCallSetupCurrent(setupToken, callId)
 
-      return new Promise<AudioSessionConfiguration>((resolve, reject) => {
+      const existingWaiter = audioSessionWaitersRef.current.get(callId)
+      if (existingWaiter) {
+        return existingWaiter
+      }
+
+      const waiter = new Promise<AudioSessionConfiguration>((resolve, reject) => {
         let settled = false
-        let subscription: { remove: () => void } | null = null
+        let configuredSubscription: { remove: () => void } | null = null
+        let activatedSubscription: { remove: () => void } | null = null
+        let appStateSubscription: { remove: () => void } | null = null
+        let timeout: ReturnType<typeof setTimeout> | null = null
+        let snapshotPoll: ReturnType<typeof setInterval> | null = null
+        let snapshotRequestInFlight = false
 
         const settle = (configuration?: AudioSessionConfiguration, error?: Error) => {
           if (settled) {
@@ -545,8 +609,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           }
 
           settled = true
-          clearTimeout(timeout)
-          subscription?.remove()
+          if (timeout) {
+            clearTimeout(timeout)
+          }
+          if (snapshotPoll) {
+            clearInterval(snapshotPoll)
+          }
+          configuredSubscription?.remove()
+          activatedSubscription?.remove()
+          appStateSubscription?.remove()
 
           if (error) {
             reject(error)
@@ -561,22 +632,92 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           resolve(configuration ?? { configured: true })
         }
 
-        const timeout = setTimeout(() => {
-          console.warn('[Call] Audio session wait timed out')
-          settle(undefined, new Error('Audio session was not configured'))
+        const loadSnapshot = (source: string) => {
+          if (settled || snapshotRequestInFlight) {
+            return
+          }
+
+          snapshotRequestInFlight = true
+          void veloraSystemCalls
+            .getNativeAudioSessionState()
+            .then((state) => {
+              if (settled) {
+                return
+              }
+
+              debugCall('[Call] audio_snapshot_loaded', JSON.stringify({ callId, source, state }))
+              telemetrySessionRef.current?.record('audio_snapshot_loaded', { outcome: 'succeeded' })
+              if (state.errorCode) {
+                settle(state, new Error(state.errorCode))
+                return
+              }
+              if (state.isActivated && state.isAudioEnabled) {
+                debugCall('[Call] audio_already_active', JSON.stringify({ callId, source }))
+                telemetrySessionRef.current?.record('audio_already_active', {
+                  outcome: 'succeeded',
+                })
+                settle(state)
+              }
+            })
+            .catch((error) => {
+              if (settled) {
+                return
+              }
+
+              // During a PushKit cold start, the Expo bridge can briefly be unavailable while
+              // CallKit is already activating audio. Keep polling until the bounded timeout
+              // instead of tearing down the call after a single transient snapshot failure.
+              debugCall(
+                '[Call] audio_snapshot_load_failed',
+                JSON.stringify({ callId, source, error: String(error) }),
+              )
+              telemetrySessionRef.current?.record('audio_snapshot_loaded', {
+                outcome: 'failed',
+                error,
+              })
+            })
+            .finally(() => {
+              snapshotRequestInFlight = false
+            })
+        }
+
+        timeout = setTimeout(() => {
+          console.warn('[Call] Audio session activation wait timed out')
+          settle(undefined, new Error('Audio session activation timed out'))
         }, timeoutMs)
 
-        subscription = veloraSystemCalls.addAudioSessionConfiguredListener((event) => {
+        configuredSubscription = veloraSystemCalls.addAudioSessionConfiguredListener((event) => {
           settle(event, event.errorCode ? new Error(event.errorCode) : undefined)
         })
-
-        const state = veloraSystemCalls.getAudioSessionConfigurationState()
-        if (state.errorCode) {
-          settle(state, new Error(state.errorCode))
-        } else if (state.configured) {
-          settle(state)
-        }
+        activatedSubscription = veloraSystemCalls.addAudioSessionActivatedListener(() => {
+          debugCall('[Call] audio_activation_event_received', JSON.stringify({ callId }))
+          telemetrySessionRef.current?.record('audio_activation_event_received', {
+            outcome: 'succeeded',
+          })
+          loadSnapshot('activation_event')
+        })
+        appStateSubscription = AppState.addEventListener('change', (nextState) => {
+          if (nextState === 'active') {
+            loadSnapshot('app_resume')
+          }
+        })
+        debugCall(
+          '[Call] waiting_for_audio_activation',
+          JSON.stringify({ callId, timeoutMs, snapshotPollMs: IOS_AUDIO_SESSION_SNAPSHOT_POLL_MS }),
+        )
+        telemetrySessionRef.current?.record('waiting_for_audio_activation', { outcome: 'started' })
+        loadSnapshot('wait_started')
+        snapshotPoll = setInterval(() => {
+          loadSnapshot('poll')
+        }, IOS_AUDIO_SESSION_SNAPSHOT_POLL_MS)
       })
+
+      audioSessionWaitersRef.current.set(callId, waiter)
+      void waiter.then(
+        () => audioSessionWaitersRef.current.delete(callId),
+        () => audioSessionWaitersRef.current.delete(callId),
+      )
+      return waiter
     },
     [assertCallSetupCurrent, isCallSetupCurrent],
   )
@@ -942,20 +1083,48 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const teardownOnce = useCallback(
-    async (reason: string, options?: { errorMessage?: string | null }) => {
+    async (
+      reason: string,
+      options?: {
+        errorMessage?: string | null
+        telemetryError?: unknown
+        telemetryErrorCode?: string
+      },
+    ) => {
       if (teardownInProgressRef.current) {
         return
       }
 
       teardownInProgressRef.current = true
       invalidateCallSetup()
+      clearSocketDisconnectGraceTimeout()
+      const endingCallId = activeCallIdRef.current ?? useCallStore.getState().callId
+      debugCall(
+        '[Call] teardown_requested',
+        JSON.stringify({
+          callId: endingCallId,
+          source: reason,
+          reason: options?.telemetryErrorCode ?? reason,
+        }),
+      )
+      telemetrySessionRef.current?.record('teardown_requested', {
+        outcome: 'started',
+        ...(options?.telemetryErrorCode ? { errorCode: options.telemetryErrorCode } : {}),
+      })
       telemetrySessionRef.current?.terminal(
         reason,
-        options?.errorMessage ? new Error(options.errorMessage) : undefined,
+        options?.telemetryError ??
+          (options?.errorMessage ? new Error(options.errorMessage) : undefined),
+        options?.telemetryErrorCode,
       )
       telemetrySessionRef.current = null
       rtcQualityCountersRef.current = null
-      const endingCallId = activeCallIdRef.current ?? useCallStore.getState().callId
+      if (acceptingIncomingCallIdRef.current === endingCallId) {
+        acceptingIncomingCallIdRef.current = null
+      }
+      if (endingCallId) {
+        audioSessionWaitersRef.current.delete(endingCallId)
+      }
       stopTimer()
       if (endingCallId) {
         veloraSystemCalls.endCall(endingCallId)
@@ -970,7 +1139,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       teardownInProgressRef.current = false
       debugCall(`[Call] Teardown completed (${reason})`)
     },
-    [disposeMediaRuntime, invalidateCallSetup, stopTimer],
+    [clearSocketDisconnectGraceTimeout, disposeMediaRuntime, invalidateCallSetup, stopTimer],
   )
 
   const teardownRecoveryFailure = useCallback(
@@ -1033,44 +1202,229 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     return granted
   }, [])
 
-  const ensureSocketConnected = useCallback(async () => {
-    let socket = socketRef.current
+  const ensureAuthenticatedSession = useCallback(async (callId: string) => {
+    const currentAuth = useAuthStore.getState()
+    telemetrySessionRef.current?.record('auth_restore_started', { outcome: 'started' })
+    debugCall('[Call] auth_restore_started', JSON.stringify({ callId }))
 
-    if (!socket) {
-      socket = createCallSocket()
-      socketRef.current = socket
+    if (currentAuth.isAuthenticated && currentAuth.user?.id) {
+      telemetrySessionRef.current?.record('auth_restore_succeeded', { outcome: 'succeeded' })
+      return
     }
 
-    if (socket.connected) {
-      return socket
+    if (!authRestorePromiseRef.current) {
+      authRestorePromiseRef.current = currentAuth.hydrateAuth({ silent: true }).then(() => {
+        const restoredAuth = useAuthStore.getState()
+        if (!restoredAuth.isAuthenticated || !restoredAuth.user?.id) {
+          throw new Error('auth_not_restored')
+        }
+      })
     }
 
-    socket.connect()
+    try {
+      await authRestorePromiseRef.current
+      telemetrySessionRef.current?.record('auth_restore_succeeded', { outcome: 'succeeded' })
+      debugCall('[Call] auth_restore_succeeded', JSON.stringify({ callId }))
+    } catch (error) {
+      const errorCode =
+        useAuthStore.getState().authHydrationError === 'network'
+          ? 'network_unavailable'
+          : 'auth_not_restored'
+      telemetrySessionRef.current?.record('auth_restore_failed', {
+        outcome: 'failed',
+        error,
+        errorCode,
+      })
+      debugCall('[Call] auth_restore_failed', JSON.stringify({ callId, errorCode }))
+      throw new Error(errorCode)
+    } finally {
+      authRestorePromiseRef.current = null
+    }
+  }, [])
 
-    await new Promise<void>((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        socket?.off('connect', handleConnect)
-        socket?.off('connect_error', handleConnectError)
-        reject(new Error('Timed out connecting call socket'))
-      }, CALL_JOINED_TIMEOUT_MS)
+  const handleTerminalCall = useCallback(
+    (payload: CallEndedPayload, source: 'live' | 'socket_ready_replay') => {
+      // A PushKit cold launch can have a native CallKit call even while the JS call store
+      // is still idle. Always end the native system call by callId before checking JS state.
+      veloraSystemCalls.dismissIncomingCall(payload.callId)
 
-      const handleConnect = () => {
-        clearTimeout(timeoutId)
-        socket?.off('connect_error', handleConnectError)
-        resolve()
+      if (!isCurrentCall(payload.callId)) {
+        debugCall(
+          '[Call] terminal_call_dismissed_without_js_state',
+          JSON.stringify({ callId: payload.callId, reason: payload.reason, source }),
+        )
+        return
       }
 
-      const handleConnectError = (error: Error) => {
-        clearTimeout(timeoutId)
-        socket?.off('connect', handleConnect)
-        reject(error)
+      clearPeerLeftFallback()
+      const state = useCallStore.getState()
+      void teardownOnce(source === 'live' ? 'call_ended' : 'call_ended_replayed', {
+        errorMessage: getCallEndedMessage(payload, state),
+      })
+    },
+    [clearPeerLeftFallback, isCurrentCall, teardownOnce],
+  )
+
+  const ensureCallSocketConnected = useCallback(
+    async (callId: string): Promise<CallSocket> => {
+      const existingCallPromise = callSocketPromisesRef.current.get(callId)
+      if (existingCallPromise) {
+        return existingCallPromise
       }
 
-      socket?.once('connect', handleConnect)
-      socket?.once('connect_error', handleConnectError)
+      const callPromise = (async () => {
+        await ensureAuthenticatedSession(callId)
+
+        if (socketConnectPromiseRef.current) {
+          return socketConnectPromiseRef.current
+        }
+
+        const connectionPromise = (async () => {
+          let socket = socketRef.current
+          if (!socket) {
+            socket = createCallSocket()
+            socketRef.current = socket
+          }
+
+          if (socket.connected && callSocketAuthenticatedRef.current) {
+            return socket
+          }
+
+          callSocketAuthenticatedRef.current = false
+          telemetrySessionRef.current?.record('socket_connect_started', { outcome: 'started' })
+          debugCall('[Call] socket_connect_started', JSON.stringify({ callId }))
+          await authenticateCallSocket(socket)
+
+          await new Promise<void>((resolve, reject) => {
+            let settled = false
+            const settle = (error?: Error) => {
+              if (settled) return
+              settled = true
+              clearTimeout(timeoutId)
+              socket.off('call_socket_ready', handleReady)
+              socket.off('connect', handleConnect)
+              socket.off('connect_error', handleConnectError)
+              socket.off('disconnect', handleDisconnect)
+              if (error) {
+                reject(error)
+              } else {
+                resolve()
+              }
+            }
+            const handleReady = (payload?: CallSocketReadyPayload) => {
+              callSocketAuthenticatedRef.current = true
+              telemetrySessionRef.current?.record('socket_authenticated', { outcome: 'succeeded' })
+              debugCall('[Call] socket_authenticated', JSON.stringify({ callId }))
+
+              const recentTerminalCalls = payload?.recentTerminalCalls ?? []
+              recentTerminalCalls.forEach((terminalCall) => {
+                handleTerminalCall(terminalCall, 'socket_ready_replay')
+              })
+
+              if (
+                callId !== 'runtime' &&
+                recentTerminalCalls.some((terminalCall) => terminalCall.callId === callId)
+              ) {
+                settle(new Error('call_already_ended'))
+                return
+              }
+
+              settle()
+            }
+            const handleConnect = () => {
+              telemetrySessionRef.current?.record('socket_connected', { outcome: 'succeeded' })
+              debugCall('[Call] socket_connected', JSON.stringify({ callId }))
+            }
+            const handleConnectError = () => settle(new Error('network_unavailable'))
+            const handleDisconnect = (reason: string) => {
+              settle(
+                new Error(
+                  reason === 'io server disconnect' ? 'socket_auth_failed' : 'network_unavailable',
+                ),
+              )
+            }
+            const timeoutId = setTimeout(
+              () => settle(new Error('socket_connect_timeout')),
+              SOCKET_CONNECT_TIMEOUT_MS,
+            )
+
+            socket.once('call_socket_ready', handleReady)
+            socket.once('connect', handleConnect)
+            socket.once('connect_error', handleConnectError)
+            socket.once('disconnect', handleDisconnect)
+
+            if (socket.connected && callSocketAuthenticatedRef.current) {
+              handleReady()
+            } else {
+              // A connected socket with no authenticated-ready acknowledgement is not usable.
+              // Reconnect so the updated auth payload is sent in a fresh handshake.
+              if (socket.connected) {
+                socket.disconnect()
+              }
+              socket.connect()
+            }
+          })
+
+          return socket
+        })()
+
+        socketConnectPromiseRef.current = connectionPromise
+        try {
+          return await connectionPromise
+        } finally {
+          socketConnectPromiseRef.current = null
+        }
+      })()
+
+      callSocketPromisesRef.current.set(callId, callPromise)
+      void callPromise.then(
+        () => callSocketPromisesRef.current.delete(callId),
+        () => callSocketPromisesRef.current.delete(callId),
+      )
+      return callPromise
+    },
+    [ensureAuthenticatedSession, handleTerminalCall],
+  )
+
+  const ensureSocketConnected = useCallback(
+    () => ensureCallSocketConnected(activeCallIdRef.current ?? 'runtime'),
+    [ensureCallSocketConnected],
+  )
+
+  const restorePreActiveCallMembership = useCallback(async (socket: CallSocket, callId: string) => {
+    const state = useCallStore.getState()
+    if (state.callId !== callId) {
+      return
+    }
+
+    const shouldRestoreMembership =
+      state.phase === 'outgoing_ringing' ||
+      state.phase === 'connecting' ||
+      (state.phase === 'incoming_ringing' && acceptingIncomingCallIdRef.current === callId)
+
+    if (!shouldRestoreMembership) {
+      return
+    }
+
+    await emitAndWaitForEvent<'join_call', 'call_joined'>(
+      socket,
+      'join_call',
+      { callId },
+      {
+        event: 'call_joined',
+        timeoutMs: CALL_JOINED_TIMEOUT_MS,
+        registry: waitRegistryRef.current,
+        filter: (payload) => payload.callId === callId,
+      },
+    )
+
+    debugCall(
+      '[Call] setup_call_membership_restored',
+      JSON.stringify({ callId, phase: state.phase }),
+    )
+    telemetrySessionRef.current?.record('socket_rejoin_succeeded', {
+      outcome: 'succeeded',
     })
-
-    return socket
   }, [])
 
   const ensureDeviceLoaded = useCallback(async (payload: CallJoinedPayload) => {
@@ -1916,7 +2270,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
     if (!socket?.connected && state.callId) {
       try {
-        socket = await ensureSocketConnected()
+        socket = await ensureCallSocketConnected(state.callId)
       } catch {
         socket = null
       }
@@ -1932,7 +2286,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       veloraSystemCalls.dismissIncomingCall(state.callId)
     }
     await teardownOnce('reject_incoming_call')
-  }, [ensureSocketConnected, teardownOnce])
+  }, [ensureCallSocketConnected, teardownOnce])
 
   const endCall = useCallback(
     async (reason?: string) => {
@@ -2056,129 +2410,199 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     [currentUserId, queryClient],
   )
 
-  const acceptIncomingCall = useCallback(async () => {
-    const state = useCallStore.getState()
-    let socket = socketRef.current
-    const callId = state.callId
+  const acceptIncomingCall = useCallback(
+    async (source: 'native' | 'ui' = 'ui') => {
+      const state = useCallStore.getState()
+      let socket = socketRef.current
+      const callId = state.callId
 
-    if (!callId) {
-      return
-    }
+      if (!callId) {
+        return
+      }
 
-    const telemetry = new CallTelemetrySession('incoming')
-    telemetrySessionRef.current = telemetry
-    telemetry.record('call_attempt', { outcome: 'started' })
+      if (acceptingIncomingCallIdRef.current === callId) {
+        return
+      }
+      acceptingIncomingCallIdRef.current = callId
 
-    if (!socket?.connected) {
+      const telemetry = new CallTelemetrySession('incoming')
+      telemetrySessionRef.current = telemetry
+      telemetry.record('call_attempt', { outcome: 'started' })
+      if (source === 'native') {
+        telemetry.record('native_answer_received', { outcome: 'succeeded' })
+      }
+
       try {
-        socket = await ensureSocketConnected()
+        const nativeAudioState = await veloraSystemCalls.getNativeAudioSessionState()
+        debugCall(
+          '[Call] audio_snapshot_loaded',
+          JSON.stringify({ callId, source, nativeAudioState }),
+        )
+        telemetry.record('audio_snapshot_loaded', { outcome: 'succeeded' })
+        if (nativeAudioState.isActivated && nativeAudioState.isAudioEnabled) {
+          debugCall('[Call] audio_already_active', JSON.stringify({ callId, source }))
+          telemetry.record('audio_already_active', { outcome: 'succeeded' })
+        } else {
+          telemetry.record('waiting_for_audio_activation', { outcome: 'started' })
+        }
+      } catch (error) {
+        telemetry.record('audio_snapshot_loaded', { outcome: 'failed', error })
+      }
+
+      try {
+        socket = await ensureCallSocketConnected(callId)
         telemetry.record('socket_connected', { outcome: 'succeeded' })
       } catch (error) {
+        const errorCode = getAcceptIncomingCallFailureCode(error)
         telemetry.record('socket_connected', { outcome: 'failed', error })
+        telemetry.record('accept_call_failed', { outcome: 'failed', error, errorCode })
+        debugCall('[Call] accept_call_failed', JSON.stringify({ callId, errorCode }))
         await teardownOnce('accept_incoming_call_socket_failed', {
           errorMessage: 'Unable to set up the call',
+          telemetryError: error,
+          telemetryErrorCode: errorCode,
         })
         return
       }
-    } else {
-      telemetry.record('socket_connected', { outcome: 'succeeded' })
-    }
 
-    let hasPermission: boolean
-    try {
-      hasPermission = await ensureMicPermission()
-    } catch (error) {
-      telemetry.record('microphone_permission', { outcome: 'failed', error })
-      await teardownOnce('accept_incoming_call_permission_failed', {
-        errorMessage: 'Velora needs microphone access to place calls',
-      })
-      return
-    }
-    if (!hasPermission) {
-      telemetry.record('microphone_permission', {
-        outcome: 'failed',
-        error: new Error('microphone permission denied'),
-      })
-      socket.emit('reject_call', {
-        callId,
-        reason: 'mic_permission_denied',
-      })
-      await teardownOnce('accept_incoming_call_permission_denied', {
-        errorMessage: 'Velora needs microphone access to place calls',
-      })
-      return
-    }
-    telemetry.record('microphone_permission', { outcome: 'succeeded' })
-
-    let joinedCall = false
-
-    try {
-      const joined = await emitAndWaitForEvent<'join_call', 'call_joined'>(
-        socket,
-        'join_call',
-        { callId },
-        {
-          event: 'call_joined',
-          timeoutMs: CALL_JOINED_TIMEOUT_MS,
-          registry: waitRegistryRef.current,
-          filter: (payload) => payload.callId === callId,
-        },
-      )
-
-      joinedCall = true
-      telemetry.attachCall(joined.telemetryToken)
-      telemetry.record('call_joined', { outcome: 'succeeded' })
-      const setupToken = beginCallSetup()
-      useCallStore.getState().patch({
-        phase: 'connecting',
-        remoteAudioState: 'idle',
-        remoteStreamUrl: null,
-        reconnectDeadlineMs: null,
-      })
-      router.push(`/call/${callId}` as never)
-
-      debugCall('[Call] Waiting for configured native audio session...')
-      const audioSessionConfiguration = await waitForConfiguredAudioSession(setupToken, callId)
-      assertCallSetupCurrent(setupToken, callId)
-      const audioRoute = toAudioRouteTelemetry(audioSessionConfiguration)
-      telemetry.record('native_audio_configured', {
-        outcome: 'succeeded',
-        ...(audioRoute ? { details: { audioRoute } } : {}),
-      })
-
-      await postAnswerSetup(joined, { setupToken })
-      assertCallSetupCurrent(setupToken, callId)
-      if (!veloraSystemCalls.setCallActive(callId)) {
-        throw new Error('Native call is no longer active')
-      }
-      telemetry.record('control_plane_active', { outcome: 'succeeded' })
-      socket.emit('answer_call', { callId })
-    } catch (error) {
-      if (isCallSetupCancelledError(error)) {
+      let hasPermission: boolean
+      try {
+        hasPermission = await ensureMicPermission()
+      } catch (error) {
+        const errorCode = getAcceptIncomingCallFailureCode(error)
+        telemetry.record('microphone_permission', { outcome: 'failed', error })
+        telemetry.record('accept_call_failed', { outcome: 'failed', error, errorCode })
+        await teardownOnce('accept_incoming_call_permission_failed', {
+          errorMessage: 'Velora needs microphone access to place calls',
+          telemetryError: error,
+          telemetryErrorCode: errorCode,
+        })
         return
       }
-
-      if (joinedCall && socket?.connected) {
-        socket.emit('leave_call', {
+      if (!hasPermission) {
+        telemetry.record('microphone_permission', {
+          outcome: 'failed',
+          error: new Error('microphone permission denied'),
+        })
+        telemetry.record('accept_call_failed', {
+          outcome: 'failed',
+          error: new Error('microphone permission denied'),
+          errorCode: 'server_rejected',
+        })
+        socket.emit('reject_call', {
           callId,
-          reason: 'disconnected',
+          reason: 'mic_permission_denied',
+        })
+        await teardownOnce('accept_incoming_call_permission_denied', {
+          errorMessage: 'Velora needs microphone access to place calls',
+          telemetryError: new Error('microphone permission denied'),
+          telemetryErrorCode: 'server_rejected',
+        })
+        return
+      }
+      telemetry.record('microphone_permission', { outcome: 'succeeded' })
+
+      let joinedCall = false
+
+      try {
+        const joined = await emitAndWaitForEvent<'join_call', 'call_joined'>(
+          socket,
+          'join_call',
+          { callId },
+          {
+            event: 'call_joined',
+            timeoutMs: CALL_JOINED_TIMEOUT_MS,
+            registry: waitRegistryRef.current,
+            filter: (payload) => payload.callId === callId,
+          },
+        )
+
+        joinedCall = true
+        telemetry.attachCall(joined.telemetryToken)
+        telemetry.record('call_joined', { outcome: 'succeeded' })
+        telemetry.record('accept_call_started', { outcome: 'started' })
+        debugCall('[Call] accept_call_started', JSON.stringify({ callId, source }))
+
+        await emitAndWaitForEvent<'answer_call', 'call_answered'>(
+          socket,
+          'answer_call',
+          { callId },
+          {
+            event: 'call_answered',
+            timeoutMs: CALL_JOINED_TIMEOUT_MS,
+            registry: waitRegistryRef.current,
+            filter: (payload) => payload.callId === callId,
+          },
+        )
+        callAnsweredRef.current = true
+        telemetry.record('accept_call_succeeded', { outcome: 'succeeded' })
+        debugCall('[Call] accept_call_succeeded', JSON.stringify({ callId, source }))
+
+        const setupToken = beginCallSetup()
+        useCallStore.getState().patch({
+          phase: 'connecting',
+          remoteAudioState: 'idle',
+          remoteStreamUrl: null,
+          reconnectDeadlineMs: null,
+        })
+        router.push(`/call/${callId}` as never)
+
+        debugCall('[Call] Waiting for configured native audio session...')
+        const audioSessionConfiguration = await waitForConfiguredAudioSession(setupToken, callId)
+        assertCallSetupCurrent(setupToken, callId)
+        const audioRoute = toAudioRouteTelemetry(audioSessionConfiguration)
+        telemetry.record('native_audio_configured', {
+          outcome: 'succeeded',
+          ...(audioRoute ? { details: { audioRoute } } : {}),
+        })
+
+        telemetry.record('media_setup_started', { outcome: 'started' })
+        await postAnswerSetup(joined, { setupToken })
+        assertCallSetupCurrent(setupToken, callId)
+        if (!veloraSystemCalls.setCallActive(callId)) {
+          throw new Error('Native call is no longer active')
+        }
+        telemetry.record('control_plane_active', { outcome: 'succeeded' })
+      } catch (error) {
+        if (isCallSetupCancelledError(error)) {
+          return
+        }
+
+        const errorCode = getAcceptIncomingCallFailureCode(error)
+        debugCall(
+          '[Call] accept_call_failed',
+          JSON.stringify({
+            callId,
+            errorCode,
+            error: error instanceof Error ? error.message : 'unknown_error',
+          }),
+        )
+        if (joinedCall && socket?.connected) {
+          socket.emit('leave_call', {
+            callId,
+            reason: getRemoteSetupFailureReason(errorCode),
+          })
+        }
+        telemetry.record('setup_failed', { outcome: 'failed', error, errorCode })
+        telemetry.record('accept_call_failed', { outcome: 'failed', error, errorCode })
+        await teardownOnce('accept_incoming_call_failed', {
+          errorMessage: 'Unable to set up the call',
+          telemetryError: error,
+          telemetryErrorCode: errorCode,
         })
       }
-      telemetry.record('setup_failed', { outcome: 'failed', error })
-      await teardownOnce('accept_incoming_call_failed', {
-        errorMessage: 'Unable to set up the call',
-      })
-    }
-  }, [
-    assertCallSetupCurrent,
-    beginCallSetup,
-    ensureMicPermission,
-    ensureSocketConnected,
-    postAnswerSetup,
-    router,
-    teardownOnce,
-    waitForConfiguredAudioSession,
-  ])
+    },
+    [
+      assertCallSetupCurrent,
+      beginCallSetup,
+      ensureMicPermission,
+      ensureCallSocketConnected,
+      postAnswerSetup,
+      router,
+      teardownOnce,
+      waitForConfiguredAudioSession,
+    ],
+  )
 
   const startVoiceCall = useCallback(
     async (input: StartVoiceCallInput) => {
@@ -2408,8 +2832,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             return
           }
 
+          if (acceptingIncomingCallIdRef.current === action.callId) {
+            completeNativeCallAction(action.actionId)
+            return
+          }
+
           if (prepareIncomingCallFromState(callState)) {
-            await acceptIncomingCall()
+            await acceptIncomingCall('native')
           }
           completeNativeCallAction(action.actionId)
           return
@@ -2420,7 +2849,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           if (state.callId === action.callId && isBusyPhase(state.phase)) {
             await endCall('ended')
           } else if (callState.status === 'active') {
-            const socket = await ensureSocketConnected()
+            const socket = await ensureCallSocketConnected(action.callId)
             socket.emit('leave_call', {
               callId: action.callId,
               reason: 'ended',
@@ -2458,11 +2887,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     },
     [
       acceptIncomingCall,
+      acceptingIncomingCallIdRef,
       clearNativeActionRetryTimeout,
       completeNativeCallAction,
       currentUserId,
       endCall,
-      ensureSocketConnected,
+      ensureCallSocketConnected,
       isAuthenticated,
       isCurrentCall,
       isLoading,
@@ -2471,6 +2901,27 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       teardownOnce,
       username,
     ],
+  )
+
+  const processPendingNativeCallAction = useCallback(
+    (source: 'auth_ready' | 'app_resume') => {
+      const pendingAction = veloraSystemCalls.getPendingCallAction()
+      if (!pendingAction) {
+        return
+      }
+
+      debugCall(
+        '[Call] pending_native_action_replayed',
+        JSON.stringify({
+          source,
+          callId: pendingAction.callId,
+          action: pendingAction.action,
+          actionId: pendingAction.actionId,
+        }),
+      )
+      void processNativeCallAction(pendingAction)
+    },
+    [processNativeCallAction],
   )
 
   const toggleMute = useCallback(() => {
@@ -2560,6 +3011,39 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') {
+        return
+      }
+
+      // Notification/full-screen actions are persisted by the Android receiver before
+      // MainActivity is brought forward. The live native event may be missed while JS is
+      // suspended, so always replay the persisted action when the app becomes active.
+      processPendingNativeCallAction('app_resume')
+
+      const resumedCallId = activeCallIdRef.current ?? useCallStore.getState().callId
+      if (!resumedCallId) {
+        return
+      }
+
+      void veloraSystemCalls
+        .getNativeAudioSessionState()
+        .then((state) => {
+          debugCall(
+            '[Call] audio_snapshot_loaded',
+            JSON.stringify({ callId: resumedCallId, source: 'app_resume', state }),
+          )
+          telemetrySessionRef.current?.record('audio_snapshot_loaded', { outcome: 'succeeded' })
+        })
+        .catch(() => undefined)
+    })
+
+    return () => {
+      subscription.remove()
+    }
+  }, [processPendingNativeCallAction])
+
+  useEffect(() => {
     void flushCallTelemetry()
     const interval = setInterval(() => {
       void flushCallTelemetry()
@@ -2597,11 +3081,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    const pendingAction = veloraSystemCalls.getPendingCallAction()
-    if (pendingAction) {
-      void processNativeCallAction(pendingAction)
-    }
-  }, [currentUserId, isAuthenticated, isLoading, processNativeCallAction, username])
+    processPendingNativeCallAction('auth_ready')
+  }, [currentUserId, isAuthenticated, isLoading, processPendingNativeCallAction, username])
 
   useEffect(() => {
     if (isLoading) {
@@ -2609,6 +3090,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (!isAuthenticated || !currentUserId) {
+      const pendingNativeAnswer = veloraSystemCalls.getPendingCallAction()?.action === 'answer'
+      const authHydrationError = useAuthStore.getState().authHydrationError
+      if (pendingNativeAnswer && authHydrationError === 'network') {
+        return
+      }
+
       socketRef.current?.removeAllListeners()
       socketRef.current?.disconnect()
       socketRef.current = null
@@ -2627,6 +3114,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
     socketRef.current = socket
 
+    const handleSocketReady = (payload?: CallSocketReadyPayload) => {
+      callSocketAuthenticatedRef.current = true
+      ;(payload?.recentTerminalCalls ?? []).forEach((terminalCall) => {
+        handleTerminalCall(terminalCall, 'socket_ready_replay')
+      })
+    }
+
     const handleConnect = () => {
       if (
         useCallStore.getState().phase === 'reconnecting' &&
@@ -2636,8 +3130,18 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    const handleDisconnect = () => {
-      const { phase } = useCallStore.getState()
+    const handleDisconnect = (reason: string) => {
+      const state = useCallStore.getState()
+      const { callId: disconnectedCallId, phase } = state
+      callSocketAuthenticatedRef.current = false
+      debugCall(
+        '[Call] socket_disconnected',
+        JSON.stringify({ callId: disconnectedCallId, reason }),
+      )
+      telemetrySessionRef.current?.record('socket_disconnected', {
+        outcome: 'failed',
+        errorCode: reason === 'io server disconnect' ? 'socket_auth_failed' : 'network_unavailable',
+      })
 
       if (phase === 'reconnecting') {
         if (reconnectModeRef.current === 'peer') {
@@ -2651,13 +3155,54 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
-      if (!isBusyPhase(phase)) {
+      if (!isBusyPhase(phase) || !disconnectedCallId) {
         return
       }
 
-      void teardownOnce('socket_disconnect', {
-        errorMessage: 'The call was interrupted',
-      })
+      telemetrySessionRef.current?.record('socket_reconnect_started', { outcome: 'started' })
+      debugCall(
+        '[Call] socket_reconnect_started',
+        JSON.stringify({ callId: disconnectedCallId, reason }),
+      )
+      clearSocketDisconnectGraceTimeout()
+      socketDisconnectGraceTimeoutRef.current = setTimeout(() => {
+        if (callSocketAuthenticatedRef.current || !isCurrentCall(disconnectedCallId)) {
+          return
+        }
+
+        telemetrySessionRef.current?.record('socket_reconnect_failed', {
+          outcome: 'failed',
+          errorCode: 'reconnect_exhausted',
+        })
+        void teardownOnce('socket_disconnect_grace_expired', {
+          errorMessage: 'The call was interrupted',
+          telemetryError: new Error('reconnect_exhausted'),
+          telemetryErrorCode: 'reconnect_exhausted',
+        })
+      }, SOCKET_DISCONNECT_GRACE_MS)
+
+      void ensureCallSocketConnected(disconnectedCallId)
+        .then(async (connectedSocket) => {
+          await restorePreActiveCallMembership(connectedSocket, disconnectedCallId)
+          clearSocketDisconnectGraceTimeout()
+          telemetrySessionRef.current?.record('socket_reconnect_succeeded', {
+            outcome: 'succeeded',
+          })
+          debugCall(
+            '[Call] socket_reconnect_succeeded',
+            JSON.stringify({ callId: disconnectedCallId }),
+          )
+          if (useCallStore.getState().phase === 'reconnecting') {
+            void recoverActiveCall()
+          }
+        })
+        .catch((error) => {
+          telemetrySessionRef.current?.record('socket_reconnect_failed', {
+            outcome: 'failed',
+            error,
+            errorCode: getAcceptIncomingCallFailureCode(error),
+          })
+        })
     }
 
     const handleCallRejected = (payload: CallRejectedPayload) => {
@@ -2671,15 +3216,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
 
     const handleCallEnded = (payload: CallEndedPayload) => {
-      if (!isCurrentCall(payload.callId)) {
-        return
-      }
-
-      clearPeerLeftFallback()
-      const state = useCallStore.getState()
-      void teardownOnce('call_ended', {
-        errorMessage: getCallEndedMessage(payload, state),
-      })
+      handleTerminalCall(payload, 'live')
     }
 
     const handlePeerLeft = (payload: PeerLeftPayload) => {
@@ -2696,6 +3233,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
 
     socket.on('connect', handleConnect)
+    socket.on('call_socket_ready', handleSocketReady)
     socket.on('disconnect', handleDisconnect)
     socket.on('incoming_call', (payload) => {
       void handleIncomingCall(payload)
@@ -2714,14 +3252,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     socket.on('peer_left', handlePeerLeft)
     socket.on('call_ended', handleCallEnded)
 
-    if (socket.connected) {
-      handleConnect()
-    } else {
-      socket.connect()
-    }
+    void ensureCallSocketConnected('runtime').catch(() => undefined)
 
     return () => {
       socket.off('connect', handleConnect)
+      socket.off('call_socket_ready', handleSocketReady)
       socket.off('disconnect', handleDisconnect)
       socket.off('call_rejected', handleCallRejected)
       socket.off('peer_reconnecting', handlePeerReconnecting)
@@ -2736,14 +3271,18 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     consumeRemoteProducer,
     currentUserId,
     beginReconnectRecovery,
+    clearSocketDisconnectGraceTimeout,
     handlePeerReconnected,
     handlePeerReconnecting,
     handleIncomingCall,
+    handleTerminalCall,
+    ensureCallSocketConnected,
     isAuthenticated,
     isCurrentCall,
     isLoading,
     presentError,
     recoverActiveCall,
+    restorePreActiveCallMembership,
     teardownOnce,
     clearPeerLeftFallback,
   ])
@@ -2755,13 +3294,23 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socketRef.current?.removeAllListeners()
       socketRef.current?.disconnect()
       socketRef.current = null
+      clearSocketDisconnectGraceTimeout()
+      callSocketPromisesRef.current.clear()
+      socketConnectPromiseRef.current = null
+      callSocketAuthenticatedRef.current = false
       stopTimer()
       clearNativeActionRetryTimeout()
       clearRemoteAudioFallback()
       clearPeerLeftFallback()
       clearWaitRegistry(waitRegistry)
     }
-  }, [clearNativeActionRetryTimeout, clearPeerLeftFallback, clearRemoteAudioFallback, stopTimer])
+  }, [
+    clearNativeActionRetryTimeout,
+    clearPeerLeftFallback,
+    clearRemoteAudioFallback,
+    clearSocketDisconnectGraceTimeout,
+    stopTimer,
+  ])
 
   const value = useMemo<UseCallValue>(
     () => ({

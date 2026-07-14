@@ -33,7 +33,13 @@ object VeloraCallNotifications {
       pendingIntentFlags(),
     )
 
-    val answerIntent = Intent(context, VeloraCallActionReceiver::class.java).apply {
+    // The Answer action must target an Activity directly. Starting MainActivity from a
+    // BroadcastReceiver is a notification trampoline and is blocked on Android 12+.
+    val answerIntent = Intent(context, VeloraIncomingCallActivity::class.java).apply {
+      flags =
+        Intent.FLAG_ACTIVITY_NEW_TASK or
+          Intent.FLAG_ACTIVITY_CLEAR_TOP or
+          Intent.FLAG_ACTIVITY_SINGLE_TOP
       action = "expo.modules.velorasystemcalls.ANSWER"
       putExtra("veloraAction", "answer")
       putPayload(payload)
@@ -43,7 +49,7 @@ object VeloraCallNotifications {
       putExtra("veloraAction", "reject")
       putPayload(payload)
     }
-    val answerPendingIntent = PendingIntent.getBroadcast(
+    val answerPendingIntent = PendingIntent.getActivity(
       context,
       requestCode(callId, 2),
       answerIntent,

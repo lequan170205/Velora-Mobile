@@ -10,7 +10,7 @@
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#003f53"
     },
     "ios": {
       "supportsTablet": true,
@@ -21,10 +21,7 @@
         "NSMicrophoneUsageDescription": "Velora uses the microphone to record audio for reels."
       },
       "bundleIdentifier": "com.quan.velora.dev",
-      "googleServicesFile": "./GoogleService-Info.plist",
-      "entitlements": {
-        "aps-environment": "development"
-      }
+      "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
       "adaptiveIcon": {
