@@ -42,6 +42,7 @@
     "ajv": "^8.18.0",
     "ajv-keywords": "^5.1.0",
     "axios": "^1.13.6",
+    "babel-preset-expo": "~54.0.10",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "expo": "^54.0.33",

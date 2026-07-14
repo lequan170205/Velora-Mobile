@@ -7,11 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "antigravity",
     "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./assets/images/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#003f53"
-    },
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -25,7 +20,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -110,6 +105,25 @@
             "packagingOptions": {
               "pickFirst": ["**/libc++_shared.so"]
             }
+          }
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FFFFFF",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 160,
+          "resizeMode": "contain",
+          "ios": {
+            "backgroundColor": "#FFFFFF",
+            "image": "./assets/images/splash-icon.png",
+            "resizeMode": "contain"
+          },
+          "android": {
+            "backgroundColor": "#FFFFFF",
+            "image": "./assets/images/splash-icon.png",
+            "imageWidth": 160
           }
         }
       ]
