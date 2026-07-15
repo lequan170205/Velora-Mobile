@@ -627,7 +627,8 @@ export default function ChatScreen() {
   const timestampRevealGesture = useMemo(
     () =>
       Gesture.Pan()
-        .activeOffsetX([-14, 9999])
+        // Reply gestures activate first; timestamp reveal requires a more deliberate pull.
+        .activeOffsetX([-20, 9999])
         .failOffsetY([-8, 8])
         .maxPointers(1)
         .onUpdate((event) => {
@@ -638,20 +639,13 @@ export default function ChatScreen() {
           )
           timestampRevealOffset.value = clampedOffset
         })
-        .onEnd(() => {
-          'worklet'
-          timestampRevealOffset.value = withSpring(0, {
-            mass: 0.9,
-            damping: 18,
-            stiffness: 220,
-          })
-        })
         .onFinalize(() => {
           'worklet'
           timestampRevealOffset.value = withSpring(0, {
-            mass: 0.9,
-            damping: 18,
-            stiffness: 220,
+            mass: 0.65,
+            damping: 27,
+            stiffness: 310,
+            overshootClamping: true,
           })
         }),
     [timestampRevealOffset],
@@ -1529,9 +1523,10 @@ export default function ChatScreen() {
     (message: Message) => {
       setReplyToMessage(message)
       timestampRevealOffset.value = withSpring(0, {
-        mass: 0.9,
-        damping: 18,
-        stiffness: 220,
+        mass: 0.65,
+        damping: 27,
+        stiffness: 310,
+        overshootClamping: true,
       })
 
       requestAnimationFrame(() => {

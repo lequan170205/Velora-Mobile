@@ -82,8 +82,28 @@ const REPLY_PREVIEW_ICONS: Record<
 
 const URI_LIKE_PATTERN = /^(https?:\/\/|file:\/\/|content:\/\/|data:|blob:)/i
 const VIDEO_FILE_URI_PATTERN = /\.(mp4|m4v|mov|webm)(?:[?#].*)?$/i
-const SWIPE_REPLY_TRIGGER_DISTANCE = 72
+const SWIPE_REPLY_ACTIVATION_DISTANCE = 6
+const SWIPE_REPLY_TRIGGER_DISTANCE = 64
+const SWIPE_REPLY_MIN_FLING_DISTANCE = 28
+const SWIPE_REPLY_PROJECTION_TIME = 0.055
+const SWIPE_REPLY_RESISTANCE_RANGE = 18
 const TIMESTAMP_REVEAL_MAX_OFFSET = 64
+
+const getSwipeReplyDisplayDistance = (distance: number) => {
+  'worklet'
+
+  const clampedDistance = Math.max(0, distance)
+  if (clampedDistance <= SWIPE_REPLY_TRIGGER_DISTANCE) {
+    return clampedDistance
+  }
+
+  const overshoot = clampedDistance - SWIPE_REPLY_TRIGGER_DISTANCE
+
+  return (
+    SWIPE_REPLY_TRIGGER_DISTANCE +
+    SWIPE_REPLY_RESISTANCE_RANGE * (1 - Math.exp(-overshoot / SWIPE_REPLY_RESISTANCE_RANGE))
+  )
+}
 const MAX_SUGGESTED_QUERIES = 3
 const generatedReplyVideoThumbnailCache = new Map<string, string | null>()
 
@@ -466,6 +486,7 @@ const MessageBubbleComponent = function MessageBubble({
   const resolvedConversationId = conversationId || message.conversationId
   const highlightProgress = useSharedValue(0)
   const swipeOffsetX = useSharedValue(0)
+  const swipeReplyArmed = useSharedValue(false)
   const pressScale = useSharedValue(1)
   // const swipeProgress = useSharedValue(0)
   const bubbleRef = useRef<View>(null)
@@ -526,13 +547,8 @@ const MessageBubbleComponent = function MessageBubble({
     cachedAnchorRef.current = null
     cachedAnchorSequenceRef.current = 0
 
-    pressScale.value = withSpring(0.96, {
-      mass: 0.25,
-      stiffness: 500,
-      damping: 22,
-      overshootClamping: true,
-    })
-
+    // Keep the bubble at a stable scale while a horizontal pan is still possible.
+    // The context-menu active state owns the deliberate scale animation instead.
     bubbleRef.current?.measureInWindow((x, y, width, height) => {
       if (pressInSequenceRef.current !== nextSequence) {
         return
@@ -541,7 +557,7 @@ const MessageBubbleComponent = function MessageBubble({
       cachedAnchorRef.current = { x, y, width, height }
       cachedAnchorSequenceRef.current = nextSequence
     })
-  }, [pressScale])
+  }, [])
 
   const handlePressOut = useCallback(() => {
     if (isContextMenuActiveRef.current) {
@@ -563,7 +579,8 @@ const MessageBubbleComponent = function MessageBubble({
     if (swipeOffsetX.value !== 0) {
       swipeOffsetX.value = 0
     }
-  }, [highlightProgress, message.id, swipeOffsetX])
+    swipeReplyArmed.value = false
+  }, [highlightProgress, message.id, swipeOffsetX, swipeReplyArmed])
 
   useEffect(() => {
     cachedAnchorRef.current = null
@@ -617,12 +634,13 @@ const MessageBubbleComponent = function MessageBubble({
     })
   }
 
+  const triggerSwipeReplyHaptic = useCallback(() => {
+    void Haptics.selectionAsync()
+  }, [])
+
   const handleSwipeReply = useCallback(() => {
     if (isRecalled) return
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    requestAnimationFrame(() => {
-      onReply?.()
-    })
+    onReply?.()
   }, [isRecalled, onReply])
 
   const contentRevealStyle = useAnimatedStyle(() => ({
@@ -677,11 +695,12 @@ const MessageBubbleComponent = function MessageBubble({
   const swipeIndicatorStyle = useAnimatedStyle(() => {
     const currentTranslation = Math.abs(swipeOffsetX.value)
     const progress = Math.min(currentTranslation / SWIPE_REPLY_TRIGGER_DISTANCE, 1)
+    const armedScale = swipeReplyArmed.value ? 0.08 : 0
 
     return {
-      opacity: interpolate(progress, [0, 0.3, 1], [0, 0.45, 1]),
+      opacity: interpolate(progress, [0, 0.22, 1], [0, 0.5, 1]),
       transform: [
-        { scale: interpolate(progress, [0, 1], [0.8, 1]) },
+        { scale: interpolate(progress, [0, 1], [0.78, 1]) + armedScale },
         { translateX: interpolate(progress, [0, 1], [swipeDirection * -8, 0]) },
       ],
     }
@@ -939,34 +958,61 @@ const MessageBubbleComponent = function MessageBubble({
     const createSwipeGesture = (enabled: boolean) => {
       const gesture = Gesture.Pan()
         .enabled(enabled)
-        .activeOffsetX(isOwn ? [-10, 9999] : [-9999, 10])
-        .failOffsetY([-5, 5])
+        .activeOffsetX(
+          isOwn
+            ? [-SWIPE_REPLY_ACTIVATION_DISTANCE, 9999]
+            : [-9999, SWIPE_REPLY_ACTIVATION_DISTANCE],
+        )
+        .failOffsetY([-12, 12])
         .maxPointers(1)
+        .onBegin(() => {
+          'worklet'
+          swipeReplyArmed.value = false
+          pressScale.value = 1
+        })
         .onUpdate((event) => {
           'worklet'
-          let translation = event.translationX * swipeDirection
+          const directionalTranslation = event.translationX * swipeDirection
+          const dragDistance = Math.max(0, directionalTranslation - SWIPE_REPLY_ACTIVATION_DISTANCE)
+          const displayDistance = getSwipeReplyDisplayDistance(dragDistance)
+          const nextIsArmed = dragDistance >= SWIPE_REPLY_TRIGGER_DISTANCE
 
-          if (translation > 0) {
-            if (translation > SWIPE_REPLY_TRIGGER_DISTANCE) {
-              const extraPull = translation - SWIPE_REPLY_TRIGGER_DISTANCE
-              translation = SWIPE_REPLY_TRIGGER_DISTANCE + extraPull * 0.25
+          if (nextIsArmed !== swipeReplyArmed.value) {
+            swipeReplyArmed.value = nextIsArmed
+
+            if (nextIsArmed) {
+              scheduleOnRN(triggerSwipeReplyHaptic)
             }
-            swipeOffsetX.value = swipeDirection * translation
           }
+
+          swipeOffsetX.value = swipeDirection * displayDistance
         })
         .onEnd((event) => {
           'worklet'
-          const translation = event.translationX * swipeDirection
+          const directionalTranslation = event.translationX * swipeDirection
+          const directionalVelocity = Math.max(0, event.velocityX * swipeDirection)
+          const dragDistance = Math.max(0, directionalTranslation - SWIPE_REPLY_ACTIVATION_DISTANCE)
+          const projectedDistance = dragDistance + directionalVelocity * SWIPE_REPLY_PROJECTION_TIME
+          const shouldReply =
+            dragDistance >= SWIPE_REPLY_TRIGGER_DISTANCE ||
+            (dragDistance >= SWIPE_REPLY_MIN_FLING_DISTANCE &&
+              projectedDistance >= SWIPE_REPLY_TRIGGER_DISTANCE)
 
-          if (translation >= SWIPE_REPLY_TRIGGER_DISTANCE) {
+          if (shouldReply) {
+            if (!swipeReplyArmed.value) {
+              scheduleOnRN(triggerSwipeReplyHaptic)
+            }
             scheduleOnRN(handleSwipeReply)
           }
-
+        })
+        .onFinalize(() => {
+          'worklet'
+          swipeReplyArmed.value = false
           swipeOffsetX.value = withSpring(0, {
-            mass: 1.2,
-            damping: 26,
-            stiffness: 280,
-            overshootClamping: false,
+            mass: 0.55,
+            damping: 25,
+            stiffness: 320,
+            overshootClamping: true,
           })
         })
 
@@ -986,9 +1032,12 @@ const MessageBubbleComponent = function MessageBubble({
     isRecommendationMessage,
     isOwn,
     isSwipeReplyEnabled,
+    pressScale,
     swipeDirection,
     swipeOffsetX,
+    swipeReplyArmed,
     timestampRevealGesture,
+    triggerSwipeReplyHaptic,
   ])
 
   return (
