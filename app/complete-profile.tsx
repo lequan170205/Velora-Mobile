@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { userApi } from '../src/api/user.api'
+import { resetLocalDatabase } from '../src/database/DatabaseManager'
 import { useUsernameAvailability } from '../src/hooks/useUsernameAvailability'
 import { cn } from '../src/lib/cn'
 import { performLogoutPushTokenCleanup } from '../src/lib/notifications/pushTokenLifecycle'
@@ -162,6 +163,7 @@ export default function CompleteProfileScreen() {
   const handleSignOut = async () => {
     try {
       await performLogoutPushTokenCleanup()
+      await resetLocalDatabase()
     } finally {
       clearAuth()
     }

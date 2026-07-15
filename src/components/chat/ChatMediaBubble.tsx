@@ -1,5 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Pressable,
   Text,
@@ -25,7 +25,7 @@ import { formatDurationLabel } from '../../lib/reels'
 import { useChatMediaUploadStore } from '../../stores/chatMediaUploadStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useChatVideoPlaybackStore } from '../../stores/chatVideoPlaybackStore'
-import { ReelVideo } from '../reels/ReelVideo'
+import { ReelVideo, type ReelVideoProgress } from '../reels/ReelVideo'
 
 import { ChatMediaFrame } from './ChatMediaFrame'
 
@@ -58,6 +58,8 @@ const getStageLabel = (stage: ReturnType<typeof getMediaUploadStage>) => {
   }
 }
 
+const VIDEO_END_EPSILON_SECONDS = 0.15
+
 export function ChatMediaBubble({
   delayLongPress,
   message,
@@ -69,6 +71,7 @@ export function ChatMediaBubble({
   const { width: screenWidth } = useWindowDimensions()
   const mediaRef = useAnimatedRef<View>()
   const didLongPressRef = useRef(false)
+  const didInlineVideoEndRef = useRef(false)
   const clientMessageId = message.clientMessageId ?? message.id
   const uploadJob = useChatMediaUploadStore((state) => state.jobsById[clientMessageId] ?? null)
   const progress = useChatMediaUploadStore(
@@ -206,7 +209,41 @@ export function ChatMediaBubble({
       return
     }
 
+    if (!isInlineVideoActive) {
+      didInlineVideoEndRef.current = false
+    }
+
     setActiveMessage(message.conversationId, isInlineVideoActive ? null : message.id)
+  }
+
+  const handleInlineVideoProgress = useCallback(
+    ({ currentTime, duration, isBuffering }: ReelVideoProgress) => {
+      if (
+        didInlineVideoEndRef.current ||
+        isBuffering ||
+        !Number.isFinite(duration) ||
+        duration <= 0 ||
+        currentTime < duration - VIDEO_END_EPSILON_SECONDS
+      ) {
+        return
+      }
+
+      didInlineVideoEndRef.current = true
+      setActiveMessage(message.conversationId, null)
+    },
+    [message.conversationId, setActiveMessage],
+  )
+
+  const handleInlinePlayPressIn = (event: GestureResponderEvent) => {
+    event.stopPropagation()
+  }
+
+  const handleInlinePlayPressOut = (event: GestureResponderEvent) => {
+    event.stopPropagation()
+  }
+
+  const handleInlinePlayLongPress = (event: GestureResponderEvent) => {
+    event.stopPropagation()
   }
 
   const handleRetry = () => {
@@ -374,6 +411,7 @@ export function ChatMediaBubble({
               muted={false}
               nativeControls={false}
               resetOnPause
+              onProgress={handleInlineVideoProgress}
               shouldPlay
               style={{ height: mediaHeight, position: 'absolute', width: mediaWidth }}
               uri={mediaUri}
@@ -386,10 +424,10 @@ export function ChatMediaBubble({
               accessibilityRole="button"
               activeOpacity={0.9}
               {...(delayLongPress ? { delayLongPress } : {})}
-              {...(onLongPress ? { onLongPress: handleMediaLongPress } : {})}
+              onLongPress={handleInlinePlayLongPress}
               onPress={handleInlinePlayPress}
-              onPressIn={handleMediaPressIn}
-              onPressOut={handleMediaPressOut}
+              onPressIn={handleInlinePlayPressIn}
+              onPressOut={handleInlinePlayPressOut}
               style={{
                 alignItems: 'center',
                 backgroundColor: 'rgba(12,12,13,0.58)',

@@ -70,6 +70,27 @@ const OFFLINE_MESSAGE_ACK_TIMEOUT_MS = 15000
 const BOT_USER_ID = process.env.EXPO_PUBLIC_BOT_USER_ID
 const BOT_FALLBACK_EMAIL = 'bot@system.local'
 const BOT_STREAM_TEMP_ID_PREFIX = 'temp-bot-stream:'
+const RECALLED_MESSAGE_CONTENT = 'Tin nhắn đã thu hồi'
+
+const redactRecalledMessage = (message: Message, recalledAt: string): Message => {
+  const {
+    media: _media,
+    metadata: _metadata,
+    replyPreview: _replyPreview,
+    reply_preview: _replyPreviewSnakeCase,
+    ...safeMessage
+  } = message
+
+  return {
+    ...safeMessage,
+    isRecalled: true,
+    recalledAt,
+    is_recalled: true,
+    recalled_at: recalledAt,
+    content: RECALLED_MESSAGE_CONTENT,
+    reactions: {},
+  }
+}
 
 type NormalizedBotTokenPayload = {
   content?: string
@@ -1088,6 +1109,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       })
 
       const updateMessage = (message: Message) => {
+        if (message.isRecalled === true || message.is_recalled === true) {
+          return message
+        }
+
         const matchesMessageId =
           messageIds.has(message.id) || (message._id ? messageIds.has(message._id) : false)
         const matchesFileKey = Boolean(fileKey && message.media?.fileKey === fileKey)
@@ -1390,16 +1415,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
         for (const nextConversationId of conversationIds) {
           patchConversationMessageCollectionsInCache(queryClient, nextConversationId, (msg) =>
-            msg.id === messageId
-              ? {
-                  ...msg,
-                  isRecalled: true,
-                  recalledAt: now,
-                  is_recalled: true,
-                  recalled_at: now,
-                  reactions: {},
-                }
-              : msg,
+            msg.id === messageId ? redactRecalledMessage(msg, now) : msg,
           )
         }
 

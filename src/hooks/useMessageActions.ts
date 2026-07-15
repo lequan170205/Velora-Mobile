@@ -9,6 +9,28 @@ import { useAuthStore } from '../stores/authStore'
 
 import type { Message } from '../types/conversation.types'
 
+const RECALLED_MESSAGE_CONTENT = 'Tin nhắn đã thu hồi'
+
+const redactRecalledMessage = (message: Message, recalledAt: string): Message => {
+  const {
+    media: _media,
+    metadata: _metadata,
+    replyPreview: _replyPreview,
+    reply_preview: _replyPreviewSnakeCase,
+    ...safeMessage
+  } = message
+
+  return {
+    ...safeMessage,
+    isRecalled: true,
+    recalledAt,
+    is_recalled: true,
+    recalled_at: recalledAt,
+    content: RECALLED_MESSAGE_CONTENT,
+    reactions: {},
+  }
+}
+
 function mergeMessageReactionsIntoCache(
   queryClient: ReturnType<typeof useQueryClient>,
   conversationId: string,
@@ -27,15 +49,10 @@ function mergeRecalledMessageIntoCache(
 ) {
   patchConversationMessageCollectionsInCache(queryClient, conversationId, (msg) =>
     msg.id === message.id
-      ? {
-          ...msg,
-          ...message,
-          isRecalled: true,
-          recalledAt: message.recalledAt || new Date().toISOString(),
-          is_recalled: true,
-          recalled_at: message.recalledAt || new Date().toISOString(),
-          reactions: {},
-        }
+      ? redactRecalledMessage(
+          { ...msg, ...message },
+          message.recalledAt || new Date().toISOString(),
+        )
       : msg,
   )
 }
@@ -51,16 +68,7 @@ export function useRecallMessage(conversationId: string) {
     onMutate: async (messageId) => {
       const now = new Date().toISOString()
       patchConversationMessageCollectionsInCache(queryClient, conversationId, (msg) =>
-        msg.id === messageId
-          ? {
-              ...msg,
-              isRecalled: true,
-              recalledAt: now,
-              is_recalled: true,
-              recalled_at: now,
-              reactions: {},
-            }
-          : msg,
+        msg.id === messageId ? redactRecalledMessage(msg, now) : msg,
       )
     },
     onError: (error) => {

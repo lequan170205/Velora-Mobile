@@ -503,6 +503,7 @@ export default function ProfileScreen() {
           }
 
           await clearCache()
+          await resetLocalDatabase()
 
           if (user?.id) {
             await reelEventQueue.clearUser(user.id)

@@ -30,6 +30,8 @@ import type { UserSession } from '../types/user.types'
 
 type MutableRawRecord = Record<string, string | number | null>
 
+const RECALLED_MESSAGE_CONTENT = 'Tin nhắn đã thu hồi'
+
 type MessageContext = {
   conversation?: Conversation | null
   currentUser?: UserSession | null
@@ -281,6 +283,31 @@ const prepareMessageRecord = ({
   status: MessageStatusValue
   updatedAt: number
 }) => {
+  const isRecalled =
+    record.isRecalled || message.isRecalled === true || message.is_recalled === true
+
+  if (isRecalled) {
+    record.clientMessageId = message.clientMessageId ?? record.clientMessageId
+    record.content = RECALLED_MESSAGE_CONTENT
+    record.media = null
+    record.metadata = null
+    record.type = message.type
+    record.status = toMessageStatusValue(mergeMessageStatus(existingStatus ?? undefined, status))
+    record.readBy = mergeReadByEntries(existingReadBy ?? null, message.readBy ?? null) ?? null
+    record.replyToId = getMessageReplyToId(message)
+    record.replyPreview = null
+    record.reactions = null
+    record.isDeleted = message.isDeleted ?? false
+    record.isRecalled = true
+    record.recalledAt = record.recalledAt ?? getMessageRecalledAt(message) ?? updatedAt
+    record.serverUpdatedAt = Math.max(record.serverUpdatedAt, updatedAt)
+
+    const raw = record._raw as MutableRawRecord
+    raw.created_at = createdAt
+    raw.updated_at = updatedAt
+    return
+  }
+
   record.clientMessageId = message.clientMessageId ?? null
   record.content = content
   record.media = message.media ?? null
@@ -889,6 +916,10 @@ export const markMessageRecalled = async ({
 
   await database.write(async () => {
     await messageRecord.update((record) => {
+      record.content = RECALLED_MESSAGE_CONTENT
+      record.media = null
+      record.metadata = null
+      record.replyPreview = null
       record.isRecalled = true
       record.recalledAt = recalledAtTimestamp
       record.reactions = null
@@ -963,9 +994,14 @@ export const applyMediaProcessingUpdate = async ({
   }
 
   const nextUpdatedAt = Date.now()
+  const activeRecords = records.filter((record) => !record.isRecalled)
+
+  if (activeRecords.length === 0) {
+    return
+  }
 
   await database.write(async () => {
-    const operations = records.map((record) =>
+    const operations = activeRecords.map((record) =>
       record.prepareUpdate((draft) => {
         draft.media = {
           ...(draft.media ?? {}),
