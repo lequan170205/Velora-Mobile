@@ -7,12 +7,15 @@ import { friendApi } from '../api/friend.api'
 import { queryKeys } from '../constants/queryKeys'
 import {
   insertOrReplaceFriendSummary,
+  invalidateFriendshipStatus,
   removeFriendRequestFromPages,
+  removeFriendRequestsForUserFromPages,
   removeUserFromFriendList,
   updateFriendshipStatus,
   updateIncomingRequestPages,
   updateOutgoingRequestPages,
 } from '../lib/friendCache'
+import { removeCreatorReelsFromViewerFeedCaches } from '../lib/reelFeedCache'
 import { useAuthStore } from '../stores/authStore'
 
 import type {
@@ -58,6 +61,14 @@ const ensureViewer = (viewerId: string) => {
 }
 
 const isCurrentViewer = (viewerId: string) => useAuthStore.getState().user?.id === viewerId
+
+const invalidateFriendsReels = (queryClient: ReturnType<typeof useQueryClient>, viewerId: string) =>
+  queryClient.invalidateQueries({ queryKey: queryKeys.reels.friends(viewerId) })
+
+const invalidateViewerFeedEligibility = (
+  queryClient: ReturnType<typeof useQueryClient>,
+  viewerId: string,
+) => queryClient.invalidateQueries({ queryKey: queryKeys.reels.viewerFeeds(viewerId) })
 
 const useFriendMutationError = (viewerId: string) => {
   const queryClient = useQueryClient()
@@ -177,6 +188,7 @@ export function useAcceptFriendRequest() {
 
       void queryClient.invalidateQueries({ queryKey: queryKeys.friends.list(viewerId, viewerId) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.friends.outgoing(viewerId) })
+      void invalidateFriendsReels(queryClient, viewerId)
 
       if (response.conversationId) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.conversations.all })
@@ -339,6 +351,7 @@ export function useRemoveFriend() {
         status: response.status,
         ...(response.id ? { id: response.id } : {}),
       })
+      void invalidateFriendsReels(queryClient, viewerId)
     },
     onError: (error, userId, context) => {
       if (!isCurrentViewer(viewerId)) return
@@ -351,5 +364,80 @@ export function useRemoveFriend() {
       if (!isCurrentViewer(viewerId)) return
       return queryClient.invalidateQueries({ queryKey: queryKeys.friends.list(viewerId, viewerId) })
     },
+  })
+}
+
+export function useBlockUser() {
+  const queryClient = useQueryClient()
+  const viewerId = useAuthStore((state) => state.user?.id) ?? ''
+  const inFlightUserIds = useRef(new Set<string>())
+  const handleError = useFriendMutationError(viewerId)
+
+  return useMutation({
+    mutationKey: [...queryKeys.friends.viewer(viewerId), 'block'] as const,
+    mutationFn: async (userId: string) => {
+      ensureViewer(viewerId)
+      if (inFlightUserIds.current.has(userId)) {
+        throw new Error('This friend action is already in progress.')
+      }
+      inFlightUserIds.current.add(userId)
+
+      try {
+        return await friendApi.blockUser(userId)
+      } finally {
+        inFlightUserIds.current.delete(userId)
+      }
+    },
+    onSuccess: (_response, userId) => {
+      if (!isCurrentViewer(viewerId)) return
+
+      queryClient.setQueryData<FriendSummary[]>(
+        queryKeys.friends.list(viewerId, viewerId),
+        (data) => removeUserFromFriendList(data, userId),
+      )
+      updateIncomingRequestPages(queryClient, viewerId, (data) =>
+        removeFriendRequestsForUserFromPages(data, userId),
+      )
+      updateOutgoingRequestPages(queryClient, viewerId, (data) =>
+        removeFriendRequestsForUserFromPages(data, userId),
+      )
+      updateFriendshipStatus(queryClient, viewerId, userId, { status: 'none' })
+      removeCreatorReelsFromViewerFeedCaches(queryClient, viewerId, userId)
+      void invalidateFriendshipStatus(queryClient, viewerId, userId)
+      void invalidateFriendsReels(queryClient, viewerId)
+      void invalidateViewerFeedEligibility(queryClient, viewerId)
+    },
+    onError: (error, userId) => handleError(error, userId),
+  })
+}
+
+export function useUnblockUser() {
+  const queryClient = useQueryClient()
+  const viewerId = useAuthStore((state) => state.user?.id) ?? ''
+  const inFlightUserIds = useRef(new Set<string>())
+  const handleError = useFriendMutationError(viewerId)
+
+  return useMutation({
+    mutationKey: [...queryKeys.friends.viewer(viewerId), 'unblock'] as const,
+    mutationFn: async (userId: string) => {
+      ensureViewer(viewerId)
+      if (inFlightUserIds.current.has(userId)) {
+        throw new Error('This friend action is already in progress.')
+      }
+      inFlightUserIds.current.add(userId)
+
+      try {
+        return await friendApi.unblockUser(userId)
+      } finally {
+        inFlightUserIds.current.delete(userId)
+      }
+    },
+    onSuccess: (_response, userId) => {
+      if (!isCurrentViewer(viewerId)) return
+
+      void invalidateFriendshipStatus(queryClient, viewerId, userId)
+      void invalidateViewerFeedEligibility(queryClient, viewerId)
+    },
+    onError: (error, userId) => handleError(error, userId),
   })
 }

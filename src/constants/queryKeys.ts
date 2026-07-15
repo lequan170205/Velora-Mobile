@@ -20,25 +20,12 @@ export const queryKeys = {
   },
   reels: {
     all: ['reels'] as const,
+    viewerFeeds: (viewerId: string) => ['reels', viewerId] as const,
+    friends: (viewerId: string) => ['reels', viewerId, 'friends'] as const,
     lists: () => ['reels', 'list'] as const,
     list: (params?: Record<string, unknown>) => ['reels', 'list', params ?? {}] as const,
-    recommended: (params: {
-      userId?: string | null
-      feedSessionId: string
-      limit: number
-      excludeRecentlySeen: boolean
-    }) =>
-      [
-        'reels',
-        'list',
-        'recommended',
-        {
-          userId: params.userId ?? 'anonymous',
-          feedSessionId: params.feedSessionId,
-          limit: params.limit,
-          excludeRecentlySeen: params.excludeRecentlySeen,
-        },
-      ] as const,
+    recommended: (viewerId: string, feedSessionId?: string) =>
+      ['reels', viewerId, 'for-you', feedSessionId ?? 'new'] as const,
     contexts: () => ['reels', 'context'] as const,
     context: (id: string, params?: Record<string, unknown>) =>
       ['reels', 'context', id, params ?? {}] as const,

@@ -1,6 +1,10 @@
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
 
 const getQueryUserId = (queryKey: QueryKey) => {
+  if (queryKey[0] === 'reels' && typeof queryKey[1] === 'string' && queryKey[2] === 'for-you') {
+    return queryKey[1]
+  }
+
   const params = queryKey[queryKey.length - 1]
 
   if (!params || typeof params !== 'object' || Array.isArray(params)) {
@@ -12,8 +16,7 @@ const getQueryUserId = (queryKey: QueryKey) => {
 }
 
 export const isRecommendationQueryForUser = (queryKey: QueryKey, userId: string) => {
-  const isRecommendedReels =
-    queryKey[0] === 'reels' && queryKey[1] === 'list' && queryKey[2] === 'recommended'
+  const isRecommendedReels = queryKey[0] === 'reels' && queryKey[2] === 'for-you'
   const isRecommendedUsers = queryKey[0] === 'users' && queryKey[1] === 'recommended'
 
   return (isRecommendedReels || isRecommendedUsers) && getQueryUserId(queryKey) === userId

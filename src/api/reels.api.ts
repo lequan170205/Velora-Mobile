@@ -9,6 +9,7 @@ import type {
   CreateReelShareLinkPayload,
   ListReelsParams,
   ListReelsResponse,
+  PaginatedFriendsReels,
   PaginatedReels,
   ReelDetail,
   ReelProcessingStatusResponse,
@@ -39,12 +40,20 @@ export async function getRecommendedReels(
   return parseRecommendedReelsResponse(response.data)
 }
 
+export async function getFriendsReels(
+  params: { limit?: number; cursor?: string } = {},
+): Promise<PaginatedFriendsReels> {
+  const response = await apiClient.get<PaginatedFriendsReels>('/content/reels/friends', { params })
+  return response.data
+}
+
 export const reelsApi = {
   list: async (params: ListReelsParams = {}) => {
     const response = await apiClient.get<ListReelsResponse>('/content/reels', { params })
     return response.data
   },
   getRecommendedReels,
+  getFriendsReels,
   getById: async (id: string) => {
     const response = await apiClient.get<ReelDetail>(`/content/reels/${id}`)
     return response.data

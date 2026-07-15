@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React, { useEffect, useRef } from 'react'
 
+import { queryKeys } from '../constants/queryKeys'
 import {
   removeFriendMutationsForViewer,
   removeFriendshipQueriesForViewer,
@@ -30,6 +31,7 @@ export function QueryProvider({ children }: { children: ReactNode }) {
       removeRecommendationQueriesForUser(queryClient, previousUserId)
       removeFriendshipQueriesForViewer(queryClient, previousUserId)
       removeFriendMutationsForViewer(queryClient, previousUserId)
+      queryClient.removeQueries({ queryKey: queryKeys.reels.viewerFeeds(previousUserId) })
     }
 
     previousUserIdRef.current = userId

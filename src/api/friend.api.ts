@@ -62,6 +62,14 @@ export const friendApi = {
     const response = await apiClient.delete<FriendshipActionResponse>(`/friends/${userId}`)
     return response.data
   },
+  blockUser: async (userId: string) => {
+    const response = await apiClient.post<FriendshipActionResponse>(`/friends/${userId}/block`)
+    return response.data
+  },
+  unblockUser: async (userId: string) => {
+    const response = await apiClient.delete<FriendshipActionResponse>(`/friends/${userId}/block`)
+    return response.data
+  },
   getStatus: async (userId: string) => {
     const response = await apiClient.get<FriendshipStatusResponse>(`/friends/status/${userId}`)
     return response.data

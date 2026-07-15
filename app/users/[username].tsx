@@ -34,6 +34,7 @@ import { useConversationNavigation } from '../../src/hooks/useConversationNaviga
 import { getConversationsQueryOptions } from '../../src/hooks/useConversations'
 import {
   useAcceptFriendRequest,
+  useBlockUser,
   useCancelFriendRequest,
   useRejectFriendRequest,
   useRemoveFriend,
@@ -246,6 +247,7 @@ export default function PublicProfileScreen() {
   const rejectFriendRequest = useRejectFriendRequest()
   const cancelFriendRequest = useCancelFriendRequest()
   const removeFriend = useRemoveFriend()
+  const blockUser = useBlockUser()
   const {
     data: friends = [],
     isPending: isFriendsPending,
@@ -268,7 +270,8 @@ export default function PublicProfileScreen() {
     acceptFriendRequest.isPending ||
     rejectFriendRequest.isPending ||
     cancelFriendRequest.isPending ||
-    removeFriend.isPending
+    removeFriend.isPending ||
+    blockUser.isPending
   const isPending = pendingAction !== null || isFriendActionPending
   const status = friendshipStatus?.status ?? 'none'
   const requestId = friendshipStatus?.id
@@ -412,6 +415,25 @@ export default function PublicProfileScreen() {
     })
   }, [closeRemoveSheet, profile?.id, removeFriend])
 
+  const handleBlockUser = useCallback(() => {
+    if (!profile?.id || blockUser.isPending) return
+
+    Alert.alert('Block user?', `You will no longer see content from ${profile.fullName}.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Block',
+        style: 'destructive',
+        onPress: () => {
+          blockUser.mutate(profile.id, {
+            onSuccess: () => {
+              router.back()
+            },
+          })
+        },
+      },
+    ])
+  }, [blockUser, profile?.fullName, profile?.id, router])
+
   const handleFriendPress = useCallback(
     (username?: string | null) => {
       const nextUsername = username?.trim().replace(/^@+/, '')
@@ -504,12 +526,24 @@ export default function PublicProfileScreen() {
                 </Text>
               </View>
 
-              <Pressable
-                className="h-11 w-11 items-center justify-center rounded-full border border-border-light bg-surface-card"
-                onPress={() => router.back()}
-              >
-                <MaterialIcons name="arrow-back" size={22} color="#161616" />
-              </Pressable>
+              <View className="flex-row gap-2">
+                {!isOwnProfile ? (
+                  <Pressable
+                    className="h-11 w-11 items-center justify-center rounded-full border border-[#FFD9D5] bg-[#FFF2F0]"
+                    disabled={blockUser.isPending}
+                    onPress={handleBlockUser}
+                    style={{ opacity: blockUser.isPending ? 0.65 : 1 }}
+                  >
+                    <MaterialIcons name="block" size={20} color="#D8453C" />
+                  </Pressable>
+                ) : null}
+                <Pressable
+                  className="h-11 w-11 items-center justify-center rounded-full border border-border-light bg-surface-card"
+                  onPress={() => router.back()}
+                >
+                  <MaterialIcons name="arrow-back" size={22} color="#161616" />
+                </Pressable>
+              </View>
             </View>
 
             <LinearGradient

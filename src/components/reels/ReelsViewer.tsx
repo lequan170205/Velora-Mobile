@@ -31,7 +31,7 @@ import { getReelCachePolicyForNetworkState } from '@/lib/reelCachePolicy'
 
 import { reelsApi } from '../../api/reels.api'
 import { DEFAULT_REELS_LIMIT } from '../../constants/reels'
-import { useRecommendedReelsFeed, useReelContext } from '../../hooks/useReels'
+import { useFriendsReelsFeed, useRecommendedReelsFeed, useReelContext } from '../../hooks/useReels'
 import { flattenRecommendedReelPages } from '../../lib/recommendationFeed'
 import { useNetworkStatus } from '../../providers/NetworkProvider'
 
@@ -45,6 +45,12 @@ import type { Reel, ReelContextSource, ReelEventSource } from '../../types/reel.
 import type { LayoutChangeEvent, NativeSyntheticEvent } from 'react-native'
 
 type ReelsViewerMode = 'public' | 'context'
+type FeedTab = 'friends' | 'for-you'
+
+interface FeedTabState {
+  activeIndex: number
+  scrollOffset: number
+}
 
 type PagerSelectedEvent = NativeSyntheticEvent<{
   position: number
@@ -59,6 +65,7 @@ const OFFLINE_END_PULL_DISTANCE = 88
 const OFFLINE_END_REVEAL_HEIGHT = 72
 const OFFLINE_END_TRIGGER_PROGRESS = 0.64
 const OFFLINE_END_LOADING_DURATION_MS = 920
+const INITIAL_FEED_TAB_STATE: FeedTabState = { activeIndex: 0, scrollOffset: 0 }
 
 interface ReelsViewerProps {
   bottomContentInset?: number
@@ -158,6 +165,10 @@ export function ReelsViewer({
   const wasFocusedRef = useRef(isFocused)
   const activeReelIdRef = useRef<string | null>(null)
   const reelsRef = useRef<Reel[]>([])
+  const feedTabStatesRef = useRef<Record<FeedTab, FeedTabState>>({
+    friends: { ...INITIAL_FEED_TAB_STATE },
+    'for-you': { ...INITIAL_FEED_TAB_STATE },
+  })
   const previousSelectedReelIdRef = useRef<string | undefined>(reelId)
   const hasShownOfflineFocusAlertRef = useRef(false)
 
@@ -172,6 +183,7 @@ export function ReelsViewer({
   const [contextNextCursor, setContextNextCursor] = useState<string | null>(null)
   const [isFetchingContextNextPage, setIsFetchingContextNextPage] = useState(false)
   const [isManualRefreshing, setIsManualRefreshing] = useState(false)
+  const [selectedFeedTab, setSelectedFeedTab] = useState<FeedTab>('friends')
 
   const pullProgress = useSharedValue(0)
   const refreshSpin = useSharedValue(0)
@@ -206,16 +218,36 @@ export function ReelsViewer({
     refreshWithNewSession,
   } = useRecommendedReelsFeed({
     limit: DEFAULT_REELS_LIMIT,
-    enabled: shouldLoadPublicFeed,
+    enabled: shouldLoadPublicFeed && selectedFeedTab === 'for-you',
   })
-  const publicFeedData = recommendedData
-  const isPublicFeedPending = isRecommendedPending
-  const isPublicFeedError = isRecommendedError
-  const publicFeedError = recommendedError
-  const fetchPublicNextPage = fetchRecommendedNextPage
-  const hasPublicNextPage = hasRecommendedNextPage
-  const isFetchingPublicNextPage = isFetchingRecommendedNextPage
-  const isRefetchingPublicFeed = isRefetchingRecommended
+  const {
+    data: friendsData,
+    reels: friendReels,
+    isPending: isFriendsPending,
+    isError: isFriendsError,
+    error: friendsError,
+    fetchNextPage: fetchFriendsNextPage,
+    hasNextPage: hasFriendsNextPage,
+    isFetchingNextPage: isFetchingFriendsNextPage,
+    isRefetching: isRefetchingFriends,
+    refetch: refetchFriends,
+  } = useFriendsReelsFeed({
+    limit: DEFAULT_REELS_LIMIT,
+    enabled: shouldLoadPublicFeed && selectedFeedTab === 'friends',
+  })
+  const publicFeedData = selectedFeedTab === 'friends' ? friendsData : recommendedData
+  const isPublicFeedPending =
+    selectedFeedTab === 'friends' ? isFriendsPending : isRecommendedPending
+  const isPublicFeedError = selectedFeedTab === 'friends' ? isFriendsError : isRecommendedError
+  const publicFeedError = selectedFeedTab === 'friends' ? friendsError : recommendedError
+  const fetchPublicNextPage =
+    selectedFeedTab === 'friends' ? fetchFriendsNextPage : fetchRecommendedNextPage
+  const hasPublicNextPage =
+    selectedFeedTab === 'friends' ? hasFriendsNextPage : hasRecommendedNextPage
+  const isFetchingPublicNextPage =
+    selectedFeedTab === 'friends' ? isFetchingFriendsNextPage : isFetchingRecommendedNextPage
+  const isRefetchingPublicFeed =
+    selectedFeedTab === 'friends' ? isRefetchingFriends : isRefetchingRecommended
 
   const {
     data: reelContext,
@@ -258,15 +290,19 @@ export function ReelsViewer({
       )
     }
 
-    return flattenRecommendedReelPages(
-      publicFeedData?.pages ?? [],
-      recommendedFeedSessionId,
-    ).filter((item) => !deletedReelIds.has(item.id))
+    const feedReels =
+      selectedFeedTab === 'friends'
+        ? friendReels
+        : flattenRecommendedReelPages(publicFeedData?.pages ?? [], recommendedFeedSessionId)
+
+    return feedReels.filter((item) => !deletedReelIds.has(item.id))
   }, [
     contextExtraItems,
     contextItems,
     publicFeedData,
+    friendReels,
     recommendedFeedSessionId,
+    selectedFeedTab,
     deletedReelIds,
     reelContext,
     shouldUseLocalContext,
@@ -284,7 +320,11 @@ export function ReelsViewer({
     return reels.findIndex((item) => item.id === reelId)
   }, [reels, reelId, shouldUseReelContext])
 
-  const initialPageIndex = shouldUseReelContext && requestedReelIndex > 0 ? requestedReelIndex : 0
+  const initialPageIndex = shouldUseReelContext
+    ? requestedReelIndex > 0
+      ? requestedReelIndex
+      : 0
+    : feedTabStatesRef.current[selectedFeedTab].activeIndex
 
   const safeInitialPageIndex = useMemo(() => {
     if (reels.length === 0) {
@@ -314,7 +354,9 @@ export function ReelsViewer({
     () => reels.find((reel) => reel.id === effectiveActiveReelId) ?? null,
     [effectiveActiveReelId, reels],
   )
-  const telemetrySource = eventSource ?? (mode === 'public' ? 'RECOMMENDED' : 'DIRECT')
+  const telemetrySource =
+    eventSource ??
+    (mode === 'public' ? (selectedFeedTab === 'friends' ? 'FRIENDS' : 'RECOMMENDED') : 'DIRECT')
   const routeEventSource =
     telemetrySource === 'PROFILE'
       ? 'profile'
@@ -592,7 +634,9 @@ export function ReelsViewer({
   const isInitialLoading = shouldFetchReelContext ? isContextPending : isPublicFeedPending
   const isActiveError = shouldFetchReelContext ? isContextError : isPublicFeedError
   const isShowingOfflineCache =
-    !shouldFetchReelContext && Boolean(publicFeedData?.pages.some((page) => page.fromOfflineCache))
+    !shouldFetchReelContext &&
+    selectedFeedTab === 'for-you' &&
+    Boolean(recommendedData?.pages.some((page) => page.fromOfflineCache))
 
   const pullRefreshContainerStyle = useAnimatedStyle(() => {
     const opacity = interpolate(pullProgress.value, [0, 0.22, 1], [0, 1, 1], Extrapolation.CLAMP)
@@ -750,6 +794,10 @@ export function ReelsViewer({
       const nextReelId = reels[safeIndex]?.id ?? null
 
       currentPageIndexRef.current = safeIndex
+      feedTabStatesRef.current[selectedFeedTab] = {
+        activeIndex: safeIndex,
+        scrollOffset: safeIndex * viewportHeight,
+      }
 
       if (activeReelIdRef.current === nextReelId) {
         return
@@ -758,8 +806,44 @@ export function ReelsViewer({
       activeReelIdRef.current = nextReelId
       setActiveReelId(nextReelId)
     },
-    [isFocused, reels],
+    [isFocused, reels, selectedFeedTab, viewportHeight],
   )
+
+  const handleFeedTabChange = useCallback(
+    (nextFeedTab: FeedTab) => {
+      if (nextFeedTab === selectedFeedTab || isManualRefreshing) {
+        return
+      }
+
+      feedTabStatesRef.current[selectedFeedTab] = {
+        activeIndex: Math.max(0, activeIndex),
+        scrollOffset: Math.max(0, activeIndex) * viewportHeight,
+      }
+      endCurrentReelSession('tab_switch')
+      activeReelIdRef.current = null
+      setActiveReelId(null)
+      setSelectedFeedTab(nextFeedTab)
+    },
+    [activeIndex, endCurrentReelSession, isManualRefreshing, selectedFeedTab, viewportHeight],
+  )
+
+  useEffect(() => {
+    if (!shouldLoadPublicFeed || reels.length === 0) {
+      return
+    }
+
+    const savedTabState = feedTabStatesRef.current[selectedFeedTab]
+    const safeIndex = Math.max(0, Math.min(reels.length - 1, savedTabState.activeIndex))
+    const nextReelId = reels[safeIndex]?.id ?? null
+
+    currentPageIndexRef.current = safeIndex
+    activeReelIdRef.current = nextReelId
+    setActiveReelId((current) => (current === nextReelId ? current : nextReelId))
+
+    requestAnimationFrame(() => {
+      pagerRef.current?.setPageWithoutAnimation(safeIndex)
+    })
+  }, [reels, selectedFeedTab, shouldLoadPublicFeed])
 
   useEffect(() => {
     if (!shouldUseReelContext || !reelId || handledRequestedReelIdRef.current === reelId) {
@@ -960,8 +1044,12 @@ export function ReelsViewer({
       handledRequestedReelIdRef.current = null
       currentPageIndexRef.current = 0
 
-      const refreshedFeed = await refreshWithNewSession()
-      const freshPage = refreshedFeed.pages[0]
+      feedTabStatesRef.current[selectedFeedTab] = { ...INITIAL_FEED_TAB_STATE }
+      const refreshedData =
+        selectedFeedTab === 'friends'
+          ? (await refetchFriends()).data
+          : await refreshWithNewSession()
+      const freshPage = refreshedData?.pages[0]
 
       if (!freshPage) {
         return
@@ -990,6 +1078,8 @@ export function ReelsViewer({
     isManualRefreshing,
     isRefetchingPublicFeed,
     refreshWithNewSession,
+    refetchFriends,
+    selectedFeedTab,
     shouldAllowRefresh,
   ])
 
@@ -1296,7 +1386,7 @@ export function ReelsViewer({
     ],
   )
 
-  if (isActiveError && reels.length === 0 && !shouldShowOfflineSkeleton) {
+  if (isActiveError && reels.length === 0 && !shouldShowOfflineSkeleton && !shouldLoadPublicFeed) {
     return (
       <View className="flex-1 items-center justify-center bg-[#050505] px-6">
         <StatusBar style="light" />
@@ -1455,25 +1545,54 @@ export function ReelsViewer({
                 elevation: 5,
               }}
             >
-              <View className="h-16 w-16 items-center justify-center rounded-full bg-white/10">
-                <MaterialIcons name="play-circle-outline" size={32} color="#FFFFFF" />
-              </View>
+              {isActiveError ? (
+                <>
+                  <View className="h-16 w-16 items-center justify-center rounded-full bg-white/10">
+                    <MaterialIcons name="error-outline" size={32} color="#FFFFFF" />
+                  </View>
+                  <Text className="mt-5 font-heading text-[28px] text-white">Feed unavailable</Text>
+                  <Text className="mt-3 max-w-[280px] text-center text-base2 leading-6 text-white">
+                    {errorMessage}
+                  </Text>
+                  <TouchableOpacity
+                    className="mt-7 rounded-full bg-brand px-6 py-3.5"
+                    activeOpacity={0.84}
+                    onPress={() => {
+                      void handleRefresh()
+                    }}
+                  >
+                    <Text className="font-medium text-white">Try again</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <View className="h-16 w-16 items-center justify-center rounded-full bg-white/10">
+                    <MaterialIcons name="play-circle-outline" size={32} color="#FFFFFF" />
+                  </View>
 
-              <Text className="mt-5 font-heading text-[28px] text-white">No reels yet</Text>
+                  <Text className="mt-5 font-heading text-[28px] text-white">
+                    {selectedFeedTab === 'friends' ? 'No reels from friends yet' : 'No reels yet'}
+                  </Text>
 
-              <Text className="mt-3 max-w-[280px] text-center text-base2 leading-6 text-white">
-                Upload the first reel and it will land here as soon as processing finishes.
-              </Text>
+                  <Text className="mt-3 max-w-[280px] text-center text-base2 leading-6 text-white">
+                    {selectedFeedTab === 'friends'
+                      ? 'Reels shared by your friends will appear here.'
+                      : 'Upload the first reel and it will land here as soon as processing finishes.'}
+                  </Text>
 
-              <TouchableOpacity
-                className="mt-7 rounded-full bg-brand px-6 py-3.5"
-                activeOpacity={0.84}
-                onPress={() => {
-                  router.push('/reels/create')
-                }}
-              >
-                <Text className="font-medium text-white">Create reel</Text>
-              </TouchableOpacity>
+                  <TouchableOpacity
+                    className="mt-7 rounded-full bg-brand px-6 py-3.5"
+                    activeOpacity={0.84}
+                    onPress={() => {
+                      router.push(selectedFeedTab === 'friends' ? '/friends' : '/reels/create')
+                    }}
+                  >
+                    <Text className="font-medium text-white">
+                      {selectedFeedTab === 'friends' ? 'Find friends' : 'Create reel'}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           </View>
         ) : null}
@@ -1500,6 +1619,33 @@ export function ReelsViewer({
                   <>
                     <Text className="text-xs2 uppercase tracking-[1.4px] text-white">Velora</Text>
                     <Text className="mt-2 font-heading text-[30px] text-white">Reels</Text>
+                    <View className="mt-4 flex-row self-start rounded-full bg-black/38 p-1">
+                      {(['friends', 'for-you'] as const).map((tab) => {
+                        const isSelected = selectedFeedTab === tab
+
+                        return (
+                          <TouchableOpacity
+                            key={tab}
+                            className={isSelected ? 'rounded-full bg-white px-4 py-2' : 'px-4 py-2'}
+                            activeOpacity={0.78}
+                            disabled={isManualRefreshing}
+                            onPress={() => {
+                              handleFeedTabChange(tab)
+                            }}
+                          >
+                            <Text
+                              className={
+                                isSelected
+                                  ? 'font-medium text-sm2 text-text-primary'
+                                  : 'font-medium text-sm2 text-white'
+                              }
+                            >
+                              {tab === 'friends' ? 'Friends' : 'For You'}
+                            </Text>
+                          </TouchableOpacity>
+                        )
+                      })}
+                    </View>
                   </>
                 ) : null}
               </View>

@@ -23,10 +23,12 @@ import type {
   AllowedVideoType,
   ListReelsParams,
   ListReelsResponse,
+  PaginatedFriendsReels,
   ReelContextParams,
   ReelContextResponse,
   Reel,
   ReelDetail,
+  ReelFeedListItem,
   ReelProcessingStatusResponse,
   RecommendedReelsParams,
   ReelShareResponse,
@@ -40,6 +42,21 @@ const REEL_STATUS_POLL_INTERVAL_MS = 3000
 
 type ReelsInfiniteData = InfiniteData<ListReelsResponse, string | undefined>
 type ReelContextData = ReelContextResponse
+
+const flattenReelFeedPages = (pages: readonly { items: ReelFeedListItem[] }[]) => {
+  const reelIds = new Set<string>()
+
+  return pages.flatMap((page) =>
+    page.items.filter((reel) => {
+      if (reelIds.has(reel.id)) {
+        return false
+      }
+
+      reelIds.add(reel.id)
+      return true
+    }),
+  )
+}
 
 type LegacyFileSystemModule = {
   FileSystemUploadType: {
@@ -522,12 +539,7 @@ export function useRecommendedReelsFeed(params: { enabled?: boolean; limit?: num
     (activeFeedSessionId: string) =>
       createInfiniteReelsFeedQueryOptions({
         queryClient,
-        queryKey: queryKeys.reels.recommended({
-          userId: userId ?? null,
-          feedSessionId: activeFeedSessionId,
-          limit: recommendedLimit,
-          excludeRecentlySeen,
-        }),
+        queryKey: queryKeys.reels.recommended(userId ?? 'anonymous', activeFeedSessionId),
         cacheParams: {
           limit: recommendedLimit,
           excludeRecentlySeen,
@@ -562,6 +574,32 @@ export function useRecommendedReelsFeed(params: { enabled?: boolean; limit?: num
     feedSessionId,
     algorithmVersion: query.data?.pages.find((page) => page.algorithmVersion)?.algorithmVersion,
     refreshWithNewSession,
+  }
+}
+
+export function useFriendsReelsFeed(params: { enabled?: boolean; limit?: number } = {}) {
+  const viewerId = useAuthStore((state) => state.user?.id ?? '')
+  const limit = Number.isFinite(params.limit)
+    ? Math.max(1, Math.floor(params.limit ?? DEFAULT_REELS_LIMIT))
+    : DEFAULT_REELS_LIMIT
+  const enabled = Boolean(viewerId) && (params.enabled ?? true)
+  const query = useInfiniteQuery({
+    queryKey: queryKeys.reels.friends(viewerId),
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
+      reelsApi.getFriendsReels({
+        limit,
+        ...(pageParam ? { cursor: pageParam } : {}),
+      }),
+    enabled,
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage: PaginatedFriendsReels) => lastPage.nextCursor ?? undefined,
+    staleTime: REELS_QUERY_STALE_TIME_MS,
+    retry: 1,
+  })
+
+  return {
+    ...query,
+    reels: flattenReelFeedPages(query.data?.pages ?? []),
   }
 }
 

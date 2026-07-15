@@ -67,6 +67,11 @@ export interface PaginatedReels<T> {
 
 export type ListReelsResponse = PaginatedReels<Reel>
 
+export interface PaginatedFriendsReels {
+  items: ReelFeedListItem[]
+  nextCursor: string | null
+}
+
 export interface RecommendedReelsParams {
   limit?: number
   cursor?: string | null
@@ -194,7 +199,7 @@ export type ReelViewEventType =
   | 'UNMUTE'
 
 export type ReelEventSource =
-  'RECOMMENDED' | 'PUBLIC_FEED' | 'PROFILE' | 'SEARCH' | 'SHARED' | 'DIRECT' | 'UNKNOWN'
+  'RECOMMENDED' | 'FRIENDS' | 'PUBLIC_FEED' | 'PROFILE' | 'SEARCH' | 'SHARED' | 'DIRECT' | 'UNKNOWN'
 
 export interface ReelEventRecommendation {
   recommendationId: string

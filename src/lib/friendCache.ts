@@ -47,6 +47,21 @@ export const removeFriendRequestFromPages = (
   }
 }
 
+export const removeFriendRequestsForUserFromPages = (
+  data: FriendRequestPages | undefined,
+  userId: string,
+) => {
+  if (!data) return data
+
+  return {
+    ...data,
+    pages: data.pages.map((page) => ({
+      ...page,
+      items: page.items.filter((request) => request.user.id !== userId),
+    })),
+  }
+}
+
 export const removeUserFromFriendList = (friends: FriendSummary[] | undefined, userId: string) =>
   friends?.filter((friend) => friend.user.id !== userId)
 
