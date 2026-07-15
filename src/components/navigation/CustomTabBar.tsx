@@ -94,7 +94,7 @@ const TABS: TabMeta[] = [
   { name: 'index', icon: 'chat-bubble-outline', size: 24 },
   { name: 'search', icon: 'search', size: 26 },
   { name: 'reels', icon: 'play-circle-outline', size: 26 },
-  { name: 'calls', icon: 'call', size: 23 },
+  { name: 'friends', icon: 'people-outline', size: 25 },
   { name: 'profile', icon: 'person-outline', size: 25 },
 ]
 

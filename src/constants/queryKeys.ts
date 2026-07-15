@@ -10,12 +10,13 @@ export const queryKeys = {
   },
   friends: {
     all: ['friends'] as const,
-    list: (userId?: string | null) => ['friends', 'list', userId ?? 'anonymous'] as const,
-    incoming: (userId?: string | null) =>
-      ['friends', 'incoming', 'pages', userId ?? 'anonymous'] as const,
-    outgoing: (userId?: string | null) =>
-      ['friends', 'outgoing', 'pages', userId ?? 'anonymous'] as const,
-    status: (userId: string) => ['friends', 'status', userId] as const,
+    viewer: (viewerId: string) => ['friends', viewerId] as const,
+    list: (viewerId: string, targetUserId: string) =>
+      ['friends', viewerId, 'list', targetUserId] as const,
+    incoming: (viewerId: string) => ['friends', viewerId, 'incoming', 'pages'] as const,
+    outgoing: (viewerId: string) => ['friends', viewerId, 'outgoing', 'pages'] as const,
+    status: (viewerId: string, targetUserId: string) =>
+      ['friends', viewerId, 'status', targetUserId] as const,
   },
   reels: {
     all: ['reels'] as const,

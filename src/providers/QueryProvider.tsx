@@ -1,6 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React, { useEffect, useRef } from 'react'
 
+import {
+  removeFriendMutationsForViewer,
+  removeFriendshipQueriesForViewer,
+} from '../lib/friendCache'
 import { removeRecommendationQueriesForUser } from '../lib/recommendationCache'
 import { useAuthStore } from '../stores/authStore'
 
@@ -24,6 +28,8 @@ export function QueryProvider({ children }: { children: ReactNode }) {
 
     if (previousUserId && previousUserId !== userId) {
       removeRecommendationQueriesForUser(queryClient, previousUserId)
+      removeFriendshipQueriesForViewer(queryClient, previousUserId)
+      removeFriendMutationsForViewer(queryClient, previousUserId)
     }
 
     previousUserIdRef.current = userId

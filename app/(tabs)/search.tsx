@@ -1,5 +1,4 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import { useQueryClient } from '@tanstack/react-query'
 import { Image } from 'expo-image'
 import { useRouter } from 'expo-router'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -15,14 +14,16 @@ import {
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
-import { friendApi } from '../../src/api/friend.api'
 import { AppSearchBar } from '../../src/components/common/AppSearchBar'
 import { ReelThumbnailGrid } from '../../src/components/reels/ReelThumbnailGrid'
-import { queryKeys } from '../../src/constants/queryKeys'
 import { colors } from '../../src/constants/theme'
 import { useBotChat } from '../../src/hooks/useBotChat'
 import { useConversationNavigation } from '../../src/hooks/useConversationNavigation'
-import { getConversationsQueryOptions } from '../../src/hooks/useConversations'
+import {
+  useAcceptFriendRequest,
+  useCancelFriendRequest,
+  useRejectFriendRequest,
+} from '../../src/hooks/useFriendMutations'
 import { useIncomingFriendRequests, useOutgoingFriendRequests } from '../../src/hooks/useFriends'
 import { useGlobalSearch } from '../../src/hooks/useGlobalSearch'
 import { useRecommendedUsers } from '../../src/hooks/useRecommendedUsers'
@@ -609,7 +610,6 @@ function LoadMoreButton({ isPending, onPress }: { isPending: boolean; onPress: (
 
 export default function SearchScreen() {
   const router = useRouter()
-  const queryClient = useQueryClient()
   const inputRef = useRef<TextInput | null>(null)
   const { width: windowWidth } = useWindowDimensions()
   const [pendingActionKey, setPendingActionKey] = useState<string | null>(null)
@@ -617,6 +617,9 @@ export default function SearchScreen() {
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [selectedTab, setSelectedTab] = useState<SearchTabKey>('all')
   const { mutateAsync: startBotChat, isPending: isBotLoading } = useBotChat()
+  const acceptFriendRequest = useAcceptFriendRequest()
+  const rejectFriendRequest = useRejectFriendRequest()
+  const cancelFriendRequest = useCancelFriendRequest()
   const { runConversationEntry } = useConversationNavigation()
 
   const {
@@ -701,40 +704,18 @@ export default function SearchScreen() {
   }, [normalizedQuery])
 
   const runRequestAction = useCallback(
-    async (
-      actionKey: string,
-      task: () => Promise<void>,
-      fallbackMessage: string,
-      options: { refreshConversations?: boolean } = {},
-    ) => {
+    async (actionKey: string, task: () => Promise<void>, _fallbackMessage: string) => {
       setPendingActionKey(actionKey)
 
       try {
         await task()
-        await queryClient.invalidateQueries({ queryKey: queryKeys.friends.all })
-
-        if (options.refreshConversations) {
-          const conversationsQueryOptions = getConversationsQueryOptions()
-
-          try {
-            await queryClient.fetchQuery({
-              ...conversationsQueryOptions,
-              staleTime: 0,
-            })
-          } catch (error) {
-            console.warn('[Search] Failed to refresh conversations cache', error)
-            void queryClient.invalidateQueries({
-              queryKey: conversationsQueryOptions.queryKey,
-            })
-          }
-        }
-      } catch (error) {
-        Alert.alert('Error', getErrorMessage(error, fallbackMessage))
+      } catch {
+        return
       } finally {
         setPendingActionKey((currentKey) => (currentKey === actionKey ? null : currentKey))
       }
     },
-    [queryClient],
+    [],
   )
 
   const handleSuggestionPress = useCallback((value: string) => {
@@ -809,27 +790,40 @@ export default function SearchScreen() {
                     <RequestActionButton
                       label="Confirm"
                       tone="primary"
-                      isPending={pendingActionKey === `accept:${request.id}`}
+                      isPending={
+                        pendingActionKey === `accept:${request.id}` ||
+                        pendingActionKey === `reject:${request.id}`
+                      }
                       onPress={() => {
                         void runRequestAction(
                           `accept:${request.id}`,
                           async () => {
-                            await friendApi.acceptRequest(request.id)
+                            await acceptFriendRequest.mutateAsync({
+                              requestId: request.id,
+                              userId: request.user.id,
+                              requester: request.user,
+                              requestedAt: request.requestedAt,
+                            })
                           },
                           'Could not accept the friend request.',
-                          { refreshConversations: true },
                         )
                       }}
                     />
                     <RequestActionButton
                       label="Reject"
                       tone="secondary"
-                      isPending={pendingActionKey === `reject:${request.id}`}
+                      isPending={
+                        pendingActionKey === `accept:${request.id}` ||
+                        pendingActionKey === `reject:${request.id}`
+                      }
                       onPress={() => {
                         void runRequestAction(
                           `reject:${request.id}`,
                           async () => {
-                            await friendApi.rejectRequest(request.id)
+                            await rejectFriendRequest.mutateAsync({
+                              requestId: request.id,
+                              userId: request.user.id,
+                            })
                           },
                           'Could not reject the friend request.',
                         )
@@ -870,7 +864,10 @@ export default function SearchScreen() {
                       void runRequestAction(
                         `cancel:${request.id}`,
                         async () => {
-                          await friendApi.cancelRequest(request.id)
+                          await cancelFriendRequest.mutateAsync({
+                            requestId: request.id,
+                            userId: request.user.id,
+                          })
                         },
                         'Could not cancel the friend request.',
                       )

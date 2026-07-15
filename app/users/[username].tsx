@@ -6,6 +6,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Modal,
   Pressable,
@@ -24,25 +25,31 @@ import Animated, {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { conversationApi } from '../../src/api/conversation.api'
-import { friendApi } from '../../src/api/friend.api'
 import {
   ReelThumbnailGridSkeleton,
   ReelThumbnailTile,
 } from '../../src/components/reels/ReelThumbnailGrid'
-import { queryKeys } from '../../src/constants/queryKeys'
 import { usePublicProfile } from '../../src/hooks/useContacts'
 import { useConversationNavigation } from '../../src/hooks/useConversationNavigation'
 import { getConversationsQueryOptions } from '../../src/hooks/useConversations'
+import {
+  useAcceptFriendRequest,
+  useCancelFriendRequest,
+  useRejectFriendRequest,
+  useRemoveFriend,
+  useSendFriendRequest,
+} from '../../src/hooks/useFriendMutations'
 import { useFriends, useFriendshipStatus } from '../../src/hooks/useFriends'
 import { useReelsFeed } from '../../src/hooks/useReels'
 import { cn } from '../../src/lib/cn'
 import { getInitials } from '../../src/lib/profile'
+import { useAuthStore } from '../../src/stores/authStore'
 
-import type { FriendSummary, FriendshipState } from '../../src/types/friend.types'
+import type { FriendSummary } from '../../src/types/friend.types'
 import type { Reel } from '../../src/types/reel.types'
 
 type ActionVariant = 'primary' | 'secondary' | 'muted' | 'danger'
-type PendingAction = FriendshipState | 'message' | 'remove'
+type PendingAction = 'message'
 const PROFILE_REELS_LIMIT = 24
 
 const getErrorMessage = (error: unknown, fallback: string) => {
@@ -234,6 +241,11 @@ export default function PublicProfileScreen() {
     isFetching: isStatusFetching,
     refetch: refetchStatus,
   } = useFriendshipStatus(profile?.id ?? '')
+  const sendFriendRequest = useSendFriendRequest()
+  const acceptFriendRequest = useAcceptFriendRequest()
+  const rejectFriendRequest = useRejectFriendRequest()
+  const cancelFriendRequest = useCancelFriendRequest()
+  const removeFriend = useRemoveFriend()
   const {
     data: friends = [],
     isPending: isFriendsPending,
@@ -251,9 +263,16 @@ export default function PublicProfileScreen() {
   } = useReelsFeed(reelsParams, { enabled: Boolean(profile?.id) })
   const { openConversation, runConversationEntry } = useConversationNavigation()
 
-  const isPending = pendingAction !== null
+  const isFriendActionPending =
+    sendFriendRequest.isPending ||
+    acceptFriendRequest.isPending ||
+    rejectFriendRequest.isPending ||
+    cancelFriendRequest.isPending ||
+    removeFriend.isPending
+  const isPending = pendingAction !== null || isFriendActionPending
   const status = friendshipStatus?.status ?? 'none'
   const requestId = friendshipStatus?.id
+  const isOwnProfile = profile?.id === useAuthStore((state) => state.user?.id)
   const publicReels = useMemo(
     () => reelsData?.pages.flatMap((page) => page.items) ?? [],
     [reelsData],
@@ -291,7 +310,7 @@ export default function PublicProfileScreen() {
 
   const closeRemoveSheet = useCallback(
     (options: { force?: boolean } = {}) => {
-      if (pendingAction === 'remove' && !options.force) {
+      if (removeFriend.isPending && !options.force) {
         return
       }
 
@@ -320,7 +339,7 @@ export default function PublicProfileScreen() {
         setIsRemoveSheetVisible(false)
       }, 150)
     },
-    [pendingAction, removeSheetBackdropOpacity, removeSheetScale, removeSheetTranslateY],
+    [removeFriend.isPending, removeSheetBackdropOpacity, removeSheetScale, removeSheetTranslateY],
   )
 
   const createAndOpenConversation = useCallback(
@@ -346,48 +365,6 @@ export default function PublicProfileScreen() {
       openConversation(conversation.id)
     },
     [openConversation, queryClient],
-  )
-
-  const runFriendAction = useCallback(
-    async (
-      nextAction: PendingAction,
-      task: () => Promise<void>,
-      fallbackMessage: string,
-      options: { refreshConversations?: boolean } = {},
-    ) => {
-      setActionErrorMessage(null)
-      setPendingAction(nextAction)
-
-      try {
-        await task()
-        await queryClient.invalidateQueries({ queryKey: queryKeys.friends.all })
-
-        if (nextAction === 'remove') {
-          closeRemoveSheet({ force: true })
-        }
-
-        if (options.refreshConversations) {
-          const conversationsQueryOptions = getConversationsQueryOptions()
-
-          try {
-            await queryClient.fetchQuery({
-              ...conversationsQueryOptions,
-              staleTime: 0,
-            })
-          } catch (error) {
-            console.warn('[PublicProfile] Failed to refresh conversations cache', error)
-            void queryClient.invalidateQueries({
-              queryKey: conversationsQueryOptions.queryKey,
-            })
-          }
-        }
-      } catch (error) {
-        setActionErrorMessage(getErrorMessage(error, fallbackMessage))
-      } finally {
-        setPendingAction(null)
-      }
-    },
-    [closeRemoveSheet, queryClient],
   )
 
   const handleMessage = useCallback(() => {
@@ -430,14 +407,10 @@ export default function PublicProfileScreen() {
   const handleConfirmRemoveFriend = useCallback(() => {
     if (!profile?.id) return
 
-    void runFriendAction(
-      'remove',
-      async () => {
-        await friendApi.removeFriend(profile.id)
-      },
-      'Could not remove this friend.',
-    )
-  }, [profile?.id, runFriendAction])
+    removeFriend.mutate(profile.id, {
+      onSuccess: () => closeRemoveSheet({ force: true }),
+    })
+  }, [closeRemoveSheet, profile?.id, removeFriend])
 
   const handleFriendPress = useCallback(
     (username?: string | null) => {
@@ -451,76 +424,6 @@ export default function PublicProfileScreen() {
     },
     [router],
   )
-
-  const action = useMemo(() => {
-    if (!profile?.id) {
-      return {
-        disabled: true,
-        label: 'Add',
-        onPress: () => {},
-        variant: 'primary' as ActionVariant,
-      }
-    }
-
-    if (status === 'friends') {
-      return {
-        disabled: false,
-        label: 'Message',
-        onPress: handleMessage,
-        variant: 'secondary' as ActionVariant,
-      }
-    }
-
-    if (status === 'request_received' && requestId) {
-      return {
-        disabled: false,
-        label: 'Confirm',
-        onPress: () => {
-          void runFriendAction(
-            'request_received',
-            async () => {
-              await friendApi.acceptRequest(requestId)
-            },
-            'Could not accept the friend request.',
-            { refreshConversations: true },
-          )
-        },
-        variant: 'primary' as ActionVariant,
-      }
-    }
-
-    if (status === 'request_sent' && requestId) {
-      return {
-        disabled: false,
-        label: 'Cancel request',
-        onPress: () => {
-          void runFriendAction(
-            'request_sent',
-            async () => {
-              await friendApi.cancelRequest(requestId)
-            },
-            'Could not cancel the friend request.',
-          )
-        },
-        variant: 'secondary' as ActionVariant,
-      }
-    }
-
-    return {
-      disabled: false,
-      label: 'Add',
-      onPress: () => {
-        void runFriendAction(
-          'none',
-          async () => {
-            await friendApi.sendRequest(profile.id)
-          },
-          'Could not send the friend request.',
-        )
-      },
-      variant: 'primary' as ActionVariant,
-    }
-  }, [handleMessage, profile?.id, requestId, runFriendAction, status])
 
   const handleRefresh = useCallback(() => {
     void Promise.all([refetchProfile(), refetchStatus(), refetchFriends(), refetchReels()])
@@ -667,47 +570,100 @@ export default function PublicProfileScreen() {
                 </View>
               </View>
 
-              <View className="mt-5">
-                {status === 'friends' ? (
-                  <View className="flex-row gap-3">
-                    <View className="flex-1">
-                      <ActionButton
-                        disabled={isPending || isStatusLoading || isStatusFetching}
-                        isPending={pendingAction === 'message'}
-                        label="Message"
-                        onPress={handleMessage}
-                        variant="secondary"
-                      />
+              {!isOwnProfile ? (
+                <View className="mt-5">
+                  {status === 'friends' ? (
+                    <View className="flex-row gap-3">
+                      <View className="flex-1">
+                        <ActionButton
+                          disabled={isPending || isStatusLoading || isStatusFetching}
+                          isPending={pendingAction === 'message'}
+                          label="Message"
+                          onPress={handleMessage}
+                          variant="secondary"
+                        />
+                      </View>
+                      <View className="flex-1">
+                        <ActionButton
+                          disabled={isPending || isStatusLoading || isStatusFetching}
+                          isPending={false}
+                          label="Friends"
+                          onPress={() => {
+                            Alert.alert('Friends', undefined, [
+                              { text: 'Cancel', style: 'cancel' },
+                              {
+                                text: 'Remove friend',
+                                style: 'destructive',
+                                onPress: handleOpenRemoveSheet,
+                              },
+                            ])
+                          }}
+                          variant="secondary"
+                        />
+                      </View>
                     </View>
-                    <View className="flex-1">
-                      <ActionButton
-                        disabled={isPending || isStatusLoading || isStatusFetching}
-                        isPending={pendingAction === 'remove'}
-                        label="Remove"
-                        onPress={handleOpenRemoveSheet}
-                        variant="danger"
-                      />
+                  ) : status === 'request_received' && requestId ? (
+                    <View className="flex-row gap-3">
+                      <View className="flex-1">
+                        <ActionButton
+                          disabled={isPending || isStatusLoading || isStatusFetching}
+                          isPending={acceptFriendRequest.isPending}
+                          label="Accept"
+                          onPress={() =>
+                            acceptFriendRequest.mutate({
+                              requestId: requestId ?? '',
+                              userId: profile.id,
+                              requester: {
+                                id: profile.id,
+                                fullName: profile.fullName,
+                                username: profile.username ?? '',
+                                picture: profile.picture,
+                              },
+                            })
+                          }
+                          variant="primary"
+                        />
+                      </View>
+                      <View className="flex-1">
+                        <ActionButton
+                          disabled={isPending || isStatusLoading || isStatusFetching}
+                          isPending={rejectFriendRequest.isPending}
+                          label="Reject"
+                          onPress={() =>
+                            rejectFriendRequest.mutate({ requestId, userId: profile.id })
+                          }
+                          variant="secondary"
+                        />
+                      </View>
                     </View>
-                  </View>
-                ) : (
-                  <ActionButton
-                    disabled={isPending || isStatusLoading || isStatusFetching || action.disabled}
-                    isPending={isPending}
-                    label={action.label}
-                    onPress={action.onPress}
-                    variant={action.variant}
-                  />
-                )}
+                  ) : status === 'request_sent' && requestId ? (
+                    <ActionButton
+                      disabled={isPending || isStatusLoading || isStatusFetching}
+                      isPending={cancelFriendRequest.isPending}
+                      label="Cancel request"
+                      onPress={() => cancelFriendRequest.mutate({ requestId, userId: profile.id })}
+                      variant="secondary"
+                    />
+                  ) : (
+                    <ActionButton
+                      disabled={isPending || isStatusLoading || isStatusFetching || !profile.id}
+                      isPending={sendFriendRequest.isPending}
+                      label="Add friend"
+                      onPress={() => sendFriendRequest.mutate(profile.id)}
+                      variant="primary"
+                    />
+                  )}
 
-                {actionErrorMessage ? (
-                  <View className="mt-3 flex-row rounded-[22px] border border-[#FFD9D5] bg-[#FFF5F3] px-4 py-3">
-                    <MaterialIcons name="error-outline" size={18} color="#E5483B" />
-                    <Text className="ml-2 flex-1 text-sm2 leading-5 text-[#B2453C]">
-                      {actionErrorMessage}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
+                  {actionErrorMessage ? (
+                    <View className="mt-3 flex-row rounded-[22px] border border-[#FFD9D5] bg-[#FFF5F3] px-4 py-3">
+                      <MaterialIcons name="error-outline" size={18} color="#E5483B" />
+                      <Text className="ml-2 flex-1 text-sm2 leading-5 text-[#B2453C]">
+                        {actionErrorMessage}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
             </LinearGradient>
 
             <View className="mt-5">
@@ -807,7 +763,7 @@ export default function PublicProfileScreen() {
           >
             <Pressable
               className="flex-1"
-              disabled={pendingAction === 'remove'}
+              disabled={removeFriend.isPending}
               onPress={handleCloseRemoveSheet}
             />
           </Animated.View>
@@ -841,7 +797,7 @@ export default function PublicProfileScreen() {
 
               <Pressable
                 className="h-11 w-11 items-center justify-center rounded-full bg-surface-muted"
-                disabled={pendingAction === 'remove'}
+                disabled={removeFriend.isPending}
                 onPress={handleCloseRemoveSheet}
               >
                 <MaterialIcons name="close" size={20} color="#161616" />
@@ -851,7 +807,7 @@ export default function PublicProfileScreen() {
             <View className="mt-6 flex-row">
               <Pressable
                 className="mr-3 flex-1 rounded-full border border-border-light bg-surface-muted py-3"
-                disabled={pendingAction === 'remove'}
+                disabled={removeFriend.isPending}
                 onPress={handleCloseRemoveSheet}
               >
                 <Text className="text-center font-medium text-text-primary">Cancel</Text>
@@ -859,11 +815,11 @@ export default function PublicProfileScreen() {
 
               <Pressable
                 className="flex-1 rounded-full bg-[#FF3B30] py-3"
-                disabled={pendingAction === 'remove'}
+                disabled={removeFriend.isPending}
                 onPress={handleConfirmRemoveFriend}
-                style={{ opacity: pendingAction === 'remove' ? 0.7 : 1 }}
+                style={{ opacity: removeFriend.isPending ? 0.7 : 1 }}
               >
-                {pendingAction === 'remove' ? (
+                {removeFriend.isPending ? (
                   <ActivityIndicator color="#FFFFFF" size="small" />
                 ) : (
                   <Text className="text-center font-medium text-white">Remove</Text>

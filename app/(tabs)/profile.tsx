@@ -44,6 +44,10 @@ import { useFriends } from '../../src/hooks/useFriends'
 import { useUpdateAvatar } from '../../src/hooks/useProfile'
 import { useReelsFeed } from '../../src/hooks/useReels'
 import { useReelSavingMode } from '../../src/hooks/useReelSavingMode'
+import {
+  removeFriendMutationsForViewer,
+  removeFriendshipQueriesForViewer,
+} from '../../src/lib/friendCache'
 import { performLogoutPushTokenCleanup } from '../../src/lib/notifications/pushTokenLifecycle'
 import { clearTemporaryReelVideoCache } from '../../src/lib/offlineReelVideoCache'
 import { getDisplayName, getInitials, getProfileHandle } from '../../src/lib/profile'
@@ -501,6 +505,8 @@ export default function ProfileScreen() {
 
           if (user?.id) {
             removeRecommendationQueriesForUser(queryClient, user.id)
+            removeFriendshipQueriesForViewer(queryClient, user.id)
+            removeFriendMutationsForViewer(queryClient, user.id)
           }
 
           if (isMountedRef.current) {
@@ -827,13 +833,21 @@ export default function ProfileScreen() {
             </View>
 
             <View className="mt-5">
-              <View className="flex-row items-center">
-                <Text className="font-heading text-lg text-text-primary">Friends</Text>
-                <View className="ml-2 rounded-full bg-surface-muted px-3 py-1.5">
-                  <Text className="text-xs2 uppercase tracking-[1px] text-text-secondary">
-                    {friendsValue}
-                  </Text>
-                </View>
+              <View className="flex-row items-center justify-between">
+                <Pressable
+                  className="flex-row items-center"
+                  onPress={() => router.push('/friends')}
+                >
+                  <Text className="font-heading text-lg text-text-primary">Friends</Text>
+                  <View className="ml-2 rounded-full bg-surface-muted px-3 py-1.5">
+                    <Text className="text-xs2 uppercase tracking-[1px] text-text-secondary">
+                      {friendsValue}
+                    </Text>
+                  </View>
+                </Pressable>
+                <Pressable onPress={() => router.push('/friends')}>
+                  <Text className="font-medium text-sm2 text-brand">Manage</Text>
+                </Pressable>
               </View>
 
               <ScrollView
