@@ -63,12 +63,15 @@ export const getFriendshipStatusQueryOptions = (viewerId: string, targetUserId: 
     enabled: Boolean(viewerId) && Boolean(targetUserId) && viewerId !== targetUserId,
   })
 
-export function useFriends(targetUserId?: string) {
+export function useFriends(targetUserId?: string, options: { enabled?: boolean } = {}) {
   const authUserId = useAuthStore((state) => state.user?.id)
   const viewerId = authUserId ?? ''
   const resolvedUserId = targetUserId ?? viewerId
 
-  return useQuery(getFriendsQueryOptions(viewerId, resolvedUserId))
+  return useQuery({
+    ...getFriendsQueryOptions(viewerId, resolvedUserId),
+    enabled: Boolean(viewerId) && Boolean(resolvedUserId) && (options.enabled ?? true),
+  })
 }
 
 export function useIncomingFriendRequests() {

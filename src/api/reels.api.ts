@@ -1,3 +1,5 @@
+import { isAxiosError } from 'axios'
+
 import { parseRecommendedReelsResponse } from '../lib/recommendationFeed'
 
 import { apiClient } from './client'
@@ -43,8 +45,25 @@ export async function getRecommendedReels(
 export async function getFriendsReels(
   params: { limit?: number; cursor?: string } = {},
 ): Promise<PaginatedFriendsReels> {
-  const response = await apiClient.get<PaginatedFriendsReels>('/content/reels/friends', { params })
-  return response.data
+  try {
+    const response = await apiClient.get<PaginatedFriendsReels>('/content/reels/friends', {
+      params,
+    })
+    return response.data
+  } catch (error) {
+    const message = isAxiosError(error) ? error.response?.data?.message : null
+    const isRouteMiss =
+      isAxiosError(error) &&
+      error.response?.status === 404 &&
+      typeof message === 'string' &&
+      message.trim().toLowerCase() === 'reel not found'
+
+    if (isRouteMiss) {
+      return { items: [], nextCursor: null }
+    }
+
+    throw error
+  }
 }
 
 export const reelsApi = {

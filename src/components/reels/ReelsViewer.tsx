@@ -31,6 +31,7 @@ import { getReelCachePolicyForNetworkState } from '@/lib/reelCachePolicy'
 
 import { reelsApi } from '../../api/reels.api'
 import { DEFAULT_REELS_LIMIT } from '../../constants/reels'
+import { useFriends } from '../../hooks/useFriends'
 import { useFriendsReelsFeed, useRecommendedReelsFeed, useReelContext } from '../../hooks/useReels'
 import { flattenRecommendedReelPages } from '../../lib/recommendationFeed'
 import { useNetworkStatus } from '../../providers/NetworkProvider'
@@ -183,7 +184,11 @@ export function ReelsViewer({
   const [contextNextCursor, setContextNextCursor] = useState<string | null>(null)
   const [isFetchingContextNextPage, setIsFetchingContextNextPage] = useState(false)
   const [isManualRefreshing, setIsManualRefreshing] = useState(false)
-  const [selectedFeedTab, setSelectedFeedTab] = useState<FeedTab>('friends')
+  const [selectedFeedTab, setSelectedFeedTab] = useState<FeedTab>('for-you')
+  const [feedFallbackReels, setFeedFallbackReels] = useState<Record<FeedTab, Reel[]>>({
+    friends: [],
+    'for-you': [],
+  })
 
   const pullProgress = useSharedValue(0)
   const refreshSpin = useSharedValue(0)
@@ -196,6 +201,8 @@ export function ReelsViewer({
   const shouldFetchReelContext = shouldUseReelContext && !shouldUseLocalContext
   const shouldLoadPublicFeed = !shouldUseReelContext
   const shouldAllowRefresh = mode === 'public'
+  const { data: viewerFriends } = useFriends(undefined, { enabled: shouldLoadPublicFeed })
+  const shouldShowFriendsTab = Boolean(viewerFriends?.length)
 
   const handleTimelineInteractionChange = useCallback((isInteracting: boolean) => {
     setIsTimelineInteracting(isInteracting)
@@ -251,7 +258,6 @@ export function ReelsViewer({
 
   const {
     data: reelContext,
-    isPending: isContextPending,
     isError: isContextError,
     error: contextError,
     refetch: refetchContext,
@@ -266,6 +272,42 @@ export function ReelsViewer({
       enabled: shouldFetchReelContext,
     },
   )
+
+  const publicFeedReels = useMemo(
+    () =>
+      (selectedFeedTab === 'friends'
+        ? friendReels
+        : flattenRecommendedReelPages(publicFeedData?.pages ?? [], recommendedFeedSessionId)
+      ).filter((item) => !deletedReelIds.has(item.id)),
+    [deletedReelIds, friendReels, publicFeedData, recommendedFeedSessionId, selectedFeedTab],
+  )
+
+  useEffect(() => {
+    if (!shouldLoadPublicFeed) {
+      return
+    }
+
+    if (publicFeedReels.length === 0 && (isPublicFeedPending || isRefetchingPublicFeed)) {
+      return
+    }
+
+    setFeedFallbackReels((current) => {
+      const currentIds = current[selectedFeedTab].map((reel) => reel.id)
+      const nextIds = publicFeedReels.map((reel) => reel.id)
+
+      if (areStringArraysEqual(currentIds, nextIds)) {
+        return current
+      }
+
+      return { ...current, [selectedFeedTab]: publicFeedReels }
+    })
+  }, [
+    isPublicFeedPending,
+    isRefetchingPublicFeed,
+    publicFeedReels,
+    selectedFeedTab,
+    shouldLoadPublicFeed,
+  ])
 
   const reels = useMemo(() => {
     if (shouldUseReelContext) {
@@ -290,21 +332,25 @@ export function ReelsViewer({
       )
     }
 
-    const feedReels =
-      selectedFeedTab === 'friends'
-        ? friendReels
-        : flattenRecommendedReelPages(publicFeedData?.pages ?? [], recommendedFeedSessionId)
+    if (publicFeedReels.length > 0) {
+      return publicFeedReels
+    }
 
-    return feedReels.filter((item) => !deletedReelIds.has(item.id))
+    if (isPublicFeedPending || isRefetchingPublicFeed) {
+      return feedFallbackReels[selectedFeedTab].filter((item) => !deletedReelIds.has(item.id))
+    }
+
+    return publicFeedReels
   }, [
     contextExtraItems,
     contextItems,
-    publicFeedData,
-    friendReels,
-    recommendedFeedSessionId,
-    selectedFeedTab,
     deletedReelIds,
+    feedFallbackReels,
+    isPublicFeedPending,
+    isRefetchingPublicFeed,
+    publicFeedReels,
     reelContext,
+    selectedFeedTab,
     shouldUseLocalContext,
     shouldUseReelContext,
   ])
@@ -631,7 +677,6 @@ export function ReelsViewer({
     shouldSaveNearbyReelVideos,
   ])
 
-  const isInitialLoading = shouldFetchReelContext ? isContextPending : isPublicFeedPending
   const isActiveError = shouldFetchReelContext ? isContextError : isPublicFeedError
   const isShowingOfflineCache =
     !shouldFetchReelContext &&
@@ -811,7 +856,11 @@ export function ReelsViewer({
 
   const handleFeedTabChange = useCallback(
     (nextFeedTab: FeedTab) => {
-      if (nextFeedTab === selectedFeedTab || isManualRefreshing) {
+      if (
+        nextFeedTab === selectedFeedTab ||
+        isManualRefreshing ||
+        (nextFeedTab === 'friends' && !shouldShowFriendsTab)
+      ) {
         return
       }
 
@@ -823,9 +872,27 @@ export function ReelsViewer({
       activeReelIdRef.current = null
       setActiveReelId(null)
       setSelectedFeedTab(nextFeedTab)
+      void (nextFeedTab === 'friends' ? refetchFriends() : refreshWithNewSession()).catch(
+        () => undefined,
+      )
     },
-    [activeIndex, endCurrentReelSession, isManualRefreshing, selectedFeedTab, viewportHeight],
+    [
+      activeIndex,
+      endCurrentReelSession,
+      isManualRefreshing,
+      selectedFeedTab,
+      shouldShowFriendsTab,
+      viewportHeight,
+      refetchFriends,
+      refreshWithNewSession,
+    ],
   )
+
+  useEffect(() => {
+    if (selectedFeedTab === 'friends' && !shouldShowFriendsTab) {
+      handleFeedTabChange('for-you')
+    }
+  }, [handleFeedTabChange, selectedFeedTab, shouldShowFriendsTab])
 
   useEffect(() => {
     if (!shouldLoadPublicFeed || reels.length === 0) {
@@ -1527,13 +1594,22 @@ export function ReelsViewer({
           </Animated.View>
         ) : null}
 
-        {!isInitialLoading &&
-        reels.length === 0 &&
+        {reels.length === 0 &&
         !isShowingOfflineCache &&
-        !shouldShowOfflineSkeleton ? (
+        !shouldShowOfflineSkeleton &&
+        !(selectedFeedTab === 'for-you' && isPublicFeedPending) ? (
           <View
             pointerEvents="box-none"
-            className="absolute inset-0 items-center justify-center px-6"
+            className="absolute items-center justify-center px-6"
+            style={{
+              top: insets.top + (mode === 'public' ? 72 : 56),
+              right: 0,
+              bottom: Math.max(bottomContentInset + 32, insets.bottom + 32),
+              left: 0,
+              alignItems: 'center',
+              zIndex: 15,
+              elevation: 15,
+            }}
           >
             <View
               className="items-center rounded-[36px] border border-white/12 bg-white/8 px-8 py-10"
@@ -1543,6 +1619,7 @@ export function ReelsViewer({
                 shadowOpacity: 1,
                 shadowRadius: 28,
                 elevation: 5,
+                alignSelf: 'center',
               }}
             >
               {isActiveError ? (
@@ -1567,17 +1644,23 @@ export function ReelsViewer({
               ) : (
                 <>
                   <View className="h-16 w-16 items-center justify-center rounded-full bg-white/10">
-                    <MaterialIcons name="play-circle-outline" size={32} color="#FFFFFF" />
+                    <MaterialIcons
+                      name={
+                        selectedFeedTab === 'friends' ? 'people-outline' : 'play-circle-outline'
+                      }
+                      size={32}
+                      color="#FFFFFF"
+                    />
                   </View>
 
-                  <Text className="mt-5 font-heading text-[28px] text-white">
+                  <Text className="mt-5 w-full text-center font-heading text-[28px] text-white">
                     {selectedFeedTab === 'friends' ? 'No reels from friends yet' : 'No reels yet'}
                   </Text>
 
                   <Text className="mt-3 max-w-[280px] text-center text-base2 leading-6 text-white">
                     {selectedFeedTab === 'friends'
-                      ? 'Reels shared by your friends will appear here.'
-                      : 'Upload the first reel and it will land here as soon as processing finishes.'}
+                      ? 'Your friends have not shared any reels yet. Their posts will appear here.'
+                      : 'Your personalized feed is getting ready. Try again soon or share your first reel.'}
                   </Text>
 
                   <TouchableOpacity
@@ -1588,7 +1671,7 @@ export function ReelsViewer({
                     }}
                   >
                     <Text className="font-medium text-white">
-                      {selectedFeedTab === 'friends' ? 'Find friends' : 'Create reel'}
+                      {selectedFeedTab === 'friends' ? 'View friends' : 'Create reel'}
                     </Text>
                   </TouchableOpacity>
                 </>
@@ -1613,53 +1696,69 @@ export function ReelsViewer({
               <MaterialIcons name="arrow-back" size={28} color="#FFFFFF" />
             </TouchableOpacity>
           ) : (
-            <View className="flex-row items-center justify-between">
-              <View className="flex-1">
-                {!isOfflineAlertVisible ? (
-                  <>
-                    <Text className="text-xs2 uppercase tracking-[1.4px] text-white">Velora</Text>
-                    <Text className="mt-2 font-heading text-[30px] text-white">Reels</Text>
-                    <View className="mt-4 flex-row self-start rounded-full bg-black/38 p-1">
-                      {(['friends', 'for-you'] as const).map((tab) => {
-                        const isSelected = selectedFeedTab === tab
-
-                        return (
-                          <TouchableOpacity
-                            key={tab}
-                            className={isSelected ? 'rounded-full bg-white px-4 py-2' : 'px-4 py-2'}
-                            activeOpacity={0.78}
-                            disabled={isManualRefreshing}
-                            onPress={() => {
-                              handleFeedTabChange(tab)
-                            }}
-                          >
-                            <Text
-                              className={
-                                isSelected
-                                  ? 'font-medium text-sm2 text-text-primary'
-                                  : 'font-medium text-sm2 text-white'
-                              }
-                            >
-                              {tab === 'friends' ? 'Friends' : 'For You'}
-                            </Text>
-                          </TouchableOpacity>
-                        )
-                      })}
-                    </View>
-                  </>
-                ) : null}
-              </View>
-
+            <View className="h-12 flex-row items-center justify-end">
               {!isOfflineAlertVisible ? (
-                <TouchableOpacity
-                  className="h-14 w-14 items-center justify-center"
-                  activeOpacity={0.72}
-                  onPress={() => {
-                    router.push('/reels/create')
-                  }}
-                >
-                  <MaterialIcons name="add" size={30} color="#FFFFFF" />
-                </TouchableOpacity>
+                <>
+                  <View className="absolute inset-x-0 items-center" pointerEvents="box-none">
+                    {shouldShowFriendsTab ? (
+                      <View className="flex-row rounded-full border border-white/10 bg-black/42 p-1">
+                        {(['for-you', 'friends'] as const).map((tab) => {
+                          const isSelected = selectedFeedTab === tab
+
+                          return (
+                            <TouchableOpacity
+                              key={tab}
+                              className={
+                                isSelected ? 'rounded-full bg-white px-4 py-2.5' : 'px-4 py-2.5'
+                              }
+                              activeOpacity={0.78}
+                              disabled={isManualRefreshing}
+                              onPress={() => {
+                                if (isSelected) {
+                                  void handleRefresh()
+                                  return
+                                }
+
+                                handleFeedTabChange(tab)
+                              }}
+                            >
+                              <View className="flex-row items-center">
+                                <MaterialIcons
+                                  name={tab === 'for-you' ? 'auto-awesome' : 'people-outline'}
+                                  size={16}
+                                  color={isSelected ? '#161616' : '#FFFFFF'}
+                                />
+                                <Text
+                                  className={
+                                    isSelected
+                                      ? 'ml-1.5 font-medium text-sm2 text-text-primary'
+                                      : 'ml-1.5 font-medium text-sm2 text-white'
+                                  }
+                                >
+                                  {tab === 'for-you' ? 'For You' : 'Friends'}
+                                </Text>
+                              </View>
+                            </TouchableOpacity>
+                          )
+                        })}
+                      </View>
+                    ) : (
+                      <View className="flex-row items-center rounded-full border border-white/10 bg-black/42 px-4 py-2.5">
+                        <MaterialIcons name="auto-awesome" size={16} color="#FFFFFF" />
+                        <Text className="ml-1.5 font-medium text-sm2 text-white">For You</Text>
+                      </View>
+                    )}
+                  </View>
+                  <TouchableOpacity
+                    className="h-12 w-12 items-center justify-center rounded-full bg-black/38"
+                    activeOpacity={0.72}
+                    onPress={() => {
+                      router.push('/reels/create')
+                    }}
+                  >
+                    <MaterialIcons name="add" size={25} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </>
               ) : null}
             </View>
           )}
