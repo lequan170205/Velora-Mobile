@@ -12,6 +12,7 @@ export type CallPhase =
 export type CallDirection = 'outgoing' | 'incoming'
 export type CallType = 'VOICE' | 'VIDEO'
 export type RemoteAudioState = 'idle' | 'waiting' | 'connected'
+export type AudioBitrateProfile = 'normal' | 'constrained'
 
 export interface CallSessionPayload {
   callId: string
@@ -89,6 +90,12 @@ export interface ResumeConsumerPayload {
 export interface RestartIcePayload {
   callId: string
   transportId: string
+}
+
+export interface SetAudioBitratePayload {
+  callId: string
+  transportId: string
+  profile: AudioBitrateProfile
 }
 
 export interface IncomingCallPayload {
@@ -176,6 +183,12 @@ export interface IceRestartedPayload {
   iceParameters: Record<string, unknown>
 }
 
+export interface AudioBitrateUpdatedPayload {
+  callId: string
+  transportId: string
+  profile: AudioBitrateProfile
+}
+
 export interface CallAnsweredPayload {
   callId: string
   userId: string
@@ -230,6 +243,7 @@ export interface CallServerEvents {
   consumer_created: (payload: ConsumerCreatedPayload) => void
   consumer_resumed: (payload: ConsumerResumedPayload) => void
   ice_restarted: (payload: IceRestartedPayload) => void
+  audio_bitrate_updated: (payload: AudioBitrateUpdatedPayload) => void
   call_answered: (payload: CallAnsweredPayload) => void
   call_rejected: (payload: CallRejectedPayload) => void
   peer_reconnecting: (payload: PeerReconnectingPayload) => void
@@ -252,6 +266,7 @@ export interface CallClientEvents {
   consume: (payload: ConsumePayload) => void
   resume_consumer: (payload: ResumeConsumerPayload) => void
   restart_ice: (payload: RestartIcePayload) => void
+  set_audio_bitrate: (payload: SetAudioBitratePayload) => void
 }
 
 export type CallSocket = Socket<CallServerEvents, CallClientEvents>

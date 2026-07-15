@@ -39,6 +39,7 @@ import { useAuthStore } from '../stores/authStore'
 import { useCallStore } from '../stores/callStore'
 
 import type {
+  AudioBitrateProfile,
   CallAnsweredPayload,
   CallEndedPayload,
   CallSocketReadyPayload,
@@ -81,7 +82,22 @@ const RTC_STATS_LOG_DELAY_MS = 1_500
 const RTC_QUALITY_SAMPLE_INTERVAL_MS = 10_000
 const AUDIO_FLOW_CONFIRMATION_DELAY_MS = 1_000
 const PEER_LEFT_GRACE_MS = 750
+const MEDIA_TRANSPORT_DISCONNECT_GRACE_MS = 3_000
 const DEFAULT_RECONNECT_GRACE_MS = 15_000
+const AUDIO_BITRATE_UPDATE_TIMEOUT_MS = 5_000
+const AUDIO_BITRATE_RETRY_DELAY_MS = 30_000
+const AUDIO_QUALITY_DEGRADED_PACKET_LOSS_RATE = 0.05
+const AUDIO_QUALITY_HEALTHY_PACKET_LOSS_RATE = 0.02
+const AUDIO_QUALITY_DEGRADED_JITTER_MS = 60
+const AUDIO_QUALITY_HEALTHY_JITTER_MS = 30
+const AUDIO_QUALITY_DEGRADE_SAMPLE_COUNT = 2
+const AUDIO_QUALITY_RECOVER_SAMPLE_COUNT = 3
+const VOICE_OPUS_CODEC_OPTIONS = {
+  opusFec: true,
+  opusDtx: true,
+  opusNack: true,
+  opusMaxAverageBitrate: 48_000,
+}
 const CALL_SETUP_CANCELLED_ERROR = 'Call setup was cancelled'
 const RECONNECT_RECOVERY_TIMEOUT_MS = (() => {
   const configured = Number(process.env.EXPO_PUBLIC_CALL_RECONNECT_GRACE_MS)
@@ -187,6 +203,11 @@ type RtcQualityCounters = {
   totalSamples: number | null
   jitterBufferDelay: number | null
   jitterBufferEmittedCount: number | null
+}
+
+type RtcQualityStreak = {
+  degraded: number
+  healthy: number
 }
 
 type CachedMediasoupDevice = {
@@ -511,6 +532,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const activeCallIdRef = useRef<string | null>(null)
   const telemetrySessionRef = useRef<CallTelemetrySession | null>(null)
   const rtcQualityCountersRef = useRef<RtcQualityCounters | null>(null)
+  const rtcQualityStreakRef = useRef<RtcQualityStreak>({ degraded: 0, healthy: 0 })
+  const incomingAudioBitrateProfileRef = useRef<AudioBitrateProfile>('normal')
+  const incomingAudioBitrateUpdateInFlightRef = useRef(false)
+  const incomingAudioBitrateRetryAfterMsRef = useRef(0)
   const audioFlowingRef = useRef(false)
   const audioFlowConfirmationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const callSetupGenerationRef = useRef(0)
@@ -526,6 +551,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const reconnectModeRef = useRef<'local' | 'peer' | null>(null)
   const nativeActionRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const socketDisconnectGraceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mediaTransportDisconnectTimeoutsRef = useRef(
+    new Map<string, ReturnType<typeof setTimeout>>(),
+  )
+  const mediaTransportStateHandlerRef = useRef<
+    ((payload: { callId: string; transportId: string; state: string }) => void) | null
+  >(null)
   const processingNativeActionIdsRef = useRef(new Set<string>())
   const completedNativeActionIdsRef = useRef(new Set<string>())
   const audioSessionWaitersRef = useRef(new Map<string, Promise<AudioSessionConfiguration>>())
@@ -547,6 +578,23 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(socketDisconnectGraceTimeoutRef.current)
       socketDisconnectGraceTimeoutRef.current = null
     }
+  }, [])
+
+  const clearMediaTransportDisconnectTimeout = useCallback((transportId: string) => {
+    const timeout = mediaTransportDisconnectTimeoutsRef.current.get(transportId)
+    if (!timeout) {
+      return
+    }
+
+    clearTimeout(timeout)
+    mediaTransportDisconnectTimeoutsRef.current.delete(transportId)
+  }, [])
+
+  const clearMediaTransportDisconnectTimeouts = useCallback(() => {
+    for (const timeout of mediaTransportDisconnectTimeoutsRef.current.values()) {
+      clearTimeout(timeout)
+    }
+    mediaTransportDisconnectTimeoutsRef.current.clear()
   }, [])
 
   const beginCallSetup = useCallback(() => {
@@ -768,6 +816,121 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     [],
   )
 
+  const requestIncomingAudioBitrateProfile = useCallback(async (profile: AudioBitrateProfile) => {
+    const state = useCallStore.getState()
+    const socket = socketRef.current
+    const recvTransport = recvTransportRef.current
+
+    if (
+      state.phase !== 'active' ||
+      !state.callId ||
+      !socket?.connected ||
+      !recvTransport ||
+      !connectedTransportIdsRef.current.has(recvTransport.id) ||
+      profile === incomingAudioBitrateProfileRef.current ||
+      incomingAudioBitrateUpdateInFlightRef.current ||
+      Date.now() < incomingAudioBitrateRetryAfterMsRef.current
+    ) {
+      return
+    }
+
+    incomingAudioBitrateUpdateInFlightRef.current = true
+    const callId = state.callId
+    const transportId = recvTransport.id
+
+    try {
+      await emitAndWaitForEvent(
+        socket,
+        'set_audio_bitrate',
+        {
+          callId,
+          transportId,
+          profile,
+        },
+        {
+          event: 'audio_bitrate_updated',
+          timeoutMs: AUDIO_BITRATE_UPDATE_TIMEOUT_MS,
+          registry: waitRegistryRef.current,
+          filter: (payload) =>
+            payload.callId === callId &&
+            payload.transportId === transportId &&
+            payload.profile === profile,
+        },
+      )
+
+      if (
+        activeCallIdRef.current !== callId ||
+        recvTransportRef.current?.id !== transportId ||
+        useCallStore.getState().phase !== 'active'
+      ) {
+        return
+      }
+
+      incomingAudioBitrateProfileRef.current = profile
+      incomingAudioBitrateRetryAfterMsRef.current = 0
+      telemetrySessionRef.current?.record(`incoming_audio_bitrate_${profile}`, {
+        outcome: 'succeeded',
+      })
+    } catch (error) {
+      incomingAudioBitrateRetryAfterMsRef.current = Date.now() + AUDIO_BITRATE_RETRY_DELAY_MS
+      debugCall(
+        '[Call] Failed to update incoming audio bitrate',
+        JSON.stringify({
+          callId,
+          transportId,
+          profile,
+          error: error instanceof Error ? error.message : 'unknown_error',
+        }),
+      )
+    } finally {
+      incomingAudioBitrateUpdateInFlightRef.current = false
+    }
+  }, [])
+
+  const adaptIncomingAudioBitrate = useCallback(
+    ({ packetLossRate, jitterMs }: { packetLossRate: number | null; jitterMs: number | null }) => {
+      const isDegraded =
+        (packetLossRate !== null && packetLossRate >= AUDIO_QUALITY_DEGRADED_PACKET_LOSS_RATE) ||
+        (jitterMs !== null && jitterMs >= AUDIO_QUALITY_DEGRADED_JITTER_MS)
+      const isHealthy =
+        packetLossRate !== null &&
+        jitterMs !== null &&
+        packetLossRate < AUDIO_QUALITY_HEALTHY_PACKET_LOSS_RATE &&
+        jitterMs < AUDIO_QUALITY_HEALTHY_JITTER_MS
+      const streak = rtcQualityStreakRef.current
+
+      if (isDegraded) {
+        streak.degraded += 1
+        streak.healthy = 0
+
+        if (streak.degraded >= AUDIO_QUALITY_DEGRADE_SAMPLE_COUNT) {
+          streak.degraded = 0
+          if (incomingAudioBitrateProfileRef.current === 'normal') {
+            void requestIncomingAudioBitrateProfile('constrained')
+          }
+        }
+        return
+      }
+
+      if (isHealthy) {
+        streak.healthy += 1
+        streak.degraded = 0
+
+        if (streak.healthy >= AUDIO_QUALITY_RECOVER_SAMPLE_COUNT) {
+          streak.healthy = 0
+          if (incomingAudioBitrateProfileRef.current === 'constrained') {
+            void requestIncomingAudioBitrateProfile('normal')
+          }
+        }
+        return
+      }
+
+      streak.degraded = 0
+      streak.healthy = 0
+    },
+    [requestIncomingAudioBitrateProfile],
+  )
+
   const sampleRtcQuality = useCallback(async () => {
     const telemetry = telemetrySessionRef.current
     const consumer = consumerMapRef.current.values().next().value as
@@ -809,6 +972,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const roundTripTime =
         numberValue(remoteInbound?.roundTripTime) ??
         numberValue(candidatePair?.currentRoundTripTime)
+      const packetLossRate =
+        lost === null || received === null || lost + received === 0
+          ? null
+          : lost / (lost + received)
+      const jitterMs = jitter === null ? null : jitter * 1000
 
       if (telemetrySessionRef.current !== telemetry || !consumerMapRef.current.has(consumer.id)) {
         return
@@ -817,11 +985,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       telemetry.record('audio_quality', {
         eventType: 'quality_sample',
         metrics: {
-          packetLossRate:
-            lost === null || received === null || lost + received === 0
-              ? null
-              : lost / (lost + received),
-          jitterMs: jitter === null ? null : jitter * 1000,
+          packetLossRate,
+          jitterMs,
           roundTripTimeMs: roundTripTime === null ? null : roundTripTime * 1000,
           concealmentRate:
             concealed === null || samples === null || concealed + samples === 0
@@ -836,6 +1001,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         },
       })
 
+      adaptIncomingAudioBitrate({ packetLossRate, jitterMs })
+
       if (
         !audioFlowingRef.current &&
         ((received !== null && received > 0) || (receivedBytes !== null && receivedBytes > 0))
@@ -847,7 +1014,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // Stats are optional diagnostic data and must never affect call media.
     }
-  }, [])
+  }, [adaptIncomingAudioBitrate])
 
   const getCurrentCallId = useCallback(
     () => activeCallIdRef.current ?? useCallStore.getState().callId,
@@ -960,6 +1127,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       clearRemoteAudioFallback()
       clearPeerLeftFallback()
       clearReconnectTimeout()
+      clearMediaTransportDisconnectTimeouts()
       clearWaitRegistry(waitRegistryRef.current)
       connectedTransportIdsRef.current.clear()
       queuedRemoteProducerMapRef.current.clear()
@@ -967,6 +1135,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       consumingProducerIdsRef.current.clear()
       retryingProducerIdsRef.current.clear()
       audioFlowingRef.current = false
+      rtcQualityCountersRef.current = null
+      rtcQualityStreakRef.current = { degraded: 0, healthy: 0 }
+      incomingAudioBitrateProfileRef.current = 'normal'
+      incomingAudioBitrateUpdateInFlightRef.current = false
+      incomingAudioBitrateRetryAfterMsRef.current = 0
       consumerMapRef.current.clear()
       deviceRef.current = null
       sendTransportRef.current = null
@@ -985,6 +1158,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     },
     [
       clearAudioFlowConfirmation,
+      clearMediaTransportDisconnectTimeouts,
       clearPeerLeftFallback,
       clearReconnectTimeout,
       clearRemoteAudioFallback,
@@ -1491,6 +1665,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           `[Call] ${direction} transport connection state changed`,
           JSON.stringify({ callId, transportId: transport.id, state }),
         )
+        mediaTransportStateHandlerRef.current?.({
+          callId,
+          transportId: transport.id,
+          state,
+        })
       })
 
       transport.on('connect', ({ dtlsParameters }, callback, errback) => {
@@ -1982,6 +2161,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       const audioProducer = await sendTransport.produce({
         track: localAudioTrack as never,
+        codecOptions: VOICE_OPUS_CODEC_OPTIONS,
         stopTracks: false,
       })
       if (!isCallSetupCurrent(options.setupToken, callId)) {
@@ -2201,6 +2381,88 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
     armReconnectTimeout('reconnect_timeout')
   }, [armReconnectTimeout, currentUserId, isAuthenticated, stopTimer])
+
+  const handleMediaTransportStateChange = useCallback(
+    ({ callId, transportId, state }: { callId: string; transportId: string; state: string }) => {
+      if (isConnectedTransportState(state)) {
+        clearMediaTransportDisconnectTimeout(transportId)
+        return
+      }
+
+      const callState = useCallStore.getState()
+      if (
+        teardownInProgressRef.current ||
+        callState.phase !== 'active' ||
+        !isCurrentCall(callId) ||
+        state === 'closed'
+      ) {
+        return
+      }
+
+      const startRecovery = (reason: 'media_transport_failed' | 'media_transport_disconnected') => {
+        if (
+          teardownInProgressRef.current ||
+          useCallStore.getState().phase !== 'active' ||
+          !isCurrentCall(callId)
+        ) {
+          return
+        }
+
+        telemetrySessionRef.current?.record(reason, {
+          outcome: 'failed',
+          errorCode: reason,
+        })
+        beginReconnectRecovery()
+        void recoverActiveCall()
+      }
+
+      if (state === 'failed') {
+        clearMediaTransportDisconnectTimeout(transportId)
+        startRecovery('media_transport_failed')
+        return
+      }
+
+      if (
+        state !== 'disconnected' ||
+        mediaTransportDisconnectTimeoutsRef.current.has(transportId)
+      ) {
+        return
+      }
+
+      telemetrySessionRef.current?.record('media_transport_disconnected', {
+        outcome: 'started',
+      })
+      const timeout = setTimeout(() => {
+        mediaTransportDisconnectTimeoutsRef.current.delete(transportId)
+        const transport = [sendTransportRef.current, recvTransportRef.current].find(
+          (candidate) => candidate?.id === transportId,
+        )
+
+        if (!transport || isConnectedTransportState(transport.connectionState)) {
+          return
+        }
+
+        startRecovery('media_transport_disconnected')
+      }, MEDIA_TRANSPORT_DISCONNECT_GRACE_MS)
+      mediaTransportDisconnectTimeoutsRef.current.set(transportId, timeout)
+    },
+    [
+      beginReconnectRecovery,
+      clearMediaTransportDisconnectTimeout,
+      isCurrentCall,
+      recoverActiveCall,
+    ],
+  )
+
+  useEffect(() => {
+    mediaTransportStateHandlerRef.current = handleMediaTransportStateChange
+
+    return () => {
+      if (mediaTransportStateHandlerRef.current === handleMediaTransportStateChange) {
+        mediaTransportStateHandlerRef.current = null
+      }
+    }
+  }, [handleMediaTransportStateChange])
 
   const handlePeerReconnecting = useCallback(
     (payload: PeerReconnectingPayload) => {
@@ -3066,6 +3328,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
 
     rtcQualityCountersRef.current = null
+    rtcQualityStreakRef.current = { degraded: 0, healthy: 0 }
     void sampleRtcQuality()
     const interval = setInterval(() => {
       void sampleRtcQuality()
@@ -3302,10 +3565,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       clearNativeActionRetryTimeout()
       clearRemoteAudioFallback()
       clearPeerLeftFallback()
+      clearMediaTransportDisconnectTimeouts()
       clearWaitRegistry(waitRegistry)
     }
   }, [
     clearNativeActionRetryTimeout,
+    clearMediaTransportDisconnectTimeouts,
     clearPeerLeftFallback,
     clearRemoteAudioFallback,
     clearSocketDisconnectGraceTimeout,
