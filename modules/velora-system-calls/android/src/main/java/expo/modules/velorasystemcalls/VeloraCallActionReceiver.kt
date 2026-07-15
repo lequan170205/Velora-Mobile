@@ -11,7 +11,7 @@ class VeloraCallActionReceiver : BroadcastReceiver() {
     val action = intent.getStringExtra("veloraAction") ?: return
 
     VeloraSystemCallStore.storePendingAction(context, action, payload)
-    VeloraCallNotifications.dismissCall(context, callId)
+    VeloraCallNotifications.dismissIncomingPresentation(context, callId)
     VeloraCallNotifications.launchMainActivity(context)
   }
 }

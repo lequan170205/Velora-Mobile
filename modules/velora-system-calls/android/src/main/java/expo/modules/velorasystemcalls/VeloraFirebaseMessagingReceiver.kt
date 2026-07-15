@@ -14,7 +14,13 @@ class VeloraFirebaseMessagingReceiver : BroadcastReceiver() {
       }
       "CALL_STATE_UPDATE" -> {
         (payload["callId"] as? String)?.let { callId ->
-          VeloraCallNotifications.dismissCall(context, callId)
+          val status = payload["status"] as? String ?: return
+          VeloraCallNotifications.handleCallStateUpdate(
+            context,
+            callId,
+            status,
+            payload["at"] as? String,
+          )
         }
       }
     }

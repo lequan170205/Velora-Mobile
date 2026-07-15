@@ -1,7 +1,10 @@
 package expo.modules.velorasystemcalls
 
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
@@ -12,6 +15,16 @@ import android.widget.TextView
 
 class VeloraIncomingCallActivity : Activity() {
   private var payload: Map<String, Any?> = emptyMap()
+  private var dismissReceiverRegistered = false
+  private val dismissReceiver = object : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+      val dismissedCallId = intent.getStringExtra("callId") ?: return
+      val currentCallId = payload["callId"] as? String ?: return
+      if (dismissedCallId == currentCallId) {
+        finish()
+      }
+    }
+  }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -33,6 +46,32 @@ class VeloraIncomingCallActivity : Activity() {
     if (!handleNotificationAction(intent)) {
       render()
     }
+  }
+
+  override fun onStart() {
+    super.onStart()
+    val callId = payload["callId"] as? String
+    if (callId == null || !VeloraSystemCallStore.shouldKeepIncomingPresentation(this, callId)) {
+      finish()
+      return
+    }
+
+    val filter = IntentFilter(VeloraCallNotifications.dismissIncomingActivityAction())
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      registerReceiver(dismissReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+    } else {
+      @Suppress("DEPRECATION")
+      registerReceiver(dismissReceiver, filter)
+    }
+    dismissReceiverRegistered = true
+  }
+
+  override fun onStop() {
+    if (dismissReceiverRegistered) {
+      unregisterReceiver(dismissReceiver)
+      dismissReceiverRegistered = false
+    }
+    super.onStop()
   }
 
   private fun handleNotificationAction(intent: Intent): Boolean {
@@ -87,7 +126,7 @@ class VeloraIncomingCallActivity : Activity() {
   private fun complete(action: String) {
     val callId = payload["callId"] as? String ?: return
     VeloraSystemCallStore.storePendingAction(this, action, payload)
-    VeloraCallNotifications.dismissCall(this, callId)
+    VeloraCallNotifications.dismissIncomingPresentation(this, callId)
     VeloraCallNotifications.launchMainActivity(this)
     finish()
   }

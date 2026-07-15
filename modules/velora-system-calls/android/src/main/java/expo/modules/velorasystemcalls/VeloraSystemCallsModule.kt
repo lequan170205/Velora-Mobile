@@ -56,7 +56,6 @@ class VeloraSystemCallsModule : Module() {
 
     Function("setCallActive") { callId: String ->
       VeloraCallNotifications.setCallActive(context, callId)
-      true
     }
 
     Function("setSpeakerEnabled") { enabled: Boolean ->
@@ -84,7 +83,7 @@ class VeloraSystemCallsModule : Module() {
     }
 
     Function("dismissIncomingCall") { callId: String ->
-      VeloraCallNotifications.dismissCall(context, callId)
+      VeloraCallNotifications.endCall(context, callId)
     }
   }
 

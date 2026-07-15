@@ -12,6 +12,10 @@ import android.os.Build
 
 object VeloraCallNotifications {
   private const val CALL_CHANNEL_ID = "velora_calls"
+  private const val RINGING_NOTIFICATION_SALT = 1
+  private const val ONGOING_NOTIFICATION_SALT = 2
+  private const val DISMISS_INCOMING_ACTIVITY_ACTION =
+    "expo.modules.velorasystemcalls.DISMISS_INCOMING_ACTIVITY"
 
   fun showIncomingCall(context: Context, rawPayload: Map<String, Any?>) {
     val payload = VeloraSystemCallStore.normalizePayload(rawPayload)
@@ -20,6 +24,10 @@ object VeloraCallNotifications {
     }
 
     val callId = payload["callId"] as? String ?: return
+    val expiresAtMs = (payload["expiresAt"] as? String)?.let(VeloraSystemCallStore::parseIsoDateMs)
+    if (!VeloraSystemCallStore.beginRingingCall(context, callId, expiresAtMs)) {
+      return
+    }
     ensureCallChannel(context)
 
     val fullScreenIntent = Intent(context, VeloraIncomingCallActivity::class.java).apply {
@@ -87,16 +95,24 @@ object VeloraCallNotifications {
       builder.addAction(Notification.Action.Builder(smallIcon, "Answer", answerPendingIntent).build())
     }
 
-    notificationManager(context).notify(notificationId(callId), builder.build())
+    notificationManager(context).notify(ringingNotificationId(callId), builder.build())
   }
 
   fun registerOutgoingCall(context: Context, payload: Map<String, Any?>) {
     val callId = payload["callId"] as? String ?: return
+    if (!VeloraSystemCallStore.beginRingingCall(context, callId, null)) {
+      return
+    }
     ensureCallChannel(context)
-    notificationManager(context).notify(notificationId(callId), ongoingNotification(context, payload))
+    notificationManager(context).notify(ringingNotificationId(callId), ongoingNotification(context, payload))
   }
 
-  fun setCallActive(context: Context, callId: String) {
+  fun setCallActive(context: Context, callId: String): Boolean {
+    if (!VeloraSystemCallStore.markCallActive(context, callId)) {
+      return false
+    }
+    dismissIncomingPresentation(context, callId)
+
     val intent = Intent(context, VeloraCallForegroundService::class.java).apply {
       action = "expo.modules.velorasystemcalls.START"
       putExtra("callId", callId)
@@ -107,15 +123,42 @@ object VeloraCallNotifications {
     } else {
       context.startService(intent)
     }
+    return true
   }
 
-  fun endCall(context: Context, callId: String) {
-    dismissCall(context, callId)
-    context.stopService(Intent(context, VeloraCallForegroundService::class.java))
+  fun endCall(context: Context, callId: String, eventAtMs: Long? = null) {
+    val shouldStopForegroundService = VeloraSystemCallStore.terminateCall(context, callId, eventAtMs)
+    dismissIncomingPresentation(context, callId)
+    if (shouldStopForegroundService) {
+      context.stopService(Intent(context, VeloraCallForegroundService::class.java))
+    }
+    notificationManager(context).cancel(ongoingNotificationId(callId))
   }
 
-  fun dismissCall(context: Context, callId: String) {
-    notificationManager(context).cancel(notificationId(callId))
+  fun handleCallStateUpdate(
+    context: Context,
+    callId: String,
+    status: String,
+    eventAt: String?,
+  ) {
+    when (status) {
+      "active" -> {
+        VeloraSystemCallStore.markCallActive(context, callId)
+        dismissIncomingPresentation(context, callId)
+      }
+      "rejected", "ended", "cancelled" -> {
+        endCall(context, callId, eventAt?.let(VeloraSystemCallStore::parseIsoDateMs))
+      }
+    }
+  }
+
+  fun dismissIncomingPresentation(context: Context, callId: String) {
+    notificationManager(context).cancel(ringingNotificationId(callId))
+    context.sendBroadcast(
+      Intent(DISMISS_INCOMING_ACTIVITY_ACTION)
+        .setPackage(context.packageName)
+        .putExtra("callId", callId),
+    )
   }
 
   fun launchMainActivity(context: Context) {
@@ -200,7 +243,14 @@ object VeloraCallNotifications {
     }
   }
 
-  private fun notificationId(callId: String): Int = callId.hashCode()
+  fun ongoingNotificationId(callId: String): Int = notificationId(callId, ONGOING_NOTIFICATION_SALT)
+
+  fun dismissIncomingActivityAction(): String = DISMISS_INCOMING_ACTIVITY_ACTION
+
+  internal fun ringingNotificationId(callId: String): Int =
+    notificationId(callId, RINGING_NOTIFICATION_SALT)
+
+  private fun notificationId(callId: String, salt: Int): Int = 31 * callId.hashCode() + salt
 
   private fun requestCode(callId: String, salt: Int): Int = 31 * callId.hashCode() + salt
 

@@ -62,6 +62,7 @@
       "@react-native-firebase/messaging",
       "./plugins/withVeloraNotificationChannel",
       "./plugins/withVeloraSystemCalls",
+      "./plugins/withPodfileCodeSign",
       [
         "expo-camera",
         {
