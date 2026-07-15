@@ -51,6 +51,8 @@ interface ReelFeedItemProps {
   bottomContentInset?: number | undefined
   onToggleMuted: () => void
   onDeleted?: ((reelId: string) => void) | undefined
+  onIntentionalPauseChange?: ((paused: boolean) => void) | undefined
+  onPlaybackProgress?: ((progress: ReelVideoProgress, isPlaying: boolean) => void) | undefined
   onTimelineInteractionChange?: ((isInteracting: boolean) => void) | undefined
 }
 
@@ -174,6 +176,8 @@ const ReelFeedItemComponent = function ReelFeedItem({
   bottomContentInset = 0,
   onToggleMuted,
   onDeleted,
+  onIntentionalPauseChange,
+  onPlaybackProgress,
   onTimelineInteractionChange,
 }: ReelFeedItemProps) {
   const router = useRouter()
@@ -378,7 +382,12 @@ const ReelFeedItemComponent = function ReelFeedItem({
     bufferedPosition: nextBufferedPosition,
     currentTime,
     duration,
+    isBuffering,
   }: ReelVideoProgress) => {
+    onPlaybackProgress?.(
+      { bufferedPosition: nextBufferedPosition, currentTime, duration, isBuffering },
+      isActive && isReady && !isPausedByUser && !isBuffering,
+    )
     if (duration > 0 && duration !== durationSeconds) {
       setDurationSeconds(duration)
     }
@@ -663,6 +672,12 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
     setHasPlaybackError(false)
   }, [isActive, resetTimelineState, shouldWarmVideo])
+
+  useEffect(() => {
+    if (isActive) {
+      onIntentionalPauseChange?.(isPausedByUser)
+    }
+  }, [isActive, isPausedByUser, onIntentionalPauseChange])
 
   useFocusEffect(
     useCallback(() => {
@@ -1045,6 +1060,8 @@ const areReelFeedItemPropsEqual = (previous: ReelFeedItemProps, next: ReelFeedIt
   previous.bottomContentInset === next.bottomContentInset &&
   previous.onToggleMuted === next.onToggleMuted &&
   previous.onDeleted === next.onDeleted &&
+  previous.onIntentionalPauseChange === next.onIntentionalPauseChange &&
+  previous.onPlaybackProgress === next.onPlaybackProgress &&
   previous.onTimelineInteractionChange === next.onTimelineInteractionChange
 
 export const ReelFeedItem = memo(ReelFeedItemComponent, areReelFeedItemPropsEqual)

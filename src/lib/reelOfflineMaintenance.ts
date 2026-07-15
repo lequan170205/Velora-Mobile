@@ -1,9 +1,10 @@
+import { reelEventQueue } from '../services/reelEventQueue'
+
 import {
   cleanupTemporaryReelVideoCache,
   setTemporaryReelVideoCacheDownloadsEnabled,
 } from './offlineReelVideoCache'
 import { getReelCachePolicy } from './reelCachePolicy'
-import { flushQueuedReelEvents } from './reelEventsOutbox'
 import { pruneCachedReelOfflineMetadata } from './reelOfflineCache'
 
 const getCleanupOptions = async () => {
@@ -20,18 +21,18 @@ export const runReelOfflineStartupMaintenance = async () => {
   const cleanupOptions = await getCleanupOptions()
   await cleanupTemporaryReelVideoCache(cleanupOptions)
   await pruneCachedReelOfflineMetadata()
-  await flushQueuedReelEvents()
+  await reelEventQueue.flush()
 }
 
 export const runReelOfflineAppActiveMaintenance = async () => {
   setTemporaryReelVideoCacheDownloadsEnabled(true)
 
   const cleanupOptions = await getCleanupOptions()
-  await flushQueuedReelEvents()
+  await reelEventQueue.flush()
   await cleanupTemporaryReelVideoCache(cleanupOptions)
 }
 
 export const runReelOfflineBackgroundMaintenance = async () => {
   setTemporaryReelVideoCacheDownloadsEnabled(false)
-  await flushQueuedReelEvents()
+  await reelEventQueue.flush()
 }

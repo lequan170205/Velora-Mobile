@@ -744,7 +744,7 @@ export default function SearchScreen() {
     (reel: ReelFeedListItem) => {
       router.push({
         pathname: '/reels/[id]',
-        params: { id: reel.id },
+        params: { id: reel.id, source: 'search' },
       })
     },
     [router],

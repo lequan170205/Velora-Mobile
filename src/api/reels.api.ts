@@ -18,6 +18,7 @@ import type {
   ReelShareResponse,
   ShareReelPayload,
   TrackReelEventsPayload,
+  TrackReelEventsResponse,
   UpdateReelPayload,
 } from '../types/reel.types'
 
@@ -85,8 +86,9 @@ export const reelsApi = {
     )
     return response.data
   },
-  trackEvents: async (data: TrackReelEventsPayload) => {
-    await apiClient.post('/content/reels/events', data)
+  trackEvents: async (payload: TrackReelEventsPayload): Promise<TrackReelEventsResponse> => {
+    const response = await apiClient.post<TrackReelEventsResponse>('/content/reels/events', payload)
+    return response.data
   },
   delete: async (id: string) => {
     await apiClient.delete(`/content/reels/${id}`)

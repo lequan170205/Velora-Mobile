@@ -40,7 +40,8 @@ import { ReelLoadingRail } from './ReelLoadingRail'
 import { ReelOfflineAlert } from './ReelOfflineAlert'
 import { ReelOfflineSkeleton } from './ReelOfflineSkeleton'
 
-import type { Reel, ReelContextSource } from '../../types/reel.types'
+import type { ReelVideoProgress } from './ReelVideo'
+import type { Reel, ReelContextSource, ReelEventSource } from '../../types/reel.types'
 import type { LayoutChangeEvent, NativeSyntheticEvent } from 'react-native'
 
 type ReelsViewerMode = 'public' | 'context'
@@ -63,6 +64,7 @@ interface ReelsViewerProps {
   bottomContentInset?: number
   contextItems?: Reel[]
   contextSource?: ReelContextSource
+  eventSource?: ReelEventSource
   hideDescriptions?: boolean
   mode: ReelsViewerMode
   reelId?: string | undefined
@@ -124,6 +126,7 @@ export function ReelsViewer({
   bottomContentInset = 0,
   contextItems = [],
   contextSource = 'profile',
+  eventSource,
   hideDescriptions = false,
   mode,
   reelId,
@@ -138,8 +141,14 @@ export function ReelsViewer({
   const { height: windowHeight } = useWindowDimensions()
   const { isOnline, networkState } = useNetworkStatus()
   const { isReelSavingModeHydrated, reelSavingModeEnabled } = useReelSavingMode()
-  const { startReelSession, endCurrentReelSession, updateActiveMutedState, flushReelEvents } =
-    useReelAnalyticsTracker()
+  const {
+    startReelSession,
+    endCurrentReelSession,
+    updateActiveMutedState,
+    updateIntentionalPauseState,
+    updatePlaybackProgress,
+    flushReelEvents,
+  } = useReelAnalyticsTracker()
 
   const pagerRef = useRef<PagerViewRef | null>(null)
   const handledRequestedReelIdRef = useRef<string | null>(null)
@@ -301,6 +310,23 @@ export function ReelsViewer({
     () => reels.findIndex((reel) => reel.id === effectiveActiveReelId),
     [effectiveActiveReelId, reels],
   )
+  const activeTelemetryReel = useMemo(
+    () => reels.find((reel) => reel.id === effectiveActiveReelId) ?? null,
+    [effectiveActiveReelId, reels],
+  )
+  const telemetrySource = eventSource ?? (mode === 'public' ? 'RECOMMENDED' : 'DIRECT')
+  const routeEventSource =
+    telemetrySource === 'PROFILE'
+      ? 'profile'
+      : telemetrySource === 'SEARCH'
+        ? 'search'
+        : telemetrySource === 'SHARED'
+          ? 'chat'
+          : undefined
+  const activeTelemetryReelRef = useRef<Reel | null>(activeTelemetryReel)
+  const mutedRef = useRef(isMuted)
+  activeTelemetryReelRef.current = activeTelemetryReel
+  mutedRef.current = isMuted
   const reelCachePolicy = useMemo(
     () => getReelCachePolicyForNetworkState(networkState, { isOnline }),
     [isOnline, networkState],
@@ -396,21 +422,42 @@ export function ReelsViewer({
   }, [offlineBoundaryLoading, offlineBoundaryProgress, showOfflineAlert])
 
   useEffect(() => {
-    if (!isFocused || !effectiveActiveReelId) {
+    const activeReel = activeTelemetryReelRef.current
+
+    if (!isFocused || !activeReel) {
       endCurrentReelSession('screen_blur')
       return
     }
 
-    startReelSession(effectiveActiveReelId, { muted: isMuted })
+    startReelSession({
+      muted: mutedRef.current,
+      ...(telemetrySource === 'RECOMMENDED' && activeReel.recommendation
+        ? { recommendation: activeReel.recommendation }
+        : {}),
+      reelId: activeReel.id,
+      source: telemetrySource,
+    })
 
     return () => {
       endCurrentReelSession('switch')
     }
-  }, [effectiveActiveReelId, endCurrentReelSession, isFocused, isMuted, startReelSession])
+  }, [endCurrentReelSession, isFocused, startReelSession, telemetrySource, effectiveActiveReelId])
 
   useEffect(() => {
     updateActiveMutedState(isMuted)
   }, [isMuted, updateActiveMutedState])
+
+  const handlePlaybackProgress = useCallback(
+    (progress: ReelVideoProgress, isPlaying: boolean) => {
+      updatePlaybackProgress({
+        currentTime: progress.currentTime,
+        duration: progress.duration,
+        isBuffering: Boolean(progress.isBuffering),
+        isPlaying,
+      })
+    },
+    [updatePlaybackProgress],
+  )
 
   useEffect(() => {
     return () => {
@@ -1147,7 +1194,7 @@ export function ReelsViewer({
           pathname: '/reels/[id]',
           params: {
             id: nextReel.id,
-            source: contextSource,
+            ...(routeEventSource ? { source: routeEventSource } : {}),
             ...(returnConversationId ? { conversationId: returnConversationId } : {}),
             ...(routeContextParam ? { contextReels: routeContextParam } : {}),
             ...(hideDescriptions ? { hideDescriptions: '1' } : {}),
@@ -1177,7 +1224,6 @@ export function ReelsViewer({
       }
     },
     [
-      contextSource,
       handleExitContext,
       handleRefresh,
       hideDescriptions,
@@ -1187,6 +1233,7 @@ export function ReelsViewer({
       returnConversationId,
       returnTo,
       returnUsername,
+      routeEventSource,
       router,
       shouldUseReelContext,
     ],
@@ -1225,6 +1272,8 @@ export function ReelsViewer({
             bottomContentInset={bottomContentInset}
             onToggleMuted={handleToggleMuted}
             onDeleted={handleReelDeleted}
+            onIntentionalPauseChange={updateIntentionalPauseState}
+            onPlaybackProgress={handlePlaybackProgress}
             onTimelineInteractionChange={handleTimelineInteractionChange}
           />
         </View>
@@ -1235,12 +1284,14 @@ export function ReelsViewer({
       bottomContentInset,
       effectiveActiveReelId,
       handleReelDeleted,
+      handlePlaybackProgress,
       handleTimelineInteractionChange,
       handleToggleMuted,
       hideDescriptions,
       isFocused,
       isMuted,
       offlineVideoCachePriorities,
+      updateIntentionalPauseState,
       viewportHeight,
     ],
   )

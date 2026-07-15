@@ -193,10 +193,26 @@ export type ReelViewEventType =
   | 'MUTE'
   | 'UNMUTE'
 
+export type ReelEventSource =
+  'RECOMMENDED' | 'PUBLIC_FEED' | 'PROFILE' | 'SEARCH' | 'SHARED' | 'DIRECT' | 'UNKNOWN'
+
+export interface ReelEventRecommendation {
+  recommendationId: string
+  feedSessionId: string
+  algorithmVersion: string
+  candidateSource: string
+  rank: number
+  generatedAt: string
+}
+
 export interface TrackReelEventPayload {
+  eventId: string
   reelId: string
-  sessionId?: string
+  playbackSessionId: string
+  sequence: number
   eventType: ReelViewEventType
+  source: ReelEventSource
+  occurredAt: string
   watchMs?: number
   durationMs?: number
   percentageWatched?: number
@@ -204,8 +220,18 @@ export interface TrackReelEventPayload {
   completed?: boolean
   replayed?: boolean
   skipped?: boolean
+  recommendation?: ReelEventRecommendation
 }
 
 export interface TrackReelEventsPayload {
   events: TrackReelEventPayload[]
+}
+
+export interface TrackReelEventsResponse {
+  success: true
+  accepted: number
+  duplicates: number
+  rejected: number
+  countedViews: number
+  rejectedEventIds: string[]
 }

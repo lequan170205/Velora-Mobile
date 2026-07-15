@@ -54,6 +54,7 @@ import { getDisplayName, getInitials, getProfileHandle } from '../../src/lib/pro
 import { removeRecommendationQueriesForUser } from '../../src/lib/recommendationCache'
 import { clearReelPlaybackVideoCache } from '../../src/lib/reelPlaybackVideoCache'
 import { getSavedReelVideoStorageStats } from '../../src/lib/reelVideoStorageStats'
+import { reelEventQueue } from '../../src/services/reelEventQueue'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useChatStore } from '../../src/stores/chatStore'
 import { useProfileUiStore } from '../../src/stores/profileUiStore'
@@ -504,6 +505,7 @@ export default function ProfileScreen() {
           await clearCache()
 
           if (user?.id) {
+            await reelEventQueue.clearUser(user.id)
             removeRecommendationQueriesForUser(queryClient, user.id)
             removeFriendshipQueriesForViewer(queryClient, user.id)
             removeFriendMutationsForViewer(queryClient, user.id)

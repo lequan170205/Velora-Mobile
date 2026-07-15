@@ -18,7 +18,7 @@ import {
 } from '../../../src/lib/chatReels'
 
 import type { Message } from '../../../src/types/conversation.types'
-import type { Reel } from '../../../src/types/reel.types'
+import type { Reel, ReelEventSource } from '../../../src/types/reel.types'
 
 type AnchoredMessagesCache = {
   messages?: Message[]
@@ -51,13 +51,15 @@ export default function ReelContextScreen() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const insets = useSafeAreaInsets()
-  const { contextReels, conversationId, id, returnTo, returnUsername } = useLocalSearchParams<{
-    contextReels?: string | string[]
-    conversationId?: string | string[]
-    id?: string | string[]
-    returnTo?: string | string[]
-    returnUsername?: string | string[]
-  }>()
+  const { contextReels, conversationId, id, returnTo, returnUsername, source } =
+    useLocalSearchParams<{
+      contextReels?: string | string[]
+      conversationId?: string | string[]
+      id?: string | string[]
+      returnTo?: string | string[]
+      returnUsername?: string | string[]
+      source?: string | string[]
+    }>()
   const normalizedContextReels = Array.isArray(contextReels) ? contextReels[0] : contextReels
   const normalizedConversationId = Array.isArray(conversationId)
     ? conversationId[0]
@@ -67,6 +69,15 @@ export default function ReelContextScreen() {
   const normalizedReturnUsername = Array.isArray(returnUsername)
     ? returnUsername[0]
     : returnUsername
+  const normalizedSource = Array.isArray(source) ? source[0] : source
+  const eventSource: ReelEventSource =
+    normalizedSource === 'profile'
+      ? 'PROFILE'
+      : normalizedSource === 'search'
+        ? 'SEARCH'
+        : normalizedSource === 'chat'
+          ? 'SHARED'
+          : 'DIRECT'
   const routeContextReels = useMemo(
     () => parseChatReelRouteContext(normalizedContextReels),
     [normalizedContextReels],
@@ -138,6 +149,7 @@ export default function ReelContextScreen() {
         reelId={reelId}
         contextItems={contextItems}
         contextSource="profile"
+        eventSource={eventSource}
         routeContextParam={normalizedContextReels}
         returnConversationId={normalizedConversationId}
         returnTo={normalizedReturnTo}

@@ -1,6 +1,7 @@
 import { useRootNavigationState, useRouter, useSegments } from 'expo-router'
 import { useEffect } from 'react'
 
+import { reelEventQueue } from '../services/reelEventQueue'
 import { useAuthStore } from '../stores/authStore'
 
 import { useNetworkStatus } from './NetworkProvider'
@@ -11,6 +12,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const segments = useSegments()
   const router = useRouter()
   const rootNavigationState = useRootNavigationState()
+
+  useEffect(() => {
+    const userId = isAuthenticated ? (user?.id ?? null) : null
+
+    void reelEventQueue.setAuthenticatedUser(userId).then(() => {
+      if (userId) {
+        void reelEventQueue.flush()
+      }
+    })
+  }, [isAuthenticated, user?.id])
 
   useEffect(() => {
     if (isLoading || authHydrationError !== 'network' || !isNetworkResolved || !isOnline) {
