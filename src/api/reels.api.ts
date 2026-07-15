@@ -1,3 +1,5 @@
+import { parseRecommendedReelsResponse } from '../lib/recommendationFeed'
+
 import { apiClient } from './client'
 
 import type {
@@ -24,9 +26,16 @@ export async function getRecommendedReels(
 ): Promise<PaginatedReels<ReelFeedListItem>> {
   const response = await apiClient.get<PaginatedReels<ReelFeedListItem>>(
     '/content/reels/recommended',
-    { params },
+    {
+      params: {
+        limit: params.limit,
+        cursor: params.cursor,
+        excludeRecentlySeen: params.excludeRecentlySeen,
+        feedSessionId: params.feedSessionId,
+      },
+    },
   )
-  return response.data
+  return parseRecommendedReelsResponse(response.data)
 }
 
 export const reelsApi = {

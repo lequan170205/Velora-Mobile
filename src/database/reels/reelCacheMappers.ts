@@ -1,5 +1,6 @@
 import { DEFAULT_REELS_LIMIT } from '../../constants/reels'
 
+import type { RecommendationMetadata } from '../../types/recommendation.types'
 import type {
   ListReelsParams,
   Reel,
@@ -12,6 +13,7 @@ import type { CachedReelModel } from '../models/CachedReelModel'
 
 export interface CacheableFeedParams extends Omit<ListReelsParams, 'cursor'> {
   excludeRecentlySeen?: boolean
+  feedSessionId?: string
   recommended?: boolean
 }
 
@@ -30,6 +32,7 @@ export interface CachedReelInput {
   localThumbnailUri: string | null
   streamUrl: string
   authorJson: string | null
+  recommendationJson: string | null
   createdAtRemote: string
   cachedAt: number
   lastAccessedAt: number
@@ -40,7 +43,11 @@ export interface CachedReelFeedPageInput {
   paramsJson: string
   cursor: string | null
   reelIdsJson: string
+  recommendationsJson: string | null
   nextCursor: string | null
+  feedSessionId: string | null
+  algorithmVersion: string | null
+  generatedAt: string | null
   cachedAt: number
   lastAccessedAt: number
 }
@@ -92,6 +99,7 @@ export const normalizeFeedParams = (params: CacheableFeedParams = {}) => ({
   ...(params.excludeRecentlySeen !== undefined
     ? { excludeRecentlySeen: params.excludeRecentlySeen }
     : {}),
+  ...(params.feedSessionId ? { feedSessionId: params.feedSessionId } : {}),
   ...(params.recommended ? { recommended: true } : {}),
 })
 
@@ -169,6 +177,7 @@ export const deserializeFeedParams = (paramsJson: string | null): CacheableFeedP
   const ranked = typeof parsed.ranked === 'boolean' ? parsed.ranked : undefined
   const excludeRecentlySeen =
     typeof parsed.excludeRecentlySeen === 'boolean' ? parsed.excludeRecentlySeen : undefined
+  const feedSessionId = toNullableTrimmedString(parsed.feedSessionId)
   const recommended = parsed.recommended === true
 
   return normalizeFeedParams({
@@ -179,8 +188,81 @@ export const deserializeFeedParams = (paramsJson: string | null): CacheableFeedP
       : {}),
     ...(ranked !== undefined ? { ranked } : {}),
     ...(excludeRecentlySeen !== undefined ? { excludeRecentlySeen } : {}),
+    ...(feedSessionId ? { feedSessionId } : {}),
     ...(recommended ? { recommended: true } : {}),
   })
+}
+
+export const serializeRecommendationMetadata = (recommendation?: RecommendationMetadata) =>
+  recommendation ? JSON.stringify(recommendation) : null
+
+export const deserializeRecommendationMetadata = (value: string | null) => {
+  const parsed = safeParseJson(value)
+
+  if (!isRecord(parsed)) {
+    return undefined
+  }
+
+  const recommendationId = toNullableTrimmedString(parsed.recommendationId)
+  const feedSessionId = toNullableTrimmedString(parsed.feedSessionId)
+  const algorithmVersion = toNullableTrimmedString(parsed.algorithmVersion)
+  const candidateSource = toNullableTrimmedString(parsed.candidateSource)
+  const generatedAt = toNullableTrimmedString(parsed.generatedAt)
+  const rank = parsed.rank
+
+  if (
+    !recommendationId ||
+    !feedSessionId ||
+    !algorithmVersion ||
+    !candidateSource ||
+    !generatedAt ||
+    typeof rank !== 'number' ||
+    !Number.isFinite(rank)
+  ) {
+    return undefined
+  }
+
+  return {
+    recommendationId,
+    feedSessionId,
+    algorithmVersion,
+    candidateSource,
+    rank,
+    generatedAt,
+  }
+}
+
+export const serializeReelRecommendations = (reels: Reel[]) => {
+  const recommendations = reels.reduce<Record<string, RecommendationMetadata>>((result, reel) => {
+    if (reel.recommendation) {
+      result[reel.id] = reel.recommendation
+    }
+
+    return result
+  }, {})
+
+  return Object.keys(recommendations).length > 0 ? JSON.stringify(recommendations) : null
+}
+
+export const deserializeReelRecommendations = (value: string | null) => {
+  const parsed = safeParseJson(value)
+
+  if (!isRecord(parsed)) {
+    return {} as Record<string, RecommendationMetadata>
+  }
+
+  return Object.entries(parsed).reduce<Record<string, RecommendationMetadata>>((result, entry) => {
+    const [reelId, recommendation] = entry
+    const serializedRecommendation =
+      recommendation && typeof recommendation === 'object' ? JSON.stringify(recommendation) : null
+    const parsedRecommendation = deserializeRecommendationMetadata(serializedRecommendation)
+
+    if (parsedRecommendation) {
+      result[reelId] = parsedRecommendation
+    }
+
+    return result
+  }, {})
 }
 
 export const serializeReelIds = (reelIds: string[]) =>
@@ -231,6 +313,7 @@ export const serializeReelToCachedReelInput = (reel: Reel): CachedReelInput => {
     localThumbnailUri: toNullableTrimmedString(reel.localThumbnailUri),
     streamUrl: reel.streamUrl,
     authorJson: serializeAuthor(reel.author),
+    recommendationJson: serializeRecommendationMetadata(reel.recommendation),
     createdAtRemote: reel.createdAt,
     cachedAt: now,
     lastAccessedAt: now,
@@ -256,6 +339,7 @@ export const deserializeCachedReelToReel = (
         | 'localThumbnailUri'
         | 'streamUrl'
         | 'authorJson'
+        | 'recommendationJson'
         | 'createdAtRemote'
       >,
 ): Reel => {
@@ -266,6 +350,7 @@ export const deserializeCachedReelToReel = (
     ? (record.visibility as ReelVisibility)
     : 'public'
   const author = deserializeAuthor(record.authorJson)
+  const recommendation = deserializeRecommendationMetadata(record.recommendationJson)
 
   return {
     id: record.reelId,
@@ -286,6 +371,7 @@ export const deserializeCachedReelToReel = (
     ...(record.thumbnailUrl ? { thumbnailUrl: record.thumbnailUrl } : {}),
     ...(record.localThumbnailUri ? { localThumbnailUri: record.localThumbnailUri } : {}),
     ...(author ? { author } : {}),
+    ...(recommendation ? { recommendation } : {}),
   }
 }
 
@@ -294,7 +380,11 @@ export const toCachedReelFeedPageInput = ({
   params,
   cursor,
   reelIds,
+  recommendations,
   nextCursor,
+  feedSessionId,
+  algorithmVersion,
+  generatedAt,
   cachedAt,
   lastAccessedAt,
 }: {
@@ -302,7 +392,11 @@ export const toCachedReelFeedPageInput = ({
   params: CacheableFeedParams
   cursor?: string
   reelIds: string[]
+  recommendations?: string | null
   nextCursor?: string | null
+  feedSessionId?: string
+  algorithmVersion?: string
+  generatedAt?: string
   cachedAt: number
   lastAccessedAt: number
 }): CachedReelFeedPageInput => ({
@@ -310,7 +404,11 @@ export const toCachedReelFeedPageInput = ({
   paramsJson: serializeFeedParams(params),
   cursor: toNullableTrimmedString(cursor),
   reelIdsJson: serializeReelIds(reelIds),
+  recommendationsJson: recommendations ?? null,
   nextCursor: toNullableTrimmedString(nextCursor),
+  feedSessionId: toNullableTrimmedString(feedSessionId),
+  algorithmVersion: toNullableTrimmedString(algorithmVersion),
+  generatedAt: toNullableTrimmedString(generatedAt),
   cachedAt,
   lastAccessedAt,
 })

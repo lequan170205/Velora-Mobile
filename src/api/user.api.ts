@@ -1,9 +1,12 @@
+import { parseRecommendedUsersResponse } from '../lib/recommendationFeed'
+
 import { apiClient } from './client'
 
 import type { UsernameAvailabilityResponse } from '../types/auth.types'
 import type {
   DirectoryUser,
   PublicUserProfile,
+  RecommendedPublicUserProfile,
   UserProfileUpdateInput,
   UserSession,
 } from '../types/user.types'
@@ -46,14 +49,15 @@ export const userApi = {
 
     return response.data
   },
-  recommended: async (params: { limit?: number } = {}) => {
-    const response = await apiClient.get<PublicUserProfile[]>('/users/recommended', {
+  recommended: async (params: { limit?: number; feedSessionId?: string } = {}) => {
+    const response = await apiClient.get<RecommendedPublicUserProfile[]>('/users/recommended', {
       params: {
         limit: params.limit ?? 20,
+        feedSessionId: params.feedSessionId,
       },
     })
 
-    return response.data
+    return parseRecommendedUsersResponse(response.data)
   },
   findPublicProfile: async (username: string) => {
     const normalizedUsername = username.trim().replace(/^@+/, '')

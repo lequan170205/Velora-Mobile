@@ -1,5 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import React from 'react'
+import React, { useEffect, useRef } from 'react'
+
+import { removeRecommendationQueriesForUser } from '../lib/recommendationCache'
+import { useAuthStore } from '../stores/authStore'
 
 import type { ReactNode } from 'react'
 
@@ -13,5 +16,18 @@ const queryClient = new QueryClient({
 })
 
 export function QueryProvider({ children }: { children: ReactNode }) {
+  const userId = useAuthStore((state) => state.user?.id)
+  const previousUserIdRef = useRef<string | undefined>(userId)
+
+  useEffect(() => {
+    const previousUserId = previousUserIdRef.current
+
+    if (previousUserId && previousUserId !== userId) {
+      removeRecommendationQueriesForUser(queryClient, previousUserId)
+    }
+
+    previousUserIdRef.current = userId
+  }, [userId])
+
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 }

@@ -1,6 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useIsFocused } from '@react-navigation/native'
-import { useQueryClient } from '@tanstack/react-query'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
@@ -29,12 +28,11 @@ import {
 } from '@/lib/offlineReelVideoCache'
 import { prefetchReelAssets, prefetchReelsForTemporaryOfflinePlayback } from '@/lib/reel-prefetch'
 import { getReelCachePolicyForNetworkState } from '@/lib/reelCachePolicy'
-import type { InfiniteData } from '@tanstack/react-query'
 
 import { reelsApi } from '../../api/reels.api'
-import { queryKeys } from '../../constants/queryKeys'
 import { DEFAULT_REELS_LIMIT } from '../../constants/reels'
 import { useRecommendedReelsFeed, useReelContext } from '../../hooks/useReels'
+import { flattenRecommendedReelPages } from '../../lib/recommendationFeed'
 import { useNetworkStatus } from '../../providers/NetworkProvider'
 
 import { ReelFeedItem } from './ReelFeedItem'
@@ -42,7 +40,7 @@ import { ReelLoadingRail } from './ReelLoadingRail'
 import { ReelOfflineAlert } from './ReelOfflineAlert'
 import { ReelOfflineSkeleton } from './ReelOfflineSkeleton'
 
-import type { ListReelsResponse, Reel, ReelContextSource } from '../../types/reel.types'
+import type { Reel, ReelContextSource } from '../../types/reel.types'
 import type { LayoutChangeEvent, NativeSyntheticEvent } from 'react-native'
 
 type ReelsViewerMode = 'public' | 'context'
@@ -135,7 +133,6 @@ export function ReelsViewer({
   returnUsername,
 }: ReelsViewerProps) {
   const router = useRouter()
-  const queryClient = useQueryClient()
   const insets = useSafeAreaInsets()
   const isFocused = useIsFocused()
   const { height: windowHeight } = useWindowDimensions()
@@ -179,15 +176,6 @@ export function ReelsViewer({
   const shouldLoadPublicFeed = !shouldUseReelContext
   const shouldAllowRefresh = mode === 'public'
 
-  const publicReelsQueryKey = useMemo(
-    () =>
-      queryKeys.reels.recommended({
-        limit: DEFAULT_REELS_LIMIT,
-        excludeRecentlySeen: true,
-      }),
-    [],
-  )
-
   const handleTimelineInteractionChange = useCallback((isInteracting: boolean) => {
     setIsTimelineInteracting(isInteracting)
   }, [])
@@ -205,6 +193,8 @@ export function ReelsViewer({
     hasNextPage: hasRecommendedNextPage,
     isFetchingNextPage: isFetchingRecommendedNextPage,
     isRefetching: isRefetchingRecommended,
+    feedSessionId: recommendedFeedSessionId,
+    refreshWithNewSession,
   } = useRecommendedReelsFeed({
     limit: DEFAULT_REELS_LIMIT,
     enabled: shouldLoadPublicFeed,
@@ -259,15 +249,15 @@ export function ReelsViewer({
       )
     }
 
-    return (
-      publicFeedData?.pages
-        .flatMap((page) => page.items)
-        .filter((item) => !deletedReelIds.has(item.id)) ?? []
-    )
+    return flattenRecommendedReelPages(
+      publicFeedData?.pages ?? [],
+      recommendedFeedSessionId,
+    ).filter((item) => !deletedReelIds.has(item.id))
   }, [
     contextExtraItems,
     contextItems,
     publicFeedData,
+    recommendedFeedSessionId,
     deletedReelIds,
     reelContext,
     shouldUseLocalContext,
@@ -923,18 +913,12 @@ export function ReelsViewer({
       handledRequestedReelIdRef.current = null
       currentPageIndexRef.current = 0
 
-      const freshPage = await reelsApi.getRecommendedReels({
-        limit: DEFAULT_REELS_LIMIT,
-        excludeRecentlySeen: true,
-      })
+      const refreshedFeed = await refreshWithNewSession()
+      const freshPage = refreshedFeed.pages[0]
 
-      queryClient.setQueryData<InfiniteData<ListReelsResponse, string | undefined>>(
-        publicReelsQueryKey,
-        {
-          pages: [freshPage],
-          pageParams: [undefined],
-        },
-      )
+      if (!freshPage) {
+        return
+      }
 
       const nextFirstReel = freshPage.items.find((item) => !deletedReelIds.has(item.id)) ?? null
 
@@ -958,8 +942,7 @@ export function ReelsViewer({
     flushReelEvents,
     isManualRefreshing,
     isRefetchingPublicFeed,
-    publicReelsQueryKey,
-    queryClient,
+    refreshWithNewSession,
     shouldAllowRefresh,
   ])
 

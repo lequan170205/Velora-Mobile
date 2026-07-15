@@ -47,6 +47,7 @@ import { useReelSavingMode } from '../../src/hooks/useReelSavingMode'
 import { performLogoutPushTokenCleanup } from '../../src/lib/notifications/pushTokenLifecycle'
 import { clearTemporaryReelVideoCache } from '../../src/lib/offlineReelVideoCache'
 import { getDisplayName, getInitials, getProfileHandle } from '../../src/lib/profile'
+import { removeRecommendationQueriesForUser } from '../../src/lib/recommendationCache'
 import { clearReelPlaybackVideoCache } from '../../src/lib/reelPlaybackVideoCache'
 import { getSavedReelVideoStorageStats } from '../../src/lib/reelVideoStorageStats'
 import { useAuthStore } from '../../src/stores/authStore'
@@ -497,7 +498,10 @@ export default function ProfileScreen() {
           }
 
           await clearCache()
-          queryClient.clear()
+
+          if (user?.id) {
+            removeRecommendationQueriesForUser(queryClient, user.id)
+          }
 
           if (isMountedRef.current) {
             setIsSigningOut(false)
@@ -507,7 +511,7 @@ export default function ProfileScreen() {
         }
       }
     },
-    [clearAuth, clearCache, loadSavedReelVideoStorageStats, queryClient, router],
+    [clearAuth, clearCache, loadSavedReelVideoStorageStats, queryClient, router, user?.id],
   )
 
   const closeSheet = useCallback(

@@ -30,6 +30,7 @@ import { useRecommendedReelsFeed } from '../../src/hooks/useReels'
 import { useSearchSuggestions } from '../../src/hooks/useSearchSuggestions'
 import { cn } from '../../src/lib/cn'
 import { getInitials } from '../../src/lib/profile'
+import { flattenRecommendedReelPages } from '../../src/lib/recommendationFeed'
 import { useNetworkStatus } from '../../src/providers/NetworkProvider'
 
 import type { FriendRequestSummary } from '../../src/types/friend.types'
@@ -646,11 +647,14 @@ export default function SearchScreen() {
       },
       { enabled: shouldShowSuggestionChips },
     )
-  const { data: recommendedReelsData, isLoading: isRecommendedReelsLoading } =
-    useRecommendedReelsFeed({
-      enabled: shouldLoadRecommendedReels,
-      limit: 24,
-    })
+  const {
+    data: recommendedReelsData,
+    isLoading: isRecommendedReelsLoading,
+    feedSessionId: recommendedReelsFeedSessionId,
+  } = useRecommendedReelsFeed({
+    enabled: shouldLoadRecommendedReels,
+    limit: 24,
+  })
   const { data: recommendedUsers = [], isLoading: isRecommendedUsersLoading } = useRecommendedUsers(
     {
       enabled: shouldLoadRecommendedUsers,
@@ -667,8 +671,9 @@ export default function SearchScreen() {
     [searchSuggestionsData?.suggestions],
   )
   const recommendedReels = useMemo(
-    () => recommendedReelsData?.pages.flatMap((page) => page.items) ?? [],
-    [recommendedReelsData],
+    () =>
+      flattenRecommendedReelPages(recommendedReelsData?.pages ?? [], recommendedReelsFeedSessionId),
+    [recommendedReelsData, recommendedReelsFeedSessionId],
   )
   const hasResolvedSearchSuggestions =
     shouldShowSuggestionChips &&

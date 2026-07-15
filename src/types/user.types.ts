@@ -1,3 +1,5 @@
+import type { RecommendationMetadata } from './recommendation.types'
+
 export interface UserSession {
   id: string
   email: string
@@ -37,4 +39,8 @@ export interface PublicUserProfile {
   username: string | null
   picture: string | null
   isVerified: boolean
+}
+
+export interface RecommendedPublicUserProfile extends PublicUserProfile {
+  recommendation?: RecommendationMetadata
 }

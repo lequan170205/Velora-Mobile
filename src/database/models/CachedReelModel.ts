@@ -20,6 +20,7 @@ export class CachedReelModel extends Model {
   @text('local_thumbnail_uri') localThumbnailUri!: string | null
   @text('stream_url') streamUrl!: string
   @text('author_json') authorJson!: string | null
+  @text('recommendation_json') recommendationJson!: string | null
   @text('created_at_remote') createdAtRemote!: string
   @field('cached_at') cachedAt!: number
   @field('last_accessed_at') lastAccessedAt!: number

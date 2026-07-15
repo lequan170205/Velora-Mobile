@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { cacheReelFeedPage, readCachedReelFeedPage } from '@/lib/reelOfflineCache'
 import type { InfiniteData, QueryClient, QueryKey } from '@tanstack/react-query'
@@ -14,6 +14,7 @@ import {
   upsertConversationSummaryInCache,
   upsertMessageIntoConversationCache,
 } from '../lib/chatMessageCache'
+import { RecommendationSession } from '../lib/recommendationSession'
 import { useAuthStore } from '../stores/authStore'
 
 import type { CacheableFeedParams } from '../database/reels/reelCacheMappers'
@@ -414,7 +415,9 @@ const normalizeListParams = (params: Omit<ListReelsParams, 'cursor'> = {}) => ({
 const normalizeRecommendedParams = (
   params: Pick<RecommendedReelsParams, 'excludeRecentlySeen' | 'limit'> = {},
 ) => ({
-  limit: params.limit ?? DEFAULT_REELS_LIMIT,
+  limit: Number.isFinite(params.limit)
+    ? Math.max(1, Math.floor(params.limit ?? DEFAULT_REELS_LIMIT))
+    : DEFAULT_REELS_LIMIT,
   excludeRecentlySeen: params.excludeRecentlySeen ?? true,
 })
 
@@ -499,28 +502,67 @@ export function useReelsFeed(
 
 export function useRecommendedReelsFeed(params: { enabled?: boolean; limit?: number } = {}) {
   const queryClient = useQueryClient()
+  const userId = useAuthStore((state) => state.user?.id)
+  const recommendationSessionRef = useRef<RecommendationSession | null>(null)
+
+  if (!recommendationSessionRef.current) {
+    recommendationSessionRef.current = new RecommendationSession(userId)
+  }
+
+  const recommendationSession = recommendationSessionRef.current
+  const [, setFeedSessionRevision] = useState(0)
+  const feedSessionId = recommendationSession.getFeedSessionId(userId)
   const normalizedParams = normalizeRecommendedParams(
     typeof params.limit === 'number' ? { limit: params.limit } : {},
   )
-  const cacheParams: CacheableFeedParams = {
-    ...normalizedParams,
-    recommended: true,
-    visibility: 'public',
-  }
-
-  return useInfiniteQuery(
-    createInfiniteReelsFeedQueryOptions({
-      queryClient,
-      queryKey: queryKeys.reels.recommended(normalizedParams),
-      cacheParams,
-      enabled: params.enabled ?? true,
-      fetchPage: (pageParam) =>
-        reelsApi.getRecommendedReels({
-          ...normalizedParams,
-          ...(pageParam ? { cursor: pageParam } : {}),
+  const recommendedLimit = normalizedParams.limit
+  const excludeRecentlySeen = normalizedParams.excludeRecentlySeen
+  const isRecommendedFeedEnabled = params.enabled ?? true
+  const createRecommendedQueryOptions = useCallback(
+    (activeFeedSessionId: string) =>
+      createInfiniteReelsFeedQueryOptions({
+        queryClient,
+        queryKey: queryKeys.reels.recommended({
+          userId: userId ?? null,
+          feedSessionId: activeFeedSessionId,
+          limit: recommendedLimit,
+          excludeRecentlySeen,
         }),
-    }),
+        cacheParams: {
+          limit: recommendedLimit,
+          excludeRecentlySeen,
+          userId: userId ?? 'anonymous',
+          feedSessionId: activeFeedSessionId,
+          recommended: true,
+          visibility: 'public',
+        },
+        enabled: isRecommendedFeedEnabled,
+        fetchPage: (pageParam) =>
+          reelsApi.getRecommendedReels({
+            limit: recommendedLimit,
+            excludeRecentlySeen,
+            feedSessionId: activeFeedSessionId,
+            ...(pageParam ? { cursor: pageParam } : {}),
+          }),
+      }),
+    [excludeRecentlySeen, isRecommendedFeedEnabled, queryClient, recommendedLimit, userId],
   )
+
+  const refreshWithNewSession = useCallback(async () => {
+    const nextFeedSessionId = recommendationSession.refresh(userId)
+    setFeedSessionRevision((revision) => revision + 1)
+
+    return queryClient.fetchInfiniteQuery(createRecommendedQueryOptions(nextFeedSessionId))
+  }, [createRecommendedQueryOptions, queryClient, recommendationSession, userId])
+
+  const query = useInfiniteQuery(createRecommendedQueryOptions(feedSessionId))
+
+  return {
+    ...query,
+    feedSessionId,
+    algorithmVersion: query.data?.pages.find((page) => page.algorithmVersion)?.algorithmVersion,
+    refreshWithNewSession,
+  }
 }
 
 export function useReelDetail(id?: string, options: { enabled?: boolean } = {}) {
@@ -701,7 +743,9 @@ export function useUpdateReel() {
     mutationFn: ({ id, data }: { id: string; data: UpdateReelPayload }) =>
       reelsApi.update(id, data),
     onSuccess: (updatedReel) => {
-      queryClient.setQueryData(queryKeys.reels.detail(updatedReel.id), updatedReel)
+      queryClient.setQueryData<ReelDetail>(queryKeys.reels.detail(updatedReel.id), (current) =>
+        current ? { ...current, ...updatedReel } : updatedReel,
+      )
       queryClient.setQueriesData<ReelsInfiniteData>({ queryKey: queryKeys.reels.lists() }, (data) =>
         updateReelInInfiniteData(data, updatedReel),
       )
@@ -719,7 +763,9 @@ export function useReprocessReel() {
   return useMutation({
     mutationFn: (id: string) => reelsApi.reprocess(id),
     onSuccess: (reprocessedReel) => {
-      queryClient.setQueryData(queryKeys.reels.detail(reprocessedReel.id), reprocessedReel)
+      queryClient.setQueryData<ReelDetail>(queryKeys.reels.detail(reprocessedReel.id), (current) =>
+        current ? { ...current, ...reprocessedReel } : reprocessedReel,
+      )
 
       queryClient.setQueriesData<ReelsInfiniteData>({ queryKey: queryKeys.reels.lists() }, (data) =>
         updateReelInInfiniteData(data, reprocessedReel),

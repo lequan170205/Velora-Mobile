@@ -1,3 +1,5 @@
+import type { RecommendationMetadata } from './recommendation.types'
+
 export type ReelVisibility = 'public' | 'private'
 
 export type AllowedVideoType = 'video/mp4' | 'video/webm' | 'video/quicktime'
@@ -35,6 +37,7 @@ export interface Reel {
   streamUrl: string
   createdAt: string
   author?: ReelAuthor | null
+  recommendation?: RecommendationMetadata
 }
 
 export type ReelFeedListItem = Reel
@@ -57,6 +60,9 @@ export interface PaginatedReels<T> {
   nextCursor?: string | null
   fromOfflineCache?: boolean
   cachedAt?: number
+  feedSessionId?: string
+  algorithmVersion?: string
+  generatedAt?: string
 }
 
 export type ListReelsResponse = PaginatedReels<Reel>
@@ -65,6 +71,7 @@ export interface RecommendedReelsParams {
   limit?: number
   cursor?: string | null
   excludeRecentlySeen?: boolean
+  feedSessionId?: string
 }
 
 export type ReelContextSource = 'profile'

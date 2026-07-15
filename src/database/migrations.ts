@@ -38,5 +38,23 @@ export const migrations = schemaMigrations({
       toVersion: 5,
       steps: [createTable(CALL_TELEMETRY_OUTBOX_ITEMS_TABLE_SCHEMA)],
     },
+    {
+      toVersion: 6,
+      steps: [
+        addColumns({
+          table: TABLES.cachedReels,
+          columns: [{ name: 'recommendation_json', type: 'string', isOptional: true }],
+        }),
+        addColumns({
+          table: TABLES.cachedReelFeedPages,
+          columns: [
+            { name: 'recommendations_json', type: 'string', isOptional: true },
+            { name: 'feed_session_id', type: 'string', isOptional: true },
+            { name: 'algorithm_version', type: 'string', isOptional: true },
+            { name: 'generated_at', type: 'string', isOptional: true },
+          ],
+        }),
+      ],
+    },
   ],
 })

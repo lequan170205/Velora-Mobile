@@ -56,6 +56,7 @@ const applyCachedReelInput = (record: CachedReelModel, input: CachedReelInput) =
   record.localThumbnailUri = input.localThumbnailUri
   record.streamUrl = input.streamUrl
   record.authorJson = input.authorJson
+  record.recommendationJson = input.recommendationJson
   record.createdAtRemote = input.createdAtRemote
   record.cachedAt = input.cachedAt
   record.lastAccessedAt = input.lastAccessedAt
@@ -69,7 +70,11 @@ const applyCachedReelFeedPageInput = (
   record.paramsJson = input.paramsJson
   record.cursor = input.cursor
   record.reelIdsJson = input.reelIdsJson
+  record.recommendationsJson = input.recommendationsJson
   record.nextCursor = input.nextCursor
+  record.feedSessionId = input.feedSessionId
+  record.algorithmVersion = input.algorithmVersion
+  record.generatedAt = input.generatedAt
   record.cachedAt = input.cachedAt
   record.lastAccessedAt = input.lastAccessedAt
 }

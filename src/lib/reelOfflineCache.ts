@@ -1,9 +1,11 @@
 import {
   createFeedCacheKey,
+  deserializeReelRecommendations,
   deserializeCachedReelToReel,
   getCachedFeedPageReelIds,
   normalizeFeedParams,
   serializeReelToCachedReelInput,
+  serializeReelRecommendations,
   toCachedReelFeedPageInput,
 } from '../database/reels/reelCacheMappers'
 import {
@@ -79,7 +81,11 @@ export const cacheReelFeedPage = async (
       params: normalizedParams,
       ...(cursor ? { cursor } : {}),
       reelIds: response.items.map((reel) => reel.id),
+      recommendations: serializeReelRecommendations(response.items),
       ...(response.nextCursor ? { nextCursor: response.nextCursor } : {}),
+      ...(response.feedSessionId ? { feedSessionId: response.feedSessionId } : {}),
+      ...(response.algorithmVersion ? { algorithmVersion: response.algorithmVersion } : {}),
+      ...(response.generatedAt ? { generatedAt: response.generatedAt } : {}),
       cachedAt: savedAt,
       lastAccessedAt: savedAt,
     }),
@@ -118,10 +124,25 @@ export const readCachedReelFeedPage = async (
   }
 
   const reelsById = new Map(reelRecords.map((record) => [record.reelId, record]))
+  const recommendationsByReelId = deserializeReelRecommendations(page.recommendationsJson)
   const items = reelIds
     .map((reelId) => reelsById.get(reelId))
     .filter((record): record is NonNullable<typeof record> => record !== undefined)
-    .map(deserializeCachedReelToReel)
+    .map((record) => {
+      const reel = deserializeCachedReelToReel(record)
+      const recommendation = recommendationsByReelId[reel.id]
+
+      if (recommendation) {
+        return { ...reel, recommendation }
+      }
+
+      if (!normalizedParams.recommended) {
+        return reel
+      }
+
+      const { recommendation: _recommendation, ...reelWithoutRecommendation } = reel
+      return reelWithoutRecommendation
+    })
 
   if (items.length === 0) {
     return null
@@ -139,5 +160,8 @@ export const readCachedReelFeedPage = async (
     nextCursor: page.nextCursor,
     fromOfflineCache: true,
     cachedAt: page.cachedAt,
+    ...(page.feedSessionId ? { feedSessionId: page.feedSessionId } : {}),
+    ...(page.algorithmVersion ? { algorithmVersion: page.algorithmVersion } : {}),
+    ...(page.generatedAt ? { generatedAt: page.generatedAt } : {}),
   }
 }

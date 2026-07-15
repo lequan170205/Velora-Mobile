@@ -55,6 +55,7 @@ export const CACHED_REELS_TABLE_SCHEMA: TableSchemaSpec = {
     { name: 'local_thumbnail_uri', type: 'string', isOptional: true },
     { name: 'stream_url', type: 'string' },
     { name: 'author_json', type: 'string', isOptional: true },
+    { name: 'recommendation_json', type: 'string', isOptional: true },
     { name: 'created_at_remote', type: 'string' },
     { name: 'cached_at', type: 'number', isIndexed: true },
     { name: 'last_accessed_at', type: 'number', isIndexed: true },
@@ -68,7 +69,11 @@ export const CACHED_REEL_FEED_PAGES_TABLE_SCHEMA: TableSchemaSpec = {
     { name: 'params_json', type: 'string' },
     { name: 'cursor', type: 'string', isOptional: true },
     { name: 'reel_ids_json', type: 'string' },
+    { name: 'recommendations_json', type: 'string', isOptional: true },
     { name: 'next_cursor', type: 'string', isOptional: true },
+    { name: 'feed_session_id', type: 'string', isOptional: true },
+    { name: 'algorithm_version', type: 'string', isOptional: true },
+    { name: 'generated_at', type: 'string', isOptional: true },
     { name: 'cached_at', type: 'number', isIndexed: true },
     { name: 'last_accessed_at', type: 'number', isIndexed: true },
   ],
@@ -114,7 +119,7 @@ export const CALL_TELEMETRY_OUTBOX_ITEMS_TABLE_SCHEMA: TableSchemaSpec = {
 }
 
 export const schema = appSchema({
-  version: 5,
+  version: 6,
   tables: [
     tableSchema({
       name: TABLES.users,

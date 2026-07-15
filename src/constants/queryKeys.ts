@@ -21,8 +21,23 @@ export const queryKeys = {
     all: ['reels'] as const,
     lists: () => ['reels', 'list'] as const,
     list: (params?: Record<string, unknown>) => ['reels', 'list', params ?? {}] as const,
-    recommended: (params?: Record<string, unknown>) =>
-      ['reels', 'list', 'recommended', params ?? {}] as const,
+    recommended: (params: {
+      userId?: string | null
+      feedSessionId: string
+      limit: number
+      excludeRecentlySeen: boolean
+    }) =>
+      [
+        'reels',
+        'list',
+        'recommended',
+        {
+          userId: params.userId ?? 'anonymous',
+          feedSessionId: params.feedSessionId,
+          limit: params.limit,
+          excludeRecentlySeen: params.excludeRecentlySeen,
+        },
+      ] as const,
     contexts: () => ['reels', 'context'] as const,
     context: (id: string, params?: Record<string, unknown>) =>
       ['reels', 'context', id, params ?? {}] as const,
@@ -41,7 +56,16 @@ export const queryKeys = {
     all: ['users'] as const,
     detail: (id: string) => ['users', id] as const,
     discover: (query: string) => ['users', 'discover', query] as const,
-    recommended: (limit?: number) => ['users', 'recommended', { limit: limit ?? null }] as const,
+    recommended: (params: { userId?: string | null; feedSessionId: string; limit: number }) =>
+      [
+        'users',
+        'recommended',
+        {
+          userId: params.userId ?? 'anonymous',
+          feedSessionId: params.feedSessionId,
+          limit: params.limit,
+        },
+      ] as const,
     publicProfile: (username: string) => ['users', 'public', username] as const,
     usernameAvailability: (username: string) =>
       ['users', 'username-availability', username] as const,
