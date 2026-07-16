@@ -882,6 +882,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
             existingConversation.lastMessageAt !== mergedConversation.lastMessageAt ||
             existingConversation.updatedAt !== mergedConversation.updatedAt ||
             existingConversation.unreadCount !== mergedConversation.unreadCount ||
+            existingConversation.creatorId !== mergedConversation.creatorId ||
+            existingConversation.participantIds !== mergedConversation.participantIds ||
+            existingConversation.participants !== mergedConversation.participants ||
+            existingConversation.createdAt !== mergedConversation.createdAt ||
+            existingConversation.isGroup !== mergedConversation.isGroup ||
             existingConversation.name !== mergedConversation.name ||
             existingConversation.picture !== mergedConversation.picture
 
@@ -905,6 +910,40 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
           return !hasSummaryChanged && isSameOrder ? oldData : sortedConversations
         },
+      )
+    }
+
+    const upsertCreatedConversation = (conversation: Conversation) => {
+      const cachedConversations = queryClient.getQueryData<Conversation[] | undefined>(
+        queryKeys.conversations.all,
+      )
+
+      if (!Array.isArray(cachedConversations)) {
+        queryClient.setQueryData(queryKeys.conversations.all, [conversation])
+        return
+      }
+
+      const existingConversation = cachedConversations.find(
+        (cachedConversation) => cachedConversation.id === conversation.id,
+      )
+      const existingActivityAt = existingConversation
+        ? getConversationActivityAt(existingConversation)
+        : 0
+      const createdActivityAt = getConversationActivityAt(conversation)
+
+      upsertConversationSummary(
+        existingConversation && existingActivityAt > createdActivityAt
+          ? {
+              ...conversation,
+              lastMessage: existingConversation.lastMessage ?? null,
+              lastMessageAt: existingConversation.lastMessageAt ?? null,
+              updatedAt: existingConversation.updatedAt,
+              ...(existingConversation.unreadCount !== undefined
+                ? { unreadCount: existingConversation.unreadCount }
+                : {}),
+            }
+          : conversation,
+        { allowPlaceholder: true },
       )
     }
 
@@ -1235,6 +1274,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     newSocket.on('conversation_updated', (conversation: Conversation) => {
       if (!conversation?.id) return
       upsertConversationSummary(conversation, { allowPlaceholder: true })
+    })
+
+    newSocket.on('conversation_created', (conversation: Conversation) => {
+      if (!conversation?.id) return
+      upsertCreatedConversation(conversation)
     })
 
     newSocket.on('message_synced', (incomingMessage: Message) => {
