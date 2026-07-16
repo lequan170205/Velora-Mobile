@@ -2,6 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons'
 import { BlurView } from 'expo-blur'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
+import { Image as ExpoImage } from 'expo-image'
 import React, { useRef, useState } from 'react'
 import {
   Image,
@@ -32,6 +33,7 @@ import Svg, { Path } from 'react-native-svg'
 import { scheduleOnRN } from 'react-native-worklets'
 
 import { useAddReaction, useRemoveReaction } from '../../../hooks/useMessageActions'
+import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../../lib/chatMedia'
 import { useAuthStore } from '../../../stores/authStore'
 import { MessageBubbleContent } from '../MessageBubbleContent'
 
@@ -118,7 +120,9 @@ type MessageContextMenuInnerProps = Omit<MessageContextMenuProps, 'message' | 'a
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 const MENU_EXIT_EASING = Easing.bezier(0.4, 0, 1, 1)
 const MENU_SPRING = { damping: 16, stiffness: 220, mass: 0.8 }
-const TOOLBAR_ENTER_DELAY_MS = 60
+// Let the cached media clone settle first; this preserves the familiar
+// media-first context-menu reveal instead of showing controls over a blank frame.
+const TOOLBAR_ENTER_DELAY_MS = 100
 const REACTION_BUTTON_SIZE = 45
 const REACTION_PICKUP_RADIUS_X = 34
 const REACTION_PICKUP_RADIUS_Y = 32
@@ -1010,6 +1014,8 @@ function ContextMessagePreview({
   const reactions = getContextReactionEntries(message)
   const hasMeasuredBubble = Boolean(previewLayout && previewLayout.bubbleHeight > 0)
   const currentSenderLabel = getContextSenderLabel(message, isOwn)
+  const isVisualMessage =
+    message.type === 'image' || message.type === 'video' || isReelMessage(message)
   const isVisualReply =
     Boolean(replyPreview?.thumbnailUri) &&
     (replyPreview?.type === 'image' || replyPreview?.type === 'video')
@@ -1096,10 +1102,12 @@ function ContextMessagePreview({
                       : null,
                   ]}
                 >
-                  <Image
-                    source={{ uri: replyPreview.thumbnailUri ?? undefined }}
-                    resizeMode="contain"
+                  <ExpoImage
+                    cachePolicy="memory-disk"
+                    contentFit="contain"
+                    source={replyPreview.thumbnailUri}
                     style={styles.contextVisualReplyImage}
+                    transition={0}
                   />
                   {replyPreview.type === 'video' ? (
                     <View pointerEvents="none" style={styles.contextVisualReplyPlayIcon}>
@@ -1149,6 +1157,7 @@ function ContextMessagePreview({
           hasMeasuredBubble && previewLayout?.bubbleHeight
             ? { flex: 0, height: previewLayout.bubbleHeight }
             : null,
+          isVisualMessage ? { width: '100%' } : null,
           getBubbleSurfaceStyle({ message, isOwn, isGroupedTop, isGroupedBottom, tokens }),
           shadowStyle(tokens.shadow),
         ]}
@@ -1192,6 +1201,44 @@ function renderBubblePreview({
   isOwn: boolean
   tokens: MessageContextMenuTokens
 }) {
+  const isMediaMessage = message.type === 'image' || message.type === 'video'
+  const isVideo = message.type === 'video'
+
+  if (isMediaMessage && !isMessageRecalled(message)) {
+    const mediaUri = isVideo
+      ? getResolvedMediaPosterUri(message.media)
+      : getResolvedMediaUri(message.media)
+
+    return (
+      <View style={styles.contextDirectMediaPreview}>
+        {mediaUri ? (
+          <ExpoImage
+            cachePolicy="memory-disk"
+            contentFit="cover"
+            source={{ uri: mediaUri }}
+            style={styles.contextDirectMediaImage}
+            transition={0}
+          />
+        ) : (
+          <View
+            style={[
+              styles.contextDirectMediaFallback,
+              { backgroundColor: isVideo ? '#111111' : '#EFEFEF' },
+            ]}
+          >
+            <MaterialIcons name={isVideo ? 'videocam' : 'image'} size={28} color="#A1A1AA" />
+          </View>
+        )}
+
+        {isVideo ? (
+          <View pointerEvents="none" style={styles.contextDirectMediaPlayIcon}>
+            <RoundedPlayIcon size={34} />
+          </View>
+        ) : null}
+      </View>
+    )
+  }
+
   if (!isReelMessage(message) || isMessageRecalled(message)) {
     return (
       <MessageBubbleContent message={message} isOwn={isOwn} variant="preview" tokens={tokens} />
@@ -1378,6 +1425,29 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     minWidth: 0,
+  },
+  contextDirectMediaFallback: {
+    alignItems: 'center',
+    height: '100%',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  contextDirectMediaImage: {
+    height: '100%',
+    width: '100%',
+  },
+  contextDirectMediaPlayIcon: {
+    alignItems: 'center',
+    bottom: 0,
+    justifyContent: 'center',
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  contextDirectMediaPreview: {
+    height: '100%',
+    width: '100%',
   },
   contextMessagePreview: {
     flex: 1,
