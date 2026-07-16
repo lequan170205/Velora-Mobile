@@ -1778,8 +1778,11 @@ export default function ChatScreen() {
 
   const activeContextMenuMessageId = activeContextMenu?.message.id ?? null
   const activeContextMenuMessage = activeContextMenu?.message ?? null
+  const activeContextMenuReplyTarget = activeContextMenu?.replyTarget ?? null
+  const activeContextMenuPreviewLayout = activeContextMenu?.previewLayout
   const activeContextMenuAnchor = activeContextMenu?.anchor ?? null
   const activeContextMenuConversationId = activeContextMenu?.conversationId
+  const activeContextMenuGestureState = activeContextMenu?.gestureState
   const activeContextMenuFallbackGroupedTop = activeContextMenu?.isGroupedTop ?? false
   const activeContextMenuFallbackGroupedBottom = activeContextMenu?.isGroupedBottom ?? false
 
@@ -1793,8 +1796,11 @@ export default function ChatScreen() {
 
     return {
       message: currentMessage,
+      replyTarget: activeContextMenuReplyTarget,
+      previewLayout: activeContextMenuPreviewLayout,
       anchor: activeContextMenuAnchor,
       conversationId: activeContextMenuConversationId,
+      gestureState: activeContextMenuGestureState,
       isOwn: currentMessage.senderId === user?.id,
       isGroupedTop: currentLayout?.isGroupedTop ?? activeContextMenuFallbackGroupedTop,
       isGroupedBottom: currentLayout?.isGroupedBottom ?? activeContextMenuFallbackGroupedBottom,
@@ -1802,10 +1808,13 @@ export default function ChatScreen() {
   }, [
     activeContextMenuAnchor,
     activeContextMenuConversationId,
+    activeContextMenuGestureState,
     activeContextMenuFallbackGroupedBottom,
     activeContextMenuFallbackGroupedTop,
     activeContextMenuMessage,
     activeContextMenuMessageId,
+    activeContextMenuPreviewLayout,
+    activeContextMenuReplyTarget,
     layoutById,
     messageById,
     user?.id,
@@ -2236,10 +2245,13 @@ export default function ChatScreen() {
         <MessageContextMenu
           visible={Boolean(activeContextMenuData)}
           message={activeContextMenuData?.message ?? null}
+          replyTarget={activeContextMenuData?.replyTarget ?? null}
+          previewLayout={activeContextMenuData?.previewLayout}
           isOwn={activeContextMenuData?.isOwn ?? false}
           isGroupedTop={activeContextMenuData?.isGroupedTop ?? false}
           isGroupedBottom={activeContextMenuData?.isGroupedBottom ?? false}
           anchor={activeContextMenuData?.anchor ?? null}
+          gestureState={activeContextMenuData?.gestureState}
           onClose={closeActiveContextMenu}
           onReply={
             activeContextMenuData ? () => handleReply(activeContextMenuData.message) : undefined

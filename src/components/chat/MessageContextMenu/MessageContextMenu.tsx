@@ -18,7 +18,11 @@ import { useTheme, type MD3Theme } from 'react-native-paper'
 import Animated, {
   Easing,
   interpolate,
+  interpolateColor,
+  type SharedValue,
+  useAnimatedReaction,
   useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
   withDelay,
   withSpring,
@@ -57,9 +61,38 @@ export interface BubbleAnchor {
   height: number
 }
 
+/**
+ * Measured once by the source message card. Keeping these dimensions lets the
+ * menu reproduce a composed message (reply preview + bubble + reactions)
+ * without stretching its main bubble to fill the whole card.
+ */
+export interface MessageContextPreviewLayout {
+  bubbleHeight: number
+  reactionHeight: number
+  replyCardHeight: number
+  replyCardWidth: number
+  replyMediaHeight: number
+  replyMediaWidth: number
+  replyPreviewHeight: number
+}
+
+/**
+ * Shared by the source bubble and its menu. Pointer tracking, hit testing,
+ * and hover animation all stay on the UI thread; JS only runs after release.
+ */
+export interface MessageContextMenuGestureState {
+  hasDragged: SharedValue<boolean>
+  pointerX: SharedValue<number>
+  pointerY: SharedValue<number>
+  releaseToken: SharedValue<number>
+  selection: SharedValue<number>
+}
+
 interface MessageContextMenuProps {
   visible: boolean
   message: Message | null
+  replyTarget?: Message | null | undefined
+  previewLayout?: MessageContextPreviewLayout | undefined
   isOwn: boolean
   isGroupedTop: boolean
   isGroupedBottom: boolean
@@ -70,6 +103,7 @@ interface MessageContextMenuProps {
   onRecall?: (() => void) | undefined
   onSave?: (() => void) | undefined
   conversationId?: string | undefined
+  gestureState?: MessageContextMenuGestureState | undefined
 }
 
 interface ActionItem extends MessageContextActionConfig {
@@ -85,6 +119,85 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 const MENU_EXIT_EASING = Easing.bezier(0.4, 0, 1, 1)
 const MENU_SPRING = { damping: 16, stiffness: 220, mass: 0.8 }
 const TOOLBAR_ENTER_DELAY_MS = 60
+const REACTION_BUTTON_SIZE = 45
+const REACTION_PICKUP_RADIUS_X = 34
+const REACTION_PICKUP_RADIUS_Y = 32
+const ACTION_PICKUP_HORIZONTAL_INSET = 10
+const ACTION_PICKUP_VERTICAL_PADDING = 8
+const GESTURE_SELECTION_NONE = 0
+const REACTION_TO_MEDIA_REPLY_GAP = 4
+
+function getGestureSelection({
+  actionCount,
+  actionTop,
+  menuWidth,
+  pointerX,
+  pointerY,
+  reactionVisible,
+  stackLeft,
+  stackTop,
+}: {
+  actionCount: number
+  actionTop: number
+  menuWidth: number
+  pointerX: number
+  pointerY: number
+  reactionVisible: boolean
+  stackLeft: number
+  stackTop: number
+}): number {
+  'worklet'
+
+  if (
+    reactionVisible &&
+    Math.abs(pointerY - (stackTop + REACTION_BAR_H / 2)) <= REACTION_PICKUP_RADIUS_Y
+  ) {
+    const rowHorizontalPadding = 8
+    const availableSpace = Math.max(
+      0,
+      menuWidth - rowHorizontalPadding - REACTION_BUTTON_SIZE * (QUICK_REACTIONS.length + 1),
+    )
+    const slotGap = availableSpace / (QUICK_REACTIONS.length + 2)
+    let closestIndex = -1
+    let closestDistance = Number.POSITIVE_INFINITY
+
+    for (let index = 0; index < QUICK_REACTIONS.length; index += 1) {
+      const centerX =
+        stackLeft +
+        rowHorizontalPadding / 2 +
+        slotGap * (index + 1) +
+        REACTION_BUTTON_SIZE * index +
+        REACTION_BUTTON_SIZE / 2
+      const distance = Math.abs(pointerX - centerX)
+
+      if (distance < closestDistance) {
+        closestDistance = distance
+        closestIndex = index
+      }
+    }
+
+    if (closestIndex >= 0 && closestDistance <= REACTION_PICKUP_RADIUS_X) {
+      return closestIndex + 1
+    }
+  }
+
+  const actionBottom = actionTop + actionCount * ACTION_ROW_H
+  const isInsideActions =
+    pointerX >= stackLeft - ACTION_PICKUP_HORIZONTAL_INSET &&
+    pointerX <= stackLeft + menuWidth + ACTION_PICKUP_HORIZONTAL_INSET &&
+    pointerY >= actionTop - ACTION_PICKUP_VERTICAL_PADDING &&
+    pointerY <= actionBottom + ACTION_PICKUP_VERTICAL_PADDING
+
+  if (isInsideActions && actionCount > 0) {
+    const index = Math.max(
+      0,
+      Math.min(Math.floor((pointerY - actionTop) / ACTION_ROW_H), actionCount - 1),
+    )
+    return QUICK_REACTIONS.length + index + 1
+  }
+
+  return GESTURE_SELECTION_NONE
+}
 
 const isReelMessage = (message: Message) =>
   message.type === 'reel' ||
@@ -118,13 +231,21 @@ function RoundedPlayIcon({ size = 42 }: { size?: number }) {
 export function MessageContextMenu({
   visible,
   message,
+  replyTarget,
+  previewLayout,
   anchor,
   ...props
 }: MessageContextMenuProps) {
   const lastMessageRef = useRef<Message | null>(message)
   const lastAnchorRef = useRef<BubbleAnchor | null>(anchor)
+  const lastReplyTargetRef = useRef<Message | null | undefined>(replyTarget)
+  const lastPreviewLayoutRef = useRef<MessageContextPreviewLayout | undefined>(previewLayout)
 
-  if (message) lastMessageRef.current = message
+  if (message) {
+    lastMessageRef.current = message
+    lastReplyTargetRef.current = replyTarget
+    lastPreviewLayoutRef.current = previewLayout
+  }
   if (anchor) lastAnchorRef.current = anchor
 
   const renderedMessage = lastMessageRef.current
@@ -136,6 +257,8 @@ export function MessageContextMenu({
     <MessageContextMenuInner
       visible={visible}
       message={renderedMessage}
+      replyTarget={lastReplyTargetRef.current}
+      previewLayout={lastPreviewLayoutRef.current}
       anchor={renderedAnchor}
       {...props}
     />
@@ -145,6 +268,8 @@ export function MessageContextMenu({
 function MessageContextMenuInner({
   visible,
   message,
+  replyTarget,
+  previewLayout,
   isOwn,
   isGroupedTop,
   isGroupedBottom,
@@ -155,6 +280,7 @@ function MessageContextMenuInner({
   onRecall,
   onSave,
   conversationId,
+  gestureState,
 }: MessageContextMenuInnerProps) {
   const { user } = useAuthStore()
   const addReaction = useAddReaction()
@@ -307,24 +433,128 @@ function MessageContextMenuInner({
   const actionHeight =
     actionCount > 0 ? actionCount * ACTION_ROW_H + (actionCount - 1) * StyleSheet.hairlineWidth : 0
 
-  const activeGaps = (reactionVisible ? 1 : 0) + (actionCount > 0 ? 1 : 0)
-  const totalGapHeight = activeGaps * GAP
-
   const maxBubbleH = screenH * 0.45
-  const bubbleHeight = Math.min(anchor.height, maxBubbleH)
+  const replyPreviewType =
+    typeof message.replyPreview === 'string' ? replyTarget?.type : message.replyPreview?.type
+  const hasMediaReplyPreview = replyPreviewType === 'image' || replyPreviewType === 'video'
+  const reactionToPreviewGap = hasMediaReplyPreview ? REACTION_TO_MEDIA_REPLY_GAP : GAP
+  // Media reply previews are already rendered at their shared 70% size in the
+  // chat bubble. Preserve the measured frame here to keep the transition exact.
+  const bubbleHeight = hasMediaReplyPreview ? anchor.height : Math.min(anchor.height, maxBubbleH)
+  const reactionGapHeight = reactionVisible ? reactionToPreviewGap : 0
+  const actionGapHeight = actionCount > 0 ? GAP : 0
 
-  const totalHeight = reactionHeight + actionHeight + bubbleHeight + totalGapHeight
+  const totalHeight =
+    reactionHeight + actionHeight + bubbleHeight + reactionGapHeight + actionGapHeight
   const idealStackLeft = isOwn ? anchor.x + anchor.width - menuWidth : anchor.x
 
   const stackLeft = clamp(idealStackLeft, EDGE_MARGIN, screenW - menuWidth - EDGE_MARGIN)
 
-  const idealStackTop = anchor.y - reactionHeight - (reactionVisible ? GAP : 0)
+  const idealStackTop = anchor.y - reactionHeight - reactionGapHeight
 
   const maxAllowedTop = screenH - totalHeight - SAFE_VERTICAL
 
   const stackTop = clamp(idealStackTop, SAFE_VERTICAL, maxAllowedTop)
   const stackDeltaX = idealStackLeft - stackLeft
   const stackDeltaY = idealStackTop - stackTop
+  const actionTop = stackTop + reactionHeight + reactionGapHeight + bubbleHeight + actionGapHeight
+
+  const triggerSelectionHaptic = React.useCallback(() => {
+    void Haptics.selectionAsync()
+  }, [])
+
+  const handleGestureRelease = (selection: number) => {
+    if (selection <= GESTURE_SELECTION_NONE) return
+
+    if (selection <= QUICK_REACTIONS.length) {
+      handleReactionPress(QUICK_REACTIONS[selection - 1])
+      return
+    }
+
+    const actionIndex = selection - QUICK_REACTIONS.length - 1
+    filteredActions[actionIndex]?.onPress()
+  }
+
+  React.useEffect(() => {
+    if (!visible && gestureState) {
+      gestureState.hasDragged.value = false
+      gestureState.selection.value = GESTURE_SELECTION_NONE
+    }
+  }, [gestureState, visible])
+
+  useAnimatedReaction(
+    () => {
+      'worklet'
+
+      if (!visible || !gestureState || !gestureState.hasDragged.value) {
+        return GESTURE_SELECTION_NONE
+      }
+
+      return getGestureSelection({
+        actionCount,
+        actionTop,
+        menuWidth,
+        pointerX: gestureState.pointerX.value,
+        pointerY: gestureState.pointerY.value,
+        reactionVisible,
+        stackLeft,
+        stackTop,
+      })
+    },
+    (selection, previousSelection) => {
+      'worklet'
+
+      if (!gestureState || selection === previousSelection) return
+
+      gestureState.selection.value = selection
+
+      if (selection !== GESTURE_SELECTION_NONE) {
+        scheduleOnRN(triggerSelectionHaptic)
+      }
+    },
+  )
+
+  useAnimatedReaction(
+    () => {
+      'worklet'
+
+      if (
+        !visible ||
+        !gestureState ||
+        !gestureState.hasDragged.value ||
+        gestureState.releaseToken.value === 0
+      ) {
+        return null
+      }
+
+      return {
+        selection: getGestureSelection({
+          actionCount,
+          actionTop,
+          menuWidth,
+          pointerX: gestureState.pointerX.value,
+          pointerY: gestureState.pointerY.value,
+          reactionVisible,
+          stackLeft,
+          stackTop,
+        }),
+        token: gestureState.releaseToken.value,
+      }
+    },
+    (release, previousRelease) => {
+      'worklet'
+
+      if (!release || release.token === previousRelease?.token) return
+
+      if (gestureState) {
+        gestureState.selection.value = release.selection
+      }
+
+      if (release.selection !== GESTURE_SELECTION_NONE) {
+        scheduleOnRN(handleGestureRelease, release.selection)
+      }
+    },
+  )
 
   const stackStyle = useAnimatedStyle(() => ({
     opacity: menuProgress.value,
@@ -377,6 +607,7 @@ function MessageContextMenuInner({
               reactionBarStyle,
               {
                 height: REACTION_BAR_H,
+                marginBottom: reactionToPreviewGap,
                 backgroundColor: tokens.surface,
                 borderColor: tokens.border,
                 ...shadowStyle(tokens.shadow),
@@ -384,13 +615,15 @@ function MessageContextMenuInner({
             ]}
           >
             <View style={styles.reactionRow}>
-              {QUICK_REACTIONS.map((emoji) => (
+              {QUICK_REACTIONS.map((emoji, index) => (
                 <ReactionButton
                   key={emoji}
                   emoji={emoji}
                   isActive={activeEmoji === emoji}
                   tokens={tokens}
                   onPress={() => handleReactionPress(emoji)}
+                  gestureState={gestureState}
+                  gestureSelection={index + 1}
                 />
               ))}
 
@@ -410,17 +643,20 @@ function MessageContextMenuInner({
         ) : null}
 
         <Animated.View
+          pointerEvents="box-none"
           style={[focusStyle, getBubblePreviewFrameStyle({ anchor, bubbleHeight, message, isOwn })]}
         >
-          <View
-            style={[
-              styles.focusBubble,
-              getBubbleSurfaceStyle({ message, isOwn, isGroupedTop, isGroupedBottom, tokens }),
-              shadowStyle(tokens.shadow),
-            ]}
-          >
-            {renderBubblePreview({ message, isOwn, tokens })}
-          </View>
+          <ContextMessagePreview
+            message={message}
+            replyTarget={replyTarget}
+            previewLayout={previewLayout}
+            previewHeight={bubbleHeight}
+            isOwn={isOwn}
+            isGroupedTop={isGroupedTop}
+            isGroupedBottom={isGroupedBottom}
+            tokens={tokens}
+            currentUserId={user?.id ?? null}
+          />
         </Animated.View>
 
         {filteredActions.length > 0 ? (
@@ -430,6 +666,7 @@ function MessageContextMenuInner({
               styles.actionSheet,
               actionBarStyle,
               {
+                marginTop: GAP,
                 backgroundColor: tokens.surface,
                 borderColor: tokens.border,
                 ...shadowStyle(tokens.shadow),
@@ -438,40 +675,13 @@ function MessageContextMenuInner({
           >
             {filteredActions.map((action, index) => (
               <React.Fragment key={action.id}>
-                <Pressable
+                <ContextActionButton
+                  action={action}
                   onPress={action.onPress}
-                  accessibilityRole="button"
-                  accessibilityLabel={action.label}
-                  hitSlop={4}
-                  style={({ pressed }) => ({
-                    backgroundColor: pressed ? tokens.surfacePressed : 'transparent',
-                  })}
-                >
-                  <View style={styles.actionRow}>
-                    <View
-                      style={[
-                        styles.actionIconWrap,
-                        {
-                          backgroundColor: action.destructive ? tokens.dangerSoft : tokens.metaChip,
-                        },
-                      ]}
-                    >
-                      <MaterialIcons
-                        name={action.icon}
-                        size={18}
-                        color={action.destructive ? tokens.danger : tokens.textPrimary}
-                      />
-                    </View>
-                    <Text
-                      style={[
-                        styles.actionLabel,
-                        { color: action.destructive ? tokens.danger : tokens.textPrimary },
-                      ]}
-                    >
-                      {action.label}
-                    </Text>
-                  </View>
-                </Pressable>
+                  tokens={tokens}
+                  gestureState={gestureState}
+                  gestureSelection={QUICK_REACTIONS.length + index + 1}
+                />
 
                 {index < filteredActions.length - 1 ? (
                   <View style={[styles.divider, { backgroundColor: tokens.divider }]} />
@@ -517,17 +727,47 @@ function ReactionButton({
   isActive,
   tokens,
   onPress,
+  gestureState,
+  gestureSelection,
 }: {
   emoji: string
   isActive: boolean
   tokens: MessageContextMenuTokens
   onPress: () => void
+  gestureState?: MessageContextMenuGestureState | undefined
+  gestureSelection?: number | undefined
 }) {
   const scale = useSharedValue(1)
+  const gestureHoverProgress = useDerivedValue(() => {
+    const isHovered =
+      gestureState !== undefined &&
+      gestureSelection !== undefined &&
+      gestureState.selection.value === gestureSelection
+
+    return withSpring(isHovered ? 1 : 0, {
+      damping: 16,
+      stiffness: 320,
+    })
+  })
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }))
+
+  const gestureHoverStyle = useAnimatedStyle(() => {
+    return {
+      backgroundColor: interpolateColor(
+        gestureHoverProgress.value,
+        [0, 1],
+        ['rgba(0, 0, 0, 0)', tokens.surfacePressed],
+      ),
+      transform: [
+        { translateY: -10 * gestureHoverProgress.value },
+        { scale: 1 + 0.28 * gestureHoverProgress.value },
+      ],
+      zIndex: gestureHoverProgress.value > 0 ? 2 : 0,
+    }
+  })
 
   const handlePress = () => {
     scale.value = withSpring(0.9, { damping: 10, stiffness: 320 }, () => {
@@ -537,18 +777,409 @@ function ReactionButton({
   }
 
   return (
-    <AnimatedPressable
-      onPress={handlePress}
-      accessibilityRole="button"
-      accessibilityLabel={`Thả cảm xúc ${emoji}`}
-      hitSlop={4}
-      style={[styles.reactionButton, animatedStyle]}
+    <Animated.View style={[styles.reactionGestureTarget, gestureHoverStyle]}>
+      <AnimatedPressable
+        onPress={handlePress}
+        accessibilityRole="button"
+        accessibilityLabel={`Thả cảm xúc ${emoji}`}
+        hitSlop={4}
+        style={[styles.reactionButton, animatedStyle]}
+      >
+        <Text style={styles.reactionEmoji}>{emoji}</Text>
+        {isActive ? (
+          <View style={[styles.reactionActiveDot, { backgroundColor: tokens.textSecondary }]} />
+        ) : null}
+      </AnimatedPressable>
+    </Animated.View>
+  )
+}
+
+function ContextActionButton({
+  action,
+  onPress,
+  tokens,
+  gestureState,
+  gestureSelection,
+}: {
+  action: MessageContextActionConfig
+  onPress: () => void
+  tokens: MessageContextMenuTokens
+  gestureState?: MessageContextMenuGestureState | undefined
+  gestureSelection?: number | undefined
+}) {
+  const gestureHoverProgress = useDerivedValue(() => {
+    const isHovered =
+      gestureState !== undefined &&
+      gestureSelection !== undefined &&
+      gestureState.selection.value === gestureSelection
+
+    return withSpring(isHovered ? 1 : 0, {
+      damping: 18,
+      stiffness: 320,
+    })
+  })
+
+  const gestureHoverStyle = useAnimatedStyle(() => {
+    return {
+      backgroundColor: interpolateColor(
+        gestureHoverProgress.value,
+        [0, 1],
+        ['rgba(0, 0, 0, 0)', tokens.surfacePressed],
+      ),
+      transform: [
+        { translateX: 4 * gestureHoverProgress.value },
+        { scale: 1 + 0.018 * gestureHoverProgress.value },
+      ],
+    }
+  })
+
+  return (
+    <Animated.View style={gestureHoverStyle}>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={action.label}
+        hitSlop={4}
+        style={({ pressed }) => ({
+          backgroundColor: pressed ? tokens.surfacePressed : 'transparent',
+        })}
+      >
+        <View style={styles.actionRow}>
+          <View
+            style={[
+              styles.actionIconWrap,
+              {
+                backgroundColor: action.destructive ? tokens.dangerSoft : tokens.metaChip,
+              },
+            ]}
+          >
+            <MaterialIcons
+              name={action.icon}
+              size={18}
+              color={action.destructive ? tokens.danger : tokens.textPrimary}
+            />
+          </View>
+          <Text
+            style={[
+              styles.actionLabel,
+              { color: action.destructive ? tokens.danger : tokens.textPrimary },
+            ]}
+          >
+            {action.label}
+          </Text>
+        </View>
+      </Pressable>
+    </Animated.View>
+  )
+}
+
+type ContextReplyPreview = {
+  content: string
+  icon: React.ComponentProps<typeof MaterialIcons>['name']
+  senderLabel: string
+  thumbnailUri: string | null
+  type: 'text' | 'image' | 'video' | 'file' | 'call' | 'reel'
+}
+
+function getContextReplyPreview(
+  message: Message,
+  replyTarget: Message | null | undefined,
+  currentUserId: string | null,
+): ContextReplyPreview | null {
+  const resolvedReplyTarget = replyTarget ?? message.replyTo
+  const preview = message.replyPreview
+
+  if (!preview && !resolvedReplyTarget) {
+    return null
+  }
+
+  const structuredPreview = typeof preview === 'string' ? null : preview
+  const sourceType = structuredPreview?.type ?? resolvedReplyTarget?.type ?? 'text'
+  const type =
+    sourceType === 'image' ||
+    sourceType === 'video' ||
+    sourceType === 'file' ||
+    sourceType === 'call' ||
+    sourceType === 'reel'
+      ? sourceType
+      : 'text'
+  const sourceContent =
+    (typeof preview === 'string' ? preview : structuredPreview?.content) ??
+    resolvedReplyTarget?.content ??
+    ''
+  const normalizedContent = sourceContent.trim()
+  const isUriLike = /^(https?:\/\/|file:\/\/|content:\/\/|data:|blob:)/i.test(normalizedContent)
+  const fallbackContent =
+    sourceType === 'image'
+      ? 'Photo'
+      : sourceType === 'video'
+        ? 'Video'
+        : sourceType === 'reel'
+          ? 'Reel'
+          : sourceType === 'file'
+            ? 'Attachment'
+            : sourceType === 'call'
+              ? 'Call'
+              : 'Message'
+  const senderLabel =
+    currentUserId &&
+    (structuredPreview?.senderId ?? resolvedReplyTarget?.senderId) === currentUserId
+      ? 'You'
+      : structuredPreview?.senderName?.trim() ||
+        resolvedReplyTarget?.sender?.email?.split('@')[0] ||
+        'Original message'
+
+  const icon: ContextReplyPreview['icon'] =
+    type === 'image'
+      ? 'photo'
+      : type === 'video'
+        ? 'videocam'
+        : type === 'file'
+          ? 'attach-file'
+          : type === 'call'
+            ? 'call'
+            : type === 'reel'
+              ? 'movie-filter'
+              : 'format-quote'
+
+  const thumbnailUri =
+    structuredPreview?.thumbnailUri?.trim() ||
+    resolvedReplyTarget?.media?.thumbnailUrl?.trim() ||
+    (type === 'image' ? resolvedReplyTarget?.media?.fileUrl?.trim() : '') ||
+    null
+
+  return {
+    content:
+      resolvedReplyTarget && isMessageRecalled(resolvedReplyTarget)
+        ? 'Tin nhắn đã thu hồi'
+        : normalizedContent && !isUriLike
+          ? normalizedContent
+          : fallbackContent,
+    icon,
+    senderLabel,
+    thumbnailUri,
+    type,
+  }
+}
+
+function getContextReactionEntries(message: Message): [string, number][] {
+  const summary: Record<string, number> = {}
+
+  Object.values(message.reactions ?? {}).forEach((reaction) => {
+    if (reaction?.emoji) {
+      summary[reaction.emoji] = (summary[reaction.emoji] ?? 0) + 1
+    }
+  })
+
+  return Object.entries(summary)
+}
+
+function getContextSenderLabel(message: Message, isOwn: boolean) {
+  if (isOwn) return 'You'
+
+  const name =
+    message.sender && 'name' in message.sender && typeof message.sender.name === 'string'
+      ? message.sender.name.trim()
+      : ''
+
+  return name || message.sender?.email?.split('@')[0] || 'Someone'
+}
+
+function ContextMessagePreview({
+  message,
+  replyTarget,
+  previewLayout,
+  previewHeight,
+  isOwn,
+  isGroupedTop,
+  isGroupedBottom,
+  tokens,
+  currentUserId,
+}: {
+  message: Message
+  replyTarget?: Message | null | undefined
+  previewLayout?: MessageContextPreviewLayout | undefined
+  previewHeight: number
+  isOwn: boolean
+  isGroupedTop: boolean
+  isGroupedBottom: boolean
+  tokens: MessageContextMenuTokens
+  currentUserId: string | null
+}) {
+  const replyPreview = getContextReplyPreview(message, replyTarget, currentUserId)
+  const reactions = getContextReactionEntries(message)
+  const hasMeasuredBubble = Boolean(previewLayout && previewLayout.bubbleHeight > 0)
+  const currentSenderLabel = getContextSenderLabel(message, isOwn)
+  const isVisualReply =
+    Boolean(replyPreview?.thumbnailUri) &&
+    (replyPreview?.type === 'image' || replyPreview?.type === 'video')
+  const measuredBubbleHeight = previewLayout?.bubbleHeight ?? 0
+  const measuredReactionHeight = reactions.length > 0 ? (previewLayout?.reactionHeight ?? 0) : 0
+  const sourceReplyMediaHeight = previewLayout?.replyMediaHeight ?? 0
+  const sourceReplyMediaWidth = previewLayout?.replyMediaWidth ?? 0
+  const sourceReplyCardHeight = previewLayout?.replyCardHeight ?? 0
+  const sourceReplyCardWidth = previewLayout?.replyCardWidth ?? 0
+  const contextReplyPreviewHeight = previewLayout?.replyPreviewHeight
+  const replyPreviewMargins = replyPreview ? 12 : 0
+  const reactionRowMargin = reactions.length > 0 ? 4 : 0
+  const maxReplyPreviewHeight = Math.max(
+    0,
+    previewHeight -
+      measuredBubbleHeight -
+      measuredReactionHeight -
+      replyPreviewMargins -
+      reactionRowMargin,
+  )
+  const renderedReplyPreviewHeight =
+    hasMeasuredBubble && contextReplyPreviewHeight
+      ? Math.min(contextReplyPreviewHeight, maxReplyPreviewHeight)
+      : undefined
+  const visualReplyCardWidth =
+    isVisualReply && sourceReplyCardWidth > 0 ? sourceReplyCardWidth : undefined
+  const visualReplyCardHeight =
+    isVisualReply && sourceReplyCardHeight > 0 ? sourceReplyCardHeight : undefined
+
+  return (
+    <View
+      pointerEvents="box-none"
+      style={[
+        styles.contextMessagePreview,
+        hasMeasuredBubble ? { height: '100%' } : null,
+        { alignItems: isOwn ? 'flex-end' : 'flex-start' },
+      ]}
     >
-      <Text style={styles.reactionEmoji}>{emoji}</Text>
-      {isActive ? (
-        <View style={[styles.reactionActiveDot, { backgroundColor: tokens.textSecondary }]} />
+      {replyPreview ? (
+        <View
+          style={[
+            styles.contextReplyPreview,
+            isVisualReply ? styles.contextVisualReplyPreview : null,
+            renderedReplyPreviewHeight ? { height: renderedReplyPreviewHeight } : null,
+            { alignItems: isOwn ? 'flex-end' : 'flex-start' },
+          ]}
+        >
+          <View style={styles.contextReplyHeader}>
+            <MaterialIcons name="reply" size={15} color="#A6A6A6" />
+            <Text
+              style={[styles.contextReplyHeaderText, { color: tokens.textSecondary }]}
+              numberOfLines={1}
+            >
+              {currentSenderLabel} replied to {replyPreview.senderLabel}
+            </Text>
+          </View>
+
+          <View
+            style={[
+              styles.contextReplyCard,
+              isVisualReply ? styles.contextVisualReplyCard : null,
+              isVisualReply
+                ? { alignSelf: isOwn ? 'flex-end' : 'flex-start' }
+                : styles.contextTextReplyCard,
+              visualReplyCardWidth ? { width: visualReplyCardWidth } : null,
+              visualReplyCardHeight ? { height: visualReplyCardHeight } : null,
+              { backgroundColor: tokens.metaChip },
+            ]}
+          >
+            {replyPreview.type === 'text' ? (
+              <Text
+                style={[styles.contextReplyContent, { color: tokens.textSecondary }]}
+                numberOfLines={3}
+              >
+                {replyPreview.content}
+              </Text>
+            ) : isVisualReply ? (
+              <View style={styles.contextVisualReply}>
+                <View
+                  style={[
+                    styles.contextVisualReplyMedia,
+                    sourceReplyMediaWidth > 0 && sourceReplyMediaHeight > 0
+                      ? { height: sourceReplyMediaHeight, width: sourceReplyMediaWidth }
+                      : null,
+                  ]}
+                >
+                  <Image
+                    source={{ uri: replyPreview.thumbnailUri ?? undefined }}
+                    resizeMode="contain"
+                    style={styles.contextVisualReplyImage}
+                  />
+                  {replyPreview.type === 'video' ? (
+                    <View pointerEvents="none" style={styles.contextVisualReplyPlayIcon}>
+                      <View style={styles.contextVisualReplyPlayButton}>
+                        <MaterialIcons name="play-arrow" size={24} color="#FFFFFF" />
+                      </View>
+                    </View>
+                  ) : null}
+                </View>
+                <Text
+                  style={[styles.contextVisualReplyCaption, { color: tokens.textSecondary }]}
+                  numberOfLines={1}
+                >
+                  {replyPreview.content}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.contextAttachmentReply}>
+                {replyPreview.thumbnailUri ? (
+                  <Image
+                    source={{ uri: replyPreview.thumbnailUri }}
+                    resizeMode="cover"
+                    style={styles.contextReplyThumbnail}
+                  />
+                ) : null}
+                <MaterialIcons
+                  name={replyPreview.icon}
+                  size={16}
+                  color={tokens.textSecondary}
+                  style={replyPreview.thumbnailUri ? undefined : styles.contextReplyIcon}
+                />
+                <Text
+                  style={[styles.contextAttachmentReplyText, { color: tokens.textSecondary }]}
+                  numberOfLines={2}
+                >
+                  {replyPreview.content}
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
       ) : null}
-    </AnimatedPressable>
+
+      <View
+        style={[
+          styles.focusBubble,
+          hasMeasuredBubble && previewLayout?.bubbleHeight
+            ? { flex: 0, height: previewLayout.bubbleHeight }
+            : null,
+          getBubbleSurfaceStyle({ message, isOwn, isGroupedTop, isGroupedBottom, tokens }),
+          shadowStyle(tokens.shadow),
+        ]}
+      >
+        {renderBubblePreview({ message, isOwn, tokens })}
+      </View>
+
+      {reactions.length > 0 ? (
+        <View
+          style={[
+            styles.contextReactionRow,
+            hasMeasuredBubble && previewLayout?.reactionHeight
+              ? { height: previewLayout.reactionHeight }
+              : null,
+            { justifyContent: isOwn ? 'flex-end' : 'flex-start' },
+          ]}
+        >
+          {reactions.map(([emoji, count]) => (
+            <View
+              key={emoji}
+              style={[styles.contextReactionChip, { backgroundColor: tokens.metaChip }]}
+            >
+              <Text style={styles.contextReactionEmoji}>{emoji}</Text>
+              <Text style={[styles.contextReactionCount, { color: tokens.textSecondary }]}>
+                {count}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </View>
   )
 }
 
@@ -737,6 +1368,126 @@ const styles = StyleSheet.create({
   actionSheet: {
     overflow: 'hidden',
   },
+  contextAttachmentReply: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    minWidth: 0,
+  },
+  contextAttachmentReplyText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 21,
+    minWidth: 0,
+  },
+  contextMessagePreview: {
+    flex: 1,
+    minHeight: 0,
+    width: '100%',
+  },
+  contextReactionChip: {
+    alignItems: 'center',
+    borderRadius: 999,
+    flexDirection: 'row',
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  contextReactionCount: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  contextReactionEmoji: {
+    fontSize: 12,
+  },
+  contextReactionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 4,
+  },
+  contextReplyCard: {
+    borderRadius: 22,
+    overflow: 'hidden',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  contextReplyContent: {
+    fontSize: 15,
+    lineHeight: 24,
+  },
+  contextReplyHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    marginBottom: 4,
+    paddingHorizontal: 4,
+  },
+  contextReplyHeaderText: {
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '500',
+    marginLeft: 6,
+  },
+  contextReplyIcon: {
+    marginRight: 6,
+  },
+  contextReplyPreview: {
+    marginBottom: 4,
+    marginTop: 8,
+    maxWidth: '100%',
+  },
+  contextReplyThumbnail: {
+    borderRadius: 12,
+    height: 42,
+    marginRight: 10,
+    width: 42,
+  },
+  contextTextReplyCard: {
+    maxWidth: '100%',
+  },
+  contextVisualReply: {
+    alignItems: 'flex-start',
+  },
+  contextVisualReplyCaption: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginHorizontal: 4,
+    marginTop: 8,
+  },
+  contextVisualReplyCard: {
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  contextVisualReplyImage: {
+    borderRadius: 16,
+    height: '100%',
+    width: '100%',
+  },
+  contextVisualReplyMedia: {
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  contextVisualReplyPlayButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(12,12,13,0.58)',
+    borderColor: 'rgba(255,255,255,0.16)',
+    borderRadius: 22,
+    borderWidth: 1,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
+  contextVisualReplyPlayIcon: {
+    alignItems: 'center',
+    bottom: 0,
+    justifyContent: 'center',
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  contextVisualReplyPreview: {
+    maxWidth: '100%',
+  },
   divider: {
     height: StyleSheet.hairlineWidth,
     marginLeft: 60,
@@ -778,6 +1529,7 @@ const styles = StyleSheet.create({
   },
   reactionBar: {
     justifyContent: 'center',
+    overflow: 'visible',
   },
   reactionButton: {
     alignItems: 'center',
@@ -790,6 +1542,9 @@ const styles = StyleSheet.create({
   reactionEmoji: {
     fontSize: 28,
     lineHeight: 40,
+  },
+  reactionGestureTarget: {
+    borderRadius: 16,
   },
   reactionRow: {
     alignItems: 'center',
@@ -857,7 +1612,6 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   stack: {
-    gap: GAP,
     position: 'absolute',
   },
   surface: {
