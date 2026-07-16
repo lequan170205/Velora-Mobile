@@ -148,7 +148,7 @@ export function ReelsViewer({
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const isFocused = useIsFocused()
-  const { height: windowHeight } = useWindowDimensions()
+  const { fontScale, height: windowHeight } = useWindowDimensions()
   const { isOnline, networkState } = useNetworkStatus()
   const { isReelSavingModeHydrated, reelSavingModeEnabled } = useReelSavingMode()
   const {
@@ -186,6 +186,7 @@ export function ReelsViewer({
   const [contextNextCursor, setContextNextCursor] = useState<string | null>(null)
   const [isFetchingContextNextPage, setIsFetchingContextNextPage] = useState(false)
   const [isManualRefreshing, setIsManualRefreshing] = useState(false)
+  const [isSwitchingFeedTab, setIsSwitchingFeedTab] = useState(false)
   const [selectedFeedTab, setSelectedFeedTab] = useState<FeedTab>('for-you')
   const [feedFallbackReels, setFeedFallbackReels] = useState<Record<FeedTab, Reel[]>>({
     friends: [],
@@ -203,6 +204,9 @@ export function ReelsViewer({
   const shouldFetchReelContext = shouldUseReelContext && !shouldUseLocalContext
   const shouldLoadPublicFeed = !shouldUseReelContext
   const shouldAllowRefresh = mode === 'public'
+  const emptyStateTextSpacing = 8 * fontScale
+  const emptyStateTitleLineHeight = 36 * fontScale
+  const emptyStateDescriptionLineHeight = 24 * fontScale
   const { data: viewerFriends } = useFriends(undefined, { enabled: shouldLoadPublicFeed })
   const shouldShowFriendsTab = Boolean(viewerFriends?.length)
 
@@ -514,7 +518,7 @@ export function ReelsViewer({
     const activeReel = activeTelemetryReelRef.current
 
     if (!isFocused || !activeReel) {
-      endCurrentReelSession('screen_blur')
+      void endCurrentReelSession('screen_blur')
       return
     }
 
@@ -528,7 +532,7 @@ export function ReelsViewer({
     })
 
     return () => {
-      endCurrentReelSession('switch')
+      void endCurrentReelSession('switch')
     }
   }, [endCurrentReelSession, isFocused, startReelSession, telemetrySource, effectiveActiveReelId])
 
@@ -856,28 +860,35 @@ export function ReelsViewer({
   )
 
   const handleFeedTabChange = useCallback(
-    (nextFeedTab: FeedTab) => {
+    async (nextFeedTab: FeedTab) => {
       if (
         nextFeedTab === selectedFeedTab ||
         isManualRefreshing ||
+        isSwitchingFeedTab ||
         (nextFeedTab === 'friends' && !shouldShowFriendsTab)
       ) {
         return
       }
 
+      setIsSwitchingFeedTab(true)
       feedTabStatesRef.current[selectedFeedTab] = {
         activeIndex: Math.max(0, activeIndex),
         scrollOffset: Math.max(0, activeIndex) * viewportHeight,
       }
-      endCurrentReelSession('tab_switch')
-      activeReelIdRef.current = null
-      setActiveReelId(null)
-      setSelectedFeedTab(nextFeedTab)
+      try {
+        await endCurrentReelSession('tab_switch')
+        activeReelIdRef.current = null
+        setActiveReelId(null)
+        setSelectedFeedTab(nextFeedTab)
+      } finally {
+        setIsSwitchingFeedTab(false)
+      }
     },
     [
       activeIndex,
       endCurrentReelSession,
       isManualRefreshing,
+      isSwitchingFeedTab,
       selectedFeedTab,
       shouldShowFriendsTab,
       viewportHeight,
@@ -886,7 +897,7 @@ export function ReelsViewer({
 
   useEffect(() => {
     if (selectedFeedTab === 'friends' && !shouldShowFriendsTab) {
-      handleFeedTabChange('for-you')
+      void handleFeedTabChange('for-you')
     }
   }, [handleFeedTabChange, selectedFeedTab, shouldShowFriendsTab])
 
@@ -1097,9 +1108,9 @@ export function ReelsViewer({
       return
     }
 
-    endCurrentReelSession('manual_refresh')
-    void flushReelEvents()
     setIsManualRefreshing(true)
+    await endCurrentReelSession('manual_refresh')
+    await flushReelEvents()
 
     try {
       setContextExtraItems([])
@@ -1395,7 +1406,7 @@ export function ReelsViewer({
   const renderPagerPage = useCallback(
     (item: Reel, index: number) => {
       const isCurrentItem = effectiveActiveReelId === item.id
-      const isActiveItem = isFocused && isCurrentItem
+      const isActiveItem = isFocused && isCurrentItem && !isManualRefreshing && !isSwitchingFeedTab
       const shouldWarmVideo =
         isCurrentItem ||
         (isFocused && activeIndex >= 0 && Math.abs(index - activeIndex) <= PRELOAD_RADIUS)
@@ -1451,15 +1462,14 @@ export function ReelsViewer({
                 sources: {item.recommendation.candidateSources?.join(', ') ?? '—'}
               </Text>
               <Text style={{ color: '#D1D5DB', fontSize: 10, marginTop: 2 }}>
-                score:{' '}
-                {typeof item.recommendation.candidateScore === 'number'
-                  ? item.recommendation.candidateScore.toFixed(3)
-                  : '—'}
-                {' · '}v{recommendedAlgorithmVersion ?? item.recommendation.algorithmVersion}
+                v{recommendedAlgorithmVersion ?? item.recommendation.algorithmVersion}
               </Text>
               <Text style={{ color: '#D1D5DB', fontSize: 10, marginTop: 2 }}>
                 session:{' '}
                 {(recommendedFeedSessionId ?? item.recommendation.feedSessionId).slice(0, 8)}
+              </Text>
+              <Text style={{ color: '#D1D5DB', fontSize: 10, marginTop: 2 }}>
+                recommendation: {item.recommendation.recommendationId.slice(0, 8)}
               </Text>
             </View>
           ) : null}
@@ -1476,7 +1486,9 @@ export function ReelsViewer({
       handleToggleMuted,
       hideDescriptions,
       isFocused,
+      isManualRefreshing,
       isMuted,
+      isSwitchingFeedTab,
       insets.top,
       offlineVideoCachePriorities,
       recommendedAlgorithmVersion,
@@ -1686,15 +1698,33 @@ export function ReelsViewer({
                     />
                   </View>
 
-                  <Text className="mt-5 w-full text-center font-heading text-[28px] text-white">
-                    {selectedFeedTab === 'friends' ? 'No reels from friends yet' : 'No reels yet'}
-                  </Text>
+                  <View className="mt-5 w-full items-center">
+                    <Text
+                      adjustsFontSizeToFit
+                      className="w-full text-center font-heading text-[28px] text-white"
+                      minimumFontScale={0.8}
+                      numberOfLines={1}
+                      style={{
+                        includeFontPadding: false,
+                        lineHeight: emptyStateTitleLineHeight,
+                      }}
+                    >
+                      {selectedFeedTab === 'friends' ? 'No reels from friends yet' : 'No reels yet'}
+                    </Text>
 
-                  <Text className="mt-3 max-w-[280px] text-center text-base2 leading-6 text-white">
-                    {selectedFeedTab === 'friends'
-                      ? 'Your friends have not shared any reels yet. Their posts will appear here.'
-                      : 'Your personalized feed is getting ready. Please try again.'}
-                  </Text>
+                    <Text
+                      className="max-w-[280px] text-center text-base2 leading-6 text-white"
+                      style={{
+                        includeFontPadding: false,
+                        lineHeight: emptyStateDescriptionLineHeight,
+                        marginTop: emptyStateTextSpacing,
+                      }}
+                    >
+                      {selectedFeedTab === 'friends'
+                        ? 'Your friends have not shared any reels yet. Their posts will appear here.'
+                        : 'Your personalized feed is getting ready. Please try again.'}
+                    </Text>
+                  </View>
 
                   <TouchableOpacity
                     className="mt-7 rounded-full bg-brand px-6 py-3.5"
@@ -1750,14 +1780,14 @@ export function ReelsViewer({
                                 isSelected ? 'rounded-full bg-white px-4 py-2.5' : 'px-4 py-2.5'
                               }
                               activeOpacity={0.78}
-                              disabled={isManualRefreshing}
+                              disabled={isManualRefreshing || isSwitchingFeedTab}
                               onPress={() => {
                                 if (isSelected) {
                                   void handleRefresh()
                                   return
                                 }
 
-                                handleFeedTabChange(tab)
+                                void handleFeedTabChange(tab)
                               }}
                             >
                               <View className="flex-row items-center">

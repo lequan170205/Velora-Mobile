@@ -32,6 +32,7 @@ export function QueryProvider({ children }: { children: ReactNode }) {
       removeFriendshipQueriesForViewer(queryClient, previousUserId)
       removeFriendMutationsForViewer(queryClient, previousUserId)
       queryClient.removeQueries({ queryKey: queryKeys.reels.viewerFeeds(previousUserId) })
+      queryClient.removeQueries({ queryKey: queryKeys.reels.friends() })
     }
 
     previousUserIdRef.current = userId

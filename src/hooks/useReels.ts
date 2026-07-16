@@ -605,7 +605,7 @@ export function useFriendsReelsFeed(params: { enabled?: boolean; limit?: number 
     : DEFAULT_REELS_LIMIT
   const enabled = Boolean(viewerId) && (params.enabled ?? true)
   const query = useInfiniteQuery({
-    queryKey: queryKeys.reels.friends(viewerId),
+    queryKey: queryKeys.reels.friends(),
     queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
       reelsApi.getFriendsReels({
         limit,

@@ -21,7 +21,7 @@ export const queryKeys = {
   reels: {
     all: ['reels'] as const,
     viewerFeeds: (viewerId: string) => ['reels', viewerId] as const,
-    friends: (viewerId: string) => ['reels', viewerId, 'friends'] as const,
+    friends: () => ['reels', 'friends'] as const,
     lists: () => ['reels', 'list'] as const,
     list: (params?: Record<string, unknown>) => ['reels', 'list', params ?? {}] as const,
     recommended: (excludeRecentlySeen = true) =>

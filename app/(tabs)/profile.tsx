@@ -510,6 +510,7 @@ export default function ProfileScreen() {
             removeRecommendationQueriesForUser(queryClient, user.id)
             removeFriendshipQueriesForViewer(queryClient, user.id)
             removeFriendMutationsForViewer(queryClient, user.id)
+            queryClient.removeQueries({ queryKey: queryKeys.reels.friends() })
           }
 
           if (isMountedRef.current) {

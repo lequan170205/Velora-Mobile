@@ -16,8 +16,6 @@ export interface RecommendationMetadata {
   algorithmVersion: string
   candidateSource: RecommendationCandidateSource
   candidateSources?: string[]
-  candidateReasons?: string[]
-  candidateScore?: number
   rank: number
   generatedAt: string
 }

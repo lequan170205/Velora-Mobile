@@ -82,10 +82,10 @@ export function useReelAnalyticsTracker() {
     [],
   )
 
-  const endCurrentReelSession = useCallback((_reason?: string) => {
+  const endCurrentReelSession = useCallback(async (_reason?: string) => {
     trackerRef.current?.finalize()
     trackerRef.current = null
-    void reelEventQueue.flush()
+    await reelEventQueue.flush()
   }, [])
 
   const updateActiveMutedState = useCallback((muted: boolean) => {
