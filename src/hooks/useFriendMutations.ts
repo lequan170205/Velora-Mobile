@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { useRef } from 'react'
 import { Alert } from 'react-native'
@@ -7,21 +7,26 @@ import { friendApi } from '../api/friend.api'
 import { queryKeys } from '../constants/queryKeys'
 import {
   insertOrReplaceFriendSummary,
-  invalidateFriendshipStatus,
+  invalidateRelationshipCaches,
+  removeBlockedUserFromPages,
   removeFriendRequestFromPages,
-  removeFriendRequestsForUserFromPages,
   removeUserFromFriendList,
+  removeUserFromRecommendedUsersCaches,
+  removeBlockedUserFromCaches,
   updateFriendshipStatus,
   updateIncomingRequestPages,
   updateOutgoingRequestPages,
 } from '../lib/friendCache'
-import { removeCreatorReelsFromViewerFeedCaches } from '../lib/reelFeedCache'
+import { removeTemporaryReelVideoCacheForReelIds } from '../lib/offlineReelVideoCache'
+import { removeCreatorReelsFromOfflineCache } from '../lib/reelOfflineCache'
 import { useAuthStore } from '../stores/authStore'
 
 import type {
   FriendSummary,
   FriendshipActionResponse,
   FriendshipStatusResponse,
+  BlockedUserSummary,
+  PaginatedFriendResults,
   PublicFriendProfile,
 } from '../types/friend.types'
 
@@ -29,6 +34,11 @@ type RequestMutationInput = {
   requestId: string
   userId: string
 }
+
+type BlockedUsersCache = InfiniteData<
+  PaginatedFriendResults<BlockedUserSummary>,
+  string | undefined
+>
 
 export type AcceptFriendRequestInput = RequestMutationInput & {
   requester: PublicFriendProfile
@@ -188,6 +198,8 @@ export function useAcceptFriendRequest() {
         )
       }
 
+      removeUserFromRecommendedUsersCaches(queryClient, input.userId)
+      void invalidateRelationshipCaches(queryClient, viewerId, input.userId)
       void queryClient.invalidateQueries({ queryKey: queryKeys.friends.list(viewerId, viewerId) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.friends.outgoing(viewerId) })
       void invalidateFriendsReels(queryClient, viewerId)
@@ -354,6 +366,7 @@ export function useRemoveFriend() {
         ...(response.id ? { id: response.id } : {}),
       })
       void invalidateFriendsReels(queryClient, viewerId)
+      void invalidateRelationshipCaches(queryClient, viewerId, userId)
     },
     onError: (error, userId, context) => {
       if (!isCurrentViewer(viewerId)) return
@@ -393,21 +406,18 @@ export function useBlockUser() {
     onSuccess: (_response, userId) => {
       if (!isCurrentViewer(viewerId)) return
 
-      queryClient.setQueryData<FriendSummary[]>(
-        queryKeys.friends.list(viewerId, viewerId),
-        (data) => removeUserFromFriendList(data, userId),
-      )
-      updateIncomingRequestPages(queryClient, viewerId, (data) =>
-        removeFriendRequestsForUserFromPages(data, userId),
-      )
-      updateOutgoingRequestPages(queryClient, viewerId, (data) =>
-        removeFriendRequestsForUserFromPages(data, userId),
-      )
-      updateFriendshipStatus(queryClient, viewerId, userId, { status: 'none' })
-      removeCreatorReelsFromViewerFeedCaches(queryClient, viewerId, userId)
-      void invalidateFriendshipStatus(queryClient, viewerId, userId)
-      void invalidateFriendsReels(queryClient, viewerId)
-      void invalidateViewerFeedEligibility(queryClient, viewerId)
+      removeBlockedUserFromCaches(queryClient, viewerId, userId)
+      void removeCreatorReelsFromOfflineCache(userId)
+        .then((reelIds) => removeTemporaryReelVideoCacheForReelIds(reelIds))
+        .catch(() => undefined)
+      void Promise.all([
+        invalidateRelationshipCaches(queryClient, viewerId, userId),
+        queryClient.invalidateQueries({ queryKey: queryKeys.friends.blocked(viewerId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.reels.all }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.search.all }),
+        invalidateFriendsReels(queryClient, viewerId),
+        invalidateViewerFeedEligibility(queryClient, viewerId),
+      ])
     },
     onError: (error, userId) => handleError(error, userId),
   })
@@ -434,12 +444,28 @@ export function useUnblockUser() {
         inFlightUserIds.current.delete(userId)
       }
     },
+    onMutate: async (userId) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.friends.blocked(viewerId) })
+      const blockedUsers = queryClient.getQueryData(queryKeys.friends.blocked(viewerId))
+      queryClient.setQueryData<BlockedUsersCache>(queryKeys.friends.blocked(viewerId), (data) =>
+        removeBlockedUserFromPages(data, userId),
+      )
+      return { blockedUsers }
+    },
     onSuccess: (_response, userId) => {
       if (!isCurrentViewer(viewerId)) return
 
-      void invalidateFriendshipStatus(queryClient, viewerId, userId)
-      void invalidateViewerFeedEligibility(queryClient, viewerId)
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.friends.blocked(viewerId) }),
+        invalidateRelationshipCaches(queryClient, viewerId, userId),
+        invalidateViewerFeedEligibility(queryClient, viewerId),
+      ])
     },
-    onError: (error, userId) => handleError(error, userId),
+    onError: (error, userId, context) => {
+      if (isCurrentViewer(viewerId)) {
+        queryClient.setQueryData(queryKeys.friends.blocked(viewerId), context?.blockedUsers)
+      }
+      handleError(error, userId)
+    },
   })
 }

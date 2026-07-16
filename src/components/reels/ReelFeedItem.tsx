@@ -1,5 +1,4 @@
 import { Ionicons, MaterialIcons } from '@expo/vector-icons'
-import { useFocusEffect } from '@react-navigation/native'
 import { format } from 'date-fns'
 import * as Haptics from 'expo-haptics'
 import { Image } from 'expo-image'
@@ -27,6 +26,7 @@ import {
 } from '../../hooks/useReels'
 import { CHAT_SHARED_REEL_FALLBACK_ID_PREFIX } from '../../lib/chatReels'
 import { getInitials } from '../../lib/profile'
+import { isCurrentReelPlayerCallback } from '../../lib/reelPlaybackCoordinator'
 import { useAuthStore } from '../../stores/authStore'
 
 import { DeleteReelModal } from './DeleteReelModal'
@@ -52,8 +52,15 @@ interface ReelFeedItemProps {
   onToggleMuted: () => void
   onDeleted?: ((reelId: string) => void) | undefined
   onIntentionalPauseChange?: ((paused: boolean) => void) | undefined
-  onPlaybackProgress?: ((progress: ReelVideoProgress, isPlaying: boolean) => void) | undefined
+  onPlaybackProgress?:
+    | ((
+        reelId: string,
+        progress: ReelVideoProgress,
+        state: { isPlaying: boolean; isReady: boolean },
+      ) => void)
+    | undefined
   onTimelineInteractionChange?: ((isInteracting: boolean) => void) | undefined
+  onPlayerChange?: ((reelId: string, player: ReelVideoHandle | null) => void) | undefined
 }
 
 type ReelWithLocalThumbnail = Reel & {
@@ -179,10 +186,12 @@ const ReelFeedItemComponent = function ReelFeedItem({
   onIntentionalPauseChange,
   onPlaybackProgress,
   onTimelineInteractionChange,
+  onPlayerChange,
 }: ReelFeedItemProps) {
   const router = useRouter()
   const { user } = useAuthStore()
   const videoRef = useRef<ReelVideoHandle | null>(null)
+  const playerIdentityRef = useRef({ playerGeneration: 0, reelId: reel.id, sourceKey: '' })
   const lastBufferedPositionRef = useRef(0)
   const lastPlaybackPositionRef = useRef(0)
   const [isReady, setIsReady] = useState(false)
@@ -286,6 +295,17 @@ const ReelFeedItemComponent = function ReelFeedItem({
       ? { cachePriority: offlineVideoCachePriority }
       : {}),
   })
+  const videoSourceKey = `${displayReel.id}:${offlineVideoSource.uri}`
+
+  if (playerIdentityRef.current.sourceKey !== videoSourceKey) {
+    playerIdentityRef.current = {
+      playerGeneration: playerIdentityRef.current.playerGeneration + 1,
+      reelId: displayReel.id,
+      sourceKey: videoSourceKey,
+    }
+  }
+
+  const playerGeneration = playerIdentityRef.current.playerGeneration
   const resumeAfterScrub = useSharedValue(0)
   const pendingSeekTarget = useSharedValue(-1)
   const lastScrubRatio = useSharedValue(0)
@@ -385,8 +405,12 @@ const ReelFeedItemComponent = function ReelFeedItem({
     isBuffering,
   }: ReelVideoProgress) => {
     onPlaybackProgress?.(
+      displayReel.id,
       { bufferedPosition: nextBufferedPosition, currentTime, duration, isBuffering },
-      isActive && isReady && !isPausedByUser && !isBuffering,
+      {
+        isPlaying: isActive && isReady && !isPausedByUser && !isBuffering,
+        isReady,
+      },
     )
     if (duration > 0 && duration !== durationSeconds) {
       setDurationSeconds(duration)
@@ -662,7 +686,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
   useEffect(() => {
     resetTimelineState({ includeDuration: true, resetReadyState: true })
-  }, [displayReel.id, resetTimelineState])
+  }, [resetTimelineState, videoSourceKey])
 
   useEffect(() => {
     if (!isActive) {
@@ -679,23 +703,24 @@ const ReelFeedItemComponent = function ReelFeedItem({
     }
   }, [isActive, isPausedByUser, onIntentionalPauseChange])
 
-  useFocusEffect(
-    useCallback(() => {
-      if (isActive && playbackState.isPlayable && !isPausedByUser && !hasPlaybackError) {
-        videoRef.current?.play()
-      }
+  const setVideoRef = useCallback(
+    (player: ReelVideoHandle | null) => {
+      videoRef.current = player
+      onPlayerChange?.(displayReel.id, player)
+    },
+    [displayReel.id, onPlayerChange],
+  )
 
-      return () => {
-        if (isActive) {
-          videoRef.current?.pause()
-        }
-      }
-    }, [hasPlaybackError, isActive, isPausedByUser, playbackState.isPlayable]),
+  useEffect(
+    () => () => {
+      onPlayerChange?.(displayReel.id, null)
+    },
+    [displayReel.id, onPlayerChange],
   )
 
   return (
-    <View className="flex-1 bg-[#050505]" style={{ height }}>
-      <View className="flex-1 bg-[#050505]">
+    <View className="flex-1 overflow-hidden bg-[#050505]" style={{ height }}>
+      <View className="flex-1 overflow-hidden bg-[#050505]">
         {posterUri ? (
           <Image source={{ uri: posterUri }} contentFit="cover" style={styles.video} />
         ) : (
@@ -704,8 +729,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
         {shouldRenderVideo ? (
           <ReelVideo
-            key={offlineVideoSource.uri}
-            ref={videoRef}
+            ref={setVideoRef}
             uri={offlineVideoSource.uri}
             {...(posterUri ? { posterUri } : {})}
             shouldPlay={isActive && !isPausedByUser && !hasPlaybackError}
@@ -713,13 +737,48 @@ const ReelFeedItemComponent = function ReelFeedItem({
             muted={isMuted || !isActive}
             contentFit="cover"
             resetOnPause={false}
+            externallyManagedPlayback
             onReady={() => {
+              if (
+                !isCurrentReelPlayerCallback(
+                  displayReel.id,
+                  playerGeneration,
+                  playerIdentityRef.current,
+                )
+              ) {
+                return
+              }
+
               setIsReady(true)
             }}
             onError={() => {
+              if (
+                !isCurrentReelPlayerCallback(
+                  displayReel.id,
+                  playerGeneration,
+                  playerIdentityRef.current,
+                )
+              ) {
+                return
+              }
+
               setHasPlaybackError(true)
             }}
-            {...(isActive ? { onProgress: handleProgress } : {})}
+            {...(isActive
+              ? {
+                  onProgress: (progress: ReelVideoProgress) => {
+                    if (
+                      isCurrentReelPlayerCallback(
+                        displayReel.id,
+                        playerGeneration,
+                        playerIdentityRef.current,
+                      )
+                    ) {
+                      handleProgress(progress)
+                    }
+                  },
+                }
+              : {})}
             style={[styles.videoOverlay, { opacity: shouldShowVideoLayer ? 1 : 0 }]}
           />
         ) : null}
@@ -1062,6 +1121,7 @@ const areReelFeedItemPropsEqual = (previous: ReelFeedItemProps, next: ReelFeedIt
   previous.onDeleted === next.onDeleted &&
   previous.onIntentionalPauseChange === next.onIntentionalPauseChange &&
   previous.onPlaybackProgress === next.onPlaybackProgress &&
-  previous.onTimelineInteractionChange === next.onTimelineInteractionChange
+  previous.onTimelineInteractionChange === next.onTimelineInteractionChange &&
+  previous.onPlayerChange === next.onPlayerChange
 
 export const ReelFeedItem = memo(ReelFeedItemComponent, areReelFeedItemPropsEqual)

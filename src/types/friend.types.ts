@@ -1,3 +1,5 @@
+import type { PublicUserProfile } from './user.types'
+
 export type FriendshipState = 'none' | 'request_sent' | 'request_received' | 'friends'
 
 export interface FriendPaginationParams {
@@ -42,4 +44,9 @@ export interface FriendSummary {
   status: 'friends'
   friendsSince: string
   user: PublicFriendProfile
+}
+
+export interface BlockedUserSummary {
+  blockedAt: string
+  user: PublicUserProfile
 }

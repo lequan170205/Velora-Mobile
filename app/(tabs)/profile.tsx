@@ -1,78 +1,38 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs'
-import { useFocusEffect } from '@react-navigation/native'
-import { useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { Image } from 'expo-image'
 import * as ImagePicker from 'expo-image-picker'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useRouter } from 'expo-router'
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
-  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
   Share,
-  StyleSheet,
-  Switch,
   Text,
   View,
   useWindowDimensions,
 } from 'react-native'
-import Animated, {
-  Easing,
-  FadeInDown,
-  LinearTransition,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated'
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
-
-import { OfflineNetworkToggle } from '@/components/dev/OfflineNetworkToggle'
+import { SafeAreaView } from 'react-native-safe-area-context'
 
 import {
   ReelThumbnailGridSkeleton,
   ReelThumbnailTile,
 } from '../../src/components/reels/ReelThumbnailGrid'
-import { queryKeys } from '../../src/constants/queryKeys'
-import { resetLocalDatabase } from '../../src/database/DatabaseManager'
 import { useFriends } from '../../src/hooks/useFriends'
 import { useUpdateAvatar } from '../../src/hooks/useProfile'
 import { useReelsFeed } from '../../src/hooks/useReels'
-import { useReelSavingMode } from '../../src/hooks/useReelSavingMode'
-import {
-  removeFriendMutationsForViewer,
-  removeFriendshipQueriesForViewer,
-} from '../../src/lib/friendCache'
-import { performLogoutPushTokenCleanup } from '../../src/lib/notifications/pushTokenLifecycle'
-import { clearTemporaryReelVideoCache } from '../../src/lib/offlineReelVideoCache'
 import { getDisplayName, getInitials, getProfileHandle } from '../../src/lib/profile'
-import { removeRecommendationQueriesForUser } from '../../src/lib/recommendationCache'
-import { clearReelPlaybackVideoCache } from '../../src/lib/reelPlaybackVideoCache'
-import { getSavedReelVideoStorageStats } from '../../src/lib/reelVideoStorageStats'
-import { reelEventQueue } from '../../src/services/reelEventQueue'
 import { useAuthStore } from '../../src/stores/authStore'
-import { useChatStore } from '../../src/stores/chatStore'
-import { useProfileUiStore } from '../../src/stores/profileUiStore'
 
-import type { SavedReelVideoStorageStats } from '../../src/lib/reelVideoStorageStats'
 import type { FriendSummary } from '../../src/types/friend.types'
 import type { Reel, ReelVisibility } from '../../src/types/reel.types'
 
 const PROFILE_REELS_LIMIT = 24
-type SheetMode =
-  'settings' | 'clear-cache' | 'clear-local-database' | 'clear-saved-reel-data' | 'sign-out' | null
-type DeferredSheetAction =
-  | 'clear-cache'
-  | 'clear-local-database'
-  | 'clear-saved-reel-data'
-  | 'edit-profile'
-  | 'sign-out'
-  | null
 const RFC_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const getMemberSince = (createdAt?: string) => {
@@ -173,100 +133,13 @@ function ReelsLoadingGrid({ tileSize }: { tileSize: number }) {
   return <ReelThumbnailGridSkeleton tileSize={tileSize} />
 }
 
-function SheetActionRow({
-  description,
-  icon,
-  isDestructive = false,
-  label,
-  onPress,
-}: {
-  label: string
-  description: string
-  icon: keyof typeof MaterialIcons.glyphMap
-  isDestructive?: boolean
-  onPress: () => void
-}) {
-  return (
-    <Pressable
-      className="flex-row items-center rounded-[24px] bg-surface-muted px-4 py-4"
-      onPress={onPress}
-    >
-      <View
-        className={
-          isDestructive
-            ? 'h-12 w-12 items-center justify-center rounded-full bg-[#FFF1EE]'
-            : 'h-12 w-12 items-center justify-center rounded-full bg-white'
-        }
-      >
-        <MaterialIcons name={icon} size={20} color={isDestructive ? '#FF3B30' : '#161616'} />
-      </View>
-      <View className="ml-3 flex-1">
-        <Text
-          className={
-            isDestructive
-              ? 'font-medium text-md text-status-error'
-              : 'font-medium text-md text-text-primary'
-          }
-        >
-          {label}
-        </Text>
-        <Text className="mt-1 text-sm2 text-text-secondary">{description}</Text>
-      </View>
-      <MaterialIcons name="chevron-right" size={20} color="#BEBEBE" />
-    </Pressable>
-  )
-}
-
-function SheetToggleRow({
-  description,
-  icon,
-  label,
-  value,
-  onValueChange,
-}: {
-  label: string
-  description: string
-  icon: keyof typeof MaterialIcons.glyphMap
-  value: boolean
-  onValueChange: (nextValue: boolean) => void
-}) {
-  return (
-    <View className="flex-row items-center rounded-[24px] bg-surface-muted px-4 py-4">
-      <View className="h-12 w-12 items-center justify-center rounded-full bg-white">
-        <MaterialIcons name={icon} size={20} color="#161616" />
-      </View>
-      <View className="ml-3 flex-1 pr-4">
-        <Text className="font-medium text-md text-text-primary">{label}</Text>
-        <Text className="mt-1 text-sm2 text-text-secondary">{description}</Text>
-      </View>
-      <Switch
-        value={value}
-        onValueChange={onValueChange}
-        thumbColor="#FFFFFF"
-        trackColor={{ false: '#D9D9D9', true: 'rgba(255,107,44,0.72)' }}
-        ios_backgroundColor="#D9D9D9"
-      />
-    </View>
-  )
-}
-
 export default function ProfileScreen() {
   const router = useRouter()
-  const queryClient = useQueryClient()
-  const insets = useSafeAreaInsets()
   const { width: windowWidth } = useWindowDimensions()
   const tabBarHeight = useBottomTabBarHeight()
   const tileSize = useMemo(() => Math.floor((windowWidth - 4) / 3), [windowWidth])
-  const closeSheetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const isMountedRef = useRef(true)
 
-  const { user, clearAuth } = useAuthStore()
-  const { clearCache } = useChatStore()
-  const { reelSavingModeEnabled, setReelSavingModeEnabled } = useReelSavingMode()
-  const clearPendingFeedbackMessage = useProfileUiStore(
-    (state) => state.clearPendingFeedbackMessage,
-  )
-  const pendingFeedbackMessage = useProfileUiStore((state) => state.pendingFeedbackMessage)
+  const { user } = useAuthStore()
   const { mutate: updateAvatar, isPending: isUpdatingAvatar } = useUpdateAvatar()
   const hasValidProfileUserId = isRfcUuid(user?.id)
   const profileUserId = hasValidProfileUserId ? user?.id : undefined
@@ -302,18 +175,6 @@ export default function ProfileScreen() {
   } = useReelsFeed(profileReelsParams, {
     enabled: Boolean(user?.id),
   })
-  const [sheetMode, setSheetMode] = useState<SheetMode>(null)
-  const [isSheetVisible, setIsSheetVisible] = useState(false)
-  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
-  const [isClearingCache, setIsClearingCache] = useState(false)
-  const [isClearingLocalDatabase, setIsClearingLocalDatabase] = useState(false)
-  const [isClearingSavedReelData, setIsClearingSavedReelData] = useState(false)
-  const [isSigningOut, setIsSigningOut] = useState(false)
-  const [savedReelVideoStorageStats, setSavedReelVideoStorageStats] =
-    useState<SavedReelVideoStorageStats | null>(null)
-  const sheetBackdropOpacity = useSharedValue(0)
-  const sheetTranslateY = useSharedValue(48)
-  const sheetScale = useSharedValue(0.985)
 
   const profileFeedItems = useMemo(
     () => reelsData?.pages.flatMap((page) => page.items) ?? [],
@@ -337,59 +198,6 @@ export default function ProfileScreen() {
     lastName: user?.lastName,
   })
   const memberSinceLabel = getMemberSince(user?.createdAt)
-  const isSheetBusy =
-    isClearingCache || isClearingLocalDatabase || isClearingSavedReelData || isSigningOut
-
-  const loadSavedReelVideoStorageStats = useCallback(async () => {
-    const stats = await getSavedReelVideoStorageStats()
-
-    if (isMountedRef.current) {
-      setSavedReelVideoStorageStats(stats)
-    }
-  }, [])
-
-  useEffect(() => {
-    return () => {
-      isMountedRef.current = false
-
-      if (closeSheetTimeoutRef.current) {
-        clearTimeout(closeSheetTimeoutRef.current)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!feedbackMessage) {
-      return
-    }
-
-    const timeoutId = setTimeout(() => {
-      setFeedbackMessage(null)
-    }, 2200)
-
-    return () => {
-      clearTimeout(timeoutId)
-    }
-  }, [feedbackMessage])
-
-  useFocusEffect(
-    useCallback(() => {
-      if (!pendingFeedbackMessage) {
-        return
-      }
-
-      setFeedbackMessage(pendingFeedbackMessage)
-      clearPendingFeedbackMessage()
-    }, [clearPendingFeedbackMessage, pendingFeedbackMessage]),
-  )
-
-  useEffect(() => {
-    if (!isSheetVisible || sheetMode !== 'settings') {
-      return
-    }
-
-    void loadSavedReelVideoStorageStats()
-  }, [isSheetVisible, loadSavedReelVideoStorageStats, sheetMode])
 
   const handleCreateReel = useCallback(() => {
     router.push('/reels/create')
@@ -408,180 +216,9 @@ export default function ProfileScreen() {
     [router],
   )
 
-  const animateSheetIn = useCallback(() => {
-    sheetBackdropOpacity.value = withTiming(1, {
-      duration: 160,
-      easing: Easing.out(Easing.quad),
-    })
-    sheetTranslateY.value = withTiming(0, {
-      duration: 190,
-      easing: Easing.out(Easing.cubic),
-    })
-    sheetScale.value = withTiming(1, {
-      duration: 190,
-      easing: Easing.out(Easing.cubic),
-    })
-  }, [sheetBackdropOpacity, sheetScale, sheetTranslateY])
-
-  const executeDeferredSheetAction = useCallback(
-    async (action: DeferredSheetAction) => {
-      if (action === 'clear-cache') {
-        try {
-          await clearCache()
-          queryClient.clear()
-
-          if (isMountedRef.current) {
-            setFeedbackMessage('Cache cleared')
-          }
-        } finally {
-          if (isMountedRef.current) {
-            setIsClearingCache(false)
-          }
-        }
-
-        return
-      }
-
-      if (action === 'edit-profile') {
-        router.push('/account')
-        return
-      }
-
-      if (action === 'clear-local-database') {
-        try {
-          queryClient.removeQueries({ queryKey: queryKeys.conversations.all })
-          await resetLocalDatabase()
-
-          if (isMountedRef.current) {
-            setFeedbackMessage('Local database cleared')
-          }
-        } catch (error) {
-          console.error('[Profile] Failed to clear local database', error)
-
-          if (isMountedRef.current) {
-            setFeedbackMessage('Failed to clear local database')
-          }
-        } finally {
-          if (isMountedRef.current) {
-            setIsClearingLocalDatabase(false)
-          }
-        }
-
-        return
-      }
-
-      if (action === 'clear-saved-reel-data') {
-        try {
-          await Promise.all([clearTemporaryReelVideoCache(), clearReelPlaybackVideoCache()])
-
-          if (isMountedRef.current) {
-            setFeedbackMessage('Saved reel data cleared')
-          }
-
-          await loadSavedReelVideoStorageStats()
-        } catch (error) {
-          console.error('[Profile] Failed to clear saved reel data', error)
-
-          if (isMountedRef.current) {
-            setFeedbackMessage('Failed to clear saved reel data')
-          }
-        } finally {
-          if (isMountedRef.current) {
-            setIsClearingSavedReelData(false)
-          }
-        }
-
-        return
-      }
-
-      if (action === 'sign-out') {
-        try {
-          const logoutResult = await performLogoutPushTokenCleanup()
-
-          if (!logoutResult.ok) {
-            console.error('[Profile] Logout cleanup will retry when possible')
-          }
-
-          await clearCache()
-          await resetLocalDatabase()
-
-          if (user?.id) {
-            await reelEventQueue.clearUser(user.id)
-            removeRecommendationQueriesForUser(queryClient, user.id)
-            removeFriendshipQueriesForViewer(queryClient, user.id)
-            removeFriendMutationsForViewer(queryClient, user.id)
-            queryClient.removeQueries({ queryKey: queryKeys.reels.friends() })
-          }
-
-          if (isMountedRef.current) {
-            setIsSigningOut(false)
-          }
-        } finally {
-          clearAuth()
-        }
-      }
-    },
-    [clearAuth, clearCache, loadSavedReelVideoStorageStats, queryClient, router, user?.id],
-  )
-
-  const closeSheet = useCallback(
-    (action: DeferredSheetAction = null) => {
-      if (isSheetVisible && isSheetBusy && action === null) {
-        return
-      }
-
-      sheetBackdropOpacity.value = withTiming(0, {
-        duration: 120,
-        easing: Easing.out(Easing.quad),
-      })
-      sheetTranslateY.value = withTiming(56, {
-        duration: 145,
-        easing: Easing.inOut(Easing.cubic),
-      })
-      sheetScale.value = withTiming(0.985, {
-        duration: 145,
-        easing: Easing.out(Easing.cubic),
-      })
-
-      if (closeSheetTimeoutRef.current) {
-        clearTimeout(closeSheetTimeoutRef.current)
-      }
-
-      closeSheetTimeoutRef.current = setTimeout(() => {
-        if (!isMountedRef.current) {
-          return
-        }
-
-        setIsSheetVisible(false)
-        setSheetMode(null)
-
-        if (action) {
-          void executeDeferredSheetAction(action)
-        }
-      }, 150)
-    },
-    [
-      executeDeferredSheetAction,
-      isSheetBusy,
-      isSheetVisible,
-      sheetBackdropOpacity,
-      sheetScale,
-      sheetTranslateY,
-    ],
-  )
-
   const handleSettingsPress = useCallback(() => {
-    if (closeSheetTimeoutRef.current) {
-      clearTimeout(closeSheetTimeoutRef.current)
-    }
-
-    setSheetMode('settings')
-    setIsSheetVisible(true)
-
-    requestAnimationFrame(() => {
-      animateSheetIn()
-    })
-  }, [animateSheetIn])
+    router.push('/settings')
+  }, [router])
 
   const handlePickImage = useCallback(async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -613,55 +250,6 @@ export default function ProfileScreen() {
 
   const isRefreshing = isFriendsRefetching || isReelsRefetching
 
-  const handleClearCacheConfirmed = useCallback(() => {
-    if (isSheetBusy) {
-      return
-    }
-
-    setIsClearingCache(true)
-    closeSheet('clear-cache')
-  }, [closeSheet, isSheetBusy])
-
-  const handleClearLocalDatabaseConfirmed = useCallback(() => {
-    if (isSheetBusy) {
-      return
-    }
-
-    setIsClearingLocalDatabase(true)
-    closeSheet('clear-local-database')
-  }, [closeSheet, isSheetBusy])
-
-  const handleClearSavedReelDataConfirmed = useCallback(() => {
-    if (isSheetBusy) {
-      return
-    }
-
-    setIsClearingSavedReelData(true)
-    closeSheet('clear-saved-reel-data')
-  }, [closeSheet, isSheetBusy])
-
-  const handleSignOutConfirmed = useCallback(() => {
-    if (isSheetBusy) {
-      return
-    }
-
-    setIsSigningOut(true)
-    closeSheet('sign-out')
-  }, [closeSheet, isSheetBusy])
-
-  const backdropAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: sheetBackdropOpacity.value,
-  }))
-
-  const sheetAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: sheetTranslateY.value }, { scale: sheetScale.value }],
-  }))
-
-  const clearSavedReelDataDescription =
-    savedReelVideoStorageStats && savedReelVideoStorageStats.videoCount > 0
-      ? `Removes temporary reel videos stored on this device. Reel videos: ${savedReelVideoStorageStats.sizeLabel}.`
-      : 'Removes temporary reel videos stored on this device.'
-
   const renderReelItem = useCallback(
     ({ item, index }: { item: Reel; index: number }) => {
       return (
@@ -691,18 +279,6 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
-      {feedbackMessage ? (
-        <View
-          pointerEvents="none"
-          className="absolute inset-x-0 z-20 items-center"
-          style={{ top: Math.max(insets.top, 12) }}
-        >
-          <View className="rounded-full px-4 py-2" style={{ backgroundColor: '#161616' }}>
-            <Text className="text-sm2 text-white">{feedbackMessage}</Text>
-          </View>
-        </View>
-      ) : null}
-
       <FlatList
         data={profileReels}
         numColumns={3}
@@ -969,354 +545,6 @@ export default function ProfileScreen() {
           }
         }}
       />
-
-      <Modal
-        visible={isSheetVisible}
-        transparent
-        animationType="none"
-        statusBarTranslucent
-        onRequestClose={() => {
-          if (!isSheetBusy) {
-            closeSheet()
-          }
-        }}
-      >
-        <View style={StyleSheet.absoluteFillObject} className="justify-end">
-          <Animated.View
-            style={[
-              StyleSheet.absoluteFillObject,
-              { backgroundColor: 'rgba(8, 8, 10, 0.44)' },
-              backdropAnimatedStyle,
-            ]}
-          >
-            <Pressable
-              disabled={isSheetBusy}
-              onPress={() => {
-                closeSheet()
-              }}
-              style={StyleSheet.absoluteFillObject}
-            />
-          </Animated.View>
-
-          <Animated.View
-            style={[
-              sheetAnimatedStyle,
-              {
-                paddingBottom: Math.max(insets.bottom, 18),
-                shadowColor: 'rgba(22, 22, 22, 0.18)',
-                shadowOffset: { width: 0, height: -8 },
-                shadowOpacity: 1,
-                shadowRadius: 24,
-                elevation: 18,
-              },
-            ]}
-            className="rounded-t-[32px] bg-white px-5 pb-8 pt-3"
-          >
-            <View className="items-center pb-2">
-              <View className="h-1.5 w-14 rounded-full bg-[#D9D9D9]" />
-            </View>
-
-            <Animated.View
-              key={sheetMode ?? 'settings'}
-              entering={FadeInDown.springify().damping(18).stiffness(220)}
-              layout={LinearTransition.springify().damping(18).stiffness(220)}
-            >
-              {sheetMode === 'settings' ? (
-                <>
-                  <View className="mt-3 flex-row items-start justify-between">
-                    <View className="flex-1 pr-4">
-                      <Text className="font-heading text-xl text-text-primary">
-                        Profile options
-                      </Text>
-                      <Text className="mt-1 text-base2 text-text-secondary">
-                        Focus actions for @{profileHandle}
-                      </Text>
-                    </View>
-
-                    <Pressable
-                      className="h-11 w-11 items-center justify-center rounded-full bg-surface-muted"
-                      disabled={isSheetBusy}
-                      onPress={() => {
-                        closeSheet()
-                      }}
-                    >
-                      <MaterialIcons name="close" size={20} color="#161616" />
-                    </Pressable>
-                  </View>
-
-                  <View className="mt-5">
-                    <Text className="mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">
-                      Account
-                    </Text>
-                    <View className="gap-3">
-                      <SheetActionRow
-                        icon="person-outline"
-                        label="Edit profile"
-                        description="Update your name and username."
-                        onPress={() => {
-                          closeSheet('edit-profile')
-                        }}
-                      />
-                    </View>
-                  </View>
-
-                  <View className="mt-5">
-                    <Text className="mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">
-                      Reels
-                    </Text>
-                    <View className="gap-3">
-                      <SheetToggleRow
-                        icon="play-circle-outline"
-                        label="Reel saving mode"
-                        description="Save nearby reels on this device so they can play when your connection is poor."
-                        value={reelSavingModeEnabled}
-                        onValueChange={setReelSavingModeEnabled}
-                      />
-                      <SheetActionRow
-                        icon="delete-sweep"
-                        label="Clear saved reel data"
-                        description={clearSavedReelDataDescription}
-                        onPress={() => {
-                          setSheetMode('clear-saved-reel-data')
-                        }}
-                      />
-                    </View>
-                  </View>
-
-                  <View className="mt-5">
-                    <Text className="mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">
-                      System
-                    </Text>
-                    <View className="gap-3">
-                      <SheetActionRow
-                        icon="delete-sweep"
-                        label="Clear cache"
-                        description="Remove local chat data from this device."
-                        onPress={() => {
-                          setSheetMode('clear-cache')
-                        }}
-                      />
-                      <OfflineNetworkToggle />
-                      <SheetActionRow
-                        icon="storage"
-                        label="Clear local database"
-                        description="Delete the on-device message database."
-                        isDestructive
-                        onPress={() => {
-                          setSheetMode('clear-local-database')
-                        }}
-                      />
-                      <SheetActionRow
-                        icon="logout"
-                        label="Sign out"
-                        description="End the current session on this device."
-                        isDestructive
-                        onPress={() => {
-                          setSheetMode('sign-out')
-                        }}
-                      />
-                    </View>
-                  </View>
-                </>
-              ) : null}
-
-              {sheetMode === 'clear-cache' ? (
-                <>
-                  <View className="mt-3 flex-row items-start justify-between">
-                    <View className="flex-1 pr-4">
-                      <Text className="font-heading text-xl text-text-primary">Clear cache?</Text>
-                      <Text className="mt-2 text-base2 leading-6 text-text-secondary">
-                        Messages will sync again from the server the next time you open the
-                        conversation.
-                      </Text>
-                    </View>
-
-                    <Pressable
-                      className="h-11 w-11 items-center justify-center rounded-full bg-surface-muted"
-                      disabled={isSheetBusy}
-                      onPress={() => {
-                        closeSheet()
-                      }}
-                    >
-                      <MaterialIcons name="close" size={20} color="#161616" />
-                    </Pressable>
-                  </View>
-
-                  <View className="mt-6 flex-row">
-                    <Pressable
-                      className="mr-3 flex-1 rounded-full border border-border-light bg-surface-muted py-3"
-                      disabled={isSheetBusy}
-                      onPress={() => {
-                        setSheetMode('settings')
-                      }}
-                    >
-                      <Text className="text-center font-medium text-text-primary">Back</Text>
-                    </Pressable>
-
-                    <Pressable
-                      className="flex-1 rounded-full bg-brand py-3"
-                      disabled={isSheetBusy}
-                      onPress={() => {
-                        void handleClearCacheConfirmed()
-                      }}
-                    >
-                      <Text className="text-center font-medium text-white">
-                        {isClearingCache ? 'Clearing...' : 'Clear'}
-                      </Text>
-                    </Pressable>
-                  </View>
-                </>
-              ) : null}
-
-              {sheetMode === 'clear-local-database' ? (
-                <>
-                  <View className="mt-3 flex-row items-start justify-between">
-                    <View className="flex-1 pr-4">
-                      <Text className="font-heading text-xl text-text-primary">
-                        Clear local database?
-                      </Text>
-                      <Text className="mt-2 text-base2 leading-6 text-text-secondary">
-                        This deletes the on-device message database. Conversations will sync again
-                        from the server when you reopen them.
-                      </Text>
-                    </View>
-
-                    <Pressable
-                      className="h-11 w-11 items-center justify-center rounded-full bg-surface-muted"
-                      disabled={isSheetBusy}
-                      onPress={() => {
-                        closeSheet()
-                      }}
-                    >
-                      <MaterialIcons name="close" size={20} color="#161616" />
-                    </Pressable>
-                  </View>
-
-                  <View className="mt-6 flex-row">
-                    <Pressable
-                      className="mr-3 flex-1 rounded-full border border-border-light bg-surface-muted py-3"
-                      disabled={isSheetBusy}
-                      onPress={() => {
-                        setSheetMode('settings')
-                      }}
-                    >
-                      <Text className="text-center font-medium text-text-primary">Back</Text>
-                    </Pressable>
-
-                    <Pressable
-                      className="flex-1 rounded-full bg-[#FF3B30] py-3"
-                      disabled={isSheetBusy}
-                      onPress={() => {
-                        void handleClearLocalDatabaseConfirmed()
-                      }}
-                    >
-                      <Text className="text-center font-medium text-white">
-                        {isClearingLocalDatabase ? 'Clearing...' : 'Delete'}
-                      </Text>
-                    </Pressable>
-                  </View>
-                </>
-              ) : null}
-
-              {sheetMode === 'clear-saved-reel-data' ? (
-                <>
-                  <View className="mt-3 flex-row items-start justify-between">
-                    <View className="flex-1 pr-4">
-                      <Text className="font-heading text-xl text-text-primary">
-                        Clear saved reel data?
-                      </Text>
-                      <Text className="mt-2 text-base2 leading-6 text-text-secondary">
-                        This removes temporary reel videos stored on this device.
-                      </Text>
-                    </View>
-
-                    <Pressable
-                      className="h-11 w-11 items-center justify-center rounded-full bg-surface-muted"
-                      disabled={isSheetBusy}
-                      onPress={() => {
-                        closeSheet()
-                      }}
-                    >
-                      <MaterialIcons name="close" size={20} color="#161616" />
-                    </Pressable>
-                  </View>
-
-                  <View className="mt-6 flex-row">
-                    <Pressable
-                      className="mr-3 flex-1 rounded-full border border-border-light bg-surface-muted py-3"
-                      disabled={isSheetBusy}
-                      onPress={() => {
-                        setSheetMode('settings')
-                      }}
-                    >
-                      <Text className="text-center font-medium text-text-primary">Back</Text>
-                    </Pressable>
-
-                    <Pressable
-                      className="flex-1 rounded-full bg-brand py-3"
-                      disabled={isSheetBusy}
-                      onPress={() => {
-                        void handleClearSavedReelDataConfirmed()
-                      }}
-                    >
-                      <Text className="text-center font-medium text-white">
-                        {isClearingSavedReelData ? 'Clearing...' : 'Clear'}
-                      </Text>
-                    </Pressable>
-                  </View>
-                </>
-              ) : null}
-
-              {sheetMode === 'sign-out' ? (
-                <>
-                  <View className="mt-3 flex-row items-start justify-between">
-                    <View className="flex-1 pr-4">
-                      <Text className="font-heading text-xl text-text-primary">Sign out?</Text>
-                      <Text className="mt-2 text-base2 leading-6 text-text-secondary">
-                        This ends the current session on this device and clears the local cache.
-                      </Text>
-                    </View>
-
-                    <Pressable
-                      className="h-11 w-11 items-center justify-center rounded-full bg-surface-muted"
-                      disabled={isSheetBusy}
-                      onPress={() => {
-                        closeSheet()
-                      }}
-                    >
-                      <MaterialIcons name="close" size={20} color="#161616" />
-                    </Pressable>
-                  </View>
-
-                  <View className="mt-6 flex-row">
-                    <Pressable
-                      className="mr-3 flex-1 rounded-full border border-border-light bg-surface-muted py-3"
-                      disabled={isSheetBusy}
-                      onPress={() => {
-                        setSheetMode('settings')
-                      }}
-                    >
-                      <Text className="text-center font-medium text-text-primary">Back</Text>
-                    </Pressable>
-
-                    <Pressable
-                      className="flex-1 rounded-full bg-[#FF3B30] py-3"
-                      disabled={isSheetBusy}
-                      onPress={() => {
-                        void handleSignOutConfirmed()
-                      }}
-                    >
-                      <Text className="text-center font-medium text-white">
-                        {isSigningOut ? 'Signing out...' : 'Sign out'}
-                      </Text>
-                    </Pressable>
-                  </View>
-                </>
-              ) : null}
-            </Animated.View>
-          </Animated.View>
-        </View>
-      </Modal>
     </SafeAreaView>
   )
 }

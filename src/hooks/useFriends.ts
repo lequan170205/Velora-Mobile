@@ -4,6 +4,7 @@ import {
   useInfiniteQuery,
   useQuery,
 } from '@tanstack/react-query'
+import { useMemo } from 'react'
 
 import { friendApi } from '../api/friend.api'
 import { queryKeys } from '../constants/queryKeys'
@@ -12,6 +13,7 @@ import { useAuthStore } from '../stores/authStore'
 
 const FRIENDS_LIST_LIMIT = 100
 const FRIEND_REQUESTS_PAGE_SIZE = 20
+const BLOCKED_USERS_PAGE_SIZE = 20
 
 export const getFriendsQueryOptions = (viewerId: string, targetUserId: string) =>
   queryOptions({
@@ -56,6 +58,20 @@ export const getOutgoingFriendRequestsInfiniteQueryOptions = (viewerId: string) 
     select: deduplicateFriendRequestPages,
   })
 
+export const getBlockedUsersInfiniteQueryOptions = (viewerId: string) =>
+  infiniteQueryOptions({
+    queryKey: queryKeys.friends.blocked(viewerId),
+    queryFn: (context: { pageParam: string | undefined }) =>
+      friendApi.listBlockedUsers({
+        limit: BLOCKED_USERS_PAGE_SIZE,
+        ...(context.pageParam ? { cursor: context.pageParam } : {}),
+      }),
+    enabled: Boolean(viewerId),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage: Awaited<ReturnType<typeof friendApi.listBlockedUsers>>) =>
+      lastPage.nextCursor ?? undefined,
+  })
+
 export const getFriendshipStatusQueryOptions = (viewerId: string, targetUserId: string) =>
   queryOptions({
     queryKey: queryKeys.friends.status(viewerId, targetUserId),
@@ -82,6 +98,27 @@ export function useIncomingFriendRequests() {
 export function useOutgoingFriendRequests() {
   const viewerId = useAuthStore((state) => state.user?.id) ?? ''
   return useInfiniteQuery(getOutgoingFriendRequestsInfiniteQueryOptions(viewerId))
+}
+
+export function useBlockedUsersInfiniteQuery() {
+  const viewerId = useAuthStore((state) => state.user?.id) ?? ''
+  return useInfiniteQuery(getBlockedUsersInfiniteQueryOptions(viewerId))
+}
+
+export function useBlockedUserIds() {
+  const viewerId = useAuthStore((state) => state.user?.id) ?? ''
+  const query = useBlockedUsersInfiniteQuery()
+  const blockedUserIds = useMemo(
+    () =>
+      new Set(query.data?.pages.flatMap((page) => page.items.map((item) => item.user.id)) ?? []),
+    [query.data],
+  )
+
+  return {
+    ...query,
+    blockedUserIds,
+    isVisibilityReady: !viewerId || query.isSuccess,
+  }
 }
 
 export function useFriendshipStatus(targetUserId: string) {

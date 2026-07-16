@@ -501,6 +501,7 @@ export function useReelsFeed(
   options: { enabled?: boolean } = {},
 ) {
   const queryClient = useQueryClient()
+  const viewerId = useAuthStore((state) => state.user?.id)
   const normalizedParams =
     Object.keys(params).length > 0 ? normalizeListParams(params) : { limit: DEFAULT_REELS_LIMIT }
 
@@ -508,7 +509,7 @@ export function useReelsFeed(
     createInfiniteReelsFeedQueryOptions({
       queryClient,
       queryKey: queryKeys.reels.list(normalizedParams),
-      cacheParams: normalizedParams,
+      cacheParams: { ...normalizedParams, ...(viewerId ? { viewerId } : {}) },
       enabled: options.enabled ?? true,
       fetchPage: (pageParam) =>
         reelsApi.list({
@@ -550,6 +551,15 @@ export function useRecommendedReelsFeed(params: { enabled?: boolean; limit?: num
             ...(pageParam ? { cursor: pageParam } : {}),
           }),
         )
+
+        if (!pageParam && excludeRecentlySeen && response.items.length === 0) {
+          const fallbackResponse = await reelsApi.getRecommendedReels({
+            excludeRecentlySeen: false,
+            limit: recommendedLimit,
+          })
+          session.capture(fallbackResponse)
+          return fallbackResponse
+        }
 
         session.capture(response)
         return response

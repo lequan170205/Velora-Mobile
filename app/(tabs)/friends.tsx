@@ -1,8 +1,8 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { formatDistanceToNow } from 'date-fns'
 import { Image } from 'expo-image'
-import { useRouter } from 'expo-router'
-import React, { useCallback, useMemo, useState } from 'react'
+import { useLocalSearchParams, useRouter } from 'expo-router'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -114,8 +114,15 @@ function EmptyState({ section }: { section: Section }) {
 
 export default function FriendsScreen() {
   const router = useRouter()
+  const { section: sectionParam } = useLocalSearchParams<{ section?: Section }>()
   const insets = useSafeAreaInsets()
   const [section, setSection] = useState<Section>('friends')
+
+  useEffect(() => {
+    if (sectionParam === 'received' || sectionParam === 'sent' || sectionParam === 'friends') {
+      setSection(sectionParam)
+    }
+  }, [sectionParam])
   const friendsQuery = useFriends()
   const incomingQuery = useIncomingFriendRequests()
   const outgoingQuery = useOutgoingFriendRequests()

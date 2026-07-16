@@ -947,3 +947,28 @@ export const clearTemporaryReelVideoCache = async () => {
     notifyCacheStatus(reelId, 'NOT_CACHED')
   })
 }
+
+export const removeTemporaryReelVideoCacheForReelIds = async (reelIds: string[]) => {
+  const reelIdSet = new Set(reelIds)
+  if (reelIdSet.size === 0) {
+    return
+  }
+
+  const queuedJobs = [...downloadJobs.values()].filter(
+    (job) => job.status === 'QUEUED' && reelIdSet.has(job.reel.id),
+  )
+  queuedJobs.forEach((job) => {
+    downloadJobs.delete(job.reel.id)
+    job.resolve(null)
+  })
+
+  const records = (await getAllReelVideoCacheRecords()).filter((record) =>
+    reelIdSet.has(record.reelId),
+  )
+  await removeRecords(records)
+
+  new Set([
+    ...records.map((record) => record.reelId),
+    ...queuedJobs.map((job) => job.reel.id),
+  ]).forEach((reelId) => notifyCacheStatus(reelId, 'NOT_CACHED'))
+}

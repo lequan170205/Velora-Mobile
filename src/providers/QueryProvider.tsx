@@ -5,6 +5,7 @@ import { queryKeys } from '../constants/queryKeys'
 import {
   removeFriendMutationsForViewer,
   removeFriendshipQueriesForViewer,
+  removeBlockedUsersQueriesForViewer,
 } from '../lib/friendCache'
 import { removeRecommendationQueriesForUser } from '../lib/recommendationCache'
 import { useAuthStore } from '../stores/authStore'
@@ -20,6 +21,17 @@ const queryClient = new QueryClient({
   },
 })
 
+export const clearAccountScopedQueryCaches = (client: QueryClient, viewerId: string) => {
+  removeRecommendationQueriesForUser(client, viewerId)
+  removeFriendshipQueriesForViewer(client, viewerId)
+  removeBlockedUsersQueriesForViewer(client, viewerId)
+  removeFriendMutationsForViewer(client, viewerId)
+  client.removeQueries({ queryKey: queryKeys.search.all })
+  client.removeQueries({ queryKey: ['users', 'discover'] })
+  client.removeQueries({ queryKey: ['users', 'recommended'] })
+  client.removeQueries({ queryKey: queryKeys.reels.all })
+}
+
 export function QueryProvider({ children }: { children: ReactNode }) {
   const userId = useAuthStore((state) => state.user?.id)
   const previousUserIdRef = useRef<string | undefined>(userId)
@@ -28,11 +40,7 @@ export function QueryProvider({ children }: { children: ReactNode }) {
     const previousUserId = previousUserIdRef.current
 
     if (previousUserId && previousUserId !== userId) {
-      removeRecommendationQueriesForUser(queryClient, previousUserId)
-      removeFriendshipQueriesForViewer(queryClient, previousUserId)
-      removeFriendMutationsForViewer(queryClient, previousUserId)
-      queryClient.removeQueries({ queryKey: queryKeys.reels.viewerFeeds(previousUserId) })
-      queryClient.removeQueries({ queryKey: queryKeys.reels.friends() })
+      clearAccountScopedQueryCaches(queryClient, previousUserId)
     }
 
     previousUserIdRef.current = userId

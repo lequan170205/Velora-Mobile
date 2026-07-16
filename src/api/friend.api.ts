@@ -2,6 +2,7 @@ import { apiClient } from './client'
 
 import type {
   FriendPaginationParams,
+  BlockedUserSummary,
   FriendRequestSummary,
   FriendSummary,
   FriendshipActionResponse,
@@ -31,6 +32,13 @@ export const friendApi = {
       {
         params,
       },
+    )
+    return response.data
+  },
+  listBlockedUsers: async (params?: FriendPaginationParams) => {
+    const response = await apiClient.get<PaginatedFriendResults<BlockedUserSummary>>(
+      '/friends/blocked',
+      { params },
     )
     return response.data
   },

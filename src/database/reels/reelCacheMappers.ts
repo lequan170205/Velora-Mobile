@@ -18,6 +18,7 @@ export interface CacheableFeedParams extends Omit<ListReelsParams, 'cursor'> {
   excludeRecentlySeen?: boolean
   feedSessionId?: string
   recommended?: boolean
+  viewerId?: string
 }
 
 export interface CachedReelInput {
@@ -55,7 +56,7 @@ export interface CachedReelFeedPageInput {
   lastAccessedAt: number
 }
 
-const FEED_CACHE_KEY_PREFIX = '@velora/reels/feed-page/v2'
+const FEED_CACHE_KEY_PREFIX = '@velora/reels/feed-page/v3'
 
 const REEL_STATUS_VALUES: ReelProcessingState[] = ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED']
 const REEL_VISIBILITY_VALUES: ReelVisibility[] = ['public', 'private']
@@ -104,6 +105,7 @@ export const normalizeFeedParams = (params: CacheableFeedParams = {}) => ({
     : {}),
   ...(params.feedSessionId ? { feedSessionId: params.feedSessionId } : {}),
   ...(params.recommended ? { recommended: true } : {}),
+  ...(params.viewerId ? { viewerId: params.viewerId } : {}),
 })
 
 export const serializeAuthor = (author?: ReelAuthor | null) => {
@@ -182,6 +184,7 @@ export const deserializeFeedParams = (paramsJson: string | null): CacheableFeedP
     typeof parsed.excludeRecentlySeen === 'boolean' ? parsed.excludeRecentlySeen : undefined
   const feedSessionId = toNullableTrimmedString(parsed.feedSessionId)
   const recommended = parsed.recommended === true
+  const viewerId = toNullableTrimmedString(parsed.viewerId)
 
   return normalizeFeedParams({
     ...(limit !== undefined ? { limit } : {}),
@@ -193,6 +196,7 @@ export const deserializeFeedParams = (paramsJson: string | null): CacheableFeedP
     ...(excludeRecentlySeen !== undefined ? { excludeRecentlySeen } : {}),
     ...(feedSessionId ? { feedSessionId } : {}),
     ...(recommended ? { recommended: true } : {}),
+    ...(viewerId ? { viewerId } : {}),
   })
 }
 

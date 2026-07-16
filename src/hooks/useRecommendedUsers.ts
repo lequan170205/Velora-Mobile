@@ -4,7 +4,13 @@ import { useRef } from 'react'
 import { userApi } from '../api/user.api'
 import { queryKeys } from '../constants/queryKeys'
 import { RecommendationSession } from '../lib/recommendationSession'
+import {
+  filterAcceptedFriendsFromRecommendedContacts,
+  filterBlockedUsers,
+} from '../lib/recommendedContacts'
 import { useAuthStore } from '../stores/authStore'
+
+import { useBlockedUserIds, useFriends } from './useFriends'
 
 const normalizeRecommendedUsersLimit = (limit?: number) => {
   if (!Number.isFinite(limit)) {
@@ -16,6 +22,8 @@ const normalizeRecommendedUsersLimit = (limit?: number) => {
 
 export function useRecommendedUsers(params: { enabled?: boolean; limit?: number } = {}) {
   const userId = useAuthStore((state) => state.user?.id)
+  const { data: acceptedFriends = [] } = useFriends(undefined, { enabled: Boolean(userId) })
+  const blockedUsers = useBlockedUserIds()
   const recommendationSessionRef = useRef<RecommendationSession | null>(null)
 
   if (!recommendationSessionRef.current) {
@@ -32,5 +40,18 @@ export function useRecommendedUsers(params: { enabled?: boolean; limit?: number 
     staleTime: 2 * 60_000,
   })
 
-  return { ...query, feedSessionId }
+  const visibleUsers = query.data
+    ? filterBlockedUsers(
+        filterAcceptedFriendsFromRecommendedContacts(query.data, acceptedFriends),
+        blockedUsers.blockedUserIds,
+      )
+    : undefined
+
+  return {
+    ...query,
+    data: blockedUsers.isVisibilityReady ? visibleUsers : undefined,
+    isError: query.isError || blockedUsers.isError,
+    isLoading: query.isLoading || blockedUsers.isLoading,
+    feedSessionId,
+  }
 }

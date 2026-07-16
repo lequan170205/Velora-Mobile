@@ -33,10 +33,7 @@ import { usePublicProfile } from '../../src/hooks/useContacts'
 import { useConversationNavigation } from '../../src/hooks/useConversationNavigation'
 import { getConversationsQueryOptions } from '../../src/hooks/useConversations'
 import {
-  useAcceptFriendRequest,
   useBlockUser,
-  useCancelFriendRequest,
-  useRejectFriendRequest,
   useRemoveFriend,
   useSendFriendRequest,
 } from '../../src/hooks/useFriendMutations'
@@ -243,9 +240,6 @@ export default function PublicProfileScreen() {
     refetch: refetchStatus,
   } = useFriendshipStatus(profile?.id ?? '')
   const sendFriendRequest = useSendFriendRequest()
-  const acceptFriendRequest = useAcceptFriendRequest()
-  const rejectFriendRequest = useRejectFriendRequest()
-  const cancelFriendRequest = useCancelFriendRequest()
   const removeFriend = useRemoveFriend()
   const blockUser = useBlockUser()
   const {
@@ -266,15 +260,9 @@ export default function PublicProfileScreen() {
   const { openConversation, runConversationEntry } = useConversationNavigation()
 
   const isFriendActionPending =
-    sendFriendRequest.isPending ||
-    acceptFriendRequest.isPending ||
-    rejectFriendRequest.isPending ||
-    cancelFriendRequest.isPending ||
-    removeFriend.isPending ||
-    blockUser.isPending
+    sendFriendRequest.isPending || removeFriend.isPending || blockUser.isPending
   const isPending = pendingAction !== null || isFriendActionPending
   const status = friendshipStatus?.status ?? 'none'
-  const requestId = friendshipStatus?.id
   const isOwnProfile = profile?.id === useAuthStore((state) => state.user?.id)
   const publicReels = useMemo(
     () => reelsData?.pages.flatMap((page) => page.items) ?? [],
@@ -388,6 +376,10 @@ export default function PublicProfileScreen() {
       }
     })
   }, [createAndOpenConversation, profile?.id, runConversationEntry])
+
+  const openFriendRequests = useCallback(() => {
+    router.push('/(tabs)/friends?section=received')
+  }, [router])
 
   const handleOpenRemoveSheet = useCallback(() => {
     if (!profile?.id) return
@@ -636,48 +628,18 @@ export default function PublicProfileScreen() {
                         />
                       </View>
                     </View>
-                  ) : status === 'request_received' && requestId ? (
-                    <View className="flex-row gap-3">
-                      <View className="flex-1">
-                        <ActionButton
-                          disabled={isPending || isStatusLoading || isStatusFetching}
-                          isPending={acceptFriendRequest.isPending}
-                          label="Accept"
-                          onPress={() =>
-                            acceptFriendRequest.mutate({
-                              requestId: requestId ?? '',
-                              userId: profile.id,
-                              requester: {
-                                id: profile.id,
-                                fullName: profile.fullName,
-                                username: profile.username ?? '',
-                                picture: profile.picture,
-                              },
-                            })
-                          }
-                          variant="primary"
-                        />
-                      </View>
-                      <View className="flex-1">
-                        <ActionButton
-                          disabled={isPending || isStatusLoading || isStatusFetching}
-                          isPending={rejectFriendRequest.isPending}
-                          label="Reject"
-                          onPress={() =>
-                            rejectFriendRequest.mutate({ requestId, userId: profile.id })
-                          }
-                          variant="secondary"
-                        />
-                      </View>
-                    </View>
-                  ) : status === 'request_sent' && requestId ? (
+                  ) : status === 'request_received' ? (
                     <ActionButton
-                      disabled={isPending || isStatusLoading || isStatusFetching}
-                      isPending={cancelFriendRequest.isPending}
-                      label="Cancel request"
-                      onPress={() => cancelFriendRequest.mutate({ requestId, userId: profile.id })}
+                      disabled={isStatusLoading || isStatusFetching}
+                      isPending={false}
+                      label="Respond in Friend Requests"
+                      onPress={openFriendRequests}
                       variant="secondary"
                     />
+                  ) : status === 'request_sent' ? (
+                    <View className="items-center rounded-full border border-border-light bg-surface-card px-5 py-3">
+                      <Text className="font-medium text-text-secondary">Request sent</Text>
+                    </View>
                   ) : (
                     <ActionButton
                       disabled={isPending || isStatusLoading || isStatusFetching || !profile.id}

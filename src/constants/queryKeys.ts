@@ -15,6 +15,7 @@ export const queryKeys = {
       ['friends', viewerId, 'list', targetUserId] as const,
     incoming: (viewerId: string) => ['friends', viewerId, 'incoming', 'pages'] as const,
     outgoing: (viewerId: string) => ['friends', viewerId, 'outgoing', 'pages'] as const,
+    blocked: (viewerId: string) => ['friends', viewerId, 'blocked', 'pages'] as const,
     status: (viewerId: string, targetUserId: string) =>
       ['friends', viewerId, 'status', targetUserId] as const,
   },

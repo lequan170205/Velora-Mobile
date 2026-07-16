@@ -37,6 +37,7 @@ interface ReelVideoProps {
   contentFit?: ContentFit | undefined
   style?: StyleProp<ViewStyle> | undefined
   resetOnPause?: boolean | undefined
+  externallyManagedPlayback?: boolean | undefined
   onReady?: (() => void) | undefined
   onError?: (() => void) | undefined
   onProgress?: ((progress: ReelVideoProgress) => void) | undefined
@@ -223,6 +224,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
     contentFit = 'cover',
     style,
     resetOnPause = false,
+    externallyManagedPlayback = false,
     onReady,
     onError,
     onProgress,
@@ -296,6 +298,10 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
     player.bufferOptions = REEL_BUFFER_OPTIONS
     player.timeUpdateEventInterval = 0.25
 
+    if (externallyManagedPlayback) {
+      return
+    }
+
     if (shouldPlay) {
       player.play()
       return
@@ -306,7 +312,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
     if (resetOnPause) {
       player.currentTime = 0
     }
-  }, [loop, muted, player, resetOnPause, shouldPlay])
+  }, [externallyManagedPlayback, loop, muted, player, resetOnPause, shouldPlay])
 
   useEffect(() => {
     const statusSubscription = player.addListener('statusChange', ({ status, error }) => {
@@ -318,10 +324,6 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
         duration: player.duration,
         isBuffering: isBufferingRef.current,
       })
-
-      if (status === 'readyToPlay') {
-        notifyReady()
-      }
 
       if (status === 'error' || error) {
         onError?.()
@@ -392,6 +394,7 @@ const ExpoAvPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoAv
     contentFit = 'cover',
     style,
     resetOnPause = false,
+    externallyManagedPlayback = false,
     onReady,
     onError,
     onProgress,
@@ -437,6 +440,10 @@ const ExpoAvPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoAv
   )
 
   useEffect(() => {
+    if (externallyManagedPlayback) {
+      return
+    }
+
     if (shouldPlay) {
       void videoRef.current?.playAsync().catch(() => undefined)
       return
@@ -447,13 +454,13 @@ const ExpoAvPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoAv
     if (resetOnPause) {
       void videoRef.current?.setPositionAsync(0).catch(() => undefined)
     }
-  }, [resetOnPause, shouldPlay, uri])
+  }, [externallyManagedPlayback, resetOnPause, shouldPlay, uri])
 
   return (
     <VideoComponent
       ref={videoRef}
       source={{ uri }}
-      shouldPlay={shouldPlay}
+      shouldPlay={externallyManagedPlayback ? false : shouldPlay}
       isLooping={loop}
       isMuted={muted}
       resizeMode={contentFit === 'contain' ? ResizeMode.CONTAIN : ResizeMode.COVER}

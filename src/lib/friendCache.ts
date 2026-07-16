@@ -2,17 +2,27 @@ import type { InfiniteData, QueryClient } from '@tanstack/react-query'
 
 import { queryKeys } from '../constants/queryKeys'
 
+import { removeCreatorReelsFromViewerFeedCaches } from './reelFeedCache'
+
 import type {
   FriendRequestSummary,
   FriendSummary,
   FriendshipStatusResponse,
   PaginatedFriendResults,
+  BlockedUserSummary,
 } from '../types/friend.types'
+import type { Reel, ReelContextResponse } from '../types/reel.types'
+import type { GlobalSearchResponse } from '../types/search.types'
+import type { PublicUserProfile } from '../types/user.types'
 
 type FriendRequestPages = InfiniteData<
   PaginatedFriendResults<FriendRequestSummary>,
   string | undefined
 >
+
+type BlockedUserPages = InfiniteData<PaginatedFriendResults<BlockedUserSummary>, string | undefined>
+
+type ReelPages = InfiniteData<{ items: Reel[] }, string | undefined>
 
 export const deduplicateFriendRequestPages = (data: FriendRequestPages | undefined) => {
   if (!data) return data
@@ -62,6 +72,18 @@ export const removeFriendRequestsForUserFromPages = (
   }
 }
 
+export const removeBlockedUserFromPages = (data: BlockedUserPages | undefined, userId: string) => {
+  if (!data) return data
+
+  return {
+    ...data,
+    pages: data.pages.map((page) => ({
+      ...page,
+      items: page.items.filter((blockedUser) => blockedUser.user.id !== userId),
+    })),
+  }
+}
+
 export const removeUserFromFriendList = (friends: FriendSummary[] | undefined, userId: string) =>
   friends?.filter((friend) => friend.user.id !== userId)
 
@@ -96,6 +118,10 @@ export const removeFriendshipQueriesForViewer = (queryClient: QueryClient, viewe
   queryClient.removeQueries({ queryKey: queryKeys.friends.viewer(viewerId) })
 }
 
+export const removeBlockedUsersQueriesForViewer = (queryClient: QueryClient, viewerId: string) => {
+  queryClient.removeQueries({ queryKey: queryKeys.friends.blocked(viewerId) })
+}
+
 export const removeFriendMutationsForViewer = (queryClient: QueryClient, viewerId: string) => {
   const mutationCache = queryClient.getMutationCache()
 
@@ -107,6 +133,116 @@ export const removeFriendMutationsForViewer = (queryClient: QueryClient, viewerI
     }
   })
 }
+
+export const removeUserFromRecommendedUsersCaches = (queryClient: QueryClient, userId: string) => {
+  queryClient.setQueriesData<PublicUserProfile[]>({ queryKey: ['users', 'recommended'] }, (users) =>
+    users?.filter((user) => user.id !== userId),
+  )
+}
+
+export const removeUserFromDiscoveryCaches = (queryClient: QueryClient, userId: string) => {
+  queryClient.setQueriesData<PublicUserProfile[]>({ queryKey: ['users', 'discover'] }, (users) =>
+    users?.filter((user) => user.id !== userId),
+  )
+}
+
+export const removeUserFromGlobalSearchCaches = (queryClient: QueryClient, userId: string) => {
+  queryClient.setQueriesData<GlobalSearchResponse>({ queryKey: queryKeys.search.all }, (data) => {
+    if (!data) return data
+
+    return {
+      ...data,
+      users: data.users.filter((user) => user.id !== userId),
+      reels: data.reels.filter((reel) => reel.userId !== userId),
+      counts: {
+        users: data.users.filter((user) => user.id !== userId).length,
+        reels: data.reels.filter((reel) => reel.userId !== userId).length,
+      },
+    }
+  })
+}
+
+const removeCreatorFromReelPages = (data: ReelPages | undefined, creatorId: string) => {
+  if (!data) return data
+
+  return {
+    ...data,
+    pages: data.pages.map((page) => ({
+      ...page,
+      items: page.items.filter((reel) => reel.userId !== creatorId),
+    })),
+  }
+}
+
+export const removeCreatorReelsFromAllCaches = (queryClient: QueryClient, creatorId: string) => {
+  queryClient.setQueriesData<ReelPages>(
+    {
+      predicate: (query) =>
+        query.queryKey[0] === 'reels' &&
+        (query.queryKey[1] === 'list' ||
+          query.queryKey[1] === 'recommended' ||
+          query.queryKey[1] === 'friends'),
+    },
+    (data) => removeCreatorFromReelPages(data, creatorId),
+  )
+  queryClient.setQueriesData<ReelContextResponse>(
+    { queryKey: queryKeys.reels.contexts() },
+    (data) => {
+      if (!data) return data
+
+      const items = data.items.filter((reel) => reel.userId !== creatorId)
+      const selectedIndex = Math.min(data.selectedIndex, Math.max(items.length - 1, 0))
+      const selectedId = items[selectedIndex]?.id ?? data.selectedId
+
+      return { ...data, items, selectedId, selectedIndex }
+    },
+  )
+  queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(), (reels) =>
+    reels?.filter((reel) => reel.userId !== creatorId),
+  )
+  queryClient.removeQueries({
+    predicate: (query) =>
+      query.queryKey[0] === 'reels' &&
+      query.queryKey[1] === 'detail' &&
+      (query.state.data as Reel | undefined)?.userId === creatorId,
+  })
+}
+
+export const removeBlockedUserFromCaches = (
+  queryClient: QueryClient,
+  viewerId: string,
+  userId: string,
+) => {
+  queryClient.setQueryData<FriendSummary[]>(queryKeys.friends.list(viewerId, viewerId), (friends) =>
+    removeUserFromFriendList(friends, userId),
+  )
+  updateIncomingRequestPages(queryClient, viewerId, (data) =>
+    removeFriendRequestsForUserFromPages(data, userId),
+  )
+  updateOutgoingRequestPages(queryClient, viewerId, (data) =>
+    removeFriendRequestsForUserFromPages(data, userId),
+  )
+  updateFriendshipStatus(queryClient, viewerId, userId, { status: 'none' })
+  removeUserFromDiscoveryCaches(queryClient, userId)
+  removeUserFromRecommendedUsersCaches(queryClient, userId)
+  removeUserFromGlobalSearchCaches(queryClient, userId)
+  removeCreatorReelsFromAllCaches(queryClient, userId)
+  removeCreatorReelsFromViewerFeedCaches(queryClient, viewerId, userId)
+}
+
+export const invalidateRelationshipCaches = (
+  queryClient: QueryClient,
+  viewerId: string,
+  targetUserId: string,
+) =>
+  Promise.all([
+    queryClient.invalidateQueries({ queryKey: queryKeys.friends.list(viewerId, viewerId) }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.friends.incoming(viewerId) }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.friends.outgoing(viewerId) }),
+    queryClient.invalidateQueries({ queryKey: ['users', 'recommended'] }),
+    queryClient.invalidateQueries({ queryKey: ['users', 'discover'] }),
+    invalidateFriendshipStatus(queryClient, viewerId, targetUserId),
+  ])
 
 export const updateIncomingRequestPages = (
   queryClient: QueryClient,

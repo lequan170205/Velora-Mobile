@@ -165,3 +165,22 @@ export const readCachedReelFeedPage = async (
     ...(page.generatedAt ? { generatedAt: page.generatedAt } : {}),
   }
 }
+
+export const removeCreatorReelsFromOfflineCache = async (creatorId: string) => {
+  const cachedReels = await getAllCachedReels()
+  const creatorReels = cachedReels.filter((reel) => reel.userId === creatorId)
+
+  if (creatorReels.length === 0) {
+    return []
+  }
+
+  const creatorReelIds = new Set(creatorReels.map((reel) => reel.reelId))
+  const cachedPages = await getAllCachedReelFeedPages()
+  const affectedPages = cachedPages.filter((page) =>
+    getCachedFeedPageReelIds(page).some((reelId) => creatorReelIds.has(reelId)),
+  )
+
+  await Promise.all([deleteCachedReelFeedPages(affectedPages), deleteCachedReels(creatorReels)])
+
+  return Array.from(creatorReelIds)
+}

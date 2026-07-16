@@ -11,7 +11,6 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native'
-import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { AppSearchBar } from '../../src/components/common/AppSearchBar'
@@ -19,12 +18,7 @@ import { ReelThumbnailGrid } from '../../src/components/reels/ReelThumbnailGrid'
 import { colors } from '../../src/constants/theme'
 import { useBotChat } from '../../src/hooks/useBotChat'
 import { useConversationNavigation } from '../../src/hooks/useConversationNavigation'
-import {
-  useAcceptFriendRequest,
-  useCancelFriendRequest,
-  useRejectFriendRequest,
-} from '../../src/hooks/useFriendMutations'
-import { useIncomingFriendRequests, useOutgoingFriendRequests } from '../../src/hooks/useFriends'
+import { useFriends, useFriendshipStatus } from '../../src/hooks/useFriends'
 import { useGlobalSearch } from '../../src/hooks/useGlobalSearch'
 import { useRecommendedUsers } from '../../src/hooks/useRecommendedUsers'
 import { useRecommendedReelsFeed } from '../../src/hooks/useReels'
@@ -34,13 +28,10 @@ import { getInitials } from '../../src/lib/profile'
 import { flattenRecommendedReelPages } from '../../src/lib/recommendationFeed'
 import { useNetworkStatus } from '../../src/providers/NetworkProvider'
 
-import type { FriendRequestSummary } from '../../src/types/friend.types'
 import type { ReelFeedListItem } from '../../src/types/reel.types'
 import type { GlobalSearchType, PublicUserProfile } from '../../src/types/search.types'
 import type { TextInput } from 'react-native'
 
-const CARD_ENTERING = FadeInDown.springify().damping(16).stiffness(160)
-const ROW_LAYOUT = LinearTransition.springify().damping(18).stiffness(170)
 const SEARCH_DEBOUNCE_MS = 400
 const ALL_CONTACTS_PREVIEW_LIMIT = 5
 const ALL_REELS_PREVIEW_LIMIT = 6
@@ -226,12 +217,25 @@ function EmptyQueryState({
 }
 
 function ContactResultRow({
+  onFriendRequestsPress,
   onPress,
   user,
 }: {
+  onFriendRequestsPress: () => void
   onPress?: (() => void) | undefined
   user: PublicUserProfile
 }) {
+  const { data: friendshipStatus } = useFriendshipStatus(user.id)
+  const status = friendshipStatus?.status
+  const statusLabel =
+    status === 'friends'
+      ? 'Friends'
+      : status === 'request_sent'
+        ? 'Request sent'
+        : status === 'request_received'
+          ? 'Respond in Friend Requests'
+          : null
+
   return (
     <Pressable className="px-4 py-3" disabled={!onPress} onPress={onPress}>
       <View className="flex-row items-center">
@@ -263,16 +267,33 @@ function ContactResultRow({
           ) : null}
         </View>
 
-        {onPress ? <MaterialIcons color="#9B958C" name="chevron-right" size={18} /> : null}
+        <View className="items-end">
+          {statusLabel ? (
+            status === 'request_received' ? (
+              <Pressable
+                accessibilityLabel="Open Friend Requests"
+                accessibilityRole="button"
+                onPress={onFriendRequestsPress}
+              >
+                <Text className="text-right text-xs2 text-brand">{statusLabel}</Text>
+              </Pressable>
+            ) : (
+              <Text className="text-right text-xs2 text-text-muted">{statusLabel}</Text>
+            )
+          ) : null}
+          {onPress ? <MaterialIcons color="#9B958C" name="chevron-right" size={18} /> : null}
+        </View>
       </View>
     </Pressable>
   )
 }
 
 function ContactResultsList({
+  onFriendRequestsPress,
   onUserPress,
   users,
 }: {
+  onFriendRequestsPress: () => void
   onUserPress: (user: PublicUserProfile) => void
   users: PublicUserProfile[]
 }) {
@@ -284,6 +305,7 @@ function ContactResultsList({
         return (
           <View key={user.id}>
             <ContactResultRow
+              onFriendRequestsPress={onFriendRequestsPress}
               user={user}
               onPress={normalizedUsername ? () => onUserPress(user) : undefined}
             />
@@ -301,6 +323,7 @@ function SearchResultsPanel({
   hasResolvedSuggestions,
   isLoadingSuggestions,
   onReelPress,
+  onFriendRequestsPress,
   onSuggestionPress,
   onSwitchTab,
   onUserPress,
@@ -321,6 +344,7 @@ function SearchResultsPanel({
   isRecommendedReelsLoading: boolean
   isRecommendedUsersLoading: boolean
   onReelPress: (reel: ReelFeedListItem) => void
+  onFriendRequestsPress: () => void
   onSuggestionPress: (value: string) => void
   onSwitchTab: (tab: SearchTabKey) => void
   onUserPress: (user: PublicUserProfile) => void
@@ -390,7 +414,11 @@ function SearchResultsPanel({
       return (
         <View>
           <SearchSectionHeader title="Suggested contacts" />
-          <ContactResultsList onUserPress={onUserPress} users={recommendedUsers} />
+          <ContactResultsList
+            onFriendRequestsPress={onFriendRequestsPress}
+            onUserPress={onUserPress}
+            users={recommendedUsers}
+          />
         </View>
       )
     }
@@ -448,7 +476,13 @@ function SearchResultsPanel({
   }
 
   if (selectedTab === 'contacts') {
-    return <ContactResultsList onUserPress={onUserPress} users={contacts} />
+    return (
+      <ContactResultsList
+        onFriendRequestsPress={onFriendRequestsPress}
+        onUserPress={onUserPress}
+        users={contacts}
+      />
+    )
   }
 
   if (selectedTab === 'reels') {
@@ -460,7 +494,11 @@ function SearchResultsPanel({
       {previewContacts.length > 0 ? (
         <>
           <SearchSectionHeader title="Contacts" onSeeAll={() => onSwitchTab('contacts')} />
-          <ContactResultsList onUserPress={onUserPress} users={previewContacts} />
+          <ContactResultsList
+            onFriendRequestsPress={onFriendRequestsPress}
+            onUserPress={onUserPress}
+            users={previewContacts}
+          />
         </>
       ) : null}
 
@@ -480,162 +518,15 @@ function SearchResultsPanel({
   )
 }
 
-function RequestActionButton({
-  isPending,
-  label,
-  onPress,
-  tone,
-}: {
-  isPending: boolean
-  label: string
-  onPress: () => void
-  tone: 'primary' | 'secondary' | 'muted'
-}) {
-  const spinnerColor = tone === 'primary' ? '#FFFFFF' : '#161616'
-
-  return (
-    <Pressable
-      className={cn(
-        'min-w-[84px] items-center justify-center rounded-full px-4 py-2.5',
-        tone === 'primary'
-          ? 'bg-brand'
-          : tone === 'secondary'
-            ? 'border border-border-light bg-surface-card'
-            : 'bg-surface-muted',
-      )}
-      onPress={onPress}
-      disabled={isPending}
-      style={{ opacity: isPending ? 0.7 : 1 }}
-    >
-      {isPending ? (
-        <ActivityIndicator color={spinnerColor} size="small" />
-      ) : (
-        <Text
-          className={cn('font-medium', tone === 'primary' ? 'text-white' : 'text-text-primary')}
-        >
-          {label}
-        </Text>
-      )}
-    </Pressable>
-  )
-}
-
-function RequestRow({
-  actions,
-  onPress,
-  request,
-}: {
-  actions: React.ReactNode
-  onPress: () => void
-  request: FriendRequestSummary
-}) {
-  return (
-    <Animated.View layout={ROW_LAYOUT} entering={CARD_ENTERING}>
-      <View
-        className="mx-5 mb-3 rounded-[24px] border border-border-light bg-surface-card px-4 py-4"
-        style={{
-          borderCurve: 'continuous',
-          shadowColor: '#5D4A35',
-          shadowOffset: { width: 0, height: 10 },
-          shadowOpacity: 0.05,
-          shadowRadius: 22,
-          elevation: 2,
-        }}
-      >
-        <Pressable className="flex-row items-center" onPress={onPress}>
-          <View
-            className="h-14 w-14 items-center justify-center rounded-full bg-surface-muted"
-            style={{ overflow: 'hidden' }}
-          >
-            {request.user.picture ? (
-              <Image
-                source={{ uri: request.user.picture }}
-                style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#F1E9E1' }}
-              />
-            ) : (
-              <Text className="font-heading text-lg text-text-primary">
-                {getInitials(request.user.fullName)}
-              </Text>
-            )}
-          </View>
-
-          <View className="ml-4 flex-1">
-            <Text className="font-heading text-md text-text-primary" numberOfLines={1}>
-              {request.user.fullName}
-            </Text>
-            <Text className="mt-1 text-sm2 text-text-secondary" numberOfLines={1}>
-              {getHandleLabel(request.user.username)}
-            </Text>
-          </View>
-
-          <MaterialIcons name="chevron-right" size={20} color="#9B958C" />
-        </Pressable>
-
-        <View className="mt-4 flex-row gap-3">{actions}</View>
-      </View>
-    </Animated.View>
-  )
-}
-
-function RequestSectionHeader({ count, title }: { count: number; title: string }) {
-  return (
-    <Animated.View
-      entering={CARD_ENTERING}
-      className="flex-row items-center justify-between px-5 pb-3 pt-6"
-    >
-      <Text className="font-heading text-lg text-text-primary">{title}</Text>
-      <Text className="text-xs2 uppercase tracking-[1.1px] text-text-muted">{count}</Text>
-    </Animated.View>
-  )
-}
-
-function LoadMoreButton({ isPending, onPress }: { isPending: boolean; onPress: () => void }) {
-  return (
-    <View className="px-5 pt-1">
-      <Pressable
-        className="items-center rounded-full border border-border-light bg-surface-card px-4 py-3"
-        onPress={onPress}
-        disabled={isPending}
-        style={{ opacity: isPending ? 0.75 : 1 }}
-      >
-        {isPending ? (
-          <ActivityIndicator color="#D85A21" size="small" />
-        ) : (
-          <Text className="font-medium text-text-primary">Load more</Text>
-        )}
-      </Pressable>
-    </View>
-  )
-}
-
 export default function SearchScreen() {
   const router = useRouter()
   const inputRef = useRef<TextInput | null>(null)
   const { width: windowWidth } = useWindowDimensions()
-  const [pendingActionKey, setPendingActionKey] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [selectedTab, setSelectedTab] = useState<SearchTabKey>('all')
   const { mutateAsync: startBotChat, isPending: isBotLoading } = useBotChat()
-  const acceptFriendRequest = useAcceptFriendRequest()
-  const rejectFriendRequest = useRejectFriendRequest()
-  const cancelFriendRequest = useCancelFriendRequest()
   const { runConversationEntry } = useConversationNavigation()
-
-  const {
-    data: incomingRequestsData,
-    isLoading: isIncomingLoading,
-    isFetchingNextPage: isFetchingNextIncomingPage,
-    hasNextPage: hasNextIncomingPage,
-    fetchNextPage: fetchNextIncomingPage,
-  } = useIncomingFriendRequests()
-  const {
-    data: outgoingRequestsData,
-    isLoading: isOutgoingLoading,
-    isFetchingNextPage: isFetchingNextOutgoingPage,
-    hasNextPage: hasNextOutgoingPage,
-    fetchNextPage: fetchNextOutgoingPage,
-  } = useOutgoingFriendRequests()
 
   const normalizedQuery = query.trim()
   const backendType = getBackendType(selectedTab)
@@ -655,12 +546,12 @@ export default function SearchScreen() {
       enabled: shouldLoadRecommendedReels,
       limit: 24,
     })
-  const { data: recommendedUsers = [], isLoading: isRecommendedUsersLoading } = useRecommendedUsers(
-    {
+  const { data: recommendedUsersData = [], isLoading: isRecommendedUsersLoading } =
+    useRecommendedUsers({
       enabled: shouldLoadRecommendedUsers,
       limit: 20,
-    },
-  )
+    })
+  const { data: acceptedFriends = [] } = useFriends()
   const tileSize = useMemo(() => Math.floor((windowWidth - 4) / 3), [windowWidth])
   const searchSuggestionChips = useMemo(
     () =>
@@ -674,22 +565,14 @@ export default function SearchScreen() {
     () => flattenRecommendedReelPages(recommendedReelsData?.pages ?? []),
     [recommendedReelsData],
   )
+  const recommendedUsers = useMemo(() => {
+    const acceptedFriendIds = new Set(acceptedFriends.map((friend) => friend.user.id))
+    return recommendedUsersData.filter((user) => !acceptedFriendIds.has(user.id))
+  }, [acceptedFriends, recommendedUsersData])
   const hasResolvedSearchSuggestions =
     shouldShowSuggestionChips &&
     (searchSuggestionsData !== undefined || !isSearchSuggestionsLoading)
-  const incomingRequests = useMemo(
-    () => incomingRequestsData?.pages.flatMap((page) => page.items) ?? [],
-    [incomingRequestsData],
-  )
-  const outgoingRequests = useMemo(
-    () => outgoingRequestsData?.pages.flatMap((page) => page.items) ?? [],
-    [outgoingRequestsData],
-  )
-  const isRequestsLoading =
-    (isIncomingLoading && !incomingRequestsData) || (isOutgoingLoading && !outgoingRequestsData)
   const isSearchTyping = normalizedQuery.length > 0 && normalizedQuery !== debouncedQuery.trim()
-  const shouldShowRequestSections =
-    normalizedQuery.length === 0 && (selectedTab === 'all' || selectedTab === 'contacts')
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -698,21 +581,6 @@ export default function SearchScreen() {
 
     return () => clearTimeout(timeoutId)
   }, [normalizedQuery])
-
-  const runRequestAction = useCallback(
-    async (actionKey: string, task: () => Promise<void>, _fallbackMessage: string) => {
-      setPendingActionKey(actionKey)
-
-      try {
-        await task()
-      } catch {
-        return
-      } finally {
-        setPendingActionKey((currentKey) => (currentKey === actionKey ? null : currentKey))
-      }
-    },
-    [],
-  )
 
   const handleSuggestionPress = useCallback((value: string) => {
     setSelectedTab('all')
@@ -759,136 +627,9 @@ export default function SearchScreen() {
     })
   }, [runConversationEntry, startBotChat])
 
-  const renderRequestSections = () => {
-    if (isRequestsLoading) {
-      return (
-        <View className="items-center px-5 pt-10">
-          <ActivityIndicator color="#D85A21" size="small" />
-        </View>
-      )
-    }
-
-    if (incomingRequests.length === 0 && outgoingRequests.length === 0) {
-      return null
-    }
-
-    return (
-      <>
-        {incomingRequests.length > 0 ? (
-          <>
-            <RequestSectionHeader count={incomingRequests.length} title="Incoming" />
-            {incomingRequests.map((request) => (
-              <RequestRow
-                key={request.id}
-                request={request}
-                actions={
-                  <>
-                    <RequestActionButton
-                      label="Confirm"
-                      tone="primary"
-                      isPending={
-                        pendingActionKey === `accept:${request.id}` ||
-                        pendingActionKey === `reject:${request.id}`
-                      }
-                      onPress={() => {
-                        void runRequestAction(
-                          `accept:${request.id}`,
-                          async () => {
-                            await acceptFriendRequest.mutateAsync({
-                              requestId: request.id,
-                              userId: request.user.id,
-                              requester: request.user,
-                              requestedAt: request.requestedAt,
-                            })
-                          },
-                          'Could not accept the friend request.',
-                        )
-                      }}
-                    />
-                    <RequestActionButton
-                      label="Reject"
-                      tone="secondary"
-                      isPending={
-                        pendingActionKey === `accept:${request.id}` ||
-                        pendingActionKey === `reject:${request.id}`
-                      }
-                      onPress={() => {
-                        void runRequestAction(
-                          `reject:${request.id}`,
-                          async () => {
-                            await rejectFriendRequest.mutateAsync({
-                              requestId: request.id,
-                              userId: request.user.id,
-                            })
-                          },
-                          'Could not reject the friend request.',
-                        )
-                      }}
-                    />
-                  </>
-                }
-                onPress={() => {
-                  if (!request.user.username) return
-                  router.push(`/users/${request.user.username}`)
-                }}
-              />
-            ))}
-            {hasNextIncomingPage ? (
-              <LoadMoreButton
-                isPending={isFetchingNextIncomingPage}
-                onPress={() => {
-                  void fetchNextIncomingPage()
-                }}
-              />
-            ) : null}
-          </>
-        ) : null}
-
-        {outgoingRequests.length > 0 ? (
-          <>
-            <RequestSectionHeader count={outgoingRequests.length} title="Outgoing" />
-            {outgoingRequests.map((request) => (
-              <RequestRow
-                key={request.id}
-                request={request}
-                actions={
-                  <RequestActionButton
-                    label="Cancel"
-                    tone="muted"
-                    isPending={pendingActionKey === `cancel:${request.id}`}
-                    onPress={() => {
-                      void runRequestAction(
-                        `cancel:${request.id}`,
-                        async () => {
-                          await cancelFriendRequest.mutateAsync({
-                            requestId: request.id,
-                            userId: request.user.id,
-                          })
-                        },
-                        'Could not cancel the friend request.',
-                      )
-                    }}
-                  />
-                }
-                onPress={() => {
-                  if (!request.user.username) return
-                  router.push(`/users/${request.user.username}`)
-                }}
-              />
-            ))}
-            {hasNextOutgoingPage ? (
-              <LoadMoreButton
-                isPending={isFetchingNextOutgoingPage}
-                onPress={() => {
-                  void fetchNextOutgoingPage()
-                }}
-              />
-            ) : null}
-          </>
-        ) : null}
-      </>
-    )
-  }
+  const handleFriendRequestsPress = useCallback(() => {
+    router.push('/(tabs)/friends?section=received')
+  }, [router])
 
   return (
     <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
@@ -938,8 +679,6 @@ export default function SearchScreen() {
           </View>
         </View>
 
-        {shouldShowRequestSections ? renderRequestSections() : null}
-
         <SearchResultsPanel
           backendType={backendType}
           debouncedQuery={debouncedQuery}
@@ -948,6 +687,7 @@ export default function SearchScreen() {
           isRecommendedReelsLoading={isRecommendedReelsLoading}
           isRecommendedUsersLoading={isRecommendedUsersLoading}
           onReelPress={handleReelPress}
+          onFriendRequestsPress={handleFriendRequestsPress}
           onSuggestionPress={handleSuggestionPress}
           onSwitchTab={handleSwitchSearchTab}
           onUserPress={handleUserPress}
