@@ -1,6 +1,9 @@
 import { DEFAULT_REELS_LIMIT } from '../../constants/reels'
+import {
+  RECOMMENDATION_CANDIDATE_SOURCES,
+  type RecommendationMetadata,
+} from '../../types/recommendation.types'
 
-import type { RecommendationMetadata } from '../../types/recommendation.types'
 import type {
   ListReelsParams,
   Reel,
@@ -215,6 +218,9 @@ export const deserializeRecommendationMetadata = (value: string | null) => {
     !feedSessionId ||
     !algorithmVersion ||
     !candidateSource ||
+    !RECOMMENDATION_CANDIDATE_SOURCES.includes(
+      candidateSource as (typeof RECOMMENDATION_CANDIDATE_SOURCES)[number],
+    ) ||
     !generatedAt ||
     typeof rank !== 'number' ||
     !Number.isFinite(rank)
@@ -226,7 +232,7 @@ export const deserializeRecommendationMetadata = (value: string | null) => {
     recommendationId,
     feedSessionId,
     algorithmVersion,
-    candidateSource,
+    candidateSource: candidateSource as RecommendationMetadata['candidateSource'],
     rank,
     generatedAt,
   }

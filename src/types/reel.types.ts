@@ -65,6 +65,13 @@ export interface PaginatedReels<T> {
   generatedAt?: string
 }
 
+export interface RecommendedReelsPage extends PaginatedReels<ReelFeedListItem> {
+  nextCursor: string | null
+  feedSessionId: string
+  algorithmVersion: string
+  generatedAt: string
+}
+
 export type ListReelsResponse = PaginatedReels<Reel>
 
 export interface PaginatedFriendsReels {
@@ -205,7 +212,7 @@ export interface ReelEventRecommendation {
   recommendationId: string
   feedSessionId: string
   algorithmVersion: string
-  candidateSource: string
+  candidateSource: RecommendationMetadata['candidateSource']
   rank: number
   generatedAt: string
 }

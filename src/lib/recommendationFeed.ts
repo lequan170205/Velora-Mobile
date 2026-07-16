@@ -1,9 +1,11 @@
-import type { PaginatedReels, ReelFeedListItem } from '../types/reel.types'
+import { flattenRecommendedReels } from './recommendedReels'
+
+import type { RecommendedReelsPage } from '../types/reel.types'
 import type { RecommendedPublicUserProfile } from '../types/user.types'
 
 export const parseRecommendedReelsResponse = (
-  response: PaginatedReels<ReelFeedListItem>,
-): PaginatedReels<ReelFeedListItem> => ({
+  response: RecommendedReelsPage,
+): RecommendedReelsPage => ({
   ...response,
   items: response.items.map((reel) => ({
     ...reel,
@@ -19,24 +21,5 @@ export const parseRecommendedUsersResponse = (
     ...(user.recommendation ? { recommendation: user.recommendation } : {}),
   }))
 
-export const flattenRecommendedReelPages = (
-  pages: readonly PaginatedReels<ReelFeedListItem>[],
-  feedSessionId: string,
-) => {
-  const seenReelIds = new Set<string>()
-
-  return pages.flatMap((page) => {
-    if (page.feedSessionId && page.feedSessionId !== feedSessionId) {
-      return []
-    }
-
-    return page.items.filter((reel) => {
-      if (seenReelIds.has(reel.id)) {
-        return false
-      }
-
-      seenReelIds.add(reel.id)
-      return true
-    })
-  })
-}
+export const flattenRecommendedReelPages = (pages: readonly RecommendedReelsPage[]) =>
+  flattenRecommendedReels(pages)

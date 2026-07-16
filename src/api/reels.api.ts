@@ -12,11 +12,10 @@ import type {
   ListReelsParams,
   ListReelsResponse,
   PaginatedFriendsReels,
-  PaginatedReels,
+  RecommendedReelsPage,
   ReelDetail,
   ReelProcessingStatusResponse,
   RecommendedReelsParams,
-  ReelFeedListItem,
   ReelShareLinkResponse,
   ReelShareResponse,
   ShareReelPayload,
@@ -27,18 +26,15 @@ import type {
 
 export async function getRecommendedReels(
   params: RecommendedReelsParams = {},
-): Promise<PaginatedReels<ReelFeedListItem>> {
-  const response = await apiClient.get<PaginatedReels<ReelFeedListItem>>(
-    '/content/reels/recommended',
-    {
-      params: {
-        limit: params.limit,
-        cursor: params.cursor,
-        excludeRecentlySeen: params.excludeRecentlySeen,
-        feedSessionId: params.feedSessionId,
-      },
+): Promise<RecommendedReelsPage> {
+  const response = await apiClient.get<RecommendedReelsPage>('/content/reels/recommended', {
+    params: {
+      limit: params.limit,
+      cursor: params.cursor,
+      excludeRecentlySeen: params.excludeRecentlySeen,
+      ...(params.feedSessionId ? { feedSessionId: params.feedSessionId } : {}),
     },
-  )
+  })
   return parseRecommendedReelsResponse(response.data)
 }
 

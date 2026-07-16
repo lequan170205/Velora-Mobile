@@ -1,13 +1,11 @@
 import * as Crypto from 'expo-crypto'
 
+import { toReelEventRecommendation } from '../lib/reelEventAttribution'
+
 import { reelEventQueue } from './reelEventQueue'
 
-import type {
-  ReelEventRecommendation,
-  ReelEventSource,
-  ReelViewEventType,
-  TrackReelEventPayload,
-} from '../types/reel.types'
+import type { RecommendationMetadata } from '../types/recommendation.types'
+import type { ReelEventSource, ReelViewEventType, TrackReelEventPayload } from '../types/reel.types'
 
 const IMPRESSION_DELAY_MS = 500
 const PROGRESS_THRESHOLDS = [25, 50, 75]
@@ -15,7 +13,7 @@ const PROGRESS_THRESHOLDS = [25, 50, 75]
 type PlaybackTrackerOptions = {
   durationMs?: number
   muted: boolean
-  recommendation?: ReelEventRecommendation
+  recommendation?: RecommendationMetadata
   reelId: string
   source: ReelEventSource
 }
@@ -72,6 +70,11 @@ export class ReelPlaybackTracker {
       return
     }
 
+    const recommendation =
+      this.options.source === 'RECOMMENDED'
+        ? toReelEventRecommendation(this.options.recommendation)
+        : undefined
+
     reelEventQueue.enqueue({
       eventId,
       reelId: this.options.reelId,
@@ -81,7 +84,7 @@ export class ReelPlaybackTracker {
       source: this.options.source,
       occurredAt: new Date().toISOString(),
       muted: this.mutedState,
-      ...(this.options.recommendation ? { recommendation: this.options.recommendation } : {}),
+      ...(recommendation ? { recommendation } : {}),
       ...fields,
     })
     this.sequence += 1

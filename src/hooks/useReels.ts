@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { isAxiosError } from 'axios'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { cacheReelFeedPage, readCachedReelFeedPage } from '@/lib/reelOfflineCache'
 import type { InfiniteData, QueryClient, QueryKey } from '@tanstack/react-query'
@@ -14,7 +15,7 @@ import {
   upsertConversationSummaryInCache,
   upsertMessageIntoConversationCache,
 } from '../lib/chatMessageCache'
-import { RecommendationSession } from '../lib/recommendationSession'
+import { RecommendedReelsSession } from '../lib/recommendedReels'
 import { useAuthStore } from '../stores/authStore'
 
 import type { CacheableFeedParams } from '../database/reels/reelCacheMappers'
@@ -24,6 +25,7 @@ import type {
   ListReelsParams,
   ListReelsResponse,
   PaginatedFriendsReels,
+  RecommendedReelsPage,
   ReelContextParams,
   ReelContextResponse,
   Reel,
@@ -520,59 +522,78 @@ export function useReelsFeed(
 export function useRecommendedReelsFeed(params: { enabled?: boolean; limit?: number } = {}) {
   const queryClient = useQueryClient()
   const userId = useAuthStore((state) => state.user?.id)
-  const recommendationSessionRef = useRef<RecommendationSession | null>(null)
-
-  if (!recommendationSessionRef.current) {
-    recommendationSessionRef.current = new RecommendationSession(userId)
-  }
-
-  const recommendationSession = recommendationSessionRef.current
-  const [, setFeedSessionRevision] = useState(0)
-  const feedSessionId = recommendationSession.getFeedSessionId(userId)
+  const recommendationSessionRef = useRef(new RecommendedReelsSession())
+  const previousUserIdRef = useRef(userId)
   const normalizedParams = normalizeRecommendedParams(
     typeof params.limit === 'number' ? { limit: params.limit } : {},
   )
   const recommendedLimit = normalizedParams.limit
   const excludeRecentlySeen = normalizedParams.excludeRecentlySeen
-  const isRecommendedFeedEnabled = params.enabled ?? true
-  const createRecommendedQueryOptions = useCallback(
-    (activeFeedSessionId: string) =>
-      createInfiniteReelsFeedQueryOptions({
-        queryClient,
-        queryKey: queryKeys.reels.recommended(userId ?? 'anonymous', activeFeedSessionId),
-        cacheParams: {
-          limit: recommendedLimit,
-          excludeRecentlySeen,
-          userId: userId ?? 'anonymous',
-          feedSessionId: activeFeedSessionId,
-          recommended: true,
-          visibility: 'public',
-        },
-        enabled: isRecommendedFeedEnabled,
-        fetchPage: (pageParam) =>
-          reelsApi.getRecommendedReels({
+  const isRecommendedFeedEnabled = Boolean(userId) && (params.enabled ?? true)
+  const queryKey = queryKeys.reels.recommended(excludeRecentlySeen)
+  const recommendedQueryOptions = useMemo(
+    () => ({
+      queryKey,
+      enabled: isRecommendedFeedEnabled,
+      initialPageParam: undefined as string | undefined,
+      queryFn: async ({ pageParam }: { pageParam: string | undefined }) => {
+        const session = recommendationSessionRef.current
+
+        if (!pageParam) {
+          session.reset()
+        }
+
+        const response = await reelsApi.getRecommendedReels(
+          session.getRequestParams({
             limit: recommendedLimit,
             excludeRecentlySeen,
-            feedSessionId: activeFeedSessionId,
             ...(pageParam ? { cursor: pageParam } : {}),
           }),
-      }),
-    [excludeRecentlySeen, isRecommendedFeedEnabled, queryClient, recommendedLimit, userId],
+        )
+
+        session.capture(response)
+        return response
+      },
+      getNextPageParam: (lastPage: RecommendedReelsPage) => lastPage.nextCursor ?? undefined,
+      retry: (failureCount: number, error: unknown) => {
+        const status = isAxiosError(error) ? error.response?.status : undefined
+        return !(status && status >= 400 && status < 500) && failureCount < 2
+      },
+      staleTime: REELS_QUERY_STALE_TIME_MS,
+    }),
+    [excludeRecentlySeen, isRecommendedFeedEnabled, queryKey, recommendedLimit],
   )
 
+  const query = useInfiniteQuery(recommendedQueryOptions)
+  const hasActiveAccountSession = previousUserIdRef.current === userId
+
+  useEffect(() => {
+    if (previousUserIdRef.current === userId) {
+      return
+    }
+
+    previousUserIdRef.current = userId
+    recommendationSessionRef.current.reset()
+    queryClient.removeQueries({ queryKey, exact: true })
+  }, [queryClient, queryKey, userId])
+
   const refreshWithNewSession = useCallback(async () => {
-    const nextFeedSessionId = recommendationSession.refresh(userId)
-    setFeedSessionRevision((revision) => revision + 1)
-
-    return queryClient.fetchInfiniteQuery(createRecommendedQueryOptions(nextFeedSessionId))
-  }, [createRecommendedQueryOptions, queryClient, recommendationSession, userId])
-
-  const query = useInfiniteQuery(createRecommendedQueryOptions(feedSessionId))
+    recommendationSessionRef.current.reset()
+    queryClient.removeQueries({ queryKey, exact: true })
+    return queryClient.fetchInfiniteQuery(recommendedQueryOptions)
+  }, [queryClient, queryKey, recommendedQueryOptions])
 
   return {
     ...query,
-    feedSessionId,
-    algorithmVersion: query.data?.pages.find((page) => page.algorithmVersion)?.algorithmVersion,
+    data: hasActiveAccountSession ? query.data : undefined,
+    feedSessionId:
+      (hasActiveAccountSession
+        ? (recommendationSessionRef.current.getFeedSessionId() ??
+          query.data?.pages[0]?.feedSessionId)
+        : null) ?? null,
+    algorithmVersion: hasActiveAccountSession
+      ? query.data?.pages.find((page) => page.algorithmVersion)?.algorithmVersion
+      : undefined,
     refreshWithNewSession,
   }
 }

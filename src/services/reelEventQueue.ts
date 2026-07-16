@@ -197,19 +197,19 @@ class ReelEventQueue {
       } catch (error) {
         const status = isAxiosError(error) ? error.response?.status : undefined
 
-        if (status === 400 || status === 403 || status === 404) {
-          if (__DEV__ && status === 400) {
+        if (status === 401) {
+          this.isAuthBlocked = true
+          this.fail('HTTP 401', false)
+          return
+        }
+
+        if (status && status >= 400 && status < 500) {
+          if (__DEV__) {
             console.warn('[ReelTelemetry] Dropping invalid telemetry batch')
           }
           this.removeSubmittedBatch(batch)
           this.fail(`HTTP ${status}`, false)
           continue
-        }
-
-        if (status === 401) {
-          this.isAuthBlocked = true
-          this.fail('HTTP 401', false)
-          return
         }
 
         this.fail(status ? `HTTP ${status}` : 'Network failure', true)

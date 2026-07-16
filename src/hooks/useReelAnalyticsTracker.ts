@@ -6,7 +6,8 @@ import { reelEventQueue } from '../services/reelEventQueue'
 import { ReelPlaybackTracker } from '../services/reelPlaybackTracker'
 import { useAuthStore } from '../stores/authStore'
 
-import type { ReelEventRecommendation, ReelEventSource } from '../types/reel.types'
+import type { RecommendationMetadata } from '../types/recommendation.types'
+import type { ReelEventSource } from '../types/reel.types'
 import type { AppStateStatus } from 'react-native'
 
 const FLUSH_INTERVAL_MS = 30_000
@@ -57,7 +58,7 @@ export function useReelAnalyticsTracker() {
       source,
     }: {
       muted: boolean
-      recommendation?: ReelEventRecommendation
+      recommendation?: RecommendationMetadata
       reelId: string
       source: ReelEventSource
     }) => {

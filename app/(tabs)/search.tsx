@@ -650,14 +650,11 @@ export default function SearchScreen() {
       },
       { enabled: shouldShowSuggestionChips },
     )
-  const {
-    data: recommendedReelsData,
-    isLoading: isRecommendedReelsLoading,
-    feedSessionId: recommendedReelsFeedSessionId,
-  } = useRecommendedReelsFeed({
-    enabled: shouldLoadRecommendedReels,
-    limit: 24,
-  })
+  const { data: recommendedReelsData, isLoading: isRecommendedReelsLoading } =
+    useRecommendedReelsFeed({
+      enabled: shouldLoadRecommendedReels,
+      limit: 24,
+    })
   const { data: recommendedUsers = [], isLoading: isRecommendedUsersLoading } = useRecommendedUsers(
     {
       enabled: shouldLoadRecommendedUsers,
@@ -674,9 +671,8 @@ export default function SearchScreen() {
     [searchSuggestionsData?.suggestions],
   )
   const recommendedReels = useMemo(
-    () =>
-      flattenRecommendedReelPages(recommendedReelsData?.pages ?? [], recommendedReelsFeedSessionId),
-    [recommendedReelsData, recommendedReelsFeedSessionId],
+    () => flattenRecommendedReelPages(recommendedReelsData?.pages ?? []),
+    [recommendedReelsData],
   )
   const hasResolvedSearchSuggestions =
     shouldShowSuggestionChips &&

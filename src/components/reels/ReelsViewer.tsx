@@ -67,6 +67,8 @@ const OFFLINE_END_REVEAL_HEIGHT = 72
 const OFFLINE_END_TRIGGER_PROGRESS = 0.64
 const OFFLINE_END_LOADING_DURATION_MS = 920
 const INITIAL_FEED_TAB_STATE: FeedTabState = { activeIndex: 0, scrollOffset: 0 }
+const shouldShowRecommendationDebugOverlay =
+  __DEV__ && process.env.EXPO_PUBLIC_ENABLE_RECOMMENDATION_DEBUG === 'true'
 
 interface ReelsViewerProps {
   bottomContentInset?: number
@@ -222,13 +224,13 @@ export function ReelsViewer({
     isFetchingNextPage: isFetchingRecommendedNextPage,
     isRefetching: isRefetchingRecommended,
     feedSessionId: recommendedFeedSessionId,
+    algorithmVersion: recommendedAlgorithmVersion,
     refreshWithNewSession,
   } = useRecommendedReelsFeed({
     limit: DEFAULT_REELS_LIMIT,
     enabled: shouldLoadPublicFeed && selectedFeedTab === 'for-you',
   })
   const {
-    data: friendsData,
     reels: friendReels,
     isPending: isFriendsPending,
     isError: isFriendsError,
@@ -242,7 +244,6 @@ export function ReelsViewer({
     limit: DEFAULT_REELS_LIMIT,
     enabled: shouldLoadPublicFeed && selectedFeedTab === 'friends',
   })
-  const publicFeedData = selectedFeedTab === 'friends' ? friendsData : recommendedData
   const isPublicFeedPending =
     selectedFeedTab === 'friends' ? isFriendsPending : isRecommendedPending
   const isPublicFeedError = selectedFeedTab === 'friends' ? isFriendsError : isRecommendedError
@@ -277,9 +278,9 @@ export function ReelsViewer({
     () =>
       (selectedFeedTab === 'friends'
         ? friendReels
-        : flattenRecommendedReelPages(publicFeedData?.pages ?? [], recommendedFeedSessionId)
+        : flattenRecommendedReelPages(recommendedData?.pages ?? [])
       ).filter((item) => !deletedReelIds.has(item.id)),
-    [deletedReelIds, friendReels, publicFeedData, recommendedFeedSessionId, selectedFeedTab],
+    [deletedReelIds, friendReels, recommendedData, selectedFeedTab],
   )
 
   useEffect(() => {
@@ -872,9 +873,6 @@ export function ReelsViewer({
       activeReelIdRef.current = null
       setActiveReelId(null)
       setSelectedFeedTab(nextFeedTab)
-      void (nextFeedTab === 'friends' ? refetchFriends() : refreshWithNewSession()).catch(
-        () => undefined,
-      )
     },
     [
       activeIndex,
@@ -883,8 +881,6 @@ export function ReelsViewer({
       selectedFeedTab,
       shouldShowFriendsTab,
       viewportHeight,
-      refetchFriends,
-      refreshWithNewSession,
     ],
   )
 
@@ -1052,7 +1048,7 @@ export function ReelsViewer({
 
   const maybeFetchNextPage = useCallback(
     (index: number) => {
-      const shouldPrefetch = index >= Math.max(0, reels.length - 2)
+      const shouldPrefetch = index >= Math.max(0, reels.length - 3)
 
       if (!shouldPrefetch) {
         return
@@ -1433,6 +1429,40 @@ export function ReelsViewer({
             onPlaybackProgress={handlePlaybackProgress}
             onTimelineInteractionChange={handleTimelineInteractionChange}
           />
+
+          {shouldShowRecommendationDebugOverlay && isActiveItem && item.recommendation ? (
+            <View
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                top: insets.top + 76,
+                right: 16,
+                maxWidth: '72%',
+                borderRadius: 12,
+                backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                paddingHorizontal: 10,
+                paddingVertical: 8,
+              }}
+            >
+              <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '600' }}>
+                {item.recommendation.candidateSource} · rank {item.recommendation.rank}
+              </Text>
+              <Text style={{ color: '#D1D5DB', fontSize: 10, marginTop: 2 }}>
+                sources: {item.recommendation.candidateSources?.join(', ') ?? '—'}
+              </Text>
+              <Text style={{ color: '#D1D5DB', fontSize: 10, marginTop: 2 }}>
+                score:{' '}
+                {typeof item.recommendation.candidateScore === 'number'
+                  ? item.recommendation.candidateScore.toFixed(3)
+                  : '—'}
+                {' · '}v{recommendedAlgorithmVersion ?? item.recommendation.algorithmVersion}
+              </Text>
+              <Text style={{ color: '#D1D5DB', fontSize: 10, marginTop: 2 }}>
+                session:{' '}
+                {(recommendedFeedSessionId ?? item.recommendation.feedSessionId).slice(0, 8)}
+              </Text>
+            </View>
+          ) : null}
         </View>
       )
     },
@@ -1447,7 +1477,10 @@ export function ReelsViewer({
       hideDescriptions,
       isFocused,
       isMuted,
+      insets.top,
       offlineVideoCachePriorities,
+      recommendedAlgorithmVersion,
+      recommendedFeedSessionId,
       updateIntentionalPauseState,
       viewportHeight,
     ],
@@ -1660,18 +1693,23 @@ export function ReelsViewer({
                   <Text className="mt-3 max-w-[280px] text-center text-base2 leading-6 text-white">
                     {selectedFeedTab === 'friends'
                       ? 'Your friends have not shared any reels yet. Their posts will appear here.'
-                      : 'Your personalized feed is getting ready. Try again soon or share your first reel.'}
+                      : 'Your personalized feed is getting ready. Please try again.'}
                   </Text>
 
                   <TouchableOpacity
                     className="mt-7 rounded-full bg-brand px-6 py-3.5"
                     activeOpacity={0.84}
                     onPress={() => {
-                      router.push(selectedFeedTab === 'friends' ? '/friends' : '/reels/create')
+                      if (selectedFeedTab === 'friends') {
+                        router.push('/friends')
+                        return
+                      }
+
+                      void handleRefresh()
                     }}
                   >
                     <Text className="font-medium text-white">
-                      {selectedFeedTab === 'friends' ? 'View friends' : 'Create reel'}
+                      {selectedFeedTab === 'friends' ? 'View friends' : 'Try again'}
                     </Text>
                   </TouchableOpacity>
                 </>
