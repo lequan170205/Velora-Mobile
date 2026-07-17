@@ -6,7 +6,6 @@ import { StatusBar } from 'expo-status-bar'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AppState,
-  FlatList,
   InteractionManager,
   Text,
   TouchableOpacity,
@@ -14,6 +13,12 @@ import {
   useWindowDimensions,
 } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
+import PagerView, {
+  type PageScrollStateChangedNativeEvent,
+  type PageScrollStateChangedNativeEventData,
+  type PagerViewOnPageScrollEvent,
+  type PagerViewOnPageSelectedEvent,
+} from 'react-native-pager-view'
 import Animated, {
   Extrapolation,
   Easing,
@@ -55,12 +60,7 @@ import { ReelOfflineSkeleton } from './ReelOfflineSkeleton'
 
 import type { ReelVideoHandle, ReelVideoProgress } from './ReelVideo'
 import type { Reel, ReelContextSource, ReelEventSource } from '../../types/reel.types'
-import type {
-  LayoutChangeEvent,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
-  ViewToken,
-} from 'react-native'
+import type { LayoutChangeEvent } from 'react-native'
 
 type ReelsViewerMode = 'public' | 'context'
 type FeedTab = 'friends' | 'for-you'
@@ -82,8 +82,7 @@ const INITIAL_FEED_TAB_STATE: FeedTabState = { activeIndex: 0, activeReelId: nul
 const shouldShowRecommendationDebugOverlay =
   __DEV__ && process.env.EXPO_PUBLIC_ENABLE_RECOMMENDATION_DEBUG === 'true'
 
-const haveSameReelIds = (left: Set<string>, right: Set<string>) =>
-  left.size === right.size && [...left].every((reelId) => right.has(reelId))
+type PagerViewRef = React.ElementRef<typeof PagerView>
 
 interface ReelsViewerProps {
   bottomContentInset?: number
@@ -175,15 +174,15 @@ export function ReelsViewer({
     flushReelEvents,
   } = useReelAnalyticsTracker()
 
-  const listRef = useRef<FlatList<Reel> | null>(null)
+  const pagerRef = useRef<PagerViewRef | null>(null)
   const playbackCoordinatorRef = useRef(new ReelPlaybackCoordinator())
   const handledRequestedReelIdRef = useRef<string | null>(null)
   const currentPageIndexRef = useRef(0)
-  const scrollOffsetRef = useRef(0)
-  const viewportHeightRef = useRef(0)
-  const visibleReelIdsRef = useRef(new Set<string>())
-  const setActiveByIndexRef = useRef<(index: number) => void>(() => undefined)
-  const maybeFetchNextPageRef = useRef<(index: number) => void>(() => undefined)
+  const pagerScrollStateRef =
+    useRef<PageScrollStateChangedNativeEventData['pageScrollState']>('idle')
+  const pagerScrollPositionRef = useRef<{ offset: number; position: number } | null>(null)
+  const selectedPageIndexRef = useRef<number | null>(null)
+  const pageCommitFrameRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null)
   const offlineAlertTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const offlineBoundaryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wasFocusedRef = useRef(isFocused)
@@ -196,11 +195,9 @@ export function ReelsViewer({
   const previousSelectedReelIdRef = useRef<string | undefined>(reelId)
   const hasShownOfflineFocusAlertRef = useRef(false)
 
-  const [viewportHeight, setViewportHeight] = useState(0)
+  const [viewportHeight, setViewportHeight] = useState(windowHeight)
   const [activeReelId, setActiveReelId] = useState<string | null>(null)
-  const [visibleReelIds, setVisibleReelIds] = useState<Set<string>>(() => new Set())
   const [isAppActive, setIsAppActive] = useState(AppState.currentState === 'active')
-  viewportHeightRef.current = viewportHeight
   const [deletedReelIds, setDeletedReelIds] = useState<Set<string>>(() => new Set())
   const [isOfflineAlertVisible, setIsOfflineAlertVisible] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
@@ -218,19 +215,17 @@ export function ReelsViewer({
     'for-you': [],
   })
 
-  const scrollToReelIndex = useCallback(
-    (index: number, animated = false) => {
-      if (viewportHeight <= 0) {
-        return
-      }
+  const scrollToReelIndex = useCallback((index: number) => {
+    pagerScrollPositionRef.current = null
+    selectedPageIndexRef.current = null
 
-      listRef.current?.scrollToOffset({
-        animated,
-        offset: Math.max(0, index) * viewportHeight,
-      })
-    },
-    [viewportHeight],
-  )
+    if (pageCommitFrameRef.current !== null) {
+      cancelAnimationFrame(pageCommitFrameRef.current)
+      pageCommitFrameRef.current = null
+    }
+
+    pagerRef.current?.setPageWithoutAnimation(Math.max(0, index))
+  }, [])
   const pauseAllReelPlayers = useCallback(() => {
     playbackCoordinatorRef.current.pauseAll()
   }, [])
@@ -451,17 +446,13 @@ export function ReelsViewer({
     () => reels.find((reel) => reel.id === effectiveActiveReelId) ?? null,
     [effectiveActiveReelId, reels],
   )
-  const isActiveReelSufficientlyVisible = Boolean(
-    effectiveActiveReelId && visibleReelIds.has(effectiveActiveReelId),
-  )
   const canPlayActiveReel =
     Boolean(effectiveActiveReelId) &&
     isFocused &&
     isAppActive &&
     !isManualRefreshing &&
     !isSwitchingFeedTab &&
-    !isActiveReelPausedByUser &&
-    isActiveReelSufficientlyVisible
+    !isActiveReelPausedByUser
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState) => {
@@ -955,14 +946,12 @@ export function ReelsViewer({
         return
       }
 
-      pauseAllReelPlayers()
       setIsActiveReelPausedByUser(false)
       activeReelIdRef.current = nextReelId
       setActiveReelId(nextReelId)
     },
-    [isFocused, pauseAllReelPlayers, reels, selectedFeedTab, viewportHeight],
+    [isFocused, reels, selectedFeedTab, viewportHeight],
   )
-  setActiveByIndexRef.current = setActiveByIndex
 
   const handleFeedTabChange = useCallback(
     async (nextFeedTab: FeedTab) => {
@@ -984,8 +973,6 @@ export function ReelsViewer({
       try {
         pauseAllReelPlayers()
         setIsActiveReelPausedByUser(false)
-        visibleReelIdsRef.current = new Set()
-        setVisibleReelIds(new Set())
         await endCurrentReelSession('tab_switch')
         activeReelIdRef.current = null
         setActiveReelId(null)
@@ -1208,68 +1195,86 @@ export function ReelsViewer({
       shouldUseReelContext,
     ],
   )
-  maybeFetchNextPageRef.current = maybeFetchNextPage
+  const scheduleSettledPageCommit = useCallback(() => {
+    if (pageCommitFrameRef.current !== null) {
+      cancelAnimationFrame(pageCommitFrameRef.current)
+    }
 
-  const viewabilityConfigRef = useRef({
-    itemVisiblePercentThreshold: 80,
-    minimumViewTime: 80,
-  })
-  const onViewableItemsChangedRef = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
-    const height = viewportHeightRef.current
-    const offset = scrollOffsetRef.current
-    const settledIndex = Math.round(offset / Math.max(height, 1))
-    const candidates = viewableItems
-      .filter((token) => token.isViewable && typeof token.index === 'number' && token.item)
-      .map((token) => {
-        const index = token.index as number
-        const itemTop = index * height
-        const visibleHeight = Math.max(
-          0,
-          Math.min(itemTop + height, offset + height) - Math.max(itemTop, offset),
-        )
+    pageCommitFrameRef.current = requestAnimationFrame(() => {
+      pageCommitFrameRef.current = null
 
-        return {
-          id: (token.item as Reel).id,
-          index,
-          visiblePercent: (visibleHeight / height) * 100,
+      if (pagerScrollStateRef.current !== 'idle') {
+        return
+      }
+
+      const scrollPosition = pagerScrollPositionRef.current
+      const nextIndex = scrollPosition
+        ? Math.round(scrollPosition.position + scrollPosition.offset)
+        : selectedPageIndexRef.current
+
+      if (nextIndex === null) {
+        return
+      }
+
+      selectedPageIndexRef.current = null
+      setActiveByIndex(nextIndex)
+      maybeFetchNextPage(nextIndex)
+    })
+  }, [maybeFetchNextPage, setActiveByIndex])
+  const handlePageScroll = useCallback(
+    (event: PagerViewOnPageScrollEvent) => {
+      pagerScrollPositionRef.current = {
+        offset: event.nativeEvent.offset,
+        position: event.nativeEvent.position,
+      }
+
+      if (pagerScrollStateRef.current === 'idle') {
+        scheduleSettledPageCommit()
+      }
+    },
+    [scheduleSettledPageCommit],
+  )
+  const handlePageSelected = useCallback(
+    (event: PagerViewOnPageSelectedEvent) => {
+      selectedPageIndexRef.current = event.nativeEvent.position
+
+      if (pagerScrollStateRef.current === 'idle') {
+        scheduleSettledPageCommit()
+      }
+    },
+    [scheduleSettledPageCommit],
+  )
+  const handlePageScrollStateChanged = useCallback(
+    (event: PageScrollStateChangedNativeEvent) => {
+      const nextState = event.nativeEvent.pageScrollState
+      pagerScrollStateRef.current = nextState
+
+      if (nextState === 'dragging') {
+        pagerScrollPositionRef.current = null
+        selectedPageIndexRef.current = null
+
+        if (pageCommitFrameRef.current !== null) {
+          cancelAnimationFrame(pageCommitFrameRef.current)
+          pageCommitFrameRef.current = null
         }
-      })
-      .sort(
-        (left, right) =>
-          right.visiblePercent - left.visiblePercent ||
-          Math.abs(left.index - settledIndex) - Math.abs(right.index - settledIndex) ||
-          left.index - right.index,
-      )
 
-    const nextVisibleIds = new Set(candidates.map((candidate) => candidate.id))
-    if (!haveSameReelIds(visibleReelIdsRef.current, nextVisibleIds)) {
-      visibleReelIdsRef.current = nextVisibleIds
-      setVisibleReelIds(nextVisibleIds)
-    }
+        return
+      }
 
-    const next = candidates[0]
-    if (next) {
-      setActiveByIndexRef.current(next.index)
-      maybeFetchNextPageRef.current(next.index)
-    }
-  })
-  const handleListScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    scrollOffsetRef.current = event.nativeEvent.contentOffset.y
-  }, [])
-  const handleMomentumScrollEnd = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const nextOffset = event.nativeEvent.contentOffset.y
-    scrollOffsetRef.current = nextOffset
-    const nextIndex = Math.round(nextOffset / Math.max(viewportHeightRef.current, 1))
-    setActiveByIndexRef.current(nextIndex)
-    maybeFetchNextPageRef.current(nextIndex)
-  }, [])
-  const getItemLayout = useCallback(
-    (_: ArrayLike<Reel> | null | undefined, index: number) => ({
-      index,
-      length: viewportHeight,
-      offset: viewportHeight * index,
-    }),
-    [viewportHeight],
+      if (nextState === 'idle') {
+        scheduleSettledPageCommit()
+      }
+    },
+    [scheduleSettledPageCommit],
+  )
+
+  useEffect(
+    () => () => {
+      if (pageCommitFrameRef.current !== null) {
+        cancelAnimationFrame(pageCommitFrameRef.current)
+      }
+    },
+    [],
   )
 
   const handleRefresh = useCallback(async () => {
@@ -1574,8 +1579,8 @@ export function ReelsViewer({
     ],
   )
 
-  const renderReelItem = useCallback(
-    ({ item, index }: { item: Reel; index: number }) => {
+  const renderPagerPage = useCallback(
+    (item: Reel, index: number) => {
       const isCurrentItem = effectiveActiveReelId === item.id
       const isActiveItem = isFocused && isCurrentItem && !isManualRefreshing && !isSwitchingFeedTab
       const shouldWarmVideo =
@@ -1585,6 +1590,7 @@ export function ReelsViewer({
 
       return (
         <View
+          key={item.id}
           collapsable={false}
           style={{
             width: '100%',
@@ -1741,31 +1747,22 @@ export function ReelsViewer({
         </Animated.View>
 
         <Animated.View style={[{ flex: 1, zIndex: 1 }, offlineBoundaryPagerStyle]}>
-          {reels.length > 0 && viewportHeight > 0 ? (
-            <FlatList
-              ref={listRef}
-              data={reels}
-              renderItem={renderReelItem}
-              keyExtractor={(item) => item.id}
-              pagingEnabled
-              showsVerticalScrollIndicator={false}
+          {reels.length > 0 ? (
+            <PagerView
+              ref={pagerRef}
+              style={{ flex: 1 }}
+              initialPage={safeInitialPageIndex}
+              orientation="vertical"
               scrollEnabled={!isTimelineInteracting}
-              decelerationRate="fast"
-              disableIntervalMomentum
-              getItemLayout={getItemLayout}
-              initialScrollIndex={safeInitialPageIndex}
-              initialNumToRender={2}
-              maxToRenderPerBatch={2}
-              updateCellsBatchingPeriod={50}
-              windowSize={3}
-              /* Android can recycle TextureView surfaces before the previous frame is detached. */
-              removeClippedSubviews={false}
-              onScroll={handleListScroll}
-              onMomentumScrollEnd={handleMomentumScrollEnd}
-              onViewableItemsChanged={onViewableItemsChangedRef.current}
-              viewabilityConfig={viewabilityConfigRef.current}
-              scrollEventThrottle={16}
-            />
+              overScrollMode="never"
+              overdrag={false}
+              offscreenPageLimit={2}
+              onPageScroll={handlePageScroll}
+              onPageSelected={handlePageSelected}
+              onPageScrollStateChanged={handlePageScrollStateChanged}
+            >
+              {reels.map(renderPagerPage)}
+            </PagerView>
           ) : shouldShowOfflineSkeleton ? (
             <ReelOfflineSkeleton
               height={viewportHeight || windowHeight}

@@ -8,6 +8,7 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from '
 import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
+  cancelAnimation,
   Easing,
   interpolate,
   useAnimatedStyle,
@@ -194,10 +195,11 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const playerIdentityRef = useRef({ playerGeneration: 0, reelId: reel.id, sourceKey: '' })
   const lastBufferedPositionRef = useRef(0)
   const lastPlaybackPositionRef = useRef(0)
+  const isPausedByUserRef = useRef(false)
   const [isReady, setIsReady] = useState(false)
   const [bufferedPosition, setBufferedPosition] = useState(0)
   const [durationSeconds, setDurationSeconds] = useState(0)
-  const [isPausedByUser, setIsPausedByUser] = useState(false)
+  const [isPausedByUser, setIsPausedByUserState] = useState(false)
   const [isScrubbing, setIsScrubbing] = useState(false)
   const [hasPlaybackError, setHasPlaybackError] = useState(false)
   const [playbackPosition, setPlaybackPosition] = useState(0)
@@ -312,6 +314,19 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const scrubReleaseHandled = useSharedValue(0)
   const timelineInteractionProgress = useSharedValue(0)
   const timelinePreviewRatio = useSharedValue(0)
+  const setIsPausedByUser = useCallback(
+    (paused: boolean) => {
+      isPausedByUserRef.current = paused
+
+      if (paused) {
+        cancelAnimation(timelinePreviewRatio)
+        videoRef.current?.pause()
+      }
+
+      setIsPausedByUserState(paused)
+    },
+    [timelinePreviewRatio],
+  )
   const playbackState = useMemo(
     () => getPlaybackState(displayReel.status, offlineVideoSource.uri),
     [displayReel.status, offlineVideoSource.uri],
@@ -408,7 +423,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
       displayReel.id,
       { bufferedPosition: nextBufferedPosition, currentTime, duration, isBuffering },
       {
-        isPlaying: isActive && isReady && !isPausedByUser && !isBuffering,
+        isPlaying: isActive && isReady && !isPausedByUserRef.current && !isBuffering,
         isReady,
       },
     )
@@ -416,7 +431,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
       setDurationSeconds(duration)
     }
 
-    if (!isScrubbing && pendingSeekRatio === null && duration > 0) {
+    if (!isPausedByUserRef.current && !isScrubbing && pendingSeekRatio === null && duration > 0) {
       const nextProgressRatio = clamp(currentTime / duration, 0, 1)
 
       timelinePreviewRatio.value =
@@ -506,6 +521,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
       scrubReleaseHandled,
       scrubberWidth,
       seekToRatio,
+      setIsPausedByUser,
       triggerScrubStartHaptic,
     ],
   )
@@ -555,6 +571,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
       scrubReleaseHandled,
       scrubberWidth,
       seekToRatio,
+      setIsPausedByUser,
       timelinePreviewRatio,
     ],
   )
@@ -681,6 +698,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
       scrubReleaseHandled,
       timelineInteractionProgress,
       timelinePreviewRatio,
+      setIsPausedByUser,
     ],
   )
 
