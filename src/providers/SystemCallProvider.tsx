@@ -1,35 +1,30 @@
 import Constants from 'expo-constants'
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Platform } from 'react-native'
 
 import { deactivateVoipPushToken, registerVoipPushToken } from '../api/notification.api'
+import {
+  getOrCreatePushTokenInstallationId,
+  isPushTokenRegistrationBlocked,
+  nextPushTokenLifecycleVersion,
+} from '../lib/notifications/pushTokenOperationState'
 import { veloraSystemCalls, type VoipRegistrationState } from '../lib/systemCalls/veloraSystemCalls'
 import { useAuthStore } from '../stores/authStore'
-import { getValueFor, save } from '../utils/storage'
 
-const VOIP_INSTALLATION_ID_STORAGE_KEY = 'velora.calls.voipInstallationId'
+import { useNetworkStatus } from './NetworkProvider'
 
 const getAppVersion = () => Constants.nativeAppVersion ?? Constants.expoConfig?.version ?? undefined
-
-const getOrCreateVoipInstallationId = async () => {
-  const stored = await getValueFor(VOIP_INSTALLATION_ID_STORAGE_KEY)
-  if (stored) {
-    return stored
-  }
-
-  const nextInstallationId =
-    globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
-  await save(VOIP_INSTALLATION_ID_STORAGE_KEY, nextInstallationId)
-  return nextInstallationId
-}
 
 export function SystemCallProvider({ children }: { children: ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   const isLoading = useAuthStore((state) => state.isLoading)
   const userId = useAuthStore((state) => state.user?.id)
+  const { isNetworkResolved, isOnline } = useNetworkStatus()
   const registeredVoipTokenRef = useRef<string | null>(null)
   const lastRegisteredVoipTokenRef = useRef<string | null>(null)
   const pendingInvalidatedVoipTokenRef = useRef<string | null>(null)
+  const registrationRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [registrationRetryVersion, setRegistrationRetryVersion] = useState(0)
 
   useEffect(() => {
     if (Platform.OS !== 'ios') {
@@ -48,15 +43,59 @@ export function SystemCallProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated, isLoading, userId])
 
   useEffect(() => {
-    if (Platform.OS !== 'ios' || isLoading) {
+    if (Platform.OS !== 'ios' || isLoading || !isNetworkResolved || !isOnline) {
       return
     }
 
     let cancelled = false
+    const scheduleRegistrationRetry = () => {
+      if (cancelled || registrationRetryTimeoutRef.current) {
+        return
+      }
+
+      registrationRetryTimeoutRef.current = setTimeout(() => {
+        registrationRetryTimeoutRef.current = null
+        setRegistrationRetryVersion((version) => version + 1)
+      }, 5000)
+    }
+
+    const deactivatePendingInvalidatedVoipToken = async () => {
+      const tokenToDeactivate = pendingInvalidatedVoipTokenRef.current
+
+      if (!tokenToDeactivate || !isAuthenticated || !userId) {
+        return true
+      }
+
+      try {
+        const deviceId = await getOrCreatePushTokenInstallationId()
+        const lifecycleVersion = await nextPushTokenLifecycleVersion()
+        await deactivateVoipPushToken({ token: tokenToDeactivate, deviceId, lifecycleVersion })
+
+        if (pendingInvalidatedVoipTokenRef.current === tokenToDeactivate) {
+          pendingInvalidatedVoipTokenRef.current = null
+        }
+        if (lastRegisteredVoipTokenRef.current === tokenToDeactivate) {
+          lastRegisteredVoipTokenRef.current = null
+        }
+        return true
+      } catch (error) {
+        // Keep the pending invalidation so a later retry can deactivate the stale token.
+        console.warn('[SystemCall] Failed to deactivate VoIP push token; retrying', error)
+        scheduleRegistrationRetry()
+        return false
+      }
+    }
 
     const syncVoipRegistrationState = async (state: VoipRegistrationState) => {
       if (state.invalidatedToken) {
         pendingInvalidatedVoipTokenRef.current = state.invalidatedToken
+      }
+
+      // PushKit can invalidate a token and issue its replacement in separate
+      // callbacks. Deactivate the old value first; otherwise a successful
+      // replacement registration used to clear this pending cleanup silently.
+      if (!(await deactivatePendingInvalidatedVoipToken())) {
+        return
       }
 
       if (state.token) {
@@ -75,8 +114,9 @@ export function SystemCallProvider({ children }: { children: ReactNode }) {
           return
         }
 
-        const installationId = await getOrCreateVoipInstallationId()
-        if (cancelled) {
+        const installationId = await getOrCreatePushTokenInstallationId()
+        const lifecycleVersion = await nextPushTokenLifecycleVersion()
+        if (cancelled || (await isPushTokenRegistrationBlocked())) {
           return
         }
 
@@ -89,6 +129,7 @@ export function SystemCallProvider({ children }: { children: ReactNode }) {
             bundleId: state.bundleId,
             deliveryEnvironment: state.apnsEnvironment,
             deviceId: installationId,
+            lifecycleVersion,
             ...(appVersion ? { appVersion } : {}),
           })
           if (cancelled) {
@@ -96,10 +137,11 @@ export function SystemCallProvider({ children }: { children: ReactNode }) {
           }
 
           lastRegisteredVoipTokenRef.current = state.token
-          pendingInvalidatedVoipTokenRef.current = null
-        } catch {
+        } catch (error) {
           if (!cancelled && registeredVoipTokenRef.current === registrationKey) {
             registeredVoipTokenRef.current = null
+            console.warn('[SystemCall] Failed to register VoIP push token; retrying', error)
+            scheduleRegistrationRetry()
           }
         }
         return
@@ -107,28 +149,13 @@ export function SystemCallProvider({ children }: { children: ReactNode }) {
 
       registeredVoipTokenRef.current = null
 
-      const tokenToDeactivate =
-        pendingInvalidatedVoipTokenRef.current ?? lastRegisteredVoipTokenRef.current
-
+      const tokenToDeactivate = lastRegisteredVoipTokenRef.current
       if (!tokenToDeactivate || !isAuthenticated || !userId) {
         return
       }
 
-      try {
-        await deactivateVoipPushToken(tokenToDeactivate)
-        if (cancelled) {
-          return
-        }
-
-        if (pendingInvalidatedVoipTokenRef.current === tokenToDeactivate) {
-          pendingInvalidatedVoipTokenRef.current = null
-        }
-        if (lastRegisteredVoipTokenRef.current === tokenToDeactivate) {
-          lastRegisteredVoipTokenRef.current = null
-        }
-      } catch {
-        // Keep the pending invalidation so a later auth/session change can retry.
-      }
+      pendingInvalidatedVoipTokenRef.current = tokenToDeactivate
+      await deactivatePendingInvalidatedVoipToken()
     }
 
     void syncVoipRegistrationState(veloraSystemCalls.getVoipRegistrationState())
@@ -140,8 +167,13 @@ export function SystemCallProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
       subscription.remove()
+
+      if (registrationRetryTimeoutRef.current) {
+        clearTimeout(registrationRetryTimeoutRef.current)
+        registrationRetryTimeoutRef.current = null
+      }
     }
-  }, [isAuthenticated, isLoading, userId])
+  }, [isAuthenticated, isLoading, isNetworkResolved, isOnline, registrationRetryVersion, userId])
 
   return <>{children}</>
 }

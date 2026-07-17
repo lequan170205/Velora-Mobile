@@ -34,11 +34,19 @@ object VeloraSystemCallStore {
     actionObservers.remove(observer)
   }
 
-  fun setAuthenticatedUserId(context: Context, userId: String?) {
-    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+  fun setAuthenticatedUserId(context: Context, userId: String?): String? {
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val previousUserId = prefs.getString(KEY_AUTH_USER_ID, null)
+
+    prefs
       .edit()
       .putString(KEY_AUTH_USER_ID, userId)
       .apply()
+
+    // The native incoming presentation can exist before React Native has
+    // hydrated a callId. On logout/account switch, hand the caller its id so
+    // it can be dismissed without creating a reject action for the server.
+    return if (previousUserId != userId) readCurrentCall(prefs)?.callId else null
   }
 
   fun shouldAcceptIncomingPayload(context: Context, payload: Map<String, Any?>): Boolean {
@@ -60,11 +68,40 @@ object VeloraSystemCallStore {
     }
 
     val expiresAt = payload["expiresAt"] as? String
-    if (expiresAt != null && parseIsoDateMs(expiresAt)?.let { it <= System.currentTimeMillis() } == true) {
-      return false
+    if (expiresAt != null) {
+      val expiresAtMs = parseIsoDateMs(expiresAt) ?: return false
+      if (expiresAtMs <= System.currentTimeMillis()) {
+        return false
+      }
     }
 
     return true
+  }
+
+  fun shouldAcceptCallStateUpdatePayload(context: Context, payload: Map<String, Any?>): Boolean {
+    if (payload["type"] != "CALL_STATE_UPDATE") {
+      return false
+    }
+
+    val callId = payload["callId"] as? String ?: return false
+    if (callId.isBlank()) {
+      return false
+    }
+
+    val recipientUserId = payload["recipientUserId"] as? String ?: return false
+    val authenticatedUserId = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+      .getString(KEY_AUTH_USER_ID, null)
+    if (recipientUserId != authenticatedUserId) {
+      return false
+    }
+
+    val status = payload["status"] as? String
+    if (status !in setOf("active", "rejected", "ended", "cancelled")) {
+      return false
+    }
+
+    val eventAt = payload["at"] as? String ?: return false
+    return parseIsoDateMs(eventAt) != null
   }
 
   fun storePendingAction(context: Context, action: String, payload: Map<String, Any?>) {
@@ -182,6 +219,7 @@ object VeloraSystemCallStore {
     val terminalExpiryMs = maxOf(
       currentCall?.takeIf { it.callId == callId }?.expiresAtMs ?: 0L,
       (eventAtMs ?: now) + TERMINAL_CALL_TTL_MS,
+      now + TERMINAL_CALL_TTL_MS,
     )
     val terminalCalls = readTerminalCalls(prefs).filterValues { it > now }.toMutableMap()
     terminalCalls[callId] = terminalExpiryMs

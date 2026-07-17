@@ -3045,6 +3045,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       try {
         processingNativeActionIdsRef.current.add(action.actionId)
 
+        if (action.action === 'remote_end') {
+          if (isCurrentCall(action.callId)) {
+            await teardownOnce('native_remote_end')
+          }
+          completeNativeCallAction(action.actionId)
+          return
+        }
+
         let callState: CallStateResponse
         try {
           callState = await getCallState(action.callId)

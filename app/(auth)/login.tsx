@@ -22,6 +22,7 @@ import {
 import { authApi } from '../../src/api/auth.api'
 import { GoogleIcon } from '../../src/components/ui/GoogleIcon'
 import { cn } from '../../src/lib/cn'
+import { resumePushTokenRegistration } from '../../src/lib/notifications/pushTokenOperationState'
 import { useAuthStore } from '../../src/stores/authStore'
 
 export default function LoginScreen() {
@@ -53,6 +54,7 @@ export default function LoginScreen() {
       setIsLoading(true)
       setError('')
       await authApi.login({ email, password })
+      await resumePushTokenRegistration()
       const meResponse = await authApi.me()
       setUser(meResponse)
       router.replace('/')
@@ -79,6 +81,7 @@ export default function LoginScreen() {
 
       if (userInfo.data?.idToken) {
         await authApi.verifyGoogleToken({ idToken: userInfo.data.idToken })
+        await resumePushTokenRegistration()
         const meResponse = await authApi.me()
         setUser(meResponse)
         router.replace('/')

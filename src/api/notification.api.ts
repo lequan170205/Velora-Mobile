@@ -6,11 +6,18 @@ export type RegisterPushTokenInput = {
   token: string
   deviceId?: string
   appVersion?: string
+  lifecycleVersion?: number
 }
 
 export type RegisterVoipPushTokenInput = RegisterPushTokenInput & {
   bundleId: string
   deliveryEnvironment: 'development' | 'production'
+}
+
+type DeactivatePushTokenInput = {
+  token: string
+  deviceId?: string
+  lifecycleVersion?: number
 }
 
 export async function registerPushToken(input: RegisterPushTokenInput) {
@@ -22,6 +29,7 @@ export async function registerPushToken(input: RegisterPushTokenInput) {
       token: input.token,
       deviceId: input.deviceId,
       appVersion: input.appVersion,
+      lifecycleVersion: input.lifecycleVersion,
     },
     {
       timeout: 10000,
@@ -42,6 +50,7 @@ export async function registerVoipPushToken(input: RegisterVoipPushTokenInput) {
       token: input.token,
       deviceId: input.deviceId,
       appVersion: input.appVersion,
+      lifecycleVersion: input.lifecycleVersion,
       bundleId: input.bundleId,
       deliveryEnvironment: input.deliveryEnvironment,
     },
@@ -51,7 +60,7 @@ export async function registerVoipPushToken(input: RegisterVoipPushTokenInput) {
   )
 }
 
-export async function deactivateVoipPushToken(token: string) {
+export async function deactivateVoipPushToken(input: DeactivatePushTokenInput) {
   if (Platform.OS !== 'ios') {
     return null
   }
@@ -60,7 +69,9 @@ export async function deactivateVoipPushToken(token: string) {
     '/notifications/push-tokens/deactivate',
     {
       provider: 'apns_voip',
-      token,
+      token: input.token,
+      deviceId: input.deviceId,
+      lifecycleVersion: input.lifecycleVersion,
     },
     {
       timeout: 10000,
@@ -68,12 +79,14 @@ export async function deactivateVoipPushToken(token: string) {
   )
 }
 
-export async function deactivatePushToken(token: string) {
+export async function deactivatePushToken(input: DeactivatePushTokenInput) {
   return apiClient.post(
     '/notifications/push-tokens/deactivate',
     {
       provider: 'fcm',
-      token,
+      token: input.token,
+      deviceId: input.deviceId,
+      lifecycleVersion: input.lifecycleVersion,
     },
     {
       timeout: 10000,

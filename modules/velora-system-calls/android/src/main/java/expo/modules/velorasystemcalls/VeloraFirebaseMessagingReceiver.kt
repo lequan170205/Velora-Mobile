@@ -6,23 +6,13 @@ import android.content.Intent
 
 class VeloraFirebaseMessagingReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
-    val payload = VeloraSystemCallStore.payloadFromIntent(intent)
+    val payload = VeloraSystemCallStore.normalizePayload(
+      VeloraSystemCallStore.payloadFromIntent(intent),
+    )
 
     when (payload["type"]) {
-      "INCOMING_CALL" -> {
-        VeloraCallNotifications.showIncomingCall(context, payload)
-      }
-      "CALL_STATE_UPDATE" -> {
-        (payload["callId"] as? String)?.let { callId ->
-          val status = payload["status"] as? String ?: return
-          VeloraCallNotifications.handleCallStateUpdate(
-            context,
-            callId,
-            status,
-            payload["at"] as? String,
-          )
-        }
-      }
+      "INCOMING_CALL" -> VeloraCallNotifications.showIncomingCall(context, payload)
+      "CALL_STATE_UPDATE" -> VeloraCallNotifications.handleCallStateUpdate(context, payload)
     }
   }
 }

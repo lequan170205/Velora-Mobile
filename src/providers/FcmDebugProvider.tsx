@@ -14,9 +14,18 @@ import {
   requestFcmPermission,
   subscribeToFcmTokenRefresh,
 } from '../lib/notifications/fcm'
+import {
+  getOrCreatePushTokenInstallationId,
+  isPushTokenRegistrationBlocked,
+  nextPushTokenLifecycleVersion,
+} from '../lib/notifications/pushTokenOperationState'
 import { useAuthStore } from '../stores/authStore'
 
+import { useNetworkStatus } from './NetworkProvider'
+
 const logPrefix = '[FCM debug]'
+const FCM_REGISTRATION_RETRY_DELAY_MS = 30_000
+const MAX_FCM_REGISTRATION_RETRIES = 5
 const devLog = (message: string, payload?: unknown) => {
   if (!__DEV__) {
     return
@@ -84,7 +93,11 @@ export function FcmDebugProvider({ children }: { children: ReactNode }) {
   const isLoading = useAuthStore((state) => state.isLoading)
   const userId = useAuthStore((state) => state.user?.id)
   const username = useAuthStore((state) => state.user?.username)
+  const { isNetworkResolved, isOnline } = useNetworkStatus()
   const processedNotificationKeysRef = useRef(new Set<string>())
+  const registrationRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const registrationRetryAttemptsRef = useRef(0)
+  const [registrationRetryVersion, setRegistrationRetryVersion] = useState(0)
   const [pendingNotificationConversationId, setPendingNotificationConversationId] = useState<
     string | null
   >(null)
@@ -150,12 +163,27 @@ export function FcmDebugProvider({ children }: { children: ReactNode }) {
   }, [canOpenNotificationConversation, openConversation, pendingNotificationConversationId])
 
   useEffect(() => {
-    if (isLoading || !isAuthenticated || !userId) {
+    if (isLoading || !isAuthenticated || !userId || !isNetworkResolved || !isOnline) {
       return
     }
 
     let disposed = false
     let unsubscribeTokenRefresh: (() => void) | undefined
+    const scheduleRegistrationRetry = () => {
+      if (
+        disposed ||
+        registrationRetryTimeoutRef.current ||
+        registrationRetryAttemptsRef.current >= MAX_FCM_REGISTRATION_RETRIES
+      ) {
+        return
+      }
+
+      registrationRetryAttemptsRef.current += 1
+      registrationRetryTimeoutRef.current = setTimeout(() => {
+        registrationRetryTimeoutRef.current = null
+        setRegistrationRetryVersion((version) => version + 1)
+      }, FCM_REGISTRATION_RETRY_DELAY_MS)
+    }
 
     const setTokenRefreshSubscription = (unsubscribe: () => void) => {
       if (disposed) {
@@ -166,6 +194,28 @@ export function FcmDebugProvider({ children }: { children: ReactNode }) {
       unsubscribeTokenRefresh = unsubscribe
     }
 
+    const registerFcmToken = async (token: string, maskedToken: string) => {
+      if (disposed || (await isPushTokenRegistrationBlocked())) {
+        return false
+      }
+
+      const deviceId = await getOrCreatePushTokenInstallationId()
+      const lifecycleVersion = await nextPushTokenLifecycleVersion()
+
+      if (disposed || (await isPushTokenRegistrationBlocked())) {
+        return false
+      }
+
+      await registerPushToken({
+        token,
+        deviceId,
+        appVersion: '1.0.0',
+        lifecycleVersion,
+      })
+      devLog(`${logPrefix} token registered with notification-service`, { maskedToken })
+      return true
+    }
+
     const bootstrapFcmDebug = async () => {
       devLog(`${logPrefix} bootstrap starting`)
 
@@ -174,15 +224,18 @@ export function FcmDebugProvider({ children }: { children: ReactNode }) {
           subscribeToFcmTokenRefresh((token, maskedToken) => {
             devLog(`${logPrefix} token refresh`, { maskedToken })
 
-            void registerPushToken({
-              token,
-              appVersion: '1.0.0',
-            })
-              .then(() => {
+            void registerFcmToken(token, maskedToken)
+              .then((didRegister) => {
+                if (!didRegister) {
+                  return
+                }
+
+                registrationRetryAttemptsRef.current = 0
                 devLog(`${logPrefix} refreshed token registered`, { maskedToken })
               })
               .catch((error: unknown) => {
                 devWarn(`${logPrefix} refreshed token registration failed`, error)
+                scheduleRegistrationRetry()
               })
           }),
         )
@@ -196,8 +249,10 @@ export function FcmDebugProvider({ children }: { children: ReactNode }) {
         devLog(`${logPrefix} permission`, permission)
 
         if (!permission.granted) {
-          devWarn(`${logPrefix} permission not granted; skipping initial token fetch`)
-          return
+          // The iOS FCM token is also used for silent CALL_STATE_UPDATE pushes
+          // that close CallKit. Alert permission controls presentation, not
+          // whether this authenticated device needs call cleanup.
+          devWarn(`${logPrefix} permission not granted; continuing with data-token registration`)
         }
 
         const tokenResult = await getFcmTokenForDebug()
@@ -213,16 +268,16 @@ export function FcmDebugProvider({ children }: { children: ReactNode }) {
           })
 
           try {
-            await registerPushToken({
-              token: tokenResult.token,
-              appVersion: '1.0.0',
-            })
+            const didRegister = await registerFcmToken(tokenResult.token, tokenResult.maskedToken)
 
-            devLog(`${logPrefix} token registered with notification-service`, {
-              maskedToken: tokenResult.maskedToken,
-            })
+            if (!didRegister) {
+              return
+            }
+
+            registrationRetryAttemptsRef.current = 0
           } catch (error) {
             devWarn(`${logPrefix} token registration failed`, error)
+            scheduleRegistrationRetry()
           }
 
           return
@@ -239,8 +294,13 @@ export function FcmDebugProvider({ children }: { children: ReactNode }) {
     return () => {
       disposed = true
       unsubscribeTokenRefresh?.()
+
+      if (registrationRetryTimeoutRef.current) {
+        clearTimeout(registrationRetryTimeoutRef.current)
+        registrationRetryTimeoutRef.current = null
+      }
     }
-  }, [isAuthenticated, isLoading, userId])
+  }, [isAuthenticated, isLoading, isNetworkResolved, isOnline, registrationRetryVersion, userId])
 
   return <>{children}</>
 }

@@ -1,6 +1,7 @@
 package expo.modules.velorasystemcalls
 
 import android.app.ActivityManager
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -16,6 +17,9 @@ object VeloraCallNotifications {
   private const val ONGOING_NOTIFICATION_SALT = 2
   private const val DISMISS_INCOMING_ACTIVITY_ACTION =
     "expo.modules.velorasystemcalls.DISMISS_INCOMING_ACTIVITY"
+  private const val EXPIRE_INCOMING_CALL_ACTION =
+    "expo.modules.velorasystemcalls.EXPIRE_INCOMING_CALL"
+  private const val EXPIRY_ALARM_SALT = 4
 
   fun showIncomingCall(context: Context, rawPayload: Map<String, Any?>) {
     val payload = VeloraSystemCallStore.normalizePayload(rawPayload)
@@ -28,6 +32,7 @@ object VeloraCallNotifications {
     if (!VeloraSystemCallStore.beginRingingCall(context, callId, expiresAtMs)) {
       return
     }
+    expiresAtMs?.let { scheduleIncomingCallExpiration(context, callId, it) }
     ensureCallChannel(context)
 
     val fullScreenIntent = Intent(context, VeloraIncomingCallActivity::class.java).apply {
@@ -111,6 +116,7 @@ object VeloraCallNotifications {
     if (!VeloraSystemCallStore.markCallActive(context, callId)) {
       return false
     }
+    cancelIncomingCallExpiration(context, callId)
     dismissIncomingPresentation(context, callId)
 
     val intent = Intent(context, VeloraCallForegroundService::class.java).apply {
@@ -127,29 +133,71 @@ object VeloraCallNotifications {
   }
 
   fun endCall(context: Context, callId: String, eventAtMs: Long? = null) {
+    cancelIncomingCallExpiration(context, callId)
     val shouldStopForegroundService = VeloraSystemCallStore.terminateCall(context, callId, eventAtMs)
     dismissIncomingPresentation(context, callId)
     if (shouldStopForegroundService) {
       context.stopService(Intent(context, VeloraCallForegroundService::class.java))
     }
     notificationManager(context).cancel(ongoingNotificationId(callId))
+
   }
 
-  fun handleCallStateUpdate(
-    context: Context,
-    callId: String,
-    status: String,
-    eventAt: String?,
-  ) {
+  fun handleCallStateUpdate(context: Context, rawPayload: Map<String, Any?>) {
+    val payload = VeloraSystemCallStore.normalizePayload(rawPayload)
+    if (!VeloraSystemCallStore.shouldAcceptCallStateUpdatePayload(context, payload)) {
+      return
+    }
+
+    val callId = payload["callId"] as String
+    val status = payload["status"] as String
+    val eventAt = payload["at"] as String
+
     when (status) {
       "active" -> {
-        VeloraSystemCallStore.markCallActive(context, callId)
+        if (!VeloraSystemCallStore.markCallActive(context, callId)) {
+          // FCM does not guarantee that the incoming and active updates arrive
+          // in order. Preserve the active update so a late incoming push cannot
+          // present a call that was already answered elsewhere.
+          VeloraSystemCallStore.terminateCall(
+            context,
+            callId,
+            VeloraSystemCallStore.parseIsoDateMs(eventAt),
+          )
+        }
         dismissIncomingPresentation(context, callId)
       }
       "rejected", "ended", "cancelled" -> {
-        endCall(context, callId, eventAt?.let(VeloraSystemCallStore::parseIsoDateMs))
+        endCall(context, callId, VeloraSystemCallStore.parseIsoDateMs(eventAt))
       }
     }
+  }
+
+  internal fun handleIncomingCallExpiration(
+    context: Context,
+    callId: String,
+    expiresAtMs: Long,
+  ) {
+    val currentCall = VeloraSystemCallStore.getCurrentCall(context)
+    if (
+      currentCall?.callId != callId ||
+      currentCall.phase != "ringing" ||
+      currentCall.expiresAtMs != expiresAtMs ||
+      expiresAtMs > System.currentTimeMillis()
+    ) {
+      return
+    }
+
+    endCall(context, callId, eventAtMs = expiresAtMs)
+    VeloraSystemCallStore.storePendingAction(
+      context,
+      "remote_end",
+      mapOf(
+        "callId" to callId,
+        "status" to "ended",
+        "reason" to "no_answer",
+      ),
+    )
   }
 
   fun dismissIncomingPresentation(context: Context, callId: String) {
@@ -247,12 +295,53 @@ object VeloraCallNotifications {
 
   fun dismissIncomingActivityAction(): String = DISMISS_INCOMING_ACTIVITY_ACTION
 
+  internal fun incomingCallExpirationAction(): String = EXPIRE_INCOMING_CALL_ACTION
+
   internal fun ringingNotificationId(callId: String): Int =
     notificationId(callId, RINGING_NOTIFICATION_SALT)
 
   private fun notificationId(callId: String, salt: Int): Int = 31 * callId.hashCode() + salt
 
   private fun requestCode(callId: String, salt: Int): Int = 31 * callId.hashCode() + salt
+
+  private fun scheduleIncomingCallExpiration(context: Context, callId: String, expiresAtMs: Long) {
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+    val pendingIntent = incomingCallExpirationPendingIntent(context, callId, expiresAtMs)
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+      // This is intentionally inexact: an incoming-call expiry is a fallback
+      // behind the server's terminal FCM update and does not require the
+      // user-granted exact-alarm permission.
+      alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, expiresAtMs, pendingIntent)
+    } else {
+      alarmManager.set(AlarmManager.RTC_WAKEUP, expiresAtMs, pendingIntent)
+    }
+  }
+
+  internal fun cancelIncomingCallExpiration(context: Context, callId: String) {
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+    val pendingIntent = incomingCallExpirationPendingIntent(context, callId, 0L)
+    alarmManager.cancel(pendingIntent)
+    pendingIntent.cancel()
+  }
+
+  private fun incomingCallExpirationPendingIntent(
+    context: Context,
+    callId: String,
+    expiresAtMs: Long,
+  ): PendingIntent {
+    val intent = Intent(context, VeloraCallExpirationReceiver::class.java).apply {
+      action = EXPIRE_INCOMING_CALL_ACTION
+      putExtra("callId", callId)
+      putExtra("expiresAtMs", expiresAtMs)
+    }
+    return PendingIntent.getBroadcast(
+      context,
+      requestCode(callId, EXPIRY_ALARM_SALT),
+      intent,
+      pendingIntentFlags(),
+    )
+  }
 
   private fun pendingIntentFlags(): Int {
     return PendingIntent.FLAG_UPDATE_CURRENT or

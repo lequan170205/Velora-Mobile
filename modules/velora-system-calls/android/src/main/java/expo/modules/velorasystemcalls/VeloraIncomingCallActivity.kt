@@ -125,6 +125,7 @@ class VeloraIncomingCallActivity : Activity() {
 
   private fun complete(action: String) {
     val callId = payload["callId"] as? String ?: return
+    VeloraCallNotifications.cancelIncomingCallExpiration(this, callId)
     VeloraSystemCallStore.storePendingAction(this, action, payload)
     VeloraCallNotifications.dismissIncomingPresentation(this, callId)
     VeloraCallNotifications.launchMainActivity(this)

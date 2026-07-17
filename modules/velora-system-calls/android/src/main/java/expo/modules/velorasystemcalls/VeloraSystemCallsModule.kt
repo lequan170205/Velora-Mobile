@@ -31,7 +31,10 @@ class VeloraSystemCallsModule : Module() {
     }
 
     Function("setAuthenticatedUserId") { userId: String? ->
-      VeloraSystemCallStore.setAuthenticatedUserId(context, userId)
+      val callIdToDismiss = VeloraSystemCallStore.setAuthenticatedUserId(context, userId)
+      if (callIdToDismiss != null) {
+        VeloraCallNotifications.endCall(context, callIdToDismiss)
+      }
     }
 
     Function("getVoipToken") {

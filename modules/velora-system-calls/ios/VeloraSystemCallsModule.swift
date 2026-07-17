@@ -18,6 +18,9 @@ private let voipTokenInvalidatedAtStorageKey = "velora.calls.voipTokenInvalidate
 private let voipTokenInvalidatedValueStorageKey = "velora.calls.voipTokenInvalidatedValue"
 private let callUuidStorageKey = "velora.calls.uuidByCallId"
 private let reportedIncomingCallIdsStorageKey = "velora.calls.reportedIncomingCallIds"
+private let incomingCallExpirationsStorageKey = "velora.calls.incomingCallExpirations"
+private let remoteCallStateUpdatesStorageKey = "velora.calls.remoteCallStateUpdates"
+private let remoteCallStateUpdateRetention: TimeInterval = 24 * 60 * 60
 private let systemCallsLogger = Logger(subsystem: "com.quan.velora", category: "SystemCalls")
 
 private enum ExistingIncomingCallState: Equatable {
@@ -32,6 +35,19 @@ private enum PushKitHandlingStrategy: Equatable {
   case reportFallbackAndEnd
   case reuseExistingCall(uuid: UUID)
   case waitForInFlightReport
+}
+
+private enum CallStateUpdateHandlingStrategy: Equatable {
+  case reportEndedCall
+  case queueUntilIncomingCallReported
+  case recordWithoutLocalCall
+  case ignore
+}
+
+private struct PendingCallStateUpdate {
+  let status: String
+  let reason: String?
+  let endedAt: Date
 }
 
 public class VeloraSystemCallsModule: Module {
@@ -172,6 +188,19 @@ public class VeloraSystemCallsAppDelegateSubscriber: ExpoAppDelegateSubscriber {
     VeloraSystemCallCenter.shared.start()
     return true
   }
+
+  public func application(
+    _ application: UIApplication,
+    didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+    fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+  ) {
+    let callCenter = VeloraSystemCallCenter.shared
+    let handled = callCenter.runOnMain {
+      callCenter.handleRemoteNotification(userInfo)
+    }
+
+    completionHandler(handled ? .newData : .noData)
+  }
 }
 
 private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CXProviderDelegate, CXCallObserverDelegate {
@@ -205,6 +234,10 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
   private var reportedIncomingCallIds = Set<String>()
   private var queuedIncomingCallReportCompletionsById: [String: [([String: Any]) -> Void]] = [:]
   private var fallbackEndedIncomingCallReasonsById: [String: CXCallEndedReason] = [:]
+  private var pendingCallStateUpdatesByCallId: [String: PendingCallStateUpdate] = [:]
+  private var remoteCallStateUpdatesByCallId: [String: PendingCallStateUpdate] = [:]
+  private var incomingCallExpirationWorkItemsByCallId: [String: DispatchWorkItem] = [:]
+  private var incomingCallExpiresAtByCallId: [String: Date] = [:]
 
   private override init() {
     let configuration = CXProviderConfiguration()
@@ -219,6 +252,8 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     super.init()
     restoreCallUuidMappings()
     restoreReportedIncomingCallIds()
+    restoreIncomingCallExpirations()
+    restoreRemoteCallStateUpdates()
     provider.setDelegate(self, queue: .main)
     callObserver.setDelegate(self, queue: .main)
     #if DEBUG
@@ -263,7 +298,21 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
 
   func setAuthenticatedUserId(_ userId: String?) {
     ensureStarted()
+    let previousUserId = userDefaults.string(forKey: authenticatedUserIdStorageKey)
     userDefaults.set(userId, forKey: authenticatedUserIdStorageKey)
+
+    guard previousUserId != userId else {
+      return
+    }
+
+    // A CallKit screen may have been reported before the JS call state exists.
+    // Close it when the account changes, but do not store a reject/end action:
+    // this is local account cleanup, not a user decision about the call.
+    endCallsForAuthenticationTransition()
+  }
+
+  func handleRemoteNotification(_ payload: [AnyHashable: Any]) -> Bool {
+    handleCallStateUpdate(payload: stringKeyedPayload(from: payload))
   }
 
   func pendingCallAction() -> [String: Any]? {
@@ -459,6 +508,30 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     }
 
     let callId = validation.callId ?? ""
+    pruneRemoteCallStateUpdates()
+    if let remoteCallStateUpdate = remoteCallStateUpdatesByCallId[callId] {
+      logPhaseEvent(
+        layer: layer,
+        event: "incoming_call_suppressed_by_remote_call_state",
+        callId: callId,
+        success: true,
+        elapsedMs: elapsedMilliseconds(since: startedAt),
+        extra: [
+          "status": remoteCallStateUpdate.status,
+          "at": isoTimestamp(remoteCallStateUpdate.endedAt),
+        ]
+      )
+      completion(
+        makeCallResult(
+          success: false,
+          callId: callId,
+          errorCode: "remote_call_state_already_received",
+          errorMessage: "A newer remote call state was received before the incoming call."
+        )
+      )
+      return
+    }
+
     let uuid = uuidForCallId(callId)
     queueIncomingCallReportCompletion(callId: callId, completion: completion)
     payloadsByCallId[callId] = payload
@@ -519,6 +592,13 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
 
       self.reportedIncomingCallIds.insert(callId)
       self.persistReportedIncomingCallIds()
+      if let expirationDate = self.incomingCallExpirationDate(from: payload) {
+        self.scheduleIncomingCallExpiration(
+          callId: callId,
+          uuid: uuid,
+          expirationDate: expirationDate
+        )
+      }
       self.logPhaseEvent(
         layer: layer,
         event: "incoming_call_reported",
@@ -535,6 +615,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
         success: true,
         elapsedMs: self.elapsedMilliseconds(since: startedAt)
       )
+      let pendingCallStateUpdate = self.pendingCallStateUpdatesByCallId.removeValue(forKey: callId)
       self.finishIncomingCallReport(
         callId: callId,
         fallbackResult: self.makeCallResult(
@@ -543,6 +624,15 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
           callUuid: uuid
         )
       )
+
+      if let pendingCallStateUpdate {
+        self.applyCallStateUpdate(
+          callId: callId,
+          uuid: uuid,
+          update: pendingCallStateUpdate,
+          startedAt: startedAt
+        )
+      }
     }
   }
 
@@ -656,6 +746,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
 
     pendingAnswerCallIds.remove(callId)
     activeCallIds.insert(callId)
+    cancelIncomingCallExpiration(callId: callId)
 
     if payloadsByCallId[callId]?["type"] as? String != "INCOMING_CALL" {
       provider.reportOutgoingCall(with: uuid, connectedAt: Date())
@@ -871,6 +962,148 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     }
   }
 
+  private func handleCallStateUpdate(payload: [String: Any]) -> Bool {
+    let startedAt = Date()
+    let validation = validateCallStateUpdatePayload(payload)
+    let uuid = validation.callId.flatMap { uuidsByCallId[$0] }
+    let isLocallyAnswering = validation.callId.map {
+      pendingAnswerCallIds.contains($0) || activeCallIds.contains($0)
+    } ?? false
+    let isIncomingCallReportInFlight = validation.callId.map {
+      reportingIncomingCallIds.contains($0) && payloadsByCallId[$0]?["type"] as? String == "INCOMING_CALL"
+    } ?? false
+
+    let strategy = callStateUpdateHandlingStrategy(
+      validationAccepted: validation.accepted,
+      status: validation.status,
+      hasKnownCall: uuid != nil,
+      isLocallyAnswering: isLocallyAnswering,
+      isIncomingCallReportInFlight: isIncomingCallReportInFlight
+    )
+
+    guard let callId = validation.callId,
+          let status = validation.status,
+          let endedAt = validation.endedAt else {
+      logPhaseEvent(
+        layer: "remote-notification",
+        event: "call_state_update_ignored",
+        callId: validation.callId,
+        callUuid: uuid,
+        success: false,
+        errorCode: validation.errorCode ?? (isLocallyAnswering ? "local_answer_in_progress" : "call_not_found"),
+        errorMessage: validation.errorMessage ?? "Call state update was ignored by the native CallKit state.",
+        elapsedMs: elapsedMilliseconds(since: startedAt)
+      )
+      return false
+    }
+
+    let update = PendingCallStateUpdate(
+      status: status,
+      reason: validation.reason,
+      endedAt: endedAt
+    )
+
+    if strategy == .ignore {
+      logPhaseEvent(
+        layer: "remote-notification",
+        event: "call_state_update_ignored",
+        callId: callId,
+        callUuid: uuid,
+        success: false,
+        errorCode: isLocallyAnswering ? "local_answer_in_progress" : "call_state_update_ignored",
+        errorMessage: "Call state update was ignored by the native CallKit state.",
+        elapsedMs: elapsedMilliseconds(since: startedAt)
+      )
+      return false
+    }
+
+    guard storeRemoteCallStateUpdate(callId: callId, update: update) else {
+      logPhaseEvent(
+        layer: "remote-notification",
+        event: "call_state_update_superseded",
+        callId: callId,
+        callUuid: uuid,
+        success: true,
+        elapsedMs: elapsedMilliseconds(since: startedAt),
+        extra: ["status": status]
+      )
+      return true
+    }
+
+    switch strategy {
+    case .queueUntilIncomingCallReported:
+      pendingCallStateUpdatesByCallId[callId] = update
+      logPhaseEvent(
+        layer: "remote-notification",
+        event: "call_state_update_queued_until_incoming_call_reported",
+        callId: callId,
+        callUuid: uuid,
+        success: true,
+        elapsedMs: elapsedMilliseconds(since: startedAt),
+        extra: ["status": status]
+      )
+      return true
+    case .reportEndedCall:
+      guard let uuid else {
+        return true
+      }
+      applyCallStateUpdate(
+        callId: callId,
+        uuid: uuid,
+        update: update,
+        startedAt: startedAt
+      )
+      return true
+    case .recordWithoutLocalCall:
+      logPhaseEvent(
+        layer: "remote-notification",
+        event: "call_state_update_recorded_without_local_call",
+        callId: callId,
+        success: true,
+        elapsedMs: elapsedMilliseconds(since: startedAt),
+        extra: ["status": status]
+      )
+      return true
+    case .ignore:
+      return false
+    }
+  }
+
+  private func applyCallStateUpdate(
+    callId: String,
+    uuid: UUID,
+    update: PendingCallStateUpdate,
+    startedAt: Date
+  ) {
+    let endReason = callStateUpdateEndedReason(
+      status: update.status,
+      reason: update.reason
+    )
+    provider.reportCall(with: uuid, endedAt: update.endedAt, reason: endReason)
+
+    var actionExtra: [String: Any] = [
+      "status": update.status,
+      "at": isoTimestamp(update.endedAt),
+    ]
+    if let reason = update.reason {
+      actionExtra["reason"] = reason
+    }
+    storePendingAction(action: "remote_end", callId: callId, extra: actionExtra)
+    clearCall(callId: callId)
+    logPhaseEvent(
+      layer: "remote-notification",
+      event: "call_state_update_ended_call",
+      callId: callId,
+      callUuid: uuid,
+      success: true,
+      elapsedMs: elapsedMilliseconds(since: startedAt),
+      extra: [
+        "status": update.status,
+        "endReason": stringValue(for: endReason),
+      ]
+    )
+  }
+
   func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
     guard let callId = callIdsByUuid[action.callUUID] else {
       action.fulfill()
@@ -895,6 +1128,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     resetAudioConfigurationState()
     speakerOverrideEnabled = false
     pendingAnswerCallIds.insert(callId)
+    cancelIncomingCallExpiration(callId: callId)
     prepareWebRtcAudioSessionForCallKit(callId: callId, callUuid: action.callUUID)
     storePendingAction(action: "answer", callId: callId)
     let actionStartedAt = Date()
@@ -963,7 +1197,10 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       return
     }
 
-    let nativeAction = activeCallIds.contains(callId) ? "end" : "reject"
+    let nativeAction = callKitEndAction(
+      isActiveCall: activeCallIds.contains(callId),
+      isIncomingCall: payloadsByCallId[callId]?["type"] as? String == "INCOMING_CALL"
+    )
 
     if programmaticEndingCallIds.remove(callId) == nil {
       storePendingAction(action: nativeAction, callId: callId)
@@ -1052,12 +1289,15 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
   func providerDidReset(_ provider: CXProvider) {
     let trackedCallIds = Array(uuidsByCallId.keys)
     trackedCallIds.forEach { callId in
-      let nativeAction = activeCallIds.contains(callId) ? "end" : "reject"
-      storePendingAction(
-        action: nativeAction,
-        callId: callId,
-        extra: ["reason": "provider_reset"]
-      )
+      if let nativeAction = callProviderResetAction(
+        isActiveCall: activeCallIds.contains(callId)
+      ) {
+        storePendingAction(
+          action: nativeAction,
+          callId: callId,
+          extra: ["reason": "provider_reset"]
+        )
+      }
       logPhaseEvent(
         layer: "callkit",
         event: "provider_reset",
@@ -1081,6 +1321,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     reportedIncomingCallIds.removeAll()
     queuedIncomingCallReportCompletionsById.removeAll()
     fallbackEndedIncomingCallReasonsById.removeAll()
+    pendingCallStateUpdatesByCallId.removeAll()
     resetNativeAudioSessionState()
     persistCallUuidMappings()
     persistReportedIncomingCallIds()
@@ -1369,6 +1610,51 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     return validationAccepted ? .reportValidatedIncomingCall : .reportFallbackAndEnd
   }
 
+  private func callStateUpdateHandlingStrategy(
+    validationAccepted: Bool,
+    status: String?,
+    hasKnownCall: Bool,
+    isLocallyAnswering: Bool,
+    isIncomingCallReportInFlight: Bool
+  ) -> CallStateUpdateHandlingStrategy {
+    guard validationAccepted && hasKnownCall else {
+      return validationAccepted ? .recordWithoutLocalCall : .ignore
+    }
+
+    if status == "active" && isLocallyAnswering {
+      return .ignore
+    }
+
+    return isIncomingCallReportInFlight ? .queueUntilIncomingCallReported : .reportEndedCall
+  }
+
+  private func callStateUpdateEndedReason(
+    status: String,
+    reason: String?
+  ) -> CXCallEndedReason {
+    if status == "active" {
+      return .answeredElsewhere
+    }
+
+    if reason == "no_answer" {
+      return .unanswered
+    }
+
+    if status == "rejected" {
+      return .declinedElsewhere
+    }
+
+    return .remoteEnded
+  }
+
+  private func callProviderResetAction(isActiveCall: Bool) -> String? {
+    isActiveCall ? "end" : nil
+  }
+
+  private func callKitEndAction(isActiveCall: Bool, isIncomingCall: Bool) -> String {
+    isActiveCall || !isIncomingCall ? "end" : "reject"
+  }
+
   private func stringValue(for endedReason: CXCallEndedReason) -> String {
     switch endedReason {
     case .failed:
@@ -1400,6 +1686,10 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
 
       let valid = validateIncomingPayload(validPayload, authenticatedUserIdOverride: "debug-user")
       assert(valid.accepted)
+      assert(incomingCallExpirationDate(from: validPayload) != nil)
+      assert(shouldEndIncomingCallAtExpiration(isActive: false, isAnswerPending: false))
+      assert(!shouldEndIncomingCallAtExpiration(isActive: true, isAnswerPending: false))
+      assert(!shouldEndIncomingCallAtExpiration(isActive: false, isAnswerPending: true))
       assert(
         pushKitHandlingStrategy(
           validationAccepted: valid.accepted,
@@ -1427,6 +1717,111 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
         pushKitHandlingStrategy(validationAccepted: wrongType.accepted, existingState: nil)
           == .reportFallbackAndEnd
       )
+
+      let validCallStatePayload: [String: Any] = [
+        "type": "CALL_STATE_UPDATE",
+        "callId": "debug-call",
+        "recipientUserId": "debug-user",
+        "status": "ended",
+        "reason": "no_answer",
+        "at": "2026-07-11T00:00:00Z",
+      ]
+      let validCallState = validateCallStateUpdatePayload(
+        validCallStatePayload,
+        authenticatedUserIdOverride: "debug-user"
+      )
+      assert(validCallState.accepted)
+      assert(
+        callStateUpdateHandlingStrategy(
+          validationAccepted: validCallState.accepted,
+          status: validCallState.status,
+          hasKnownCall: true,
+          isLocallyAnswering: false,
+          isIncomingCallReportInFlight: false
+        ) == .reportEndedCall
+      )
+      assert(
+        callStateUpdateHandlingStrategy(
+          validationAccepted: validCallState.accepted,
+          status: validCallState.status,
+          hasKnownCall: false,
+          isLocallyAnswering: false,
+          isIncomingCallReportInFlight: false
+        ) == .recordWithoutLocalCall
+      )
+      assert(
+        callStateUpdateHandlingStrategy(
+          validationAccepted: validCallState.accepted,
+          status: validCallState.status,
+          hasKnownCall: true,
+          isLocallyAnswering: false,
+          isIncomingCallReportInFlight: true
+        ) == .queueUntilIncomingCallReported
+      )
+      assert(
+        callStateUpdateEndedReason(status: "ended", reason: "no_answer") == .unanswered
+      )
+      assert(
+        callStateUpdateEndedReason(status: "rejected", reason: nil) == .declinedElsewhere
+      )
+      assert(callProviderResetAction(isActiveCall: false) == nil)
+      assert(callProviderResetAction(isActiveCall: true) == "end")
+      assert(callKitEndAction(isActiveCall: false, isIncomingCall: true) == "reject")
+      assert(callKitEndAction(isActiveCall: false, isIncomingCall: false) == "end")
+      assert(callKitEndAction(isActiveCall: true, isIncomingCall: true) == "end")
+      assert(callKitEndAction(isActiveCall: true, isIncomingCall: false) == "end")
+
+      let activeCallState = validateCallStateUpdatePayload(
+        validCallStatePayload.merging(["status": "active"]) { _, latest in latest },
+        authenticatedUserIdOverride: "debug-user"
+      )
+      assert(activeCallState.accepted)
+      assert(
+        callStateUpdateHandlingStrategy(
+          validationAccepted: activeCallState.accepted,
+          status: activeCallState.status,
+          hasKnownCall: true,
+          isLocallyAnswering: false,
+          isIncomingCallReportInFlight: false
+        ) == .reportEndedCall
+      )
+      assert(
+        callStateUpdateHandlingStrategy(
+          validationAccepted: activeCallState.accepted,
+          status: activeCallState.status,
+          hasKnownCall: true,
+          isLocallyAnswering: true,
+          isIncomingCallReportInFlight: false
+        ) == .ignore
+      )
+      assert(
+        callStateUpdateEndedReason(status: "active", reason: nil) == .answeredElsewhere
+      )
+
+      let callStateRecipientMismatch = validateCallStateUpdatePayload(
+        validCallStatePayload,
+        authenticatedUserIdOverride: "someone-else"
+      )
+      assert(callStateRecipientMismatch.errorCode == "recipient_user_mismatch")
+
+      let invalidCallStateStatus = validateCallStateUpdatePayload(
+        validCallStatePayload.merging(["status": "ringing"]) { _, latest in latest },
+        authenticatedUserIdOverride: "debug-user"
+      )
+      assert(invalidCallStateStatus.errorCode == "invalid_call_state_update_status")
+
+      let activeStateUpdate = PendingCallStateUpdate(
+        status: "active",
+        reason: nil,
+        endedAt: Date(timeIntervalSince1970: 1)
+      )
+      let endedStateUpdate = PendingCallStateUpdate(
+        status: "ended",
+        reason: nil,
+        endedAt: Date(timeIntervalSince1970: 2)
+      )
+      assert(shouldReplaceRemoteCallStateUpdate(endedStateUpdate, existing: activeStateUpdate))
+      assert(!shouldReplaceRemoteCallStateUpdate(activeStateUpdate, existing: endedStateUpdate))
 
       let expired = validateIncomingPayload(
         validPayload.merging(["expiresAt": "2020-01-01T00:00:00Z"]) { _, latest in latest },
@@ -1663,6 +2058,118 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     return (true, callId, nil, nil)
   }
 
+  private func validateCallStateUpdatePayload(
+    _ payload: [String: Any],
+    authenticatedUserIdOverride: String? = nil
+  ) -> (
+    accepted: Bool,
+    callId: String?,
+    status: String?,
+    reason: String?,
+    endedAt: Date?,
+    errorCode: String?,
+    errorMessage: String?
+  ) {
+    guard payload["type"] as? String == "CALL_STATE_UPDATE" else {
+      return (
+        false,
+        nonEmptyString(payload["callId"]),
+        nil,
+        nil,
+        nil,
+        "invalid_call_state_update_type",
+        "Remote call state updates must contain a CALL_STATE_UPDATE event type."
+      )
+    }
+
+    guard let callId = nonEmptyString(payload["callId"]) else {
+      return (
+        false,
+        nil,
+        nil,
+        nil,
+        nil,
+        "missing_call_id",
+        "Remote call state update is missing a non-empty callId."
+      )
+    }
+
+    guard let recipientUserId = nonEmptyString(payload["recipientUserId"]) else {
+      return (
+        false,
+        callId,
+        nil,
+        nil,
+        nil,
+        "missing_recipient_user_id",
+        "Remote call state update is missing recipientUserId."
+      )
+    }
+
+    let authenticatedUserId = authenticatedUserIdOverride
+      ?? userDefaults.string(forKey: authenticatedUserIdStorageKey)
+
+    guard let authenticatedUserId else {
+      return (
+        false,
+        callId,
+        nil,
+        nil,
+        nil,
+        "missing_authenticated_user",
+        "Remote call state update was received before the authenticated user was known."
+      )
+    }
+
+    guard recipientUserId == authenticatedUserId else {
+      return (
+        false,
+        callId,
+        nil,
+        nil,
+        nil,
+        "recipient_user_mismatch",
+        "Remote call state update recipientUserId did not match the authenticated user."
+      )
+    }
+
+    guard let status = nonEmptyString(payload["status"]),
+          ["active", "rejected", "ended", "cancelled"].contains(status) else {
+      return (
+        false,
+        callId,
+        nil,
+        nil,
+        nil,
+        "invalid_call_state_update_status",
+        "Remote call state update contained an unsupported call status."
+      )
+    }
+
+    guard let at = nonEmptyString(payload["at"]),
+          let endedAt = parseIso8601Date(at) else {
+      return (
+        false,
+        callId,
+        status,
+        nonEmptyString(payload["reason"]),
+        nil,
+        "invalid_call_state_update_timestamp",
+        "Remote call state update must contain a valid ISO-8601 at timestamp."
+      )
+    }
+
+    return (
+      true,
+      callId,
+      status,
+      nonEmptyString(payload["reason"]),
+      endedAt,
+      nil,
+      nil
+    )
+  }
+
   private func parseIso8601Date(_ value: String) -> Date? {
     let fractionalFormatter = ISO8601DateFormatter()
     fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -1715,6 +2222,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
   }
 
   private func clearCall(callId: String) {
+    cancelIncomingCallExpiration(callId: callId)
     if let uuid = uuidsByCallId.removeValue(forKey: callId) {
       callIdsByUuid.removeValue(forKey: uuid)
     }
@@ -1729,8 +2237,232 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     reportedIncomingCallIds.remove(callId)
     queuedIncomingCallReportCompletionsById.removeValue(forKey: callId)
     fallbackEndedIncomingCallReasonsById.removeValue(forKey: callId)
+    pendingCallStateUpdatesByCallId.removeValue(forKey: callId)
     persistCallUuidMappings()
     persistReportedIncomingCallIds()
+  }
+
+  private func incomingCallExpirationDate(from payload: [String: Any]) -> Date? {
+    guard let expiresAt = nonEmptyString(payload["expiresAt"]) else {
+      return nil
+    }
+
+    return parseIso8601Date(expiresAt)
+  }
+
+  private func shouldEndIncomingCallAtExpiration(
+    isActive: Bool,
+    isAnswerPending: Bool
+  ) -> Bool {
+    !isActive && !isAnswerPending
+  }
+
+  private func scheduleIncomingCallExpiration(
+    callId: String,
+    uuid: UUID,
+    expirationDate: Date
+  ) {
+    incomingCallExpirationWorkItemsByCallId.removeValue(forKey: callId)?.cancel()
+    incomingCallExpiresAtByCallId[callId] = expirationDate
+    persistIncomingCallExpirations()
+
+    let workItem = DispatchWorkItem { [weak self] in
+      self?.expireIncomingCall(
+        callId: callId,
+        uuid: uuid,
+        expirationDate: expirationDate
+      )
+    }
+    incomingCallExpirationWorkItemsByCallId[callId] = workItem
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + max(0, expirationDate.timeIntervalSinceNow),
+      execute: workItem
+    )
+  }
+
+  private func cancelIncomingCallExpiration(callId: String) {
+    incomingCallExpirationWorkItemsByCallId.removeValue(forKey: callId)?.cancel()
+    guard incomingCallExpiresAtByCallId.removeValue(forKey: callId) != nil else {
+      return
+    }
+    persistIncomingCallExpirations()
+  }
+
+  private func expireIncomingCall(
+    callId: String,
+    uuid: UUID,
+    expirationDate: Date
+  ) {
+    guard uuidsByCallId[callId] == uuid else {
+      cancelIncomingCallExpiration(callId: callId)
+      return
+    }
+
+    guard shouldEndIncomingCallAtExpiration(
+      isActive: activeCallIds.contains(callId),
+      isAnswerPending: pendingAnswerCallIds.contains(callId)
+    ) else {
+      cancelIncomingCallExpiration(callId: callId)
+      return
+    }
+
+    let update = PendingCallStateUpdate(
+      status: "ended",
+      reason: "no_answer",
+      endedAt: expirationDate
+    )
+    _ = storeRemoteCallStateUpdate(callId: callId, update: update)
+    provider.reportCall(
+      with: uuid,
+      endedAt: expirationDate,
+      reason: callStateUpdateEndedReason(status: update.status, reason: update.reason)
+    )
+    storePendingAction(
+      action: "remote_end",
+      callId: callId,
+      extra: [
+        "status": update.status,
+        "reason": update.reason ?? "no_answer",
+        "at": isoTimestamp(update.endedAt),
+      ]
+    )
+    clearCall(callId: callId)
+    logPhaseEvent(
+      layer: "callkit",
+      event: "incoming_call_expired_locally",
+      callId: callId,
+      callUuid: uuid,
+      success: true,
+      extra: ["endReason": stringValue(for: .unanswered)]
+    )
+  }
+
+  private func restoreIncomingCallExpirations() {
+    guard let storedExpirations = userDefaults.dictionary(
+      forKey: incomingCallExpirationsStorageKey
+    ) as? [String: String] else {
+      return
+    }
+
+    storedExpirations.forEach { callId, expiresAt in
+      guard let uuid = uuidsByCallId[callId],
+            let expirationDate = parseIso8601Date(expiresAt) else {
+        return
+      }
+      scheduleIncomingCallExpiration(
+        callId: callId,
+        uuid: uuid,
+        expirationDate: expirationDate
+      )
+    }
+  }
+
+  private func persistIncomingCallExpirations() {
+    if incomingCallExpiresAtByCallId.isEmpty {
+      userDefaults.removeObject(forKey: incomingCallExpirationsStorageKey)
+      return
+    }
+
+    let storedExpirations = incomingCallExpiresAtByCallId.mapValues(isoTimestamp)
+    userDefaults.set(storedExpirations, forKey: incomingCallExpirationsStorageKey)
+  }
+
+  private func endCallsForAuthenticationTransition() {
+    let activeNativeCalls = callIdsByUuid.map { (uuid: $0.key, callId: $0.value) }
+    guard !activeNativeCalls.isEmpty else {
+      return
+    }
+
+    activeNativeCalls.forEach { call in
+      provider.reportCall(with: call.uuid, endedAt: Date(), reason: .remoteEnded)
+      clearCall(callId: call.callId)
+    }
+
+    logPhaseEvent(
+      layer: "callkit",
+      event: "calls_ended_for_authentication_transition",
+      success: true,
+      extra: ["count": activeNativeCalls.count]
+    )
+  }
+
+  private func storeRemoteCallStateUpdate(callId: String, update: PendingCallStateUpdate) -> Bool {
+    pruneRemoteCallStateUpdates()
+    if let existing = remoteCallStateUpdatesByCallId[callId],
+       !shouldReplaceRemoteCallStateUpdate(update, existing: existing) {
+      return false
+    }
+
+    remoteCallStateUpdatesByCallId[callId] = update
+    persistRemoteCallStateUpdates()
+    return true
+  }
+
+  private func shouldReplaceRemoteCallStateUpdate(
+    _ candidate: PendingCallStateUpdate,
+    existing: PendingCallStateUpdate
+  ) -> Bool {
+    if candidate.endedAt != existing.endedAt {
+      return candidate.endedAt > existing.endedAt
+    }
+
+    return existing.status == "active" && candidate.status != "active"
+  }
+
+  private func restoreRemoteCallStateUpdates() {
+    guard let storedUpdates = userDefaults.dictionary(forKey: remoteCallStateUpdatesStorageKey) else {
+      return
+    }
+
+    storedUpdates.forEach { callId, value in
+      guard let storedUpdate = value as? [String: Any],
+            let status = nonEmptyString(storedUpdate["status"]),
+            let at = nonEmptyString(storedUpdate["at"]),
+            let endedAt = parseIso8601Date(at) else {
+        return
+      }
+
+      remoteCallStateUpdatesByCallId[callId] = PendingCallStateUpdate(
+        status: status,
+        reason: nonEmptyString(storedUpdate["reason"]),
+        endedAt: endedAt
+      )
+    }
+    pruneRemoteCallStateUpdates()
+  }
+
+  private func pruneRemoteCallStateUpdates() {
+    let cutoff = Date().addingTimeInterval(-remoteCallStateUpdateRetention)
+    let staleCallIds = remoteCallStateUpdatesByCallId.compactMap { callId, update in
+      update.endedAt < cutoff ? callId : nil
+    }
+    guard !staleCallIds.isEmpty else {
+      return
+    }
+
+    staleCallIds.forEach { remoteCallStateUpdatesByCallId.removeValue(forKey: $0) }
+    persistRemoteCallStateUpdates()
+  }
+
+  private func persistRemoteCallStateUpdates() {
+    if remoteCallStateUpdatesByCallId.isEmpty {
+      userDefaults.removeObject(forKey: remoteCallStateUpdatesStorageKey)
+      return
+    }
+
+    let storedUpdates = remoteCallStateUpdatesByCallId.reduce(into: [String: [String: String]]()) {
+      result,
+      entry in
+      var storedUpdate = [
+        "status": entry.value.status,
+        "at": isoTimestamp(entry.value.endedAt),
+      ]
+      if let reason = entry.value.reason {
+        storedUpdate["reason"] = reason
+      }
+      result[entry.key] = storedUpdate
+    }
+    userDefaults.set(storedUpdates, forKey: remoteCallStateUpdatesStorageKey)
   }
 
   private func restoreCallUuidMappings() {

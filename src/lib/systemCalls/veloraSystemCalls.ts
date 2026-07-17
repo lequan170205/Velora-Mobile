@@ -17,12 +17,22 @@ export type NativeCallPayload = {
   expiresAt: string
 }
 
-export type NativeCallAction = NativeCallPayload & {
-  action: 'answer' | 'reject' | 'end'
-  actionId: string
-  callUuid?: string
-  reason?: string
-}
+export type NativeCallAction =
+  | (NativeCallPayload & {
+      action: 'answer' | 'reject' | 'end'
+      actionId: string
+      callUuid?: string
+      reason?: string
+    })
+  | {
+      action: 'remote_end'
+      actionId: string
+      callId: string
+      callUuid?: string
+      reason?: string
+      status?: 'active' | 'rejected' | 'ended' | 'cancelled'
+      at?: string
+    }
 
 export type AudioSessionActivatedEvent = {
   at: string

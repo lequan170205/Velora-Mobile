@@ -11,6 +11,13 @@ import type {
 } from '../types/auth.types'
 import type { UserSession } from '../types/user.types'
 
+type LogoutPushToken = {
+  provider: 'fcm' | 'apns_voip'
+  token: string
+  deviceId?: string
+  lifecycleVersion?: number
+}
+
 const splitFullName = (fullName?: string) => {
   const tokens = fullName?.trim().split(/\s+/).filter(Boolean) ?? []
 
@@ -53,7 +60,14 @@ export const authApi = {
     const response = await apiClient.post<LoginResponse>('/auth/login', data)
     return response.data
   },
-  logout: async (data?: { pushToken?: string }) => {
+  logout: async (data?: { pushToken?: string; pushTokens?: LogoutPushToken[] }) => {
+    if (data?.pushToken || data?.pushTokens?.length) {
+      // Refresh an expired access cookie before the gateway resolves the user
+      // for notification cleanup. The refresh session remains valid until the
+      // token deactivation has completed successfully.
+      await authApi.me()
+    }
+
     const response = await apiClient.post<MessageResponse>('/auth/logout', data, {
       timeout: 5000,
     })

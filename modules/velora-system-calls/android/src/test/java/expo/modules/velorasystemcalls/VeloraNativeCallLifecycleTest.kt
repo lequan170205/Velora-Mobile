@@ -34,6 +34,7 @@ class VeloraNativeCallLifecycleTest {
       .edit()
       .clear()
       .commit()
+    VeloraSystemCallStore.setAuthenticatedUserId(context, "user-1")
   }
 
   @Test
@@ -48,7 +49,7 @@ class VeloraNativeCallLifecycleTest {
     notificationManager.notify(ongoingId, notification())
     VeloraSystemCallStore.storePendingAction(context, "answer", mapOf("callId" to callId))
 
-    VeloraCallNotifications.handleCallStateUpdate(context, callId, "active", null)
+    VeloraCallNotifications.handleCallStateUpdate(context, callStateUpdate(callId, "active"))
 
     assertEquals("active", VeloraSystemCallStore.getCurrentCall(context)?.phase)
     assertNull(shadowOf(notificationManager).getNotification(ringingId))
@@ -69,7 +70,7 @@ class VeloraNativeCallLifecycleTest {
     notificationManager.notify(ringingId, notification())
     notificationManager.notify(ongoingId, notification())
 
-    VeloraCallNotifications.handleCallStateUpdate(context, callId, "ended", null)
+    VeloraCallNotifications.handleCallStateUpdate(context, callStateUpdate(callId, "ended"))
 
     assertNull(VeloraSystemCallStore.getCurrentCall(context))
     assertNull(VeloraSystemCallStore.getPendingAction(context))
@@ -95,7 +96,7 @@ class VeloraNativeCallLifecycleTest {
       notification(),
     )
 
-    VeloraCallNotifications.handleCallStateUpdate(context, oldCallId, "ended", null)
+    VeloraCallNotifications.handleCallStateUpdate(context, callStateUpdate(oldCallId, "ended"))
 
     assertEquals(activeCallId, VeloraSystemCallStore.getCurrentCall(context)?.callId)
     assertTrue(VeloraSystemCallStore.isActiveCall(context, activeCallId))
@@ -114,8 +115,54 @@ class VeloraNativeCallLifecycleTest {
     VeloraSystemCallStore.terminateCall(context, callId, System.currentTimeMillis())
     assertFalse(VeloraSystemCallStore.beginRingingCall(context, callId, null))
 
-    VeloraSystemCallStore.terminateCall(context, "call-expired", System.currentTimeMillis() - 60_001)
-    assertTrue(VeloraSystemCallStore.beginRingingCall(context, "call-expired", null))
+    VeloraSystemCallStore.terminateCall(context, "call-delayed", System.currentTimeMillis() - 60_001)
+    assertFalse(VeloraSystemCallStore.beginRingingCall(context, "call-delayed", null))
+  }
+
+  @Test
+  fun `active update received before incoming call suppresses the late presentation`() {
+    val callId = "call-active-before-incoming"
+
+    VeloraCallNotifications.handleCallStateUpdate(context, callStateUpdate(callId, "active"))
+
+    assertFalse(VeloraSystemCallStore.beginRingingCall(context, callId, null))
+  }
+
+  @Test
+  fun `incoming payload with an invalid expiry is rejected`() {
+    VeloraSystemCallStore.setAuthenticatedUserId(context, "user-1")
+
+    assertFalse(
+      VeloraSystemCallStore.shouldAcceptIncomingPayload(
+        context,
+        mapOf(
+          "type" to "INCOMING_CALL",
+          "callType" to "VOICE",
+          "callId" to "call-invalid-expiry",
+          "recipientUserId" to "user-1",
+          "expiresAt" to "not-a-date",
+        ),
+      ),
+    )
+  }
+
+  @Test
+  fun `local expiry ends a ringing call and queues remote cleanup for React Native`() {
+    val callId = "call-local-expiry"
+    val expiresAtMs = System.currentTimeMillis() - 1
+    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+    assertTrue(VeloraSystemCallStore.beginRingingCall(context, callId, expiresAtMs))
+    notificationManager.notify(VeloraCallNotifications.ringingNotificationId(callId), notification())
+
+    VeloraCallNotifications.handleIncomingCallExpiration(context, callId, expiresAtMs)
+
+    assertNull(VeloraSystemCallStore.getCurrentCall(context))
+    assertNull(shadowOf(notificationManager).getNotification(
+      VeloraCallNotifications.ringingNotificationId(callId),
+    ))
+    assertEquals("remote_end", VeloraSystemCallStore.getPendingAction(context)?.get("action"))
+    assertEquals("ended", VeloraSystemCallStore.getPendingAction(context)?.get("status"))
   }
 
   @Test
@@ -128,11 +175,66 @@ class VeloraNativeCallLifecycleTest {
       Intent(context, VeloraIncomingCallActivity::class.java).putExtra("callId", callId),
     ).setup().get()
 
-    VeloraCallNotifications.handleCallStateUpdate(context, callId, "active", null)
+    VeloraCallNotifications.handleCallStateUpdate(context, callStateUpdate(callId, "active"))
     shadowOf(Looper.getMainLooper()).idle()
 
     assertTrue(activity.isFinishing)
   }
+
+  @Test
+  fun `state update for another user cannot end this users active call`() {
+    val callId = "call-wrong-recipient"
+    assertTrue(VeloraSystemCallStore.beginRingingCall(context, callId, null))
+    assertTrue(VeloraSystemCallStore.markCallActive(context, callId))
+
+    VeloraCallNotifications.handleCallStateUpdate(
+      context,
+      callStateUpdate(callId, "ended", recipientUserId = "user-2"),
+    )
+
+    assertTrue(VeloraSystemCallStore.isActiveCall(context, callId))
+  }
+
+  @Test
+  fun `malformed state update timestamp is ignored`() {
+    val callId = "call-invalid-state-timestamp"
+    assertTrue(VeloraSystemCallStore.beginRingingCall(context, callId, null))
+
+    VeloraCallNotifications.handleCallStateUpdate(
+      context,
+      callStateUpdate(callId, "ended", at = "not-a-date"),
+    )
+
+    assertEquals(callId, VeloraSystemCallStore.getCurrentCall(context)?.callId)
+  }
+
+  @Test
+  fun `account transition returns an existing native call for dismissal`() {
+    val callId = "call-account-transition"
+    assertTrue(VeloraSystemCallStore.beginRingingCall(context, callId, null))
+
+    assertEquals(
+      callId,
+      VeloraSystemCallStore.setAuthenticatedUserId(context, null),
+    )
+    VeloraCallNotifications.endCall(context, callId)
+
+    assertNull(VeloraSystemCallStore.getCurrentCall(context))
+    assertFalse(VeloraSystemCallStore.beginRingingCall(context, callId, null))
+  }
+
+  private fun callStateUpdate(
+    callId: String,
+    status: String,
+    recipientUserId: String = "user-1",
+    at: String = "2026-07-17T00:00:00.000Z",
+  ): Map<String, Any?> = mapOf(
+    "type" to "CALL_STATE_UPDATE",
+    "callId" to callId,
+    "recipientUserId" to recipientUserId,
+    "status" to status,
+    "at" to at,
+  )
 
   private fun notification(): Notification {
     val channelId = "test-calls"
