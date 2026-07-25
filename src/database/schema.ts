@@ -56,6 +56,20 @@ export const CACHED_REELS_TABLE_SCHEMA: TableSchemaSpec = {
     { name: 'stream_url', type: 'string' },
     { name: 'author_json', type: 'string', isOptional: true },
     { name: 'recommendation_json', type: 'string', isOptional: true },
+    { name: 'media_status', type: 'string', isOptional: true },
+    { name: 'index_status', type: 'string', isOptional: true },
+    { name: 'media_stage', type: 'string', isOptional: true },
+    { name: 'media_progress', type: 'number', isOptional: true },
+    { name: 'index_stage', type: 'string', isOptional: true },
+    { name: 'index_progress', type: 'number', isOptional: true },
+    { name: 'source_duration_ms', type: 'number', isOptional: true },
+    { name: 'source_orientation', type: 'string', isOptional: true },
+    { name: 'source_length_class', type: 'string', isOptional: true },
+    { name: 'source_aspect_ratio', type: 'number', isOptional: true },
+    { name: 'source_effective_width', type: 'number', isOptional: true },
+    { name: 'source_effective_height', type: 'number', isOptional: true },
+    { name: 'hls_master_url', type: 'string', isOptional: true },
+    { name: 'caption_vtt_url', type: 'string', isOptional: true },
     { name: 'created_at_remote', type: 'string' },
     { name: 'cached_at', type: 'number', isIndexed: true },
     { name: 'last_accessed_at', type: 'number', isIndexed: true },
@@ -119,7 +133,7 @@ export const CALL_TELEMETRY_OUTBOX_ITEMS_TABLE_SCHEMA: TableSchemaSpec = {
 }
 
 export const schema = appSchema({
-  version: 6,
+  version: 7,
   tables: [
     tableSchema({
       name: TABLES.users,

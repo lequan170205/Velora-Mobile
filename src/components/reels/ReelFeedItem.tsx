@@ -28,6 +28,11 @@ import {
 import { CHAT_SHARED_REEL_FALLBACK_ID_PREFIX } from '../../lib/chatReels'
 import { getInitials } from '../../lib/profile'
 import { isCurrentReelPlayerCallback } from '../../lib/reelPlaybackCoordinator'
+import {
+  isReelMediaFailed,
+  isReelPlayable,
+  mergeReelProcessingStatus,
+} from '../../lib/reelProcessing'
 import { useAuthStore } from '../../stores/authStore'
 
 import { DeleteReelModal } from './DeleteReelModal'
@@ -103,46 +108,16 @@ const styles = StyleSheet.create({
   },
 })
 
-const getPlaybackState = (status?: string | null, streamUrl?: string | null) => {
-  const normalized = status?.trim().toUpperCase()
-
-  if (
-    !normalized ||
-    normalized === 'READY' ||
-    normalized === 'COMPLETED' ||
-    normalized === 'PUBLISHED'
-  ) {
-    return {
-      isPlayable: Boolean(streamUrl),
-      label: null,
-    }
+const getPlaybackState = (reel: Reel, streamUrl?: string | null) => {
+  if (Boolean(streamUrl) && isReelPlayable({ ...reel, streamUrl: streamUrl ?? reel.streamUrl })) {
+    return { isPlayable: true, label: null }
   }
 
-  if (normalized === 'PROCESSING') {
-    return {
-      isPlayable: false,
-      label: 'Processing',
-    }
+  if (isReelMediaFailed(reel)) {
+    return { isPlayable: false, label: 'Failed' }
   }
 
-  if (normalized === 'PENDING') {
-    return {
-      isPlayable: false,
-      label: 'Queued',
-    }
-  }
-
-  if (normalized === 'FAILED') {
-    return {
-      isPlayable: false,
-      label: 'Failed',
-    }
-  }
-
-  return {
-    isPlayable: Boolean(streamUrl),
-    label: null,
-  }
+  return { isPlayable: false, label: reel.mediaStatus === 'PENDING' ? 'Queued' : 'Processing' }
 }
 
 const normalizeProgress = (value?: number | null) => {
@@ -225,45 +200,9 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const reprocessReel = useReprocessReel()
   const displayReel = useMemo<ReelWithLocalThumbnail>(() => {
     const sourceReel = reel as ReelWithLocalThumbnail
-    const nextReel: ReelWithLocalThumbnail = {
-      ...sourceReel,
-      status: processingStatus?.status ?? sourceReel.status,
-      streamUrl: processingStatus?.streamUrl ?? sourceReel.streamUrl,
-    }
-    const thumbnailUrl = processingStatus?.thumbnailUrl ?? sourceReel.thumbnailUrl
-    const thumbnailKey = processingStatus?.thumbnailKey ?? sourceReel.thumbnailKey
-    const mediaKey = processingStatus?.mediaKey ?? sourceReel.mediaKey
-    const stage = processingStatus?.stage ?? sourceReel.stage ?? sourceReel.processingStage
-    const message = processingStatus?.message ?? sourceReel.message ?? sourceReel.processingMessage
-    const progress =
-      processingStatus?.progress ?? sourceReel.progress ?? sourceReel.processingProgress
-
-    if (mediaKey) {
-      nextReel.mediaKey = mediaKey
-    }
-
-    if (thumbnailKey) {
-      nextReel.thumbnailKey = thumbnailKey
-    }
-
-    if (thumbnailUrl) {
-      nextReel.thumbnailUrl = thumbnailUrl
-    }
-
-    if (typeof stage === 'string') {
-      nextReel.stage = stage
-      nextReel.processingStage = stage
-    }
-
-    if (typeof message === 'string') {
-      nextReel.message = message
-      nextReel.processingMessage = message
-    }
-
-    if (typeof progress === 'number') {
-      nextReel.progress = progress
-      nextReel.processingProgress = progress
-    }
+    const nextReel: ReelWithLocalThumbnail = processingStatus
+      ? mergeReelProcessingStatus(sourceReel, processingStatus)
+      : { ...sourceReel }
 
     if (reelDetail?.title?.trim()) {
       nextReel.title = reelDetail.title
@@ -328,8 +267,8 @@ const ReelFeedItemComponent = function ReelFeedItem({
     [timelinePreviewRatio],
   )
   const playbackState = useMemo(
-    () => getPlaybackState(displayReel.status, offlineVideoSource.uri),
-    [displayReel.status, offlineVideoSource.uri],
+    () => getPlaybackState(displayReel, offlineVideoSource.uri),
+    [displayReel, offlineVideoSource.uri],
   )
   const descriptionText = displayReel.description?.trim() || description?.trim()
   const titleText = displayReel.title?.trim()
@@ -388,7 +327,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const processingProgress = normalizeProgress(
     displayReel.progress ?? displayReel.processingProgress,
   )
-  const isFailed = displayReel.status === 'FAILED'
+  const isFailed = isReelMediaFailed(displayReel)
   const canManageReel = user?.id === displayReel.userId
   const posterUri =
     offlineVideoSource.posterUri ?? displayReel.thumbnailUrl ?? displayReel.localThumbnailUri

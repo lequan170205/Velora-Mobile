@@ -8,7 +8,11 @@ import type {
   ListReelsParams,
   Reel,
   ReelAuthor,
+  ReelIndexStatus,
+  ReelMediaStatus,
   ReelProcessingState,
+  ReelSourceLengthClass,
+  ReelSourceOrientation,
   ReelVisibility,
 } from '../../types/reel.types'
 import type { CachedReelFeedPageModel } from '../models/CachedReelFeedPageModel'
@@ -37,6 +41,20 @@ export interface CachedReelInput {
   streamUrl: string
   authorJson: string | null
   recommendationJson: string | null
+  mediaStatus: string | null
+  indexStatus: string | null
+  mediaStage: string | null
+  mediaProgress: number | null
+  indexStage: string | null
+  indexProgress: number | null
+  sourceDurationMs: number | null
+  sourceOrientation: string | null
+  sourceLengthClass: string | null
+  sourceAspectRatio: number | null
+  sourceEffectiveWidth: number | null
+  sourceEffectiveHeight: number | null
+  hlsMasterUrl: string | null
+  captionVttUrl: string | null
   createdAtRemote: string
   cachedAt: number
   lastAccessedAt: number
@@ -60,6 +78,23 @@ const FEED_CACHE_KEY_PREFIX = '@velora/reels/feed-page/v3'
 
 const REEL_STATUS_VALUES: ReelProcessingState[] = ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED']
 const REEL_VISIBILITY_VALUES: ReelVisibility[] = ['public', 'private']
+const REEL_MEDIA_STATUS_VALUES: ReelMediaStatus[] = [
+  'PENDING',
+  'PROBING',
+  'PROCESSING',
+  'COMPLETED',
+  'FAILED',
+]
+const REEL_INDEX_STATUS_VALUES: ReelIndexStatus[] = [
+  'NOT_REQUESTED',
+  'PENDING',
+  'PROCESSING',
+  'COMPLETED',
+  'DEGRADED',
+  'FAILED',
+]
+const REEL_ORIENTATION_VALUES: ReelSourceOrientation[] = ['PORTRAIT', 'LANDSCAPE', 'SQUARE']
+const REEL_LENGTH_CLASS_VALUES: ReelSourceLengthClass[] = ['SHORT', 'LONG']
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -84,6 +119,11 @@ const toNullableTrimmedString = (value: unknown) => {
   const trimmedValue = value.trim()
   return trimmedValue.length > 0 ? trimmedValue : null
 }
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value)
+
+const toNullableFiniteNumber = (value: unknown) => (isFiniteNumber(value) ? value : null)
 
 const stableStringify = (value: Record<string, unknown>) =>
   JSON.stringify(
@@ -324,6 +364,20 @@ export const serializeReelToCachedReelInput = (reel: Reel): CachedReelInput => {
     streamUrl: reel.streamUrl,
     authorJson: serializeAuthor(reel.author),
     recommendationJson: serializeRecommendationMetadata(reel.recommendation),
+    mediaStatus: toNullableTrimmedString(reel.mediaStatus),
+    indexStatus: toNullableTrimmedString(reel.indexStatus),
+    mediaStage: toNullableTrimmedString(reel.mediaStage),
+    mediaProgress: toNullableFiniteNumber(reel.mediaProgress),
+    indexStage: toNullableTrimmedString(reel.indexStage),
+    indexProgress: toNullableFiniteNumber(reel.indexProgress),
+    sourceDurationMs: toNullableFiniteNumber(reel.sourceDurationMs),
+    sourceOrientation: toNullableTrimmedString(reel.sourceOrientation),
+    sourceLengthClass: toNullableTrimmedString(reel.sourceLengthClass),
+    sourceAspectRatio: toNullableFiniteNumber(reel.sourceAspectRatio),
+    sourceEffectiveWidth: toNullableFiniteNumber(reel.sourceEffectiveWidth),
+    sourceEffectiveHeight: toNullableFiniteNumber(reel.sourceEffectiveHeight),
+    hlsMasterUrl: toNullableTrimmedString(reel.hlsMasterUrl),
+    captionVttUrl: toNullableTrimmedString(reel.captionVttUrl),
     createdAtRemote: reel.createdAt,
     cachedAt: now,
     lastAccessedAt: now,
@@ -350,6 +404,20 @@ export const deserializeCachedReelToReel = (
         | 'streamUrl'
         | 'authorJson'
         | 'recommendationJson'
+        | 'mediaStatus'
+        | 'indexStatus'
+        | 'mediaStage'
+        | 'mediaProgress'
+        | 'indexStage'
+        | 'indexProgress'
+        | 'sourceDurationMs'
+        | 'sourceOrientation'
+        | 'sourceLengthClass'
+        | 'sourceAspectRatio'
+        | 'sourceEffectiveWidth'
+        | 'sourceEffectiveHeight'
+        | 'hlsMasterUrl'
+        | 'captionVttUrl'
         | 'createdAtRemote'
       >,
 ): Reel => {
@@ -361,6 +429,22 @@ export const deserializeCachedReelToReel = (
     : 'public'
   const author = deserializeAuthor(record.authorJson)
   const recommendation = deserializeRecommendationMetadata(record.recommendationJson)
+  const mediaStatus = REEL_MEDIA_STATUS_VALUES.includes(record.mediaStatus as ReelMediaStatus)
+    ? (record.mediaStatus as ReelMediaStatus)
+    : undefined
+  const indexStatus = REEL_INDEX_STATUS_VALUES.includes(record.indexStatus as ReelIndexStatus)
+    ? (record.indexStatus as ReelIndexStatus)
+    : undefined
+  const sourceOrientation = REEL_ORIENTATION_VALUES.includes(
+    record.sourceOrientation as ReelSourceOrientation,
+  )
+    ? (record.sourceOrientation as ReelSourceOrientation)
+    : undefined
+  const sourceLengthClass = REEL_LENGTH_CLASS_VALUES.includes(
+    record.sourceLengthClass as ReelSourceLengthClass,
+  )
+    ? (record.sourceLengthClass as ReelSourceLengthClass)
+    : undefined
 
   return {
     id: record.reelId,
@@ -382,6 +466,28 @@ export const deserializeCachedReelToReel = (
     ...(record.localThumbnailUri ? { localThumbnailUri: record.localThumbnailUri } : {}),
     ...(author ? { author } : {}),
     ...(recommendation ? { recommendation } : {}),
+    ...(mediaStatus ? { mediaStatus } : {}),
+    ...(indexStatus ? { indexStatus } : {}),
+    ...(record.mediaStage ? { mediaStage: record.mediaStage } : {}),
+    ...(isFiniteNumber(record.mediaProgress) ? { mediaProgress: record.mediaProgress } : {}),
+    ...(record.indexStage ? { indexStage: record.indexStage } : {}),
+    ...(isFiniteNumber(record.indexProgress) ? { indexProgress: record.indexProgress } : {}),
+    ...(isFiniteNumber(record.sourceDurationMs)
+      ? { sourceDurationMs: record.sourceDurationMs }
+      : {}),
+    ...(sourceOrientation ? { sourceOrientation } : {}),
+    ...(sourceLengthClass ? { sourceLengthClass } : {}),
+    ...(isFiniteNumber(record.sourceAspectRatio)
+      ? { sourceAspectRatio: record.sourceAspectRatio }
+      : {}),
+    ...(isFiniteNumber(record.sourceEffectiveWidth)
+      ? { sourceEffectiveWidth: record.sourceEffectiveWidth }
+      : {}),
+    ...(isFiniteNumber(record.sourceEffectiveHeight)
+      ? { sourceEffectiveHeight: record.sourceEffectiveHeight }
+      : {}),
+    ...(record.hlsMasterUrl ? { hlsMasterUrl: record.hlsMasterUrl } : {}),
+    ...(record.captionVttUrl ? { captionVttUrl: record.captionVttUrl } : {}),
   }
 }
 

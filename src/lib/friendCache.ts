@@ -174,19 +174,24 @@ const removeCreatorFromReelPages = (data: ReelPages | undefined, creatorId: stri
   }
 }
 
-export const removeCreatorReelsFromAllCaches = (queryClient: QueryClient, creatorId: string) => {
+export const removeCreatorReelsFromAllCaches = (
+  queryClient: QueryClient,
+  viewerId: string,
+  creatorId: string,
+) => {
   queryClient.setQueriesData<ReelPages>(
     {
       predicate: (query) =>
         query.queryKey[0] === 'reels' &&
-        (query.queryKey[1] === 'list' ||
-          query.queryKey[1] === 'recommended' ||
-          query.queryKey[1] === 'friends'),
+        query.queryKey[1] === viewerId &&
+        (query.queryKey[2] === 'list' ||
+          query.queryKey[2] === 'recommended' ||
+          query.queryKey[2] === 'friends'),
     },
     (data) => removeCreatorFromReelPages(data, creatorId),
   )
   queryClient.setQueriesData<ReelContextResponse>(
-    { queryKey: queryKeys.reels.contexts() },
+    { queryKey: queryKeys.reels.contexts(viewerId) },
     (data) => {
       if (!data) return data
 
@@ -197,13 +202,14 @@ export const removeCreatorReelsFromAllCaches = (queryClient: QueryClient, creato
       return { ...data, items, selectedId, selectedIndex }
     },
   )
-  queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(), (reels) =>
+  queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(viewerId), (reels) =>
     reels?.filter((reel) => reel.userId !== creatorId),
   )
   queryClient.removeQueries({
     predicate: (query) =>
       query.queryKey[0] === 'reels' &&
-      query.queryKey[1] === 'detail' &&
+      query.queryKey[1] === viewerId &&
+      query.queryKey[2] === 'detail' &&
       (query.state.data as Reel | undefined)?.userId === creatorId,
   })
 }
@@ -226,7 +232,7 @@ export const removeBlockedUserFromCaches = (
   removeUserFromDiscoveryCaches(queryClient, userId)
   removeUserFromRecommendedUsersCaches(queryClient, userId)
   removeUserFromGlobalSearchCaches(queryClient, userId)
-  removeCreatorReelsFromAllCaches(queryClient, userId)
+  removeCreatorReelsFromAllCaches(queryClient, viewerId, userId)
   removeCreatorReelsFromViewerFeedCaches(queryClient, viewerId, userId)
 }
 

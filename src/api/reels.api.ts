@@ -1,6 +1,10 @@
 import { isAxiosError } from 'axios'
 
 import { parseRecommendedReelsResponse } from '../lib/recommendationFeed'
+import {
+  normalizeReelApiResponse,
+  normalizeReelProcessingStatusResponse,
+} from '../lib/reelProcessing'
 
 import { apiClient } from './client'
 
@@ -35,7 +39,10 @@ export async function getRecommendedReels(
       ...(params.feedSessionId ? { feedSessionId: params.feedSessionId } : {}),
     },
   })
-  return parseRecommendedReelsResponse(response.data)
+  return parseRecommendedReelsResponse({
+    ...response.data,
+    items: response.data.items.map(normalizeReelApiResponse),
+  })
 }
 
 export async function getFriendsReels(
@@ -45,7 +52,10 @@ export async function getFriendsReels(
     const response = await apiClient.get<PaginatedFriendsReels>('/content/reels/friends', {
       params,
     })
-    return response.data
+    return {
+      ...response.data,
+      items: response.data.items.map(normalizeReelApiResponse),
+    }
   } catch (error) {
     const message = isAxiosError(error) ? error.response?.data?.message : null
     const isRouteMiss =
@@ -65,33 +75,39 @@ export async function getFriendsReels(
 export const reelsApi = {
   list: async (params: ListReelsParams = {}) => {
     const response = await apiClient.get<ListReelsResponse>('/content/reels', { params })
-    return response.data
+    return {
+      ...response.data,
+      items: response.data.items.map(normalizeReelApiResponse),
+    }
   },
   getRecommendedReels,
   getFriendsReels,
   getById: async (id: string) => {
     const response = await apiClient.get<ReelDetail>(`/content/reels/${id}`)
-    return response.data
+    return normalizeReelApiResponse(response.data)
   },
   getContext: async (id: string, params: ReelContextParams = {}) => {
     const response = await apiClient.get<ReelContextResponse>(`/content/reels/${id}/context`, {
       params,
     })
-    return response.data
+    return {
+      ...response.data,
+      items: response.data.items.map(normalizeReelApiResponse),
+    }
   },
   getStatus: async (id: string) => {
     const response = await apiClient.get<ReelProcessingStatusResponse>(
       `/content/reels/${id}/status`,
     )
-    return response.data
+    return normalizeReelProcessingStatusResponse(response.data)
   },
   create: async (data: CreateReelPayload) => {
     const response = await apiClient.post<ReelDetail>('/content/reels', data)
-    return response.data
+    return normalizeReelApiResponse(response.data)
   },
   update: async (id: string, data: UpdateReelPayload) => {
     const response = await apiClient.patch<ReelDetail>(`/content/reels/${id}`, data)
-    return response.data
+    return normalizeReelApiResponse(response.data)
   },
   share: async (id: string, data: ShareReelPayload) => {
     const response = await apiClient.post<ReelShareResponse>(`/content/reels/${id}/share`, data)
@@ -119,6 +135,6 @@ export const reelsApi = {
   },
   reprocess: async (id: string) => {
     const response = await apiClient.post<ReelDetail>(`/content/reels/${id}/reprocess`)
-    return response.data
+    return normalizeReelApiResponse(response.data)
   },
 }
