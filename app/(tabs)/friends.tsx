@@ -1,4 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons'
+import { useFocusEffect } from '@react-navigation/native'
 import { formatDistanceToNow } from 'date-fns'
 import { Image } from 'expo-image'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -126,6 +127,16 @@ export default function FriendsScreen() {
   const friendsQuery = useFriends()
   const incomingQuery = useIncomingFriendRequests()
   const outgoingQuery = useOutgoingFriendRequests()
+  const { refetch: refetchFriends } = friendsQuery
+  const { refetch: refetchIncoming } = incomingQuery
+  const { refetch: refetchOutgoing } = outgoingQuery
+
+  useFocusEffect(
+    useCallback(() => {
+      void Promise.all([refetchFriends(), refetchIncoming(), refetchOutgoing()])
+    }, [refetchFriends, refetchIncoming, refetchOutgoing]),
+  )
+
   const accept = useAcceptFriendRequest()
   const reject = useRejectFriendRequest()
   const cancel = useCancelFriendRequest()
