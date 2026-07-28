@@ -22,17 +22,18 @@ export const queryKeys = {
   reels: {
     all: ['reels'] as const,
     viewerFeeds: (viewerId: string) => ['reels', viewerId] as const,
-    friends: () => ['reels', 'friends'] as const,
-    lists: () => ['reels', 'list'] as const,
-    list: (params?: Record<string, unknown>) => ['reels', 'list', params ?? {}] as const,
-    recommended: (excludeRecentlySeen = true) =>
-      ['reels', 'recommended', { excludeRecentlySeen }] as const,
-    contexts: () => ['reels', 'context'] as const,
-    context: (id: string, params?: Record<string, unknown>) =>
-      ['reels', 'context', id, params ?? {}] as const,
-    pendingCreated: () => ['reels', 'pending-created'] as const,
-    detail: (id: string) => ['reels', id] as const,
-    status: (id: string) => ['reels', id, 'status'] as const,
+    friends: (viewerId: string) => ['reels', viewerId, 'friends'] as const,
+    lists: (viewerId: string) => ['reels', viewerId, 'list'] as const,
+    list: (viewerId: string, params?: Record<string, unknown>) =>
+      ['reels', viewerId, 'list', params ?? {}] as const,
+    recommended: (viewerId: string, excludeRecentlySeen = true) =>
+      ['reels', viewerId, 'recommended', { excludeRecentlySeen }] as const,
+    contexts: (viewerId: string) => ['reels', viewerId, 'context'] as const,
+    context: (viewerId: string, id: string, params?: Record<string, unknown>) =>
+      ['reels', viewerId, 'context', id, params ?? {}] as const,
+    pendingCreated: (viewerId: string) => ['reels', viewerId, 'pending-created'] as const,
+    detail: (viewerId: string, id: string) => ['reels', viewerId, 'detail', id] as const,
+    status: (viewerId: string, id: string) => ['reels', viewerId, 'status', id] as const,
   },
   search: {
     all: ['search'] as const,

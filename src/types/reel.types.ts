@@ -4,6 +4,43 @@ export type ReelVisibility = 'public' | 'private'
 
 export type AllowedVideoType = 'video/mp4' | 'video/webm' | 'video/quicktime'
 export type ReelProcessingState = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED'
+export type ReelMediaStatus = 'PENDING' | 'PROBING' | 'PROCESSING' | 'COMPLETED' | 'FAILED'
+export type ReelIndexStatus =
+  'NOT_REQUESTED' | 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'DEGRADED' | 'FAILED'
+export type ReelSourceOrientation = 'PORTRAIT' | 'LANDSCAPE' | 'SQUARE'
+export type ReelSourceLengthClass = 'SHORT' | 'LONG'
+
+export interface ReelMediaState {
+  mediaStatus: ReelMediaStatus
+  mediaStage?: string
+  mediaMessage?: string
+  mediaProgress?: number
+  mediaErrorCode?: string
+  indexStatus: ReelIndexStatus
+  indexStage?: string
+  indexMessage?: string
+  indexProgress?: number
+  indexErrorCode?: string
+  sourceDurationMs?: number
+  sourceWidth?: number
+  sourceHeight?: number
+  sourceEffectiveWidth?: number
+  sourceEffectiveHeight?: number
+  sourceAspectRatio?: number
+  sourceOrientation?: ReelSourceOrientation
+  sourceLengthClass?: ReelSourceLengthClass
+  sourceRotation?: number
+  hlsMasterKey?: string
+  hlsMasterUrl?: string
+  captionVttKey?: string
+  captionVttUrl?: string
+  encodedVariants?: {
+    name: string
+    width: number
+    height: number
+    bitrateKbps?: number
+  }[]
+}
 
 export interface ReelAuthor {
   id: string
@@ -13,7 +50,7 @@ export interface ReelAuthor {
   isVerified: boolean | null
 }
 
-export interface Reel {
+export interface Reel extends Partial<ReelMediaState> {
   id: string
   userId: string
   mediaKey: string
@@ -182,7 +219,7 @@ export interface ReelUploadUrlResponse {
 
 export interface ReelProcessingStatusResponse {
   reelId: string
-  status: ReelProcessingState
+  status?: ReelProcessingState
   stage?: string
   message?: string
   progress?: number
@@ -190,6 +227,30 @@ export interface ReelProcessingStatusResponse {
   thumbnailKey?: string
   thumbnailUrl?: string
   streamUrl?: string
+  mediaStatus?: ReelMediaStatus
+  mediaStage?: string
+  mediaMessage?: string
+  mediaProgress?: number
+  mediaErrorCode?: string
+  indexStatus?: ReelIndexStatus
+  indexStage?: string
+  indexMessage?: string
+  indexProgress?: number
+  indexErrorCode?: string
+  sourceDurationMs?: number
+  sourceWidth?: number
+  sourceHeight?: number
+  sourceEffectiveWidth?: number
+  sourceEffectiveHeight?: number
+  sourceAspectRatio?: number
+  sourceOrientation?: ReelSourceOrientation
+  sourceLengthClass?: ReelSourceLengthClass
+  sourceRotation?: number
+  hlsMasterKey?: string
+  hlsMasterUrl?: string
+  captionVttKey?: string
+  captionVttUrl?: string
+  encodedVariants?: ReelMediaState['encodedVariants']
 }
 
 export type ReelViewEventType =

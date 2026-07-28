@@ -21,6 +21,20 @@ export class CachedReelModel extends Model {
   @text('stream_url') streamUrl!: string
   @text('author_json') authorJson!: string | null
   @text('recommendation_json') recommendationJson!: string | null
+  @text('media_status') mediaStatus!: string | null
+  @text('index_status') indexStatus!: string | null
+  @text('media_stage') mediaStage!: string | null
+  @field('media_progress') mediaProgress!: number | null
+  @text('index_stage') indexStage!: string | null
+  @field('index_progress') indexProgress!: number | null
+  @field('source_duration_ms') sourceDurationMs!: number | null
+  @text('source_orientation') sourceOrientation!: string | null
+  @text('source_length_class') sourceLengthClass!: string | null
+  @field('source_aspect_ratio') sourceAspectRatio!: number | null
+  @field('source_effective_width') sourceEffectiveWidth!: number | null
+  @field('source_effective_height') sourceEffectiveHeight!: number | null
+  @text('hls_master_url') hlsMasterUrl!: string | null
+  @text('caption_vtt_url') captionVttUrl!: string | null
   @text('created_at_remote') createdAtRemote!: string
   @field('cached_at') cachedAt!: number
   @field('last_accessed_at') lastAccessedAt!: number

@@ -2,7 +2,11 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { isAxiosError } from 'axios'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { cacheReelFeedPage, readCachedReelFeedPage } from '@/lib/reelOfflineCache'
+import {
+  cacheReelFeedPage,
+  readCachedReelFeedPage,
+  updateCachedReelIfPresent,
+} from '@/lib/reelOfflineCache'
 import type { InfiniteData, QueryClient, QueryKey } from '@tanstack/react-query'
 
 import { conversationApi } from '../api/conversation.api'
@@ -16,6 +20,12 @@ import {
   upsertMessageIntoConversationCache,
 } from '../lib/chatMessageCache'
 import { RecommendedReelsSession } from '../lib/recommendedReels'
+import {
+  isReelIndexing,
+  isReelMediaProcessing,
+  mergeReelProcessingStatus,
+  normalizeReelProcessingStatusResponse,
+} from '../lib/reelProcessing'
 import { useAuthStore } from '../stores/authStore'
 
 import type { CacheableFeedParams } from '../database/reels/reelCacheMappers'
@@ -90,42 +100,21 @@ interface CreateReelVariables {
 
 type CreateReelStep = 'idle' | 'uploading' | 'creating'
 
-const isTerminalReelStatus = (status?: string | null) => {
-  const normalized = status?.trim().toUpperCase()
-  return normalized === 'COMPLETED' || normalized === 'FAILED'
+const isTerminalReelStatus = (status: ReelProcessingStatusResponse) => {
+  const normalized = normalizeReelProcessingStatusResponse(status)
+  const mediaIsTerminal =
+    normalized.mediaStatus === 'COMPLETED' || normalized.mediaStatus === 'FAILED'
+  const indexIsTerminal =
+    normalized.indexStatus === 'NOT_REQUESTED' ||
+    normalized.indexStatus === 'COMPLETED' ||
+    normalized.indexStatus === 'DEGRADED' ||
+    normalized.indexStatus === 'FAILED'
+
+  return mediaIsTerminal && indexIsTerminal
 }
 
-const isProcessingReel = (reel?: Pick<Reel, 'status'> | null) =>
-  Boolean(reel?.status && !isTerminalReelStatus(reel.status))
-
-const mergeReelStatus = <T extends Reel>(reel: T, status: ReelProcessingStatusResponse): T => {
-  const nextReel: T = {
-    ...reel,
-    id: status.reelId || reel.id,
-    status: status.status,
-    ...(status.mediaKey ? { mediaKey: status.mediaKey } : {}),
-    ...(status.thumbnailKey ? { thumbnailKey: status.thumbnailKey } : {}),
-    ...(status.thumbnailUrl ? { thumbnailUrl: status.thumbnailUrl } : {}),
-    ...(status.streamUrl ? { streamUrl: status.streamUrl } : {}),
-  }
-
-  if (typeof status.stage === 'string') {
-    nextReel.stage = status.stage
-    nextReel.processingStage = status.stage
-  }
-
-  if (typeof status.message === 'string') {
-    nextReel.message = status.message
-    nextReel.processingMessage = status.message
-  }
-
-  if (typeof status.progress === 'number') {
-    nextReel.progress = status.progress
-    nextReel.processingProgress = status.progress
-  }
-
-  return nextReel
-}
+const isProcessingReel = (reel?: Reel | null) =>
+  Boolean(reel && (isReelMediaProcessing(reel) || isReelIndexing(reel)))
 
 const upsertReelInInfiniteData = (
   data: ReelsInfiniteData | undefined,
@@ -181,6 +170,20 @@ const updateReelInInfiniteData = (
       items: page.items.map((item) => (item.id === reel.id ? { ...item, ...reel } : item)),
     })),
   }
+}
+
+const updateReelInViewerFeedCaches = (queryClient: QueryClient, viewerId: string, reel: Reel) => {
+  queryClient.setQueriesData<ReelsInfiniteData>(
+    {
+      predicate: (query) =>
+        query.queryKey[0] === 'reels' &&
+        query.queryKey[1] === viewerId &&
+        (query.queryKey[2] === 'list' ||
+          query.queryKey[2] === 'recommended' ||
+          query.queryKey[2] === 'friends'),
+    },
+    (data) => updateReelInInfiniteData(data, reel),
+  )
 }
 
 const updateReelInContextData = (
@@ -450,12 +453,14 @@ const createInfiniteReelsFeedQueryOptions = ({
   cacheParams,
   enabled,
   fetchPage,
+  pendingCreatedKey,
   queryClient,
   queryKey,
 }: {
   cacheParams: CacheableFeedParams
   enabled: boolean
   fetchPage: (cursor?: string) => Promise<ListReelsResponse>
+  pendingCreatedKey: QueryKey
   queryClient: QueryClient
   queryKey: QueryKey
 }) => ({
@@ -468,7 +473,7 @@ const createInfiniteReelsFeedQueryOptions = ({
 
       const mergedResponse = mergePendingCreatedReelsIntoResponse(
         response,
-        queryClient.getQueryData<Reel[]>(queryKeys.reels.pendingCreated()),
+        queryClient.getQueryData<Reel[]>(pendingCreatedKey),
         cacheParams,
         !pageParam,
       )
@@ -482,7 +487,7 @@ const createInfiniteReelsFeedQueryOptions = ({
       if (cachedResponse) {
         return mergePendingCreatedReelsIntoResponse(
           cachedResponse,
-          queryClient.getQueryData<Reel[]>(queryKeys.reels.pendingCreated()),
+          queryClient.getQueryData<Reel[]>(pendingCreatedKey),
           cacheParams,
           !pageParam,
         )
@@ -501,15 +506,16 @@ export function useReelsFeed(
   options: { enabled?: boolean } = {},
 ) {
   const queryClient = useQueryClient()
-  const viewerId = useAuthStore((state) => state.user?.id)
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
   const normalizedParams =
     Object.keys(params).length > 0 ? normalizeListParams(params) : { limit: DEFAULT_REELS_LIMIT }
 
   return useInfiniteQuery(
     createInfiniteReelsFeedQueryOptions({
       queryClient,
-      queryKey: queryKeys.reels.list(normalizedParams),
-      cacheParams: { ...normalizedParams, ...(viewerId ? { viewerId } : {}) },
+      queryKey: queryKeys.reels.list(viewerId, normalizedParams),
+      pendingCreatedKey: queryKeys.reels.pendingCreated(viewerId),
+      cacheParams: { ...normalizedParams, viewerId },
       enabled: options.enabled ?? true,
       fetchPage: (pageParam) =>
         reelsApi.list({
@@ -523,6 +529,7 @@ export function useReelsFeed(
 export function useRecommendedReelsFeed(params: { enabled?: boolean; limit?: number } = {}) {
   const queryClient = useQueryClient()
   const userId = useAuthStore((state) => state.user?.id)
+  const viewerId = userId ?? 'anonymous'
   const recommendationSessionRef = useRef(new RecommendedReelsSession())
   const previousUserIdRef = useRef(userId)
   const normalizedParams = normalizeRecommendedParams(
@@ -531,7 +538,7 @@ export function useRecommendedReelsFeed(params: { enabled?: boolean; limit?: num
   const recommendedLimit = normalizedParams.limit
   const excludeRecentlySeen = normalizedParams.excludeRecentlySeen
   const isRecommendedFeedEnabled = Boolean(userId) && (params.enabled ?? true)
-  const queryKey = queryKeys.reels.recommended(excludeRecentlySeen)
+  const queryKey = queryKeys.reels.recommended(viewerId, excludeRecentlySeen)
   const recommendedQueryOptions = useMemo(
     () => ({
       queryKey,
@@ -615,7 +622,7 @@ export function useFriendsReelsFeed(params: { enabled?: boolean; limit?: number 
     : DEFAULT_REELS_LIMIT
   const enabled = Boolean(viewerId) && (params.enabled ?? true)
   const query = useInfiniteQuery({
-    queryKey: queryKeys.reels.friends(),
+    queryKey: queryKeys.reels.friends(viewerId),
     queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
       reelsApi.getFriendsReels({
         limit,
@@ -635,8 +642,10 @@ export function useFriendsReelsFeed(params: { enabled?: boolean; limit?: number 
 }
 
 export function useReelDetail(id?: string, options: { enabled?: boolean } = {}) {
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
+
   return useQuery({
-    queryKey: queryKeys.reels.detail(id || 'unknown'),
+    queryKey: queryKeys.reels.detail(viewerId, id || 'unknown'),
     queryFn: () => {
       if (!id) {
         throw new Error('Missing reel id')
@@ -655,10 +664,11 @@ export function useReelContext(
   options: { enabled?: boolean } = {},
 ) {
   const queryClient = useQueryClient()
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
   const normalizedParams = normalizeContextParams(params)
 
   return useQuery({
-    queryKey: queryKeys.reels.context(id || 'unknown', normalizedParams),
+    queryKey: queryKeys.reels.context(viewerId, id || 'unknown', normalizedParams),
     queryFn: async () => {
       if (!id) {
         throw new Error('Missing reel id')
@@ -667,7 +677,7 @@ export function useReelContext(
       const context = await reelsApi.getContext(id, normalizedParams)
       return mergePendingCreatedReelsIntoContext(
         context,
-        queryClient.getQueryData<Reel[]>(queryKeys.reels.pendingCreated()),
+        queryClient.getQueryData<Reel[]>(queryKeys.reels.pendingCreated(viewerId)),
       )
     },
     enabled: Boolean(id) && (options.enabled ?? true),
@@ -677,9 +687,10 @@ export function useReelContext(
 
 export function useReelProcessingStatus(reel?: Reel | null, options: { enabled?: boolean } = {}) {
   const queryClient = useQueryClient()
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
   const shouldPoll = (options.enabled ?? true) && isProcessingReel(reel)
   const query = useQuery({
-    queryKey: queryKeys.reels.status(reel?.id || 'unknown'),
+    queryKey: queryKeys.reels.status(viewerId, reel?.id || 'unknown'),
     queryFn: () => {
       if (!reel?.id) {
         throw new Error('Missing reel id')
@@ -697,41 +708,45 @@ export function useReelProcessingStatus(reel?: Reel | null, options: { enabled?:
       return
     }
 
-    const nextReel = mergeReelStatus(reel, query.data)
+    const nextReel = mergeReelProcessingStatus(reel, query.data)
 
-    queryClient.setQueryData<ReelDetail>(queryKeys.reels.detail(nextReel.id), (current) =>
-      current ? mergeReelStatus(current, query.data) : (nextReel as ReelDetail),
+    queryClient.setQueryData<ReelDetail>(
+      queryKeys.reels.detail(viewerId, nextReel.id),
+      (current) =>
+        current ? mergeReelProcessingStatus(current, query.data) : (nextReel as ReelDetail),
     )
-    queryClient.setQueriesData<ReelsInfiniteData>({ queryKey: queryKeys.reels.lists() }, (data) =>
-      updateReelInInfiniteData(data, nextReel),
+    updateReelInViewerFeedCaches(queryClient, viewerId, nextReel)
+    queryClient.setQueriesData<ReelContextData>(
+      { queryKey: queryKeys.reels.contexts(viewerId) },
+      (data) => updateReelInContextData(data, nextReel),
     )
-    queryClient.setQueriesData<ReelContextData>({ queryKey: queryKeys.reels.contexts() }, (data) =>
-      updateReelInContextData(data, nextReel),
-    )
-    queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(), (current) =>
+    queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(viewerId), (current) =>
       mergePendingCreatedReels(current, nextReel),
     )
 
-    if (isTerminalReelStatus(query.data.status)) {
+    void updateCachedReelIfPresent(nextReel)
+
+    if (isTerminalReelStatus(query.data)) {
       void queryClient.invalidateQueries({
-        queryKey: queryKeys.reels.lists(),
+        queryKey: queryKeys.reels.lists(viewerId),
         refetchType: 'none',
       })
       void queryClient.invalidateQueries({
-        queryKey: queryKeys.reels.contexts(),
+        queryKey: queryKeys.reels.contexts(viewerId),
         refetchType: 'none',
       })
-      queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(), (current) =>
+      queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(viewerId), (current) =>
         current?.filter((item) => item.id !== nextReel.id),
       )
     }
-  }, [query.data, queryClient, reel])
+  }, [query.data, queryClient, reel, viewerId])
 
   return query
 }
 
 export function useCreateReel() {
   const queryClient = useQueryClient()
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
   const [step, setStep] = useState<CreateReelStep>('idle')
 
   const mutation = useMutation({
@@ -782,12 +797,12 @@ export function useCreateReel() {
       }
     },
     onSuccess: (createdReel) => {
-      queryClient.setQueryData(queryKeys.reels.detail(createdReel.id), createdReel)
-      queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(), (current) =>
+      queryClient.setQueryData(queryKeys.reels.detail(viewerId, createdReel.id), createdReel)
+      queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(viewerId), (current) =>
         mergePendingCreatedReels(current, createdReel),
       )
       queryClient
-        .getQueriesData<ReelsInfiniteData>({ queryKey: queryKeys.reels.lists() })
+        .getQueriesData<ReelsInfiniteData>({ queryKey: queryKeys.reels.lists(viewerId) })
         .forEach(([queryKey, data]) => {
           if (!shouldUpsertCreatedReelIntoList(createdReel, getListParamsFromQueryKey(queryKey))) {
             return
@@ -795,7 +810,7 @@ export function useCreateReel() {
 
           queryClient.setQueryData(queryKey, upsertReelInInfiniteData(data, createdReel))
         })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.reels.lists() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.reels.lists(viewerId) })
     },
     onSettled: () => {
       setStep('idle')
@@ -807,19 +822,19 @@ export function useCreateReel() {
 
 export function useUpdateReel() {
   const queryClient = useQueryClient()
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
 
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateReelPayload }) =>
       reelsApi.update(id, data),
     onSuccess: (updatedReel) => {
-      queryClient.setQueryData<ReelDetail>(queryKeys.reels.detail(updatedReel.id), (current) =>
-        current ? { ...current, ...updatedReel } : updatedReel,
+      queryClient.setQueryData<ReelDetail>(
+        queryKeys.reels.detail(viewerId, updatedReel.id),
+        (current) => (current ? { ...current, ...updatedReel } : updatedReel),
       )
-      queryClient.setQueriesData<ReelsInfiniteData>({ queryKey: queryKeys.reels.lists() }, (data) =>
-        updateReelInInfiniteData(data, updatedReel),
-      )
+      updateReelInViewerFeedCaches(queryClient, viewerId, updatedReel)
       queryClient.setQueriesData<ReelContextData>(
-        { queryKey: queryKeys.reels.contexts() },
+        { queryKey: queryKeys.reels.contexts(viewerId) },
         (data) => updateReelInContextData(data, updatedReel),
       )
     },
@@ -828,38 +843,38 @@ export function useUpdateReel() {
 
 export function useReprocessReel() {
   const queryClient = useQueryClient()
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
 
   return useMutation({
     mutationFn: (id: string) => reelsApi.reprocess(id),
     onSuccess: (reprocessedReel) => {
-      queryClient.setQueryData<ReelDetail>(queryKeys.reels.detail(reprocessedReel.id), (current) =>
-        current ? { ...current, ...reprocessedReel } : reprocessedReel,
+      queryClient.setQueryData<ReelDetail>(
+        queryKeys.reels.detail(viewerId, reprocessedReel.id),
+        (current) => (current ? { ...current, ...reprocessedReel } : reprocessedReel),
       )
 
-      queryClient.setQueriesData<ReelsInfiniteData>({ queryKey: queryKeys.reels.lists() }, (data) =>
-        updateReelInInfiniteData(data, reprocessedReel),
-      )
+      updateReelInViewerFeedCaches(queryClient, viewerId, reprocessedReel)
 
       queryClient.setQueriesData<ReelContextData>(
-        { queryKey: queryKeys.reels.contexts() },
+        { queryKey: queryKeys.reels.contexts(viewerId) },
         (data) => updateReelInContextData(data, reprocessedReel),
       )
 
-      queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(), (current) =>
+      queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(viewerId), (current) =>
         mergePendingCreatedReels(current, reprocessedReel),
       )
 
       void queryClient.invalidateQueries({
-        queryKey: queryKeys.reels.status(reprocessedReel.id),
+        queryKey: queryKeys.reels.status(viewerId, reprocessedReel.id),
       })
 
       void queryClient.invalidateQueries({
-        queryKey: queryKeys.reels.lists(),
+        queryKey: queryKeys.reels.lists(viewerId),
         refetchType: 'none',
       })
 
       void queryClient.invalidateQueries({
-        queryKey: queryKeys.reels.contexts(),
+        queryKey: queryKeys.reels.contexts(viewerId),
         refetchType: 'none',
       })
     },
@@ -940,23 +955,32 @@ export function useCreateReelShareLink() {
 
 export function useDeleteReel() {
   const queryClient = useQueryClient()
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
 
   return useMutation({
     mutationFn: (id: string) => reelsApi.delete(id),
     onSuccess: (_, id) => {
-      queryClient.removeQueries({ queryKey: queryKeys.reels.detail(id) })
-      queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(), (current) =>
+      queryClient.removeQueries({ queryKey: queryKeys.reels.detail(viewerId, id) })
+      queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(viewerId), (current) =>
         current?.filter((item) => item.id !== id),
       )
-      queryClient.setQueriesData<ReelsInfiniteData>({ queryKey: queryKeys.reels.lists() }, (data) =>
-        removeReelFromInfiniteData(data, id),
+      queryClient.setQueriesData<ReelsInfiniteData>(
+        {
+          predicate: (query) =>
+            query.queryKey[0] === 'reels' &&
+            query.queryKey[1] === viewerId &&
+            (query.queryKey[2] === 'list' ||
+              query.queryKey[2] === 'recommended' ||
+              query.queryKey[2] === 'friends'),
+        },
+        (data) => removeReelFromInfiniteData(data, id),
       )
       queryClient.setQueriesData<ReelContextData>(
-        { queryKey: queryKeys.reels.contexts() },
+        { queryKey: queryKeys.reels.contexts(viewerId) },
         (data) => removeReelFromContextData(data, id),
       )
-      void queryClient.invalidateQueries({ queryKey: queryKeys.reels.lists() })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.reels.contexts() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.reels.lists(viewerId) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.reels.contexts(viewerId) })
     },
   })
 }

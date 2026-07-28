@@ -56,5 +56,29 @@ export const migrations = schemaMigrations({
         }),
       ],
     },
+    {
+      toVersion: 7,
+      steps: [
+        addColumns({
+          table: TABLES.cachedReels,
+          columns: [
+            { name: 'media_status', type: 'string', isOptional: true },
+            { name: 'index_status', type: 'string', isOptional: true },
+            { name: 'media_stage', type: 'string', isOptional: true },
+            { name: 'media_progress', type: 'number', isOptional: true },
+            { name: 'index_stage', type: 'string', isOptional: true },
+            { name: 'index_progress', type: 'number', isOptional: true },
+            { name: 'source_duration_ms', type: 'number', isOptional: true },
+            { name: 'source_orientation', type: 'string', isOptional: true },
+            { name: 'source_length_class', type: 'string', isOptional: true },
+            { name: 'source_aspect_ratio', type: 'number', isOptional: true },
+            { name: 'source_effective_width', type: 'number', isOptional: true },
+            { name: 'source_effective_height', type: 'number', isOptional: true },
+            { name: 'hls_master_url', type: 'string', isOptional: true },
+            { name: 'caption_vtt_url', type: 'string', isOptional: true },
+          ],
+        }),
+      ],
+    },
   ],
 })

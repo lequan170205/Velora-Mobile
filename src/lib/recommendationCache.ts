@@ -12,7 +12,8 @@ const getQueryUserId = (queryKey: QueryKey) => {
 }
 
 export const isRecommendationQueryForUser = (queryKey: QueryKey, userId: string) => {
-  const isRecommendedReels = queryKey[0] === 'reels' && queryKey[1] === 'recommended'
+  const isRecommendedReels =
+    queryKey[0] === 'reels' && queryKey[1] === userId && queryKey[2] === 'recommended'
   const isRecommendedUsers = queryKey[0] === 'users' && queryKey[1] === 'recommended'
 
   return isRecommendedReels || (isRecommendedUsers && getQueryUserId(queryKey) === userId)

@@ -247,7 +247,7 @@ export default function SettingsScreen() {
           removeFriendshipQueriesForViewer(queryClient, user.id)
           removeBlockedUsersQueriesForViewer(queryClient, user.id)
           removeFriendMutationsForViewer(queryClient, user.id)
-          queryClient.removeQueries({ queryKey: queryKeys.reels.friends() })
+          queryClient.removeQueries({ queryKey: queryKeys.reels.friends(user.id) })
         }
       } catch (error) {
         console.error(`[Settings] Failed to ${action}`, error)

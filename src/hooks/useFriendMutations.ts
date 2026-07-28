@@ -72,10 +72,8 @@ const ensureViewer = (viewerId: string) => {
 
 const isCurrentViewer = (viewerId: string) => useAuthStore.getState().user?.id === viewerId
 
-const invalidateFriendsReels = (
-  queryClient: ReturnType<typeof useQueryClient>,
-  _viewerId: string,
-) => queryClient.invalidateQueries({ queryKey: queryKeys.reels.friends() })
+const invalidateFriendsReels = (queryClient: ReturnType<typeof useQueryClient>, viewerId: string) =>
+  queryClient.invalidateQueries({ queryKey: queryKeys.reels.friends(viewerId) })
 
 const invalidateViewerFeedEligibility = (
   queryClient: ReturnType<typeof useQueryClient>,
