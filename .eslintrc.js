@@ -107,5 +107,13 @@ module.exports = {
       },
     },
   ],
-  ignorePatterns: ['node_modules/', '.expo/', 'dist/', '*.config.js', 'tests/**/*.cjs'],
+  ignorePatterns: [
+    'node_modules/',
+    '.expo/',
+    'dist/',
+    '*.config.js',
+    'tests/**/*.cjs',
+    '**/android/build/**',
+    '**/ios/build/**',
+  ],
 }

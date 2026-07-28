@@ -1770,6 +1770,8 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       assert(callKitEndAction(isActiveCall: false, isIncomingCall: false) == "end")
       assert(callKitEndAction(isActiveCall: true, isIncomingCall: true) == "end")
       assert(callKitEndAction(isActiveCall: true, isIncomingCall: false) == "end")
+      assert(apnsEnvironment(isDebugBuild: true) == "development")
+      assert(apnsEnvironment(isDebugBuild: false) == "production")
 
       let activeCallState = validateCallStateUpdatePayload(
         validCallStatePayload.merging(["status": "active"]) { _, latest in latest },
@@ -2612,14 +2614,15 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
   }
 
   private func currentApnsEnvironment() -> String? {
-    let environment = Bundle.main.object(forInfoDictionaryKey: "VeloraApnsEnvironment") as? String
+    #if DEBUG
+      return apnsEnvironment(isDebugBuild: true)
+    #else
+      return apnsEnvironment(isDebugBuild: false)
+    #endif
+  }
 
-    switch environment {
-    case "development", "production":
-      return environment
-    default:
-      return nil
-    }
+  private func apnsEnvironment(isDebugBuild: Bool) -> String {
+    isDebugBuild ? "development" : "production"
   }
 
   private func currentAppState() -> String {
