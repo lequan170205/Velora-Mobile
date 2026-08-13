@@ -30,5 +30,5 @@
     ".eslintrc.js",
     "nativewind-env.d.ts"
   ],
-  "exclude": ["node_modules", "android", "ios"]
+  "exclude": ["node_modules", "android", "ios", "apps/call-ops-dashboard"]
 }
