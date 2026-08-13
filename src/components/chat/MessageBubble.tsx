@@ -21,5 +21,7 @@ const getCitationRenderKey = (props: MessageBubbleProps) =>
   )
 
 export function MessageBubble(props: MessageBubbleProps) {
-  return <MemoizedMessageBubble key={`${props.message.id}:${getCitationRenderKey(props)}`} {...props} />
+  return (
+    <MemoizedMessageBubble key={`${props.message.id}:${getCitationRenderKey(props)}`} {...props} />
+  )
 }

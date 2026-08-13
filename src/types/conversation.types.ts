@@ -52,7 +52,8 @@ export interface ReplyPreviewData {
 
 export type MessageMediaStatus = 'ready' | 'processing' | 'failed'
 
-export type MessageMediaUploadStage = 'queued' | 'uploading' | 'syncing' | 'ready' | 'processing' | 'failed'
+export type MessageMediaUploadStage =
+  'queued' | 'uploading' | 'syncing' | 'ready' | 'processing' | 'failed'
 
 export interface MessageMedia {
   fileKey?: string
