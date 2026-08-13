@@ -72,6 +72,55 @@ export async function getFriendsReels(
   }
 }
 
+const hydrateMissingReelAuthor = async (reel: ReelDetail): Promise<ReelDetail> => {
+  const normalizedReel = normalizeReelApiResponse(reel)
+  const hasAuthorIdentity = Boolean(
+    normalizedReel.author?.username?.trim() || normalizedReel.author?.displayName?.trim(),
+  )
+  const hasAuthorAvatar = Boolean(normalizedReel.author?.avatarUrl?.trim())
+
+  if (hasAuthorIdentity && hasAuthorAvatar) {
+    return normalizedReel
+  }
+
+  try {
+    const response = await apiClient.get<ReelContextResponse>(
+      `/content/reels/${normalizedReel.id}/context`,
+      {
+        params: {
+          source: 'profile',
+          before: 1,
+          after: 1,
+        },
+      },
+    )
+    const contextReel = response.data.items
+      .map(normalizeReelApiResponse)
+      .find((item) => item.id === normalizedReel.id)
+
+    if (!contextReel?.author) {
+      return normalizedReel
+    }
+
+    const detailAuthor = normalizedReel.author
+    const contextAuthor = contextReel.author
+
+    return {
+      ...contextReel,
+      ...normalizedReel,
+      author: {
+        id: detailAuthor?.id ?? contextAuthor.id,
+        username: detailAuthor?.username ?? contextAuthor.username,
+        displayName: detailAuthor?.displayName ?? contextAuthor.displayName,
+        avatarUrl: detailAuthor?.avatarUrl ?? contextAuthor.avatarUrl,
+        isVerified: detailAuthor?.isVerified ?? contextAuthor.isVerified,
+      },
+    }
+  } catch {
+    return normalizedReel
+  }
+}
+
 export const reelsApi = {
   list: async (params: ListReelsParams = {}) => {
     const response = await apiClient.get<ListReelsResponse>('/content/reels', { params })
@@ -84,7 +133,7 @@ export const reelsApi = {
   getFriendsReels,
   getById: async (id: string) => {
     const response = await apiClient.get<ReelDetail>(`/content/reels/${id}`)
-    return normalizeReelApiResponse(response.data)
+    return hydrateMissingReelAuthor(response.data)
   },
   getContext: async (id: string, params: ReelContextParams = {}) => {
     const response = await apiClient.get<ReelContextResponse>(`/content/reels/${id}/context`, {
