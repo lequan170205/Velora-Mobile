@@ -53,7 +53,12 @@ export interface ReplyPreviewData {
 export type MessageMediaStatus = 'ready' | 'processing' | 'failed'
 
 export type MessageMediaUploadStage =
-  'queued' | 'uploading' | 'syncing' | 'ready' | 'processing' | 'failed'
+  | 'queued'
+  | 'uploading'
+  | 'syncing'
+  | 'ready'
+  | 'processing'
+  | 'failed'
 
 export interface MessageMedia {
   fileKey?: string
@@ -84,8 +89,21 @@ export interface MessageMedia {
   lastProgressAt?: number
 }
 
+export type AiRagEvidenceType = 'TRANSCRIPT' | 'VISUAL' | 'METADATA'
+
+export interface AiRagCitation {
+  sourceType: 'REEL'
+  reelId: string
+  evidenceType: AiRagEvidenceType
+  title?: string
+  startTime?: number
+  endTime?: number
+  quote?: string
+}
+
 export interface MessageMetadata {
-  kind?: 'velora_ai_reel_recommendations'
+  kind?: 'velora_ai_response' | 'velora_ai_reel_recommendations'
+  citations?: AiRagCitation[]
   recommendedReels?: ReelFeedListItem[]
   suggestedQueries?: string[]
 }

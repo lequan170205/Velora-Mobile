@@ -1,4 +1,4 @@
-import type { MessageMetadata } from '../types/conversation.types'
+import type { AiRagCitation, MessageMetadata } from '../types/conversation.types'
 import type {
   ReelAuthor,
   ReelFeedListItem,
@@ -6,7 +6,9 @@ import type {
   ReelVisibility,
 } from '../types/reel.types'
 
-const MESSAGE_METADATA_KIND = 'velora_ai_reel_recommendations'
+const AI_RESPONSE_METADATA_KIND = 'velora_ai_response'
+const AI_RECOMMENDATION_METADATA_KIND = 'velora_ai_reel_recommendations'
+const AI_RAG_EVIDENCE_TYPES = new Set(['TRANSCRIPT', 'VISUAL', 'METADATA'])
 const REEL_STATUS_VALUES = new Set(['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'])
 const REEL_VISIBILITY_VALUES = new Set(['public', 'private'])
 
@@ -18,6 +20,11 @@ const getTrimmedString = (value: unknown) =>
 
 const getFiniteNumber = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) ? value : null
+
+const getNonNegativeNumber = (value: unknown) => {
+  const numberValue = getFiniteNumber(value)
+  return numberValue !== null && numberValue >= 0 ? numberValue : null
+}
 
 const normalizeStringArray = (value: unknown): string[] => {
   if (!Array.isArray(value)) {
@@ -53,6 +60,79 @@ const parseMetadataRecord = (value: unknown): Record<string, unknown> | null => 
   } catch {
     return null
   }
+}
+
+const normalizeAiRagCitation = (value: unknown): AiRagCitation | null => {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const sourceType = getTrimmedString(value.sourceType ?? value.source_type)
+  const reelId = getTrimmedString(value.reelId ?? value.reel_id)
+  const evidenceType = getTrimmedString(value.evidenceType ?? value.evidence_type)?.toUpperCase()
+
+  if (
+    sourceType?.toUpperCase() !== 'REEL' ||
+    !reelId ||
+    !evidenceType ||
+    !AI_RAG_EVIDENCE_TYPES.has(evidenceType)
+  ) {
+    return null
+  }
+
+  const title = getTrimmedString(value.title)
+  const quote = getTrimmedString(value.quote)
+  const startTime = getNonNegativeNumber(value.startTime ?? value.start_time)
+  const rawEndTime = getNonNegativeNumber(value.endTime ?? value.end_time)
+  const endTime =
+    rawEndTime !== null && (startTime === null || rawEndTime >= startTime) ? rawEndTime : null
+
+  return {
+    sourceType: 'REEL',
+    reelId,
+    evidenceType: evidenceType as AiRagCitation['evidenceType'],
+    ...(title ? { title } : {}),
+    ...(startTime !== null ? { startTime } : {}),
+    ...(endTime !== null ? { endTime } : {}),
+    ...(quote ? { quote } : {}),
+  }
+}
+
+const normalizeAiRagCitations = (value: unknown): AiRagCitation[] | undefined => {
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+
+  const citations: AiRagCitation[] = []
+  const seen = new Set<string>()
+
+  for (const item of value) {
+    const citation = normalizeAiRagCitation(item)
+    if (!citation) {
+      continue
+    }
+
+    const key = [
+      citation.reelId,
+      citation.evidenceType,
+      citation.startTime ?? '',
+      citation.endTime ?? '',
+      citation.quote ?? '',
+    ].join(':')
+
+    if (seen.has(key)) {
+      continue
+    }
+
+    seen.add(key)
+    citations.push(citation)
+
+    if (citations.length >= 8) {
+      break
+    }
+  }
+
+  return citations
 }
 
 const normalizeReelAuthor = (value: unknown): ReelAuthor | null => {
@@ -163,6 +243,13 @@ export const normalizeMessageMetadata = (value: unknown): MessageMetadata | unde
     getTrimmedString(rawValue.kind) ??
     getTrimmedString(rawValue.metadataKind) ??
     getTrimmedString(rawValue.metadata_kind)
+  const citationsSource = Array.isArray(rawValue.citations)
+    ? rawValue.citations
+    : Array.isArray(rawValue.ragCitations)
+      ? rawValue.ragCitations
+      : Array.isArray(rawValue.rag_citations)
+        ? rawValue.rag_citations
+        : undefined
   const recommendedReelsSource = Array.isArray(rawValue.recommendedReels)
     ? rawValue.recommendedReels
     : Array.isArray(rawValue.recommended_reels)
@@ -173,6 +260,7 @@ export const normalizeMessageMetadata = (value: unknown): MessageMetadata | unde
     : Array.isArray(rawValue.suggested_queries)
       ? rawValue.suggested_queries
       : undefined
+  const citations = citationsSource ? normalizeAiRagCitations(citationsSource) : undefined
   const recommendedReels = recommendedReelsSource
     ? recommendedReelsSource
         .map((reel) => normalizeReelFeedListItem(reel))
@@ -180,19 +268,28 @@ export const normalizeMessageMetadata = (value: unknown): MessageMetadata | unde
     : undefined
   const suggestedQueries =
     suggestedQueriesSource !== undefined ? normalizeStringArray(suggestedQueriesSource) : undefined
-  const kind =
-    rawKind === MESSAGE_METADATA_KIND
-      ? rawKind
-      : recommendedReelsSource !== undefined || suggestedQueriesSource !== undefined
-        ? MESSAGE_METADATA_KIND
+  const isKnownKind =
+    rawKind === AI_RESPONSE_METADATA_KIND || rawKind === AI_RECOMMENDATION_METADATA_KIND
+  const kind = isKnownKind
+    ? rawKind
+    : recommendedReelsSource !== undefined || suggestedQueriesSource !== undefined
+      ? AI_RECOMMENDATION_METADATA_KIND
+      : citationsSource !== undefined
+        ? AI_RESPONSE_METADATA_KIND
         : undefined
 
-  if (!kind && recommendedReels === undefined && suggestedQueries === undefined) {
+  if (
+    !kind &&
+    citations === undefined &&
+    recommendedReels === undefined &&
+    suggestedQueries === undefined
+  ) {
     return undefined
   }
 
   return {
     ...(kind ? { kind } : {}),
+    ...(citations !== undefined ? { citations } : {}),
     ...(recommendedReels !== undefined ? { recommendedReels } : {}),
     ...(suggestedQueries !== undefined ? { suggestedQueries } : {}),
   }

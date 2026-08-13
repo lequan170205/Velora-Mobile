@@ -234,6 +234,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
   const [hasRenderedFrame, setHasRenderedFrame] = useState(false)
   const hasCalledReadyRef = useRef(false)
   const isBufferingRef = useRef(false)
+  const pendingSeekSecondsRef = useRef<number | null>(null)
   const { VideoView: VideoViewComponent, useVideoPlayer } = expoVideoModule as ExpoVideoModule
   const videoSource = useMemo(() => buildExpoVideoSource(uri), [uri])
 
@@ -244,6 +245,18 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
     videoPlayer.timeUpdateEventInterval = 0.25
     videoPlayer.pause()
   })
+
+  const applyPendingSeek = useCallback(() => {
+    const pendingSeekSeconds = pendingSeekSecondsRef.current
+    if (pendingSeekSeconds === null) {
+      return
+    }
+
+    const safeDuration =
+      Number.isFinite(player.duration) && player.duration > 0 ? player.duration : Infinity
+    player.currentTime = Math.max(0, Math.min(safeDuration, pendingSeekSeconds))
+    pendingSeekSecondsRef.current = null
+  }, [player])
 
   useImperativeHandle(
     ref,
@@ -263,12 +276,13 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
         player.currentTime = Math.max(0, player.currentTime + seconds)
       },
       seekTo: (seconds: number) => {
-        const safeDuration =
-          Number.isFinite(player.duration) && player.duration > 0 ? player.duration : Infinity
-        player.currentTime = Math.max(0, Math.min(safeDuration, seconds))
+        pendingSeekSecondsRef.current = Math.max(0, seconds)
+        if (hasRenderedFrame || (Number.isFinite(player.duration) && player.duration > 0)) {
+          applyPendingSeek()
+        }
       },
     }),
-    [player],
+    [applyPendingSeek, hasRenderedFrame, player],
   )
 
   const notifyReady = useCallback(() => {
@@ -276,9 +290,10 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
       return
     }
 
+    applyPendingSeek()
     hasCalledReadyRef.current = true
     onReady?.()
-  }, [onReady])
+  }, [applyPendingSeek, onReady])
 
   useEffect(() => {
     setHasRenderedFrame(false)
@@ -403,6 +418,31 @@ const ExpoAvPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoAv
 ) {
   const { ResizeMode, Video: VideoComponent } = getExpoAvModule() as ExpoAvModule
   const videoRef = useRef<ExpoAvPlaybackRef | null>(null)
+  const pendingSeekSecondsRef = useRef<number | null>(null)
+
+  const applyPendingSeek = useCallback(async () => {
+    const pendingSeekSeconds = pendingSeekSecondsRef.current
+    const currentVideo = videoRef.current
+    if (pendingSeekSeconds === null || !currentVideo) {
+      return
+    }
+
+    try {
+      const status = await currentVideo.getStatusAsync()
+      if (!status.isLoaded) {
+        return
+      }
+
+      const durationMillis =
+        typeof status.durationMillis === 'number' ? status.durationMillis : Infinity
+      await currentVideo.setPositionAsync(
+        Math.max(0, Math.min(durationMillis, pendingSeekSeconds * 1000)),
+      )
+      pendingSeekSecondsRef.current = null
+    } catch {
+      // Keep the pending seek so onReadyForDisplay can retry it.
+    }
+  }, [])
 
   useImperativeHandle(
     ref,
@@ -433,10 +473,11 @@ const ExpoAvPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoAv
           .catch(() => undefined)
       },
       seekTo: (seconds: number) => {
-        void videoRef.current?.setPositionAsync(Math.max(0, seconds * 1000)).catch(() => undefined)
+        pendingSeekSecondsRef.current = Math.max(0, seconds)
+        void applyPendingSeek()
       },
     }),
-    [],
+    [applyPendingSeek],
   )
 
   useEffect(() => {
@@ -482,7 +523,11 @@ const ExpoAvPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoAv
           isBuffering: status.isBuffering,
         })
       }}
-      onReadyForDisplay={onReady}
+      onReadyForDisplay={() => {
+        void applyPendingSeek().finally(() => {
+          onReady?.()
+        })
+      }}
       onError={onError}
       style={style}
     />

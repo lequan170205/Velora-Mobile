@@ -6,6 +6,7 @@ import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../lib/chatMe
 import { cn } from '../../lib/cn'
 import { formatDurationLabel } from '../../lib/reels'
 
+import { AiCitationList } from './AiCitationList'
 import { ChatMediaBubble } from './ChatMediaBubble'
 import { ChatMediaFrame } from './ChatMediaFrame'
 import { isMessageRecalled } from './MessageContextMenu/helpers'
@@ -156,7 +157,7 @@ export function MessageBubbleContent({
     return <Text style={[previewTextStyle, { color: previewTextColor }]}>{message.content}</Text>
   }
 
-  return (
+  const content = (
     <Text
       className={cn(
         'font-sans text-base leading-[22px]',
@@ -165,5 +166,17 @@ export function MessageBubbleContent({
     >
       {message.content}
     </Text>
+  )
+  const citations = isOwn ? [] : (message.metadata?.citations ?? [])
+
+  if (citations.length === 0) {
+    return content
+  }
+
+  return (
+    <View>
+      {content}
+      <AiCitationList citations={citations} conversationId={message.conversationId} />
+    </View>
   )
 }
