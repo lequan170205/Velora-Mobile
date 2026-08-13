@@ -111,6 +111,8 @@ module.exports = {
     'node_modules/',
     '.expo/',
     'dist/',
+    'expo-env.d.ts',
+    'apps/call-ops-dashboard/**',
     '*.config.js',
     'tests/**/*.cjs',
     '**/android/build/**',
