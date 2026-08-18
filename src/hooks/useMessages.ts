@@ -147,29 +147,6 @@ const isBoundaryOlderThan = (
   return candidate.endMessageId.localeCompare(existing.endMessageId) < 0
 }
 
-const isMessageAtOrOlderThanExhaustedBoundary = (
-  message: Message,
-  latestSyncRange?: MessageSyncRangeSnapshot | null,
-) => {
-  if (!latestSyncRange?.remoteExhaustedOlder) {
-    return false
-  }
-
-  const messageId = message.id || message._id || ''
-
-  if (latestSyncRange.endCreatedAt === null || !latestSyncRange.endMessageId) {
-    return latestSyncRange.lastCursor ? messageId === latestSyncRange.lastCursor : true
-  }
-
-  const messageCreatedAt = getMessageCreatedAtMs(message)
-
-  if (messageCreatedAt !== latestSyncRange.endCreatedAt) {
-    return messageCreatedAt < latestSyncRange.endCreatedAt
-  }
-
-  return messageId.localeCompare(latestSyncRange.endMessageId) <= 0
-}
-
 const isCursorAtExhaustedOlderBoundary = (
   cursor: string | undefined,
   latestSyncRange?: MessageSyncRangeSnapshot | null,
@@ -406,11 +383,7 @@ export const getMessagesInfiniteQueryOptions = ({
     const oldestMessage = getOldestMessage(lastPage)
     if (!oldestMessage) return undefined
 
-    if (isMessageAtOrOlderThanExhaustedBoundary(oldestMessage, latestSyncRange)) {
-      return undefined
-    }
-
-    return oldestMessage?.id
+    return oldestMessage.id
   },
 
   initialPageParam: undefined as string | undefined,
