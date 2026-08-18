@@ -21,7 +21,10 @@ const getCitationRenderKey = (props: MessageBubbleProps) =>
   )
 
 export function MessageBubble(props: MessageBubbleProps) {
-  return (
-    <MemoizedMessageBubble key={`${props.message.id}:${getCitationRenderKey(props)}`} {...props} />
-  )
+  // Keep the key stable across ordinary recycled messages. A key tied to
+  // message.id forces React to remount the entire heavy bubble subtree every
+  // time FlashList reuses a cell, defeating view recycling during fast flings.
+  // Citation-only metadata changes still get a deliberate remount because the
+  // memo comparator in MessageBubbleImpl does not otherwise observe citations.
+  return <MemoizedMessageBubble key={getCitationRenderKey(props)} {...props} />
 }
