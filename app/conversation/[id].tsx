@@ -1223,11 +1223,7 @@ export default function ChatScreen() {
             clearPendingOwnMediaBatchScrollTransaction(pendingOwnMediaBatchId)
           }
         } else {
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              scrollToBottom()
-            })
-          })
+          scrollToBottom()
         }
       }
     }
