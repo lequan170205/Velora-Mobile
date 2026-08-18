@@ -88,7 +88,7 @@ const getMessageCreatedAtMs = (message: Message) => {
 
 const sortMessagesNewestFirst = (messages: Message[]) => {
   return [...messages].sort((left, right) => {
-    const delta = getMessageCreatedAtMs(right.createdAt) - getMessageCreatedAtMs(left.createdAt)
+    const delta = getMessageCreatedAtMs(right) - getMessageCreatedAtMs(left)
 
     if (delta !== 0) {
       return delta
