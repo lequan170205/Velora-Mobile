@@ -78,6 +78,36 @@ test('message ordering remains canonical newest-first before the inverted list r
   assert.match(source, /mergeMessageCollectionByIdentity/)
 })
 
+test('message identity dedupe uses indexed tokens instead of scanning the full merged history', () => {
+  const source = read('src/lib/messageIdentity.ts')
+  const mergeBlock = source.slice(
+    source.indexOf('export const mergeMessageCollectionByIdentity'),
+    source.indexOf('export const isMessageBeyondOptimisticReadFrontier'),
+  )
+
+  assert.match(mergeBlock, /indicesByIdentityToken = new Map/)
+  assert.match(mergeBlock, /identityTokensByIndex/)
+  assert.doesNotMatch(mergeBlock, /mergedMessages\.findIndex/)
+})
+
+test('message metadata merge preserves AI citations during dedupe', () => {
+  const source = read('src/lib/messageIdentity.ts')
+  const metadataBlock = source.slice(
+    source.indexOf('export const mergeMessageMetadata'),
+    source.indexOf('export const mergeMessageRecords'),
+  )
+
+  assert.match(metadataBlock, /hasOwnProperty\.call\(incoming, 'citations'\)/)
+  assert.match(metadataBlock, /citations !== undefined \? \{ citations \} : \{\}/)
+})
+
+test('FlashList message bubbles do not key the heavy recycled subtree by message id', () => {
+  const source = read('src/components/chat/MessageBubble.tsx')
+
+  assert.match(source, /key=\{getCitationRenderKey\(props\)\}/)
+  assert.doesNotMatch(source, /key=\{`\$\{props\.message\.id\}/)
+})
+
 test('timeline diagnostics never log message content by contract', () => {
   const source = read('src/lib/chatTimelineDiagnostics.ts')
 
