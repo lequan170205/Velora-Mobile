@@ -23,6 +23,7 @@ import {
   upsertConversationSummaryInCache,
   upsertMessageIntoConversationCache,
 } from '../lib/chatMessageCache'
+import { createChatTimelineTransactionId, traceChatTimeline } from '../lib/chatTimelineDiagnostics'
 import { createClientMessageId } from '../lib/clientMessageId'
 import { getMessageIdentityKey, mergeMessageCollectionByIdentity } from '../lib/messageIdentity'
 import { buildReplyPreviewFromMessage, mergeReplyPreview } from '../lib/replyPreview'
@@ -330,33 +331,96 @@ export const getMessagesInfiniteQueryOptions = ({
     })
 
     if (localPage.length > 0) {
-      if (cursor && queryClient && isNetworkResolved && isOnline) {
-        void syncMessagesPageToLocalStore({
+      const sortedLocalPage = sortMessagesNewestFirst(localPage)
+
+      if (!cursor || !isNetworkResolved || !isOnline) {
+        traceChatTimeline({
+          conversationId,
+          event: 'older-page-local-ready',
+          mode: 'latest',
+          cursor: cursor ?? null,
+          source: 'local',
+          count: sortedLocalPage.length,
+        })
+        return sortedLocalPage
+      }
+
+      const transactionId = createChatTimelineTransactionId('latest-older')
+      traceChatTimeline({
+        conversationId,
+        event: 'older-page-transaction-start',
+        mode: 'latest',
+        cursor,
+        source: 'local',
+        trigger: 'edge',
+        transactionId,
+        count: sortedLocalPage.length,
+      })
+
+      try {
+        const remotePage = await syncMessagesPageToLocalStore({
           conversation: conversation ?? null,
           conversationId,
           currentUser: currentUser ?? null,
           cursor,
           onLatestSyncRangeUpdated,
         })
-          .then((remotePage) => {
-            if (remotePage.length === 0) {
-              return
-            }
 
-            return refreshMessagesPageFromLocalStore({
-              conversation: conversation ?? null,
-              conversationId,
-              currentUser: currentUser ?? null,
-              cursor,
-              queryClient,
-            })
+        if (remotePage.length === 0) {
+          traceChatTimeline({
+            conversationId,
+            event: 'older-page-transaction-complete',
+            mode: 'latest',
+            cursor,
+            source: 'remote',
+            transactionId,
+            count: sortedLocalPage.length,
+            details: { remoteCount: 0 },
           })
-          .catch((error) => {
-            console.warn('[Messages] Failed to sync older messages page', error)
-          })
+          return sortedLocalPage
+        }
+
+        const refreshedLocalPage = await getLocalMessagesPage({
+          conversation: conversation ?? null,
+          conversationId,
+          currentUser: currentUser ?? null,
+          cursor,
+          limit: MESSAGE_PAGE_LIMIT,
+        })
+        const authoritativePage =
+          refreshedLocalPage.length > 0
+            ? sortMessagesNewestFirst(dedupeMessages(refreshedLocalPage))
+            : sortMessagesNewestFirst(dedupeMessages([...localPage, ...remotePage]))
+
+        traceChatTimeline({
+          conversationId,
+          event: 'older-page-transaction-complete',
+          mode: 'latest',
+          cursor,
+          source: 'remote',
+          transactionId,
+          count: authoritativePage.length,
+          details: {
+            localCount: localPage.length,
+            remoteCount: remotePage.length,
+          },
+        })
+
+        return authoritativePage
+      } catch (error) {
+        console.warn('[Messages] Failed to sync older messages page; using local page', error)
+        traceChatTimeline({
+          conversationId,
+          event: 'older-page-remote-fallback',
+          mode: 'latest',
+          cursor,
+          source: 'local',
+          trigger: 'retry',
+          transactionId,
+          count: sortedLocalPage.length,
+        })
+        return sortedLocalPage
       }
-
-      return sortMessagesNewestFirst(localPage)
     }
 
     if (isCursorAtExhaustedOlderBoundary(cursor, latestSyncRange)) {
@@ -618,7 +682,7 @@ export function useMessages(conversationId: string) {
   const currentUser = useAuthStore((state) => state.user)
   const { isNetworkResolved, isOnline } = useNetworkStatus()
   const [latestSyncRange, setLatestSyncRange] = useState<MessageSyncRangeSnapshot | null>(null)
-  const failedOlderCursorRef = useRef<string | null>(null)
+  const olderFetchInFlightRef = useRef(false)
   const needsLatestSyncOnEntryRef = useRef(true)
   const wasOnlineRef = useRef(isOnline)
 
@@ -656,13 +720,9 @@ export function useMessages(conversationId: string) {
   )
 
   const hasLoadedMessagePages = Boolean(query.data?.pages.length)
-  const nextOlderCursor = useMemo(
-    () => getNextOlderCursorFromPages(query.data?.pages),
-    [query.data?.pages],
-  )
 
   useEffect(() => {
-    failedOlderCursorRef.current = null
+    olderFetchInFlightRef.current = false
     needsLatestSyncOnEntryRef.current = true
   }, [conversationId])
 
@@ -689,14 +749,7 @@ export function useMessages(conversationId: string) {
   }, [conversationId])
 
   useEffect(() => {
-    if (failedOlderCursorRef.current && failedOlderCursorRef.current !== nextOlderCursor) {
-      failedOlderCursorRef.current = null
-    }
-  }, [nextOlderCursor])
-
-  useEffect(() => {
     if (!wasOnlineRef.current && isOnline) {
-      failedOlderCursorRef.current = null
       needsLatestSyncOnEntryRef.current = true
     }
 
@@ -739,7 +792,6 @@ export function useMessages(conversationId: string) {
           queryClient,
         })
 
-        failedOlderCursorRef.current = null
         needsLatestSyncOnEntryRef.current = false
       } catch (error) {
         console.warn('[Messages] Failed to sync latest messages', error)
@@ -766,29 +818,46 @@ export function useMessages(conversationId: string) {
 
   const fetchNextPage = useCallback(
     (...args: Parameters<typeof query.fetchNextPage>) => {
-      const cursor = getNextOlderCursorFromPages(query.data?.pages)
-
-      if (cursor && failedOlderCursorRef.current === cursor) {
+      if (olderFetchInFlightRef.current) {
+        traceChatTimeline({
+          conversationId,
+          event: 'older-page-duplicate-trigger-suppressed',
+          mode: 'latest',
+          cursor: getNextOlderCursorFromPages(query.data?.pages),
+          source: 'ui',
+          trigger: 'edge',
+        })
         return Promise.resolve(query as Awaited<ReturnType<typeof query.fetchNextPage>>)
       }
 
-      return query
-        .fetchNextPage(...args)
-        .then((result) => {
-          if (result.isError) {
-            failedOlderCursorRef.current = cursor
-            return result
-          }
+      const cursor = getNextOlderCursorFromPages(query.data?.pages)
+      const transactionId = createChatTimelineTransactionId('latest-fetch-next')
+      olderFetchInFlightRef.current = true
 
-          failedOlderCursorRef.current = null
-          return result
+      traceChatTimeline({
+        conversationId,
+        event: 'older-page-fetch-requested',
+        mode: 'latest',
+        cursor,
+        source: 'ui',
+        trigger: 'edge',
+        transactionId,
+      })
+
+      return query.fetchNextPage(...args).finally(() => {
+        olderFetchInFlightRef.current = false
+        traceChatTimeline({
+          conversationId,
+          event: 'older-page-fetch-settled',
+          mode: 'latest',
+          cursor,
+          source: 'ui',
+          trigger: 'edge',
+          transactionId,
         })
-        .catch((error) => {
-          failedOlderCursorRef.current = cursor
-          throw error
-        })
+      })
     },
-    [query],
+    [conversationId, query],
   )
 
   return useMemo(
