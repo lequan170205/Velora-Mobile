@@ -87,14 +87,54 @@ export const isSameMessageIdentity = (left?: MessageLike | null, right?: Message
 
 export const mergeMessageCollectionByIdentity = <T extends MessageLike>(messages: T[]) => {
   const mergedMessages: T[] = []
+  const identityTokensByIndex: Set<string>[] = []
+  const indicesByIdentityToken = new Map<string, Set<number>>()
+
+  const registerIdentityToken = (token: string, index: number) => {
+    const existingIndices = indicesByIdentityToken.get(token)
+    if (existingIndices) {
+      existingIndices.add(index)
+      return
+    }
+
+    indicesByIdentityToken.set(token, new Set([index]))
+  }
+
+  const unregisterIdentityToken = (token: string, index: number) => {
+    const existingIndices = indicesByIdentityToken.get(token)
+    if (!existingIndices) {
+      return
+    }
+
+    existingIndices.delete(index)
+    if (existingIndices.size === 0) {
+      indicesByIdentityToken.delete(token)
+    }
+  }
 
   for (const message of messages) {
-    const existingIndex = mergedMessages.findIndex((candidate) =>
-      isSameMessageIdentity(candidate, message),
-    )
+    const incomingTokens = getMessageIdentityTokens(message)
+    let existingIndex: number | undefined
 
-    if (existingIndex === -1) {
+    for (const token of incomingTokens) {
+      const candidateIndices = indicesByIdentityToken.get(token)
+      if (!candidateIndices) {
+        continue
+      }
+
+      for (const candidateIndex of candidateIndices) {
+        if (existingIndex === undefined || candidateIndex < existingIndex) {
+          existingIndex = candidateIndex
+        }
+      }
+    }
+
+    if (existingIndex === undefined) {
+      const nextIndex = mergedMessages.length
+      const nextTokens = new Set(incomingTokens)
       mergedMessages.push(message)
+      identityTokensByIndex.push(nextTokens)
+      nextTokens.forEach((token) => registerIdentityToken(token, nextIndex))
       continue
     }
 
@@ -103,7 +143,23 @@ export const mergeMessageCollectionByIdentity = <T extends MessageLike>(messages
       continue
     }
 
-    mergedMessages[existingIndex] = mergeMessageRecords(existingMessage, message)
+    const mergedMessage = mergeMessageRecords(existingMessage, message)
+    const previousTokens = identityTokensByIndex[existingIndex] ?? new Set<string>()
+    const nextTokens = new Set(getMessageIdentityTokens(mergedMessage))
+
+    previousTokens.forEach((token) => {
+      if (!nextTokens.has(token)) {
+        unregisterIdentityToken(token, existingIndex)
+      }
+    })
+    nextTokens.forEach((token) => {
+      if (!previousTokens.has(token)) {
+        registerIdentityToken(token, existingIndex)
+      }
+    })
+
+    mergedMessages[existingIndex] = mergedMessage
+    identityTokensByIndex[existingIndex] = nextTokens
   }
 
   return mergedMessages
@@ -221,6 +277,10 @@ export const mergeMessageMetadata = (
     incoming && Object.prototype.hasOwnProperty.call(incoming, 'kind')
       ? incoming.kind
       : existing?.kind
+  const citations =
+    incoming && Object.prototype.hasOwnProperty.call(incoming, 'citations')
+      ? incoming.citations
+      : existing?.citations
   const recommendedReels =
     incoming && Object.prototype.hasOwnProperty.call(incoming, 'recommendedReels')
       ? incoming.recommendedReels
@@ -230,12 +290,18 @@ export const mergeMessageMetadata = (
       ? incoming.suggestedQueries
       : existing?.suggestedQueries
 
-  if (!kind && recommendedReels === undefined && suggestedQueries === undefined) {
+  if (
+    !kind &&
+    citations === undefined &&
+    recommendedReels === undefined &&
+    suggestedQueries === undefined
+  ) {
     return undefined
   }
 
   return {
     ...(kind ? { kind } : {}),
+    ...(citations !== undefined ? { citations } : {}),
     ...(recommendedReels !== undefined ? { recommendedReels } : {}),
     ...(suggestedQueries !== undefined ? { suggestedQueries } : {}),
   }
