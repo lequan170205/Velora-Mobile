@@ -487,7 +487,7 @@ const MessageBubbleComponent = function MessageBubble({
   onOpenContextMenu,
   onOpenMedia,
 }: MessageBubbleProps) {
-  const CONTEXT_MENU_LONG_PRESS_DELAY_MS = 140
+  const CONTEXT_MENU_LONG_PRESS_DELAY_MS = 350
   const router = useRouter()
   const { width: screenWidth } = useWindowDimensions()
   const currentUserId = useAuthStore((state) => state.user?.id ?? null)
