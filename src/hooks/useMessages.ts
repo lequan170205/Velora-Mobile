@@ -88,7 +88,7 @@ const getMessageCreatedAtMs = (message: Message) => {
 
 const sortMessagesNewestFirst = (messages: Message[]) => {
   return [...messages].sort((left, right) => {
-    const delta = getMessageCreatedAtMs(right) - getMessageCreatedAtMs(left)
+    const delta = getMessageCreatedAtMs(right.createdAt) - getMessageCreatedAtMs(left.createdAt)
 
     if (delta !== 0) {
       return delta
@@ -126,13 +126,6 @@ const getOldestMessage = (messages: Message[]) => {
 
     return currentId.localeCompare(oldestId) < 0 ? current : oldest
   }, messages[0])
-}
-
-const getNextOlderCursorFromPages = (pages?: Message[][]) => {
-  const lastPage = pages?.[pages.length - 1]
-  if (!lastPage || lastPage.length === 0) return null
-
-  return getOldestMessage(lastPage)?.id ?? null
 }
 
 const isBoundaryOlderThan = (
@@ -618,7 +611,6 @@ export function useMessages(conversationId: string) {
   const currentUser = useAuthStore((state) => state.user)
   const { isNetworkResolved, isOnline } = useNetworkStatus()
   const [latestSyncRange, setLatestSyncRange] = useState<MessageSyncRangeSnapshot | null>(null)
-  const failedOlderCursorRef = useRef<string | null>(null)
   const needsLatestSyncOnEntryRef = useRef(true)
   const wasOnlineRef = useRef(isOnline)
 
@@ -656,13 +648,8 @@ export function useMessages(conversationId: string) {
   )
 
   const hasLoadedMessagePages = Boolean(query.data?.pages.length)
-  const nextOlderCursor = useMemo(
-    () => getNextOlderCursorFromPages(query.data?.pages),
-    [query.data?.pages],
-  )
 
   useEffect(() => {
-    failedOlderCursorRef.current = null
     needsLatestSyncOnEntryRef.current = true
   }, [conversationId])
 
@@ -689,14 +676,7 @@ export function useMessages(conversationId: string) {
   }, [conversationId])
 
   useEffect(() => {
-    if (failedOlderCursorRef.current && failedOlderCursorRef.current !== nextOlderCursor) {
-      failedOlderCursorRef.current = null
-    }
-  }, [nextOlderCursor])
-
-  useEffect(() => {
     if (!wasOnlineRef.current && isOnline) {
-      failedOlderCursorRef.current = null
       needsLatestSyncOnEntryRef.current = true
     }
 
@@ -739,7 +719,6 @@ export function useMessages(conversationId: string) {
           queryClient,
         })
 
-        failedOlderCursorRef.current = null
         needsLatestSyncOnEntryRef.current = false
       } catch (error) {
         console.warn('[Messages] Failed to sync latest messages', error)
@@ -764,40 +743,7 @@ export function useMessages(conversationId: string) {
     queryClient,
   ])
 
-  const fetchNextPage = useCallback(
-    (...args: Parameters<typeof query.fetchNextPage>) => {
-      const cursor = getNextOlderCursorFromPages(query.data?.pages)
-
-      if (cursor && failedOlderCursorRef.current === cursor) {
-        return Promise.resolve(query as Awaited<ReturnType<typeof query.fetchNextPage>>)
-      }
-
-      return query
-        .fetchNextPage(...args)
-        .then((result) => {
-          if (result.isError) {
-            failedOlderCursorRef.current = cursor
-            return result
-          }
-
-          failedOlderCursorRef.current = null
-          return result
-        })
-        .catch((error) => {
-          failedOlderCursorRef.current = cursor
-          throw error
-        })
-    },
-    [query],
-  )
-
-  return useMemo(
-    () => ({
-      ...query,
-      fetchNextPage,
-    }),
-    [fetchNextPage, query],
-  )
+  return query
 }
 
 export function useSendMessage(conversationId: string) {
