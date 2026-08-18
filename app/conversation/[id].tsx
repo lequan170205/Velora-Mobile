@@ -1092,6 +1092,17 @@ export default function ChatScreen() {
     listRef.current?.scrollToOffset({ offset: 0, animated })
   }, [])
 
+  const scrollToBottomForNewestMessage = useCallback(() => {
+    if (Platform.OS === 'android') {
+      requestAnimationFrame(() => {
+        scrollToBottom()
+      })
+      return
+    }
+
+    scrollToBottom()
+  }, [scrollToBottom])
+
   const handleComposerFocusChange = useCallback(
     (focused: boolean) => {
       isComposerFocusedRef.current = focused
@@ -1202,7 +1213,7 @@ export default function ChatScreen() {
           const nextScrollMode = pendingOwnSendBottomScrollRef.current
           pendingOwnSendBottomScrollRef.current = 'none'
           if (nextScrollMode === 'animated') {
-            scrollToBottom()
+            scrollToBottomForNewestMessage()
           }
           if (newestBelongsToPendingOwnMediaBatch && pendingOwnMediaBatchScrollTransaction) {
             pendingOwnMediaBatchScrollTransaction.initialScrollConsumed = true
@@ -1223,7 +1234,7 @@ export default function ChatScreen() {
             clearPendingOwnMediaBatchScrollTransaction(pendingOwnMediaBatchId)
           }
         } else {
-          scrollToBottom()
+          scrollToBottomForNewestMessage()
         }
       }
     }
@@ -1232,7 +1243,7 @@ export default function ChatScreen() {
     newestClientMessageId,
     newestMessageId,
     newestSenderId,
-    scrollToBottom,
+    scrollToBottomForNewestMessage,
     timelineMode,
     user?.id,
     clearPendingOwnMediaBatchScrollTransaction,
