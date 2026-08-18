@@ -147,25 +147,6 @@ const isBoundaryOlderThan = (
   return candidate.endMessageId.localeCompare(existing.endMessageId) < 0
 }
 
-const isCursorAtExhaustedOlderBoundary = (
-  cursor: string | undefined,
-  latestSyncRange?: MessageSyncRangeSnapshot | null,
-) => {
-  if (!cursor || !latestSyncRange?.remoteExhaustedOlder) {
-    return false
-  }
-
-  if (latestSyncRange.endMessageId) {
-    return cursor === latestSyncRange.endMessageId
-  }
-
-  if (latestSyncRange.lastCursor) {
-    return cursor === latestSyncRange.lastCursor
-  }
-
-  return true
-}
-
 const writeLatestRemoteSyncRangeMetadata = async ({
   conversationId,
   cursor,
@@ -327,10 +308,6 @@ export const getMessagesInfiniteQueryOptions = ({
       }
 
       return sortMessagesNewestFirst(localPage)
-    }
-
-    if (isCursorAtExhaustedOlderBoundary(cursor, latestSyncRange)) {
-      return []
     }
 
     if (!isNetworkResolved) {
