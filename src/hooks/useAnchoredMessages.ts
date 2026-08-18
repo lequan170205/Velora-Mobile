@@ -21,6 +21,7 @@ import {
   type MessageSyncRangeBoundary,
   type MessageSyncRangeSnapshot,
 } from '../database/messageSyncRangeRepository'
+import { createChatTimelineTransactionId, traceChatTimeline } from '../lib/chatTimelineDiagnostics'
 import { mergeMessageCollectionsNewestFirst } from '../lib/messageListState'
 import { useNetworkStatus } from '../providers/NetworkProvider'
 import { useAuthStore } from '../stores/authStore'
@@ -663,7 +664,7 @@ export function useAnchoredMessages({
   )
 
   const loadAnchorOlder = useCallback(
-    async (_trigger: AnchorLoadTrigger = 'edge') => {
+    async (trigger: AnchorLoadTrigger = 'edge') => {
       const anchorTargetId = activeAnchorTargetId
       if (!anchorTargetId) {
         return
@@ -678,17 +679,21 @@ export function useAnchoredMessages({
       }
 
       const cursor = currentState.oldestCursor
-      const guardKey = getAnchorCursorGuardKey({
-        anchorTargetId,
-        conversationId,
-        cursor,
-        direction: 'older',
-      })
+      const transactionId = createChatTimelineTransactionId('anchor-older')
       olderAbortControllerRef.current?.abort()
       const controller = new AbortController()
       olderAbortControllerRef.current = controller
 
       updateCurrentAnchorState((current) => ({ ...current, isFetchingOlder: true }))
+      traceChatTimeline({
+        conversationId,
+        event: 'anchor-older-transaction-start',
+        mode: 'anchor',
+        cursor,
+        source: 'ui',
+        trigger,
+        transactionId,
+      })
 
       const localPage = await getLocalMessagesOlderThanCursor({
         conversation: conversation ?? null,
@@ -698,107 +703,42 @@ export function useAnchoredMessages({
         limit: DEFAULT_ANCHOR_EXPANSION_LIMIT,
       })
 
-      if (localPage.messages.length > 0) {
+      if (controller.signal.aborted || activeAnchorTargetIdRef.current !== anchorTargetId) {
+        return
+      }
+
+      traceChatTimeline({
+        conversationId,
+        event: 'anchor-older-local-ready',
+        mode: 'anchor',
+        cursor,
+        source: 'local',
+        trigger,
+        transactionId,
+        count: localPage.messages.length,
+      })
+
+      if (!canFetchRemote) {
         updateCurrentAnchorState((current) => {
           if (current.targetMessageId !== anchorTargetId || current.oldestCursor !== cursor) {
             return current
           }
 
           const { oldestCursor: _oldestCursor, ...rest } = current
-          const metadata = getMergedCursorMetadata({
-            currentCursor: current.oldestCursor,
-            currentHasMore: current.hasOlder,
-            localHasMore: localPage.hasMore,
-            localNextCursor: localPage.nextCursor,
-            remoteHasMore: undefined,
-            remoteNextCursor: undefined,
-            shouldUseRemote: false,
-          })
-
           return {
             ...rest,
             messages: mergeMessageCollectionsNewestFirst(current.messages, localPage.messages),
-            hasOlder: metadata.hasMore,
-            ...(metadata.nextCursor ? { oldestCursor: metadata.nextCursor } : {}),
+            hasOlder: localPage.hasMore,
+            ...(localPage.nextCursor ? { oldestCursor: localPage.nextCursor } : {}),
             isFetchingOlder: false,
           }
         })
-
-        if (!canFetchRemote || failedAnchorCursorGuardRef.current.has(guardKey)) {
-          return
-        }
-
-        void conversationApi
-          .getMessagesAnchorOlder(conversationId, {
-            cursor,
-            limit: DEFAULT_ANCHOR_EXPANSION_LIMIT,
-            signal: controller.signal,
-          })
-          .then(async (response) => {
-            await upsertRemoteMessages({
-              conversation: conversation ?? null,
-              currentUser: currentUser ?? null,
-              messages: response.messages,
-            })
-
-            updateActiveAnchorSyncRangeFromWrite(
-              anchorTargetId,
-              writeAnchorOlderSyncRangeMetadata({
-                anchorTargetId,
-                conversationId,
-                response,
-              }),
-            )
-
-            failedAnchorCursorGuardRef.current.delete(guardKey)
-
-            if (activeAnchorTargetIdRef.current !== anchorTargetId) {
-              return
-            }
-
-            updateCurrentAnchorState((current) => {
-              if (current.targetMessageId !== anchorTargetId) {
-                return current
-              }
-
-              const { oldestCursor: _oldestCursor, ...rest } = current
-              const shouldUpdateCursor = current.oldestCursor === localPage.nextCursor
-              const metadata = getMergedCursorMetadata({
-                currentCursor: current.oldestCursor,
-                currentHasMore: current.hasOlder,
-                localHasMore: localPage.hasMore,
-                localNextCursor: localPage.nextCursor,
-                remoteHasMore: response.hasMore,
-                remoteNextCursor: response.nextCursor,
-                shouldUseRemote: shouldUpdateCursor,
-              })
-              const mergedMessages = mergeMessageCollectionsNewestFirst(
-                current.messages,
-                response.messages,
-              )
-
-              return {
-                ...rest,
-                messages: mergedMessages,
-                hasOlder: metadata.hasMore,
-                ...(metadata.nextCursor ? { oldestCursor: metadata.nextCursor } : {}),
-                isFetchingOlder: false,
-              }
-            })
-          })
-          .catch((error) => {
-            if ((error as Error).name === 'CanceledError' || controller.signal.aborted) {
-              return
-            }
-
-            failedAnchorCursorGuardRef.current.add(guardKey)
-          })
-
         return
       }
 
       const activeAnchorSyncRange = activeAnchorSyncRangeRef.current
       if (
+        localPage.messages.length === 0 &&
         activeAnchorSyncRange?.anchorTargetId === anchorTargetId &&
         activeAnchorSyncRange.remoteExhaustedOlder
       ) {
@@ -813,11 +753,6 @@ export function useAnchoredMessages({
             isFetchingOlder: false,
           }
         })
-        return
-      }
-
-      if (!canFetchRemote || failedAnchorCursorGuardRef.current.has(guardKey)) {
-        updateCurrentAnchorState((current) => ({ ...current, isFetchingOlder: false }))
         return
       }
 
@@ -843,18 +778,20 @@ export function useAnchoredMessages({
           }),
         )
 
+        if (controller.signal.aborted || activeAnchorTargetIdRef.current !== anchorTargetId) {
+          return
+        }
+
         updateCurrentAnchorState((current) => {
-          if (current.targetMessageId !== anchorTargetId) {
+          if (current.targetMessageId !== anchorTargetId || current.oldestCursor !== cursor) {
             return current
           }
 
           const { oldestCursor: _oldestCursor, ...rest } = current
           const mergedMessages = mergeMessageCollectionsNewestFirst(
-            current.messages,
+            mergeMessageCollectionsNewestFirst(current.messages, localPage.messages),
             response.messages,
           )
-
-          failedAnchorCursorGuardRef.current.delete(guardKey)
 
           return {
             ...rest,
@@ -864,13 +801,46 @@ export function useAnchoredMessages({
             isFetchingOlder: false,
           }
         })
+
+        traceChatTimeline({
+          conversationId,
+          event: 'anchor-older-transaction-complete',
+          mode: 'anchor',
+          cursor,
+          source: 'remote',
+          trigger,
+          transactionId,
+          count: response.messages.length,
+          details: { localCount: localPage.messages.length, hasMore: response.hasMore },
+        })
       } catch (error) {
         if ((error as Error).name === 'CanceledError' || controller.signal.aborted) {
           return
         }
 
-        failedAnchorCursorGuardRef.current.add(guardKey)
-        updateCurrentAnchorState((current) => ({ ...current, isFetchingOlder: false }))
+        updateCurrentAnchorState((current) => {
+          if (current.targetMessageId !== anchorTargetId || current.oldestCursor !== cursor) {
+            return current
+          }
+
+          return {
+            ...current,
+            messages: mergeMessageCollectionsNewestFirst(current.messages, localPage.messages),
+            hasOlder: true,
+            isFetchingOlder: false,
+          }
+        })
+
+        traceChatTimeline({
+          conversationId,
+          event: 'anchor-older-remote-fallback',
+          mode: 'anchor',
+          cursor,
+          source: 'local',
+          trigger: 'retry',
+          transactionId,
+          count: localPage.messages.length,
+        })
       }
     },
     [
