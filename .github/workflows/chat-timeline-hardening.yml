@@ -1,4 +1,4 @@
-name: Chat timeline hardening
+name: Validate chat timeline hardening
 
 on:
   push:
@@ -6,7 +6,8 @@ on:
       - fix/chat-timeline-scroll-stability
     paths:
       - .github/workflows/chat-timeline-hardening.yml
-      - scripts/apply-chat-timeline-hardening.cjs
+      - src/hooks/useMessages.ts
+      - src/hooks/useAnchoredMessages.ts
       - src/lib/chatTimelineDiagnostics.ts
       - tests/chat-timeline-characterization.test.cjs
       - docs/CHAT_TIMELINE_HARDENING.md
@@ -15,7 +16,7 @@ permissions:
   contents: write
 
 jobs:
-  harden:
+  validate:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -34,9 +35,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Apply guarded production patch
-        run: node scripts/apply-chat-timeline-hardening.cjs
-
       - name: Run repository tests
         run: npm test
 
@@ -46,19 +44,26 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Remove temporary patch automation
+      - name: Record validation success and remove temporary automation
         run: |
-          rm scripts/apply-chat-timeline-hardening.cjs
-          rm .github/workflows/chat-timeline-hardening.yml
+          cat > docs/CHAT_TIMELINE_VALIDATION.md <<'EOF'
+          # Chat Timeline Validation
 
-      - name: Commit validated hardening changes
+          Automated validation passed on the `fix/chat-timeline-scroll-stability` branch.
+
+          - `npm test`: passed
+          - `npm run type-check`: passed
+          - `npm run lint`: passed
+
+          The production hardening keeps the existing inverted FlashList architecture while making latest older pagination retryable/authoritative and anchor older pagination a single local+remote transaction.
+          EOF
+          rm -f scripts/apply-chat-timeline-hardening.cjs
+          rm -f .github/workflows/chat-timeline-hardening.yml
+
+      - name: Commit validation marker
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
-          git commit -m "fix: harden chat timeline pagination and scroll stability"
+          git commit -m "test: validate chat timeline hardening"
           git push origin HEAD:fix/chat-timeline-scroll-stability
