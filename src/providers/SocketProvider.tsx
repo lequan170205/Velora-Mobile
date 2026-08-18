@@ -1258,7 +1258,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       if (!isOwnMessage || !isPendingEcho) {
         upsertMessageQuery(message)
         patchConversationAnchoredMessagesInCache(queryClient, conversationId, (candidate) =>
-          isSameMessageIdentity(candidate, message) ? mergeMessageRecords(candidate, message) : candidate,
+          isSameMessageIdentity(candidate, message)
+            ? mergeMessageRecords(candidate, message)
+            : candidate,
         )
       } else {
         patchExistingMessageAcrossConversationCaches(queryClient, message)
