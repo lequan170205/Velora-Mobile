@@ -77,11 +77,33 @@ export interface Reel extends Partial<ReelMediaState> {
   recommendation?: RecommendationMetadata
 }
 
+export interface ReelTranscriptSegment {
+  id?: number
+  start: number
+  end: number
+  text: string
+  [key: string]: unknown
+}
+
+export interface ReelSection {
+  id: string
+  ordinal: number
+  title?: string
+  description?: string
+  derivedSummary?: string
+  tags?: string[]
+  startTime: number
+  endTime: number
+}
+
 export type ReelFeedListItem = Reel
 
 export interface ReelDetail extends Reel {
   description?: string
   transcript?: string
+  transcriptVtt?: string
+  transcriptSegments?: ReelTranscriptSegment[]
+  sections?: ReelSection[]
 }
 
 export interface ListReelsParams {
