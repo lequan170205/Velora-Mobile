@@ -4,8 +4,7 @@ const test = require('node:test')
 
 const { loadTypeScriptModule } = require('./chat-timeline-test-utils.cjs')
 
-const messageMetadataPath = path.resolve(__dirname, '../src/lib/messageMetadata.ts')
-const messageIdentityPath = path.resolve(__dirname, '../src/lib/messageIdentity.ts')
+const recyclingPath = path.resolve(__dirname, '../src/lib/messageBubbleRecycling.ts')
 
 const citationA = {
   sourceType: 'REEL',
@@ -17,71 +16,22 @@ const citationA = {
   quote: 'Large windows face the garden.',
 }
 
-const citationB = {
-  sourceType: 'REEL',
-  reelId: 'reel-2',
-  evidenceType: 'VISUAL',
-  title: 'Kitchen view',
-  startTime: 30,
-  endTime: 34,
-  quote: 'The island has four seats.',
-}
+test('ordinary message bubbles share one recycling key instead of keying by message id', () => {
+  const { getMessageBubbleRecyclingKey } = loadTypeScriptModule({ filename: recyclingPath })
 
-test('citation equality is semantic so recycled bubbles update only when citation content changes', () => {
-  const { areAiRagCitationsEqual } = loadTypeScriptModule({ filename: messageMetadataPath })
-
-  assert.equal(areAiRagCitationsEqual([citationA], [{ ...citationA }]), true)
-  assert.equal(areAiRagCitationsEqual([citationA], [{ ...citationA, quote: 'Changed evidence' }]), false)
-  assert.equal(areAiRagCitationsEqual([citationA], [citationA, citationB]), false)
-  assert.equal(areAiRagCitationsEqual(undefined, undefined), true)
-  assert.equal(areAiRagCitationsEqual(undefined, []), false)
+  assert.equal(getMessageBubbleRecyclingKey(undefined), 'default')
+  assert.equal(getMessageBubbleRecyclingKey([]), 'default')
 })
 
-test('message metadata merge preserves existing citations when an incoming record omits citations', () => {
-  const { mergeMessageMetadata } = loadTypeScriptModule({
-    filename: messageIdentityPath,
-    mocks: {
-      './replyPreview': {
-        mergeReplyPreview: (existing, incoming) => incoming ?? existing,
-      },
-    },
-  })
+test('citation-only metadata changes still produce a different recycling key', () => {
+  const { getMessageBubbleRecyclingKey } = loadTypeScriptModule({ filename: recyclingPath })
 
-  const merged = mergeMessageMetadata(
-    {
-      kind: 'velora_ai_response',
-      citations: [citationA],
-    },
-    {
-      kind: 'velora_ai_response',
-      suggestedQueries: ['Show similar reels'],
-    },
-  )
+  const firstKey = getMessageBubbleRecyclingKey([citationA])
+  const sameContentKey = getMessageBubbleRecyclingKey([{ ...citationA }])
+  const changedContentKey = getMessageBubbleRecyclingKey([
+    { ...citationA, quote: 'Updated evidence' },
+  ])
 
-  assert.deepEqual(merged.citations, [citationA])
-  assert.deepEqual(merged.suggestedQueries, ['Show similar reels'])
-})
-
-test('message metadata merge accepts an explicit incoming citation replacement', () => {
-  const { mergeMessageMetadata } = loadTypeScriptModule({
-    filename: messageIdentityPath,
-    mocks: {
-      './replyPreview': {
-        mergeReplyPreview: (existing, incoming) => incoming ?? existing,
-      },
-    },
-  })
-
-  const merged = mergeMessageMetadata(
-    {
-      kind: 'velora_ai_response',
-      citations: [citationA],
-    },
-    {
-      kind: 'velora_ai_response',
-      citations: [citationB],
-    },
-  )
-
-  assert.deepEqual(merged.citations, [citationB])
+  assert.equal(firstKey, sameContentKey)
+  assert.notEqual(firstKey, changedContentKey)
 })
