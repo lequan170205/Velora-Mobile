@@ -15,6 +15,7 @@ import {
   upsertRemoteMessage,
 } from '../database/messageSync'
 import {
+  patchConversationAnchoredMessagesInCache,
   patchConversationMessageCollectionsInCache,
   patchExistingMessageAcrossConversationCaches,
   patchMessagesAcrossConversationCaches,
@@ -1256,9 +1257,12 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
       if (!isOwnMessage || !isPendingEcho) {
         upsertMessageQuery(message)
+        patchConversationAnchoredMessagesInCache(queryClient, conversationId, (candidate) =>
+          isSameMessageIdentity(candidate, message) ? mergeMessageRecords(candidate, message) : candidate,
+        )
+      } else {
+        patchExistingMessageAcrossConversationCaches(queryClient, message)
       }
-
-      patchExistingMessageAcrossConversationCaches(queryClient, message)
 
       if (!isOwnMessage) {
         return
