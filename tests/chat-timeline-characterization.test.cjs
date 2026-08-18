@@ -6,31 +6,49 @@ const test = require('node:test')
 const root = path.resolve(__dirname, '..')
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8')
 
-test('latest timeline remains local-first with background remote refresh until hardening changes it intentionally', () => {
+test('latest older pagination treats local plus remote work as one fetch transaction', () => {
   const source = read('src/hooks/useMessages.ts')
 
-  assert.match(source, /const localPage = await getLocalMessagesPage\(/)
-  assert.match(source, /if \(localPage\.length > 0\)/)
-  assert.match(source, /void syncMessagesPageToLocalStore\(/)
-  assert.match(source, /return sortMessagesNewestFirst\(localPage\)/)
-  assert.match(source, /pages\[pageIndex\] = localPage/)
+  assert.match(source, /older-page-transaction-start/)
+  assert.match(source, /const remotePage = await syncMessagesPageToLocalStore\(/)
+  assert.match(source, /const authoritativePage =/)
+  assert.match(source, /return authoritativePage/)
 })
 
-test('latest timeline currently contains an explicit failed older cursor guard', () => {
+test('latest older pagination suppresses only concurrent work and remains retryable after failure', () => {
   const source = read('src/hooks/useMessages.ts')
 
-  assert.match(source, /const failedOlderCursorRef = useRef<string \| null>\(null\)/)
-  assert.match(source, /failedOlderCursorRef\.current === cursor/)
-  assert.match(source, /failedOlderCursorRef\.current = cursor/)
+  assert.match(source, /const olderFetchInFlightRef = useRef\(false\)/)
+  assert.match(source, /olderFetchInFlightRef\.current = true/)
+  assert.match(source, /olderFetchInFlightRef\.current = false/)
+  assert.doesNotMatch(source, /failedOlderCursorRef/)
 })
 
-test('anchor timeline currently owns older work with an abort controller and cursor failure guard', () => {
+test('anchor older pagination keeps one authoritative transaction until remote reconciliation settles', () => {
   const source = read('src/hooks/useAnchoredMessages.ts')
+  const olderBlock = source.slice(
+    source.indexOf('const loadAnchorOlder = useCallback('),
+    source.indexOf('const loadAnchorNewer = useCallback('),
+  )
 
-  assert.match(source, /const olderAbortControllerRef = useRef<AbortController \| null>\(null\)/)
-  assert.match(source, /const failedAnchorCursorGuardRef = useRef<Set<string>>\(new Set\(\)\)/)
-  assert.match(source, /olderAbortControllerRef\.current\?\.abort\(\)/)
-  assert.match(source, /failedAnchorCursorGuardRef\.current\.has\(guardKey\)/)
+  assert.match(olderBlock, /isFetchingOlder: true/)
+  assert.match(olderBlock, /await conversationApi\.getMessagesAnchorOlder/)
+  assert.match(olderBlock, /current\.oldestCursor !== cursor/)
+  assert.match(olderBlock, /hasOlder: true/)
+  assert.doesNotMatch(olderBlock, /failedAnchorCursorGuardRef/)
+})
+
+test('anchor older remote failure keeps the original cursor retryable', () => {
+  const source = read('src/hooks/useAnchoredMessages.ts')
+  const olderBlock = source.slice(
+    source.indexOf('const loadAnchorOlder = useCallback('),
+    source.indexOf('const loadAnchorNewer = useCallback('),
+  )
+  const catchBlock = olderBlock.slice(olderBlock.lastIndexOf('} catch (error)'))
+
+  assert.match(catchBlock, /hasOlder: true/)
+  assert.match(catchBlock, /isFetchingOlder: false/)
+  assert.doesNotMatch(catchBlock, /oldestCursor: localPage\.nextCursor/)
 })
 
 test('ChatScreen keeps current inverted FlashList semantics during hardening', () => {
@@ -58,4 +76,11 @@ test('message ordering remains canonical newest-first before the inverted list r
   assert.match(source, /sortMessagesCanonicalNewestFirst/)
   assert.match(source, /getMessageCreatedAtMs\(right\.createdAt\) - getMessageCreatedAtMs\(left\.createdAt\)/)
   assert.match(source, /mergeMessageCollectionByIdentity/)
+})
+
+test('timeline diagnostics never log message content by contract', () => {
+  const source = read('src/lib/chatTimelineDiagnostics.ts')
+
+  assert.match(source, /Intentionally never include message content/)
+  assert.doesNotMatch(source, /content:/)
 })
