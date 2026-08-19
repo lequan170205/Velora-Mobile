@@ -1,7 +1,10 @@
+import { Q } from '@nozbe/watermelondb'
+
 import type { Collection, Model } from '@nozbe/watermelondb'
 
 import { database } from './DatabaseManager'
 import { type MessageModel } from './models/MessageModel'
+import { type MessageSyncRangeModel } from './models/MessageSyncRangeModel'
 import { TABLES } from './schema'
 
 import type { ConversationModel } from './models/ConversationModel'
@@ -251,8 +254,12 @@ export const ensureConversationBootstrap = async ({
     await existingConversation.update((record) => {
       record.creatorId = creatorId
       record.participantIds = participantIds
-      record.name = toNullableString(conversation?.name) ?? record.name
-      record.picture = toNullableString(conversation?.picture ?? null) ?? record.picture
+      record.name =
+        conversation?.name !== undefined ? toNullableString(conversation.name) : record.name
+      record.picture =
+        conversation?.picture !== undefined
+          ? toNullableString(conversation.picture)
+          : record.picture
       record.isGroup = conversation?.isGroup ?? record.isGroup
       record.lastMessage = toNullableString(conversation?.lastMessage ?? null) ?? record.lastMessage
       record.lastMessageAt = lastMessageAt || record.lastMessageAt
@@ -263,6 +270,52 @@ export const ensureConversationBootstrap = async ({
 
     return existingConversation
   })
+}
+
+export const removeConversationLocalData = async (conversationId: string) => {
+  const conversationsCollection = database.get<ConversationModel>(TABLES.conversations)
+  const messagesCollection = database.get<MessageModel>(TABLES.messages)
+  const syncRangesCollection = database.get<MessageSyncRangeModel>(TABLES.messageSyncRanges)
+  const [conversation, messages, syncRanges] = await Promise.all([
+    findRecordById(conversationsCollection, conversationId),
+    messagesCollection.query(Q.where('conversation_id', conversationId)).fetch(),
+    syncRangesCollection.query(Q.where('conversation_id', conversationId)).fetch(),
+  ])
+
+  if (!conversation && messages.length === 0 && syncRanges.length === 0) {
+    return
+  }
+
+  await database.write(async () => {
+    const operations = [
+      ...messages.map((message) => message.prepareDestroyPermanently()),
+      ...syncRanges.map((range) => range.prepareDestroyPermanently()),
+      ...(conversation ? [conversation.prepareDestroyPermanently()] : []),
+    ]
+
+    if (operations.length > 0) {
+      await database.batch(...operations)
+    }
+  })
+}
+
+export const reconcileConversationSnapshot = async ({
+  conversations,
+}: {
+  conversations: Conversation[]
+}) => {
+  const remoteConversationIds = new Set(conversations.map((conversation) => conversation.id))
+  const localConversations = await database
+    .get<ConversationModel>(TABLES.conversations)
+    .query()
+    .fetch()
+  const staleConversationIds = localConversations
+    .map((conversation) => conversation.id)
+    .filter((conversationId) => !remoteConversationIds.has(conversationId))
+
+  for (const conversationId of staleConversationIds) {
+    await removeConversationLocalData(conversationId)
+  }
 }
 
 const getMessageSender = ({
