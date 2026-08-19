@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - fix/chat-realtime-regressions
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
