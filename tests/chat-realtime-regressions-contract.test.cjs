@@ -35,3 +35,15 @@ test('account-room activity applies canonical metadata and unread in one cache u
     /if \(conversationOverride\) \{\s*applyConversation\(conversationOverride\)/,
   )
 })
+
+test('message activity increments from cache instead of replaying the REST unread snapshot', () => {
+  assert.match(
+    socketProvider,
+    /const \{ unreadCount: _snapshotUnreadCount, \.\.\.conversationWithoutUnreadCount \}\s*=\s*conversation/,
+  )
+  assert.match(
+    socketProvider,
+    /const conversationActivityPatch = incrementUnread\s*\? conversationWithoutUnreadCount\s*:\s*conversation/,
+  )
+  assert.match(socketProvider, /\.\.\.conversationActivityPatch/)
+})

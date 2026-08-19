@@ -1068,9 +1068,16 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           conversation,
           incrementUnread,
         })
+
+        const { unreadCount: _snapshotUnreadCount, ...conversationWithoutUnreadCount } =
+          conversation
+        const conversationActivityPatch = incrementUnread
+          ? conversationWithoutUnreadCount
+          : conversation
+
         upsertConversationSummary(
           {
-            ...conversation,
+            ...conversationActivityPatch,
             lastMessage: message.content ?? null,
             lastMessageAt: message.createdAt || new Date().toISOString(),
             updatedAt: message.updatedAt || message.createdAt || new Date().toISOString(),
@@ -1556,6 +1563,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           flushingOfflineConversationIdsRef.current.delete(message.conversationId)
           clearOfflineMessageAckTimeout(message.clientMessageId)
           store.confirmMessage(message.clientMessageId, message)
+          store.removeOptimisticSortAnchors(message.conversationId, [message.clientMessageId])
           store.dequeueOfflineMessage(message.clientMessageId)
           flushOfflineQueueRef.current(newSocket)
         } else {

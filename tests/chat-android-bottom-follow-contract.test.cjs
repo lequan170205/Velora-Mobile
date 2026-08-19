@@ -4,6 +4,8 @@ const path = require('node:path')
 const test = require('node:test')
 
 const chatScreenPath = path.resolve(__dirname, '../app/conversation/[id].tsx')
+const messagesHookPath = path.resolve(__dirname, '../src/hooks/useMessages.ts')
+const socketProviderPath = path.resolve(__dirname, '../src/providers/SocketProvider.tsx')
 const readSource = () => fs.readFileSync(chatScreenPath, 'utf8')
 
 const getBlock = (source, startMarker, endMarker) => {
@@ -65,4 +67,32 @@ test('both optimistic outgoing and incoming newest-message paths use the platfor
   const calls = effect.match(/scrollToBottomForNewestMessage\(\)/g) ?? []
   assert.equal(calls.length, 2)
   assert.doesNotMatch(effect, /nextScrollMode === 'animated'\) \{\s*scrollToBottom\(\)/)
+})
+
+test('text optimistic messages anchor to the latest persisted server frontier', () => {
+  const source = fs.readFileSync(messagesHookPath, 'utf8')
+
+  assert.match(source, /const getLatestPersistedServerFrontier =/)
+  assert.match(source, /optimisticSortAnchors\[conversationId\] \?\? \{\}/)
+  assert.match(source, /getNextOptimisticSequenceForFrontier/)
+  assert.match(
+    source,
+    /addOptimisticMessages\(conversationId, \[tempMessage\], \{[\s\S]*frontierCreatedAtMs:[\s\S]*frontierMessageId:[\s\S]*sequence: nextSequence/,
+  )
+  assert.doesNotMatch(source, /addOptimisticMessage\(conversationId, tempMessage\)/)
+})
+
+test('server sync releases the text optimistic ordering anchor after confirmation', () => {
+  const source = fs.readFileSync(socketProviderPath, 'utf8')
+  const syncStart = source.indexOf("newSocket.on('message_synced'")
+  const syncEnd = source.indexOf("newSocket.on(\n      'message_failed'", syncStart)
+  const syncBlock = source.slice(syncStart, syncEnd)
+
+  assert.notEqual(syncStart, -1)
+  assert.notEqual(syncEnd, -1)
+  assert.match(syncBlock, /store\.confirmMessage\(message\.clientMessageId, message\)/)
+  assert.match(
+    syncBlock,
+    /store\.removeOptimisticSortAnchors\(message\.conversationId, \[message\.clientMessageId\]\)/,
+  )
 })

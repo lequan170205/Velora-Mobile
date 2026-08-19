@@ -31,6 +31,7 @@ import { useSocket } from '../providers/SocketProvider'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
 
+import type { OptimisticSortAnchor } from '../stores/chatStore'
 import type { Conversation, Message } from '../types/conversation.types'
 
 const ensureClientMessageId = (variables: { clientMessageId?: string }) => {
@@ -238,6 +239,63 @@ const getCachedConversation = (
 
   return conversations.find((conversation) => conversation.id === conversationId) ?? null
 }
+
+const getLatestPersistedServerFrontier = ({
+  conversation,
+  conversationId,
+  queryClient,
+}: {
+  conversation?: Conversation | null
+  conversationId: string
+  queryClient: QueryClient
+}) => {
+  const cachedMessages = queryClient.getQueryData<InfiniteData<Message[]> | Message[] | undefined>(
+    queryKeys.conversations.messages(conversationId),
+  )
+  const flattenedMessages = Array.isArray(cachedMessages)
+    ? cachedMessages
+    : (cachedMessages?.pages?.flat() ?? [])
+  const latestPersistedMessage =
+    sortMessagesNewestFirst(
+      flattenedMessages.filter((message) => Boolean(message.id) && !message.id.startsWith('temp-')),
+    )[0] ?? null
+
+  if (latestPersistedMessage?.id) {
+    return {
+      frontierCreatedAtMs: getMessageCreatedAtMs(latestPersistedMessage),
+      frontierMessageId: latestPersistedMessage.id,
+    }
+  }
+
+  const fallbackCreatedAtMs = Date.parse(
+    conversation?.lastMessageAt ?? conversation?.updatedAt ?? conversation?.createdAt ?? '',
+  )
+
+  return {
+    frontierCreatedAtMs: Number.isFinite(fallbackCreatedAtMs) ? fallbackCreatedAtMs : 0,
+    frontierMessageId: null,
+  }
+}
+
+const getNextOptimisticSequenceForFrontier = ({
+  anchorsByMessageId,
+  frontierCreatedAtMs,
+  frontierMessageId,
+}: {
+  anchorsByMessageId: Record<string, OptimisticSortAnchor>
+  frontierCreatedAtMs: number
+  frontierMessageId: string | null
+}) =>
+  Object.values(anchorsByMessageId).reduce((maxSequence, anchor) => {
+    if (
+      anchor.frontierCreatedAtMs !== frontierCreatedAtMs ||
+      (anchor.frontierMessageId ?? null) !== frontierMessageId
+    ) {
+      return maxSequence
+    }
+
+    return Math.max(maxSequence, anchor.sequence)
+  }, 0)
 
 type MessagesQueryOptionsInput = {
   conversation?: Conversation | null
@@ -699,7 +757,7 @@ export function useMessages(conversationId: string) {
 export function useSendMessage(conversationId: string) {
   const { socket } = useSocket()
   const { isNetworkResolved, isOnline } = useNetworkStatus()
-  const { addOptimisticMessage, enqueueOfflineMessage, markMessageFailed, replyToMessage } =
+  const { addOptimisticMessages, enqueueOfflineMessage, markMessageFailed, replyToMessage } =
     useChatStore()
   const { user } = useAuthStore()
   const queryClient = useQueryClient()
@@ -805,7 +863,27 @@ export function useSendMessage(conversationId: string) {
         ...(replyPreview && { replyPreview }),
       }
 
-      addOptimisticMessage(conversationId, tempMessage)
+      const existingSortAnchors =
+        useChatStore.getState().optimisticSortAnchors[conversationId] ?? {}
+      const frontier = getLatestPersistedServerFrontier({
+        conversation: currentConversation,
+        conversationId,
+        queryClient,
+      })
+      const nextSequence =
+        getNextOptimisticSequenceForFrontier({
+          anchorsByMessageId: existingSortAnchors,
+          frontierCreatedAtMs: frontier.frontierCreatedAtMs,
+          frontierMessageId: frontier.frontierMessageId,
+        }) + 1
+
+      addOptimisticMessages(conversationId, [tempMessage], {
+        [tempId]: {
+          frontierCreatedAtMs: frontier.frontierCreatedAtMs,
+          frontierMessageId: frontier.frontierMessageId,
+          sequence: nextSequence,
+        },
+      })
 
       if (type === 'text' && !media) {
         void createPendingTextMessage({
