@@ -31,7 +31,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Apply patch
-        run: python scripts/patch-chat-realtime-regressions-v2.py
+        run: |
+          python scripts/patch-chat-realtime-regressions-v2.py
+          python scripts/fix-chat-realtime-regressions-v2-test.py
       - name: Format changed files
         run: |
           pnpm exec prettier --write \
