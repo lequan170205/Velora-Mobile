@@ -21,14 +21,16 @@ replaceOnce(
 )
 
 const socketFile = 'src/providers/SocketProvider.tsx'
-let socketSource = fs.readFileSync(socketFile, 'utf8')
-const callFragment = `            conversationId,\n            currentUserId,\n            messageId,`
-const callMatches = socketSource.split(callFragment).length - 1
-if (callMatches !== 2) {
-  throw new Error(`Expected exactly 2 applyReadReceiptUpdate currentUserId fragments, found ${callMatches}`)
-}
-socketSource = socketSource.split(callFragment).join(`            conversationId,\n            messageId,`)
-fs.writeFileSync(socketFile, socketSource)
+replaceOnce(
+  socketFile,
+  `            conversationId,\n            currentUserId,\n            messageId,`,
+  `            conversationId,\n            messageId,`,
+)
+replaceOnce(
+  socketFile,
+  `          conversationId,\n          currentUserId,\n          messageId,`,
+  `          conversationId,\n          messageId,`,
+)
 
 const testFile = 'tests/chat-realtime-regressions-contract.test.cjs'
 let testSource = fs.readFileSync(testFile, 'utf8')
@@ -38,5 +40,7 @@ if (!testSource.includes("const messageSync = fs.readFileSync")) {
     `const socketProvider = fs.readFileSync(path.join(root, 'src/providers/SocketProvider.tsx'), 'utf8')\nconst messageSync = fs.readFileSync(path.join(root, 'src/database/messageSync.ts'), 'utf8')`,
   )
 }
-testSource += `\n\ntest('read receipt persistence mirrors the group frontier across every other author', () => {\n  const start = messageSync.indexOf('export const applyReadReceiptUpdate')\n  const block = messageSync.slice(start)\n\n  assert.notEqual(start, -1)\n  assert.match(block, /Q\\.where\\('sender_id', Q\\.notEq\\(readByUserId\\)\\)/)\n  assert.doesNotMatch(block, /Q\\.where\\('sender_id', currentUserId\\)/)\n})\n`
+if (!testSource.includes("read receipt persistence mirrors the group frontier across every other author")) {
+  testSource += `\n\ntest('read receipt persistence mirrors the group frontier across every other author', () => {\n  const start = messageSync.indexOf('export const applyReadReceiptUpdate')\n  const block = messageSync.slice(start)\n\n  assert.notEqual(start, -1)\n  assert.match(block, /Q\\.where\\('sender_id', Q\\.notEq\\(readByUserId\\)\\)/)\n  assert.doesNotMatch(block, /Q\\.where\\('sender_id', currentUserId\\)/)\n})\n`
+}
 fs.writeFileSync(testFile, testSource)
