@@ -1,0 +1,65 @@
+name: Chat Realtime Regressions V2
+
+on:
+  push:
+    branches:
+      - fix/chat-realtime-regressions
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/chat-realtime-regressions
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Apply patch
+        run: python scripts/patch-chat-realtime-regressions-v2.py
+      - name: Format changed files
+        run: |
+          pnpm exec prettier --write \
+            src/providers/SocketProvider.tsx \
+            src/hooks/useMessages.ts \
+            tests/chat-realtime-regressions-contract.test.cjs \
+            tests/chat-android-bottom-follow-contract.test.cjs
+      - name: Verify regression contracts
+        run: |
+          node --test \
+            tests/chat-realtime-regressions-contract.test.cjs \
+            tests/chat-android-bottom-follow-contract.test.cjs \
+            tests/group-chat-ui-contract.test.cjs \
+            tests/group-chat-data-plumbing-contract.test.cjs \
+            tests/group-chat-integration-hardening-contract.test.cjs
+      - name: Verify typecheck and lint
+        run: |
+          pnpm type-check
+          pnpm exec eslint \
+            src/providers/SocketProvider.tsx \
+            src/hooks/useMessages.ts \
+            app/conversation/'[id].tsx'
+          git diff --check
+      - name: Publish product patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/providers/SocketProvider.tsx \
+            src/hooks/useMessages.ts \
+            tests/chat-realtime-regressions-contract.test.cjs \
+            tests/chat-android-bottom-follow-contract.test.cjs
+          git commit -m "fix(chat): correct unread increments and optimistic text ordering"
+          git push origin HEAD:fix/chat-realtime-regressions
