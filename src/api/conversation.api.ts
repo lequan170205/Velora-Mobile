@@ -212,6 +212,10 @@ export const conversationApi = {
   removeMember: async (id: string, userId: string) => {
     await apiClient.delete(`/conversations/${id}/members/${userId}`)
   },
+  transferOwnership: async (id: string, data: { userId: string }) => {
+    const response = await apiClient.patch<Conversation>(`/conversations/${id}/owner`, data)
+    return response.data
+  },
   leave: async (id: string) => {
     const response = await apiClient.post<Conversation>(`/conversations/${id}/leave`)
     return response.data

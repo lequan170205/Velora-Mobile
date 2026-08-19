@@ -104,6 +104,18 @@ export default function GroupInfoScreen() {
       ),
   })
 
+  const transferOwnership = useMutation({
+    mutationFn: (userId: string) => conversationApi.transferOwnership(conversationId, { userId }),
+    onSuccess: (nextConversation) => {
+      applyConversation(nextConversation)
+    },
+    onError: (error) =>
+      Alert.alert(
+        'Unable to transfer ownership',
+        error instanceof Error ? error.message : 'Please try again.',
+      ),
+  })
+
   const leaveGroup = useMutation({
     mutationFn: () => conversationApi.leave(conversationId),
     onSuccess: () => {
@@ -195,6 +207,24 @@ export default function GroupInfoScreen() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: () => removeMember.mutate(member.userId) },
     ])
+  }
+
+  const confirmTransferOwnership = (member: ConversationMember) => {
+    const participant = participantById.get(member.userId)
+    const name =
+      participant?.name || participant?.fullName || participant?.email || member.user.email
+
+    Alert.alert(
+      'Transfer ownership?',
+      `${name} will become the group owner. You will stay in the group as a regular member.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Transfer',
+          onPress: () => transferOwnership.mutate(member.userId),
+        },
+      ],
+    )
   }
 
   const confirmLeave = () => {
@@ -358,6 +388,7 @@ export default function GroupInfoScreen() {
                 member.user.email
               const picture = participant?.picture || member.user.picture || undefined
               const memberIsOwner = member.userId === conversation.creatorId
+              const canTransferOwnership = isOwner && !memberIsOwner
               const canRemove = isOwner && !memberIsOwner && memberCount > 2
 
               return (
@@ -389,6 +420,17 @@ export default function GroupInfoScreen() {
                       {member.user.email}
                     </AppText>
                   </View>
+                  {canTransferOwnership ? (
+                    <SafeTouchableOpacity
+                      className="mr-2 h-9 w-9 items-center justify-center rounded-full bg-surface-input"
+                      disabled={transferOwnership.isPending}
+                      onPress={() => confirmTransferOwnership(member)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Transfer ownership to ${displayName}`}
+                    >
+                      <MaterialIcons name="swap-horiz" size={19} color="#161616" />
+                    </SafeTouchableOpacity>
+                  ) : null}
                   {canRemove ? (
                     <SafeTouchableOpacity
                       className="h-9 w-9 items-center justify-center rounded-full bg-surface-input"
@@ -412,7 +454,7 @@ export default function GroupInfoScreen() {
                 You own this group
               </AppText>
               <AppText className="mt-1 text-xs2 leading-5 text-text-muted">
-                Ownership transfer is not available yet, so the owner cannot leave the group.
+                Transfer ownership to another member before leaving the group.
               </AppText>
             </View>
           ) : (
