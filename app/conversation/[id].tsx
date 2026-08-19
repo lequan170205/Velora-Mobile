@@ -1419,7 +1419,7 @@ export default function ChatScreen() {
       )
 
       groupParticipants.forEach((participant) => {
-        const participantReadMessage =
+        const newestReadOutgoingMessage =
           orderedMessages.find((message) => {
             if (message.senderId !== user.id || !Array.isArray(message.readBy)) {
               return false
@@ -1427,13 +1427,28 @@ export default function ChatScreen() {
 
             return message.readBy.some((entry) => entry.userId === participant.id)
           }) ?? null
-        const receiptIdentityKey = getMessageIdentityKey(participantReadMessage)
+        const newestParticipantMessage =
+          orderedMessages.find((message) => message.senderId === participant.id) ?? null
+        const newestReadOutgoingIndex = newestReadOutgoingMessage
+          ? orderedMessages.indexOf(newestReadOutgoingMessage)
+          : -1
+        const newestParticipantMessageIndex = newestParticipantMessage
+          ? orderedMessages.indexOf(newestParticipantMessage)
+          : -1
+        const shouldAnchorToParticipantActivity =
+          newestParticipantMessageIndex >= 0 &&
+          (newestReadOutgoingIndex === -1 ||
+            newestParticipantMessageIndex < newestReadOutgoingIndex)
+        const receiptAnchorMessage = shouldAnchorToParticipantActivity
+          ? newestParticipantMessage
+          : newestReadOutgoingMessage
+        const receiptIdentityKey = getMessageIdentityKey(receiptAnchorMessage)
 
-        if (!participantReadMessage || !receiptIdentityKey) {
+        if (!receiptAnchorMessage || !receiptIdentityKey) {
           return
         }
 
-        const receiptIndex = orderedMessages.indexOf(participantReadMessage)
+        const receiptIndex = orderedMessages.indexOf(receiptAnchorMessage)
         const existingParticipants = readReceiptMap.get(receiptIdentityKey) ?? []
         readReceiptMap.set(receiptIdentityKey, [...existingParticipants, participant])
         newestReadReceiptAnchorIndex =
@@ -1636,18 +1651,18 @@ export default function ChatScreen() {
       setIsNearBottom(true)
       isScrollButtonVisible.value = false
 
-      sendMessage({
-        content: text,
-        ...(replyTo?.id ? { replyToId: replyTo.id } : {}),
-        ...(replyTo ? { replyToMessage: replyTo } : {}),
-      })
-
       if (timelineMode === 'anchor') {
         pendingOwnSendBottomScrollRef.current = 'animated'
         void returnToLatestTimeline(false)
       } else {
         pendingOwnSendBottomScrollRef.current = 'animated'
       }
+
+      sendMessage({
+        content: text,
+        ...(replyTo?.id ? { replyToId: replyTo.id } : {}),
+        ...(replyTo ? { replyToMessage: replyTo } : {}),
+      })
 
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current)
@@ -2301,6 +2316,7 @@ export default function ChatScreen() {
                     }
                     showsVerticalScrollIndicator={false}
                     removeClippedSubviews={false}
+                    maintainVisibleContentPosition={{ disabled: Platform.OS === 'android' }}
                   />
                   <Animated.View
                     pointerEvents="box-none"

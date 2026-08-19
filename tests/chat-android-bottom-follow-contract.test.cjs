@@ -27,10 +27,31 @@ test('newest-message bottom follow defers exactly one frame on Android and stays
   assert.match(helper, /Platform\.OS === 'android'/)
   assert.match(helper, /requestAnimationFrame\(\(\) => \{\s*scrollToBottom\(\)\s*\}\)/)
   assert.match(helper, /return\s*\}\s*scrollToBottom\(\)/)
-  assert.doesNotMatch(
-    helper,
-    /requestAnimationFrame\(\(\) => \{\s*requestAnimationFrame/,
+  assert.doesNotMatch(helper, /requestAnimationFrame\(\(\) => \{\s*requestAnimationFrame/)
+})
+
+test('Android disables FlashList automatic visible-position retention so manual chat scrolling owns inserts', () => {
+  const source = readSource()
+
+  assert.match(
+    source,
+    /maintainVisibleContentPosition=\{\{ disabled: Platform\.OS === 'android' \}\}/,
   )
+})
+
+test('text send arms the own-message scroll transaction before optimistic mutation', () => {
+  const source = readSource()
+  const sendBlock = getBlock(
+    source,
+    'const handleSendText = useCallback',
+    'const handleSendSuggestedQuery',
+  )
+  const scrollIntentIndex = sendBlock.indexOf("pendingOwnSendBottomScrollRef.current = 'animated'")
+  const sendMutationIndex = sendBlock.indexOf('sendMessage({')
+
+  assert.notEqual(scrollIntentIndex, -1)
+  assert.notEqual(sendMutationIndex, -1)
+  assert.ok(scrollIntentIndex < sendMutationIndex)
 })
 
 test('both optimistic outgoing and incoming newest-message paths use the platform-aware follow helper', () => {

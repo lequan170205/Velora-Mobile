@@ -28,6 +28,7 @@ import {
 } from '../lib/chatMessageCache'
 import {
   getMessageAnchorIdentityKey,
+  getMessageIdentityKey,
   isMessageBeyondOptimisticReadFrontier,
   isSameMessageIdentity,
   mergeMessageRecords,
@@ -1029,7 +1030,39 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       return request
     }
 
-    const syncConversationForMessage = (message: Message, incrementUnread: boolean) => {
+    const processedConversationActivityKeys = new Set<string>()
+    const processedConversationActivityOrder: string[] = []
+    const MAX_PROCESSED_CONVERSATION_ACTIVITY_KEYS = 512
+
+    const shouldIncrementUnreadForMessageActivity = (message: Message) => {
+      const identityKey = getMessageIdentityKey(message)
+      if (!identityKey) {
+        return true
+      }
+
+      const activityKey = `${message.conversationId}:${identityKey}`
+      if (processedConversationActivityKeys.has(activityKey)) {
+        return false
+      }
+
+      processedConversationActivityKeys.add(activityKey)
+      processedConversationActivityOrder.push(activityKey)
+
+      if (processedConversationActivityOrder.length > MAX_PROCESSED_CONVERSATION_ACTIVITY_KEYS) {
+        const oldestActivityKey = processedConversationActivityOrder.shift()
+        if (oldestActivityKey) {
+          processedConversationActivityKeys.delete(oldestActivityKey)
+        }
+      }
+
+      return true
+    }
+
+    const syncConversationForMessage = (
+      message: Message,
+      incrementUnread: boolean,
+      conversationOverride?: Conversation,
+    ) => {
       const applyConversation = (conversation: Conversation) => {
         persistSocketMessage(message, {
           conversation,
@@ -1044,6 +1077,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           },
           { allowPlaceholder: true, incrementUnread },
         )
+      }
+
+      if (conversationOverride) {
+        applyConversation(conversationOverride)
+        return
       }
 
       const cachedConversation = getCachedConversation(message.conversationId)
@@ -1356,7 +1394,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         reconcileStreamingBotMessage(message)
       }
 
-      syncConversationForMessage(message, !isOwnMessage)
+      const shouldIncrementUnread =
+        !isOwnMessage && shouldIncrementUnreadForMessageActivity(message)
+      syncConversationForMessage(message, shouldIncrementUnread)
 
       if (!isOwnMessage || !isPendingEcho) {
         upsertMessageQuery(message)
@@ -1379,6 +1419,30 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
       reconcileOptimisticMessage(message)
     })
+
+    newSocket.on(
+      'conversation_message_activity',
+      (payload: { conversation?: Conversation; message?: Message }) => {
+        const conversation = payload?.conversation
+        const incomingMessage = payload?.message
+        const currentUser = useAuthStore.getState().user
+
+        if (
+          !conversation?.id ||
+          !incomingMessage?.conversationId ||
+          conversation.id !== incomingMessage.conversationId ||
+          incomingMessage.senderId === currentUser?.id ||
+          removedConversationIds.has(conversation.id)
+        ) {
+          return
+        }
+
+        persistConversationMetadata(conversation)
+
+        const shouldIncrementUnread = shouldIncrementUnreadForMessageActivity(incomingMessage)
+        syncConversationForMessage(incomingMessage, shouldIncrementUnread, conversation)
+      },
+    )
 
     newSocket.on('conversation_updated', (conversation: Conversation) => {
       if (!conversation?.id || removedConversationIds.has(conversation.id)) return
