@@ -30,6 +30,7 @@ interface ChatState {
   replyToMessage: Message | null // Currently replying to message
   seenMessages: Record<string, Set<string>> // conversationId -> Set<messageId> da duoc read
   botConversationIds: Set<string> // Conversation IDs that belong to bot chats
+  revokedConversationIds: Set<string> // Session-only tombstones for revoked conversation access
 
   addOptimisticMessage: (conversationId: string, message: Message) => void
   addOptimisticMessages: (
@@ -65,6 +66,9 @@ interface ChatState {
   setReplyToMessage: (message: Message | null) => void
   markAsBotConversation: (conversationId: string) => void
   isBotConversation: (conversationId: string) => boolean
+  markConversationRevoked: (conversationId: string) => void
+  clearConversationRevoked: (conversationId: string) => void
+  isConversationRevoked: (conversationId: string) => boolean
   clearConversationState: (conversationId: string) => void
   clearCache: () => void
 }
@@ -127,6 +131,7 @@ export const useChatStore = create<ChatState>()(
       replyToMessage: null,
       seenMessages: {},
       botConversationIds: new Set(),
+      revokedConversationIds: new Set(),
 
       setMessageAsSeen: (conversationId, messageId) =>
         set((state) => {
@@ -483,6 +488,28 @@ export const useChatStore = create<ChatState>()(
         return get().botConversationIds.has(conversationId)
       },
 
+      markConversationRevoked: (conversationId) =>
+        set((state) => {
+          const revokedConversationIds = new Set(state.revokedConversationIds)
+          revokedConversationIds.add(conversationId)
+          return { revokedConversationIds }
+        }),
+
+      clearConversationRevoked: (conversationId) =>
+        set((state) => {
+          if (!state.revokedConversationIds.has(conversationId)) {
+            return state
+          }
+
+          const revokedConversationIds = new Set(state.revokedConversationIds)
+          revokedConversationIds.delete(conversationId)
+          return { revokedConversationIds }
+        }),
+
+      isConversationRevoked: (conversationId) => {
+        return get().revokedConversationIds.has(conversationId)
+      },
+
       clearConversationState: (conversationId) =>
         set((state) => {
           const optimisticMessages = { ...state.optimisticMessages }
@@ -518,6 +545,7 @@ export const useChatStore = create<ChatState>()(
           offlineQueue: [],
           replyToMessage: null,
           seenMessages: {},
+          revokedConversationIds: new Set(),
           // Keep botConversationIds because they are stable.
         }))
         await AsyncStorage.removeItem('chat-storage')

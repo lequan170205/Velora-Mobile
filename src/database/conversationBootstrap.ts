@@ -299,23 +299,10 @@ export const removeConversationLocalData = async (conversationId: string) => {
   })
 }
 
-export const reconcileConversationSnapshot = async ({
-  conversations,
-}: {
-  conversations: Conversation[]
-}) => {
-  const remoteConversationIds = new Set(conversations.map((conversation) => conversation.id))
-  const localConversations = await database
-    .get<ConversationModel>(TABLES.conversations)
-    .query()
-    .fetch()
-  const staleConversationIds = localConversations
-    .map((conversation) => conversation.id)
-    .filter((conversationId) => !remoteConversationIds.has(conversationId))
+export const getLocalConversationIds = async (): Promise<string[]> => {
+  const conversations = await database.get<ConversationModel>(TABLES.conversations).query().fetch()
 
-  for (const conversationId of staleConversationIds) {
-    await removeConversationLocalData(conversationId)
-  }
+  return conversations.map((conversation) => conversation.id).filter(Boolean)
 }
 
 const getMessageSender = ({

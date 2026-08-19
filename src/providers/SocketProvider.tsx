@@ -9,6 +9,7 @@ import { conversationApi } from '../api/conversation.api'
 import { queryKeys } from '../constants/queryKeys'
 import {
   ensureConversationBootstrap,
+  getLocalConversationIds,
   removeConversationLocalData,
 } from '../database/conversationBootstrap'
 import { getPendingTextMessagesForRetry } from '../database/messageRepository'
@@ -654,6 +655,14 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           ? cachedConversations.map((conversation) => conversation.id)
           : [],
       )
+
+      void getLocalConversationIds()
+        .then((conversationIds) => {
+          joinConversationRooms(conversationIds)
+        })
+        .catch((error) => {
+          console.warn('[Socket] Failed to restore local conversation rooms', error)
+        })
 
       flushOfflineQueueWhenReady(newSocket)
     })
@@ -1384,6 +1393,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     newSocket.on('conversation_created', (conversation: Conversation) => {
       if (!conversation?.id) return
       removedConversationIds.delete(conversation.id)
+      useChatStore.getState().clearConversationRevoked(conversation.id)
       upsertCreatedConversation(conversation)
       queryClient.setQueryData(queryKeys.conversations.detail(conversation.id), conversation)
       persistConversationMetadata(conversation)
@@ -1402,6 +1412,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         flushingOfflineConversationIdsRef.current.delete(conversationId)
 
         const store = useChatStore.getState()
+        store.markConversationRevoked(conversationId)
         const queuedMessageIds = store.offlineQueue
           .filter((message) => message.conversationId === conversationId)
           .map((message) => message.id)
@@ -1418,7 +1429,13 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
               ? oldData.filter((conversation) => conversation.id !== conversationId)
               : oldData,
         )
-        queryClient.removeQueries({ queryKey: queryKeys.conversations.detail(conversationId) })
+        void queryClient
+          .cancelQueries({ queryKey: queryKeys.conversations.detail(conversationId) })
+          .finally(() => {
+            queryClient.removeQueries({
+              queryKey: queryKeys.conversations.detail(conversationId),
+            })
+          })
 
         void removeConversationLocalData(conversationId).catch((error) => {
           console.warn('[Socket] Failed to remove revoked conversation from local database', error)

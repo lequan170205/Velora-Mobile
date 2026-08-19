@@ -38,18 +38,15 @@ test('group lifecycle events persist, join, and revoke conversation state', () =
   )
 })
 
-test('local persistence deletes revoked message history and reconciles missed removals from authoritative snapshots', () => {
+test('local persistence deletes revoked history without treating a paginated list as a deletion snapshot', () => {
   assert.match(bootstrap, /export const removeConversationLocalData/)
   assert.match(bootstrap, /TABLES\.messages/)
   assert.match(bootstrap, /TABLES\.messageSyncRanges/)
   assert.match(bootstrap, /prepareDestroyPermanently/)
-  assert.match(bootstrap, /export const reconcileConversationSnapshot/)
-  assert.doesNotMatch(
-    bootstrap,
-    /reconcileConversationSnapshot[\s\S]*ensureConversationBootstrap\(/,
-  )
+  assert.match(bootstrap, /export const getLocalConversationIds/)
+  assert.doesNotMatch(bootstrap, /export const reconcileConversationSnapshot/)
   assert.match(bootstrap, /conversation\?\.picture !== undefined/)
-  assert.match(useConversations, /reconcileConversationSnapshot/)
+  assert.doesNotMatch(useConversations, /reconcileConversationSnapshot/)
 })
 
 test('conversation scoped Zustand state is fully cleared on membership revocation', () => {

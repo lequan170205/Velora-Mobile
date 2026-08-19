@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Alert, Image, ScrollView, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
@@ -9,8 +9,10 @@ import { conversationApi } from '../../../src/api/conversation.api'
 import { AppPressable, AppText, AppTextInput } from '../../../src/components/base'
 import { SafeTouchableOpacity } from '../../../src/components/common/SafeTouchableOpacity'
 import { queryKeys } from '../../../src/constants/queryKeys'
+import { removeConversationLocalData } from '../../../src/database/conversationBootstrap'
 import { useFriends } from '../../../src/hooks/useFriends'
 import { useAuthStore } from '../../../src/stores/authStore'
+import { useChatStore } from '../../../src/stores/chatStore'
 
 import type { Conversation, ConversationMember } from '../../../src/types/conversation.types'
 import type { FriendSummary } from '../../../src/types/friend.types'
@@ -24,6 +26,9 @@ export default function GroupInfoScreen() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const currentUserId = useAuthStore((state) => state.user?.id)
+  const isConversationRevoked = useChatStore((state) =>
+    state.revokedConversationIds.has(conversationId),
+  )
   const cachedConversation = queryClient
     .getQueryData<Conversation[] | undefined>(queryKeys.conversations.all)
     ?.find((item) => item.id === conversationId)
@@ -102,14 +107,22 @@ export default function GroupInfoScreen() {
   const leaveGroup = useMutation({
     mutationFn: () => conversationApi.leave(conversationId),
     onSuccess: () => {
+      const store = useChatStore.getState()
+      store.markConversationRevoked(conversationId)
+      store.clearConversationState(conversationId)
       queryClient.setQueryData<Conversation[] | undefined>(
         queryKeys.conversations.all,
         (oldData) =>
           Array.isArray(oldData) ? oldData.filter((item) => item.id !== conversationId) : oldData,
       )
-      queryClient.removeQueries({ queryKey: queryKeys.conversations.detail(conversationId) })
-      queryClient.removeQueries({ queryKey: queryKeys.conversations.members(conversationId) })
-      queryClient.removeQueries({ queryKey: queryKeys.conversations.messages(conversationId) })
+      void queryClient
+        .cancelQueries({ queryKey: queryKeys.conversations.detail(conversationId) })
+        .finally(() => {
+          queryClient.removeQueries({ queryKey: queryKeys.conversations.detail(conversationId) })
+        })
+      void removeConversationLocalData(conversationId).catch((error) => {
+        console.warn('[GroupInfo] Failed to clear local conversation after leaving', error)
+      })
       router.replace('/')
     },
     onError: (error) =>
@@ -131,6 +144,16 @@ export default function GroupInfoScreen() {
     () => friends.filter((friend) => !memberIds.has(friend.user.id)),
     [friends, memberIds],
   )
+
+  useEffect(() => {
+    if (isConversationRevoked) {
+      router.replace('/')
+    }
+  }, [isConversationRevoked, router])
+
+  if (isConversationRevoked) {
+    return <SafeAreaView className="flex-1 bg-bg-primary" />
+  }
 
   if (isConversationLoading || !conversation) {
     return (
@@ -394,12 +417,15 @@ export default function GroupInfoScreen() {
             </View>
           ) : (
             <AppPressable
-              className="items-center rounded-[18px] border border-[#F2C8C2] bg-[#FFF4F1] px-4 py-3.5"
-              disabled={leaveGroup.isPending}
+              className="items-center rounded-[18px] border border-border-light bg-surface-card px-4 py-3.5"
+              disabled={leaveGroup.isPending || memberCount <= 2}
               onPress={confirmLeave}
-              activeOpacity={0.8}
             >
-              <AppText className="font-semibold text-[#C23C2C]">Leave group</AppText>
+              {leaveGroup.isPending ? (
+                <ActivityIndicator color="#D84A3A" />
+              ) : (
+                <AppText className="font-semibold text-[#D84A3A]">Leave group</AppText>
+              )}
             </AppPressable>
           )}
         </View>
