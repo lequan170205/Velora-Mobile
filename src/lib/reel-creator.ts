@@ -77,7 +77,8 @@ export const getCreatorVideoOrientation = (
 
 export const getCreatorPreviewContentFit = (
   asset: Pick<StoredAsset, 'width' | 'height'> | null,
-): ReelContentFit => getCreatorVideoOrientation(asset) === 'PORTRAIT' ? 'cover' : 'contain'
+): ReelContentFit =>
+  getCreatorVideoOrientation(asset) === 'PORTRAIT' ? 'cover' : 'contain'
 
 export const getOrientationMessage = (asset: StoredAsset | null) => {
   const orientation = getCreatorVideoOrientation(asset)
