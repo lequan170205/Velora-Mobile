@@ -1,5 +1,7 @@
+import { MaterialIcons } from '@expo/vector-icons'
 import { useIsFocused } from '@react-navigation/native'
 import { useQueryClient } from '@tanstack/react-query'
+import { useRouter } from 'expo-router'
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, AppState, FlatList, Image, ScrollView, View } from 'react-native'
 import Animated, { FadeInDown } from 'react-native-reanimated'
@@ -58,6 +60,7 @@ function useMatches(conversations: Conversation[] | undefined): MatchSummary[] {
 
 export default function ConversationsScreen() {
   const queryClient = useQueryClient()
+  const router = useRouter()
   const isFocused = useIsFocused()
   const { data: conversations, isLoading, isError, refetch } = useConversations()
   const { isConnected, requestPresence } = useSocket()
@@ -257,10 +260,22 @@ export default function ConversationsScreen() {
         contentContainerStyle={{ paddingBottom: 120 }}
         ListHeaderComponent={
           <View className="pb-2">
-            <Animated.View entering={SECTION_ENTERING} className="px-5 pt-2">
+            <Animated.View
+              entering={SECTION_ENTERING}
+              className="flex-row items-center justify-between px-5 pt-2"
+            >
               <AppText className="text-[20px] font-bold tracking-[-0.6px] text-brand-dark">
                 VELORA
               </AppText>
+              <SafeTouchableOpacity
+                className="h-10 w-10 items-center justify-center rounded-full bg-surface-input"
+                onPress={() => router.push('/conversation/new-group')}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel="Create group chat"
+              >
+                <MaterialIcons name="group-add" size={21} color="#161616" />
+              </SafeTouchableOpacity>
             </Animated.View>
 
             {matches.length > 0 ? (

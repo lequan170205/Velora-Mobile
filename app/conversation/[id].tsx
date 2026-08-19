@@ -276,7 +276,7 @@ const Dot = ({ delay }: { delay: number }) => {
   return <Animated.View style={style} className="w-1 h-1 bg-text-muted rounded-full mx-[1px]" />
 }
 
-const TypingIndicator = ({ displayName }: { displayName: string }) => {
+const TypingIndicator = ({ label }: { label: string }) => {
   return (
     <Animated.View
       entering={FadeIn.duration(180)}
@@ -284,7 +284,7 @@ const TypingIndicator = ({ displayName }: { displayName: string }) => {
       className="mb-3 ml-4 mt-1 self-start"
     >
       <View className="flex-row items-end">
-        <Text className="mr-1 text-xs2 text-text-muted">{displayName} is typing</Text>
+        <Text className="mr-1 text-xs2 text-text-muted">{label}</Text>
         <View className="flex-row items-end pb-[2px]">
           <Dot delay={0} />
           <Dot delay={150} />
@@ -902,6 +902,32 @@ export default function ChatScreen() {
     }
   }
 
+  const groupTypingLabel = useMemo(() => {
+    if (!currentConversation?.isGroup || !user?.id) {
+      return null
+    }
+
+    const participantById = new Map(
+      (currentConversation.participants ?? []).map((participant) => [participant.id, participant]),
+    )
+    const names = activeTypers
+      .filter((typerId) => typerId !== user.id)
+      .map((typerId) => {
+        const participant = participantById.get(typerId)
+        return (
+          participant?.name ||
+          participant?.fullName ||
+          participant?.email?.split('@')[0] ||
+          'Someone'
+        )
+      })
+
+    if (names.length === 0) return null
+    if (names.length === 1) return `${names[0]} is typing`
+    if (names.length === 2) return `${names[0]} and ${names[1]} are typing`
+    return `${names.length} people are typing`
+  }, [activeTypers, currentConversation?.isGroup, currentConversation?.participants, user?.id])
+
   const handleStartVoiceCall = useCallback(() => {
     if (!otherUserId || currentConversation?.isGroup) {
       return
@@ -1127,6 +1153,16 @@ export default function ChatScreen() {
     messageInputRef.current?.blur()
     void KeyboardController.dismiss()
   }, [preservedKeyboardOffset])
+
+  const handleOpenGroupInfo = useCallback(() => {
+    if (!currentConversation?.isGroup) return
+
+    dismissComposer()
+    router.push({
+      pathname: '/conversation/[id]/info',
+      params: { id: conversationId },
+    })
+  }, [conversationId, currentConversation?.isGroup, dismissComposer, router])
 
   const loadOlderMessages = useCallback(() => {
     if (!hasNextPage || isInitialMessagesLoading || isFetchingNextPage) {
@@ -1361,11 +1397,37 @@ export default function ChatScreen() {
       orderedMessages.find((message) => message.senderId === user.id) ?? null
     const nextLatestOutgoingIdentityKey = getMessageIdentityKey(latestOutgoingMessage)
 
-    let readReceiptIdentityKey: string | null = null
-    let readReceiptAnchorIndex = -1
-    if (!currentConversation?.isGroup && otherParticipant) {
-      // Receipt avatar follows the newest other-participant activity unless
-      // the latest confirmed read frontier on our outgoing messages is newer.
+    let newestReadReceiptAnchorIndex = -1
+    if (currentConversation?.isGroup) {
+      const groupParticipants = (currentConversation.participants ?? []).filter(
+        (participant) => participant.id !== user.id,
+      )
+
+      groupParticipants.forEach((participant) => {
+        const participantReadMessage =
+          orderedMessages.find((message) => {
+            if (message.senderId !== user.id || !Array.isArray(message.readBy)) {
+              return false
+            }
+
+            return message.readBy.some((entry) => entry.userId === participant.id)
+          }) ?? null
+        const receiptIdentityKey = getMessageIdentityKey(participantReadMessage)
+
+        if (!participantReadMessage || !receiptIdentityKey) {
+          return
+        }
+
+        const receiptIndex = orderedMessages.indexOf(participantReadMessage)
+        const existingParticipants = readReceiptMap.get(receiptIdentityKey) ?? []
+        readReceiptMap.set(receiptIdentityKey, [...existingParticipants, participant])
+        newestReadReceiptAnchorIndex =
+          newestReadReceiptAnchorIndex === -1
+            ? receiptIndex
+            : Math.min(newestReadReceiptAnchorIndex, receiptIndex)
+      })
+    } else if (otherParticipant) {
+      // Preserve the direct-chat receipt/activity behavior.
       const newestReadOutgoingMessage =
         orderedMessages.find((message) => {
           if (message.senderId !== user.id) {
@@ -1393,9 +1455,9 @@ export default function ChatScreen() {
       const receiptAnchorMessage = shouldAnchorToOtherParticipantActivity
         ? newestOtherParticipantMessage
         : newestReadOutgoingMessage
+      const readReceiptIdentityKey = getMessageIdentityKey(receiptAnchorMessage)
 
-      readReceiptIdentityKey = getMessageIdentityKey(receiptAnchorMessage)
-      readReceiptAnchorIndex = receiptAnchorMessage
+      newestReadReceiptAnchorIndex = receiptAnchorMessage
         ? orderedMessages.indexOf(receiptAnchorMessage)
         : -1
       if (readReceiptIdentityKey) {
@@ -1407,9 +1469,9 @@ export default function ChatScreen() {
       ? orderedMessages.indexOf(latestOutgoingMessage)
       : -1
     const hasReadActivityAtOrBeyondLatestOutgoing =
-      readReceiptAnchorIndex >= 0 &&
+      newestReadReceiptAnchorIndex >= 0 &&
       latestOutgoingIndex >= 0 &&
-      readReceiptAnchorIndex <= latestOutgoingIndex
+      newestReadReceiptAnchorIndex <= latestOutgoingIndex
 
     // Once the other participant's read/activity marker has reached this
     // message or anything newer, suppress the trailing "Sent" label to avoid
@@ -1433,7 +1495,13 @@ export default function ChatScreen() {
       primaryStatusByIdentityKey: primaryStatusMap,
       readReceiptsByIdentityKey: readReceiptMap,
     }
-  }, [currentConversation?.isGroup, orderedMessages, otherParticipant, user?.id])
+  }, [
+    currentConversation?.isGroup,
+    currentConversation?.participants,
+    orderedMessages,
+    otherParticipant,
+    user?.id,
+  ])
 
   const isOnline = otherUserId ? onlineUsers.has(otherUserId) : false
   const lastSeenAt = otherUserId ? (lastSeenByUserId[otherUserId] ?? null) : null
@@ -1895,11 +1963,13 @@ export default function ChatScreen() {
   const renderListHeader = useCallback(() => {
     return (
       <View>
-        {shouldShowTypingIndicator ? <TypingIndicator displayName={displayName} /> : null}
+        {shouldShowTypingIndicator ? (
+          <TypingIndicator label={groupTypingLabel ?? `${displayName} is typing`} />
+        ) : null}
         <Animated.View style={listSpacerStyle} />
       </View>
     )
-  }, [displayName, listSpacerStyle, shouldShowTypingIndicator])
+  }, [displayName, groupTypingLabel, listSpacerStyle, shouldShowTypingIndicator])
   const listExtraData = useMemo(
     () => ({
       layoutById,
@@ -2054,34 +2124,48 @@ export default function ChatScreen() {
               <MaterialIcons name="chevron-left" size={24} color="#161616" />
             </TouchableOpacity>
 
-            <View className="ml-1.5 relative">
-              {avatarUrl ? (
-                <Image source={{ uri: avatarUrl }} className="h-11 w-11 rounded-full" />
-              ) : (
-                <View className="h-11 w-11 items-center justify-center rounded-full bg-surface-input">
-                  <Text className="text-sm2 font-medium text-text-primary">
-                    {displayName.charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-              )}
+            <TouchableOpacity
+              className="ml-1.5 flex-1 flex-row items-center"
+              disabled={!currentConversation?.isGroup}
+              onPress={handleOpenGroupInfo}
+              activeOpacity={currentConversation?.isGroup ? 0.72 : 1}
+              accessibilityRole={currentConversation?.isGroup ? 'button' : undefined}
+              accessibilityLabel={currentConversation?.isGroup ? 'Open group info' : undefined}
+            >
+              <View className="relative">
+                {avatarUrl ? (
+                  <Image source={{ uri: avatarUrl }} className="h-11 w-11 rounded-full" />
+                ) : (
+                  <View className="h-11 w-11 items-center justify-center rounded-full bg-surface-input">
+                    <Text className="text-sm2 font-medium text-text-primary">
+                      {displayName.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
 
-              {!currentConversation?.isGroup && isOnline ? (
-                <View className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-bg-primary bg-status-online" />
-              ) : null}
-            </View>
+                {!currentConversation?.isGroup && isOnline ? (
+                  <View className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-bg-primary bg-status-online" />
+                ) : null}
+              </View>
 
-            <View className="ml-3 flex-1 pr-4">
-              <Text className="font-semibold text-md text-text-primary" numberOfLines={1}>
-                {displayName}
-              </Text>
-              {!currentConversation?.isGroup ? (
-                <Text className="mt-0.5 text-xs2 text-text-muted" numberOfLines={1}>
-                  {presenceLabel}
+              <View className="ml-3 flex-1 pr-4">
+                <Text className="font-semibold text-md text-text-primary" numberOfLines={1}>
+                  {displayName}
                 </Text>
-              ) : (
-                <Text className="mt-0.5 text-xs2 text-text-muted">Team room</Text>
-              )}
-            </View>
+                {!currentConversation?.isGroup ? (
+                  <Text className="mt-0.5 text-xs2 text-text-muted" numberOfLines={1}>
+                    {presenceLabel}
+                  </Text>
+                ) : (
+                  <Text className="mt-0.5 text-xs2 text-text-muted" numberOfLines={1}>
+                    {groupTypingLabel ??
+                      `${currentConversation.participantIds.length} member${
+                        currentConversation.participantIds.length === 1 ? '' : 's'
+                      }`}
+                  </Text>
+                )}
+              </View>
+            </TouchableOpacity>
 
             {!currentConversation?.isGroup && otherUserId ? (
               <TouchableOpacity
