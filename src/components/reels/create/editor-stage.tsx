@@ -5,6 +5,7 @@ import { ScrollView, Text, TouchableOpacity, View, useWindowDimensions } from 'r
 import Animated, { FadeIn } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { getCreatorPreviewContentFit } from '../../../lib/reel-creator'
 import { formatDurationLabel } from '../../../lib/reels'
 import { ReelVideo } from '../ReelVideo'
 
@@ -29,6 +30,7 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
   const portraitWidthForAvailableHeight = previewAvailableHeight * (9 / 16)
   const previewWidth = Math.min(maxPreviewWidth, Math.max(264, portraitWidthForAvailableHeight))
   const previewHeight = Math.min(previewAvailableHeight, previewWidth * (16 / 9))
+  const previewContentFit = getCreatorPreviewContentFit(controller.selectedAsset)
   const durationLabel =
     formatDurationLabel(
       controller.videoDurationSeconds > 0
@@ -108,7 +110,7 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
             shouldPlay={!isPreviewPaused}
             loop
             muted={controller.isPreviewMuted}
-            contentFit="cover"
+            contentFit={previewContentFit}
             onProgress={(progress) => {
               if (progress.duration > 0 && videoDuration === 0) {
                 setVideoDuration(progress.duration)
@@ -197,10 +199,11 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
             >
               <Image
                 source={{ uri: frame.uri }}
-                contentFit="cover"
+                contentFit={previewContentFit}
                 style={{
                   width: windowHeight < 720 ? 48 : 54,
                   height: windowHeight < 720 ? 58 : 66,
+                  backgroundColor: '#17120F',
                 }}
               />
             </View>

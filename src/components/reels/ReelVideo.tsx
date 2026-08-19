@@ -8,7 +8,7 @@ import React, {
   useRef,
   useState,
 } from 'react'
-import { StyleSheet } from 'react-native'
+import { Image as ReactNativeImage, StyleSheet } from 'react-native'
 
 import {
   getReelPlaybackVideoUri,
@@ -212,6 +212,42 @@ const posterStyle = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
 })
+
+const useOrientationAwareContentFit = (
+  requestedContentFit: ContentFit,
+  posterUri?: string,
+): ContentFit => {
+  const [resolvedContentFit, setResolvedContentFit] = useState<ContentFit>(requestedContentFit)
+
+  useEffect(() => {
+    setResolvedContentFit(requestedContentFit)
+
+    if (requestedContentFit === 'contain' || !posterUri) {
+      return
+    }
+
+    let active = true
+
+    ReactNativeImage.getSize(
+      posterUri,
+      (width, height) => {
+        if (!active || width <= 0 || height <= 0) {
+          return
+        }
+
+        const aspectRatio = width / height
+        setResolvedContentFit(aspectRatio >= 0.9 ? 'contain' : 'cover')
+      },
+      () => undefined,
+    )
+
+    return () => {
+      active = false
+    }
+  }, [posterUri, requestedContentFit])
+
+  return resolvedContentFit
+}
 
 const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoVideoPlayer(
   {
@@ -536,17 +572,21 @@ const ExpoAvPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoAv
 
 export const ReelVideo = forwardRef<ReelVideoHandle, ReelVideoProps>(
   function ReelVideo(props, ref) {
+    const requestedContentFit = props.contentFit ?? 'cover'
+    const contentFit = useOrientationAwareContentFit(requestedContentFit, props.posterUri)
+    const resolvedProps = { ...props, contentFit }
+
     if (expoVideoModule) {
-      return <ExpoVideoPlayer {...props} ref={ref} />
+      return <ExpoVideoPlayer {...resolvedProps} ref={ref} />
     }
 
     if (getExpoAvModule()) {
-      return <ExpoAvPlayer {...props} ref={ref} />
+      return <ExpoAvPlayer {...resolvedProps} ref={ref} />
     }
 
     return props.posterUri ? (
       <Image
-        contentFit={props.contentFit ?? 'cover'}
+        contentFit={contentFit}
         source={{ uri: props.posterUri }}
         style={posterStyle.fill}
         transition={0}
