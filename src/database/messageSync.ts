@@ -1019,7 +1019,6 @@ export const applyMediaProcessingUpdate = async ({
 export const applyReadReceiptUpdate = async ({
   at,
   conversationId,
-  currentUserId,
   frontierAnchorIdentityKey,
   frontierCreatedAt,
   messageId,
@@ -1027,7 +1026,6 @@ export const applyReadReceiptUpdate = async ({
 }: {
   at?: string
   conversationId: string
-  currentUserId: string
   frontierAnchorIdentityKey?: string
   frontierCreatedAt?: string
   messageId?: string
@@ -1059,7 +1057,9 @@ export const applyReadReceiptUpdate = async ({
   const rawRecords = await messagesCollection
     .query(
       Q.where('conversation_id', conversationId),
-      Q.where('sender_id', currentUserId),
+      // Mirror the server rule: a reader never reads their own message, but
+      // does read every other participant's message up to the frontier.
+      Q.where('sender_id', Q.notEq(readByUserId)),
       Q.where('created_at', Q.lte(frontierTimestamp)),
     )
     .fetch()

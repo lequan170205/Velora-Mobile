@@ -1828,7 +1828,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           void applyReadReceiptUpdate({
             at: seenAt,
             conversationId,
-            currentUserId,
             messageId,
             readByUserId,
             ...(readFrontierAnchorIdentityKey
@@ -1900,7 +1899,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         void applyReadReceiptUpdate({
           at: seenAt,
           conversationId,
-          currentUserId,
           messageId,
           readByUserId,
           ...(readFrontierAnchorIdentityKey

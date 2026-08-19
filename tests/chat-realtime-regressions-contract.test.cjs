@@ -5,6 +5,7 @@ const test = require('node:test')
 
 const root = path.resolve(__dirname, '..')
 const socketProvider = fs.readFileSync(path.join(root, 'src/providers/SocketProvider.tsx'), 'utf8')
+const messageSync = fs.readFileSync(path.join(root, 'src/database/messageSync.ts'), 'utf8')
 
 test('conversation list activity is delivered independently of conversation-room membership', () => {
   const activityStart = socketProvider.indexOf("'conversation_message_activity'")
@@ -57,4 +58,13 @@ test('group read receipts mirror the reader frontier across every other author',
   assert.notEqual(seenEnd, -1)
   assert.match(seenBlock, /if \(msg\.senderId === readByUserId\)/)
   assert.doesNotMatch(seenBlock, /if \(msg\.senderId !== currentUserId\)/)
+})
+
+test('read receipt persistence mirrors the group frontier across every other author', () => {
+  const start = messageSync.indexOf('export const applyReadReceiptUpdate')
+  const block = messageSync.slice(start)
+
+  assert.notEqual(start, -1)
+  assert.match(block, /Q\.where\('sender_id', Q\.notEq\(readByUserId\)\)/)
+  assert.doesNotMatch(block, /Q\.where\('sender_id', currentUserId\)/)
 })
