@@ -190,9 +190,13 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const { data: processingStatus } = useReelProcessingStatus(reel, {
     enabled: enableStatusPolling,
   })
+  const activeIndexStatus = processingStatus?.indexStatus ?? reel.indexStatus
+  const shouldFetchLiveTranscript =
+    isActive && (activeIndexStatus === 'COMPLETED' || activeIndexStatus === 'DEGRADED')
   const shouldFetchReelDetail =
     !reel.id.startsWith(CHAT_SHARED_REEL_FALLBACK_ID_PREFIX) &&
-    (showTranscriptSheet ||
+    (shouldFetchLiveTranscript ||
+      showTranscriptSheet ||
       !reel.author?.username ||
       !reel.author?.avatarUrl ||
       reel.tags.length === 0 ||
@@ -303,9 +307,31 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const canOpenAuthorProfile = Boolean(authorHandle) || displayReel.userId === user?.id
   const canOpenTranscript =
     !displayReel.id.startsWith(CHAT_SHARED_REEL_FALLBACK_ID_PREFIX) &&
-    (displayReel.indexStatus === 'COMPLETED' ||
-      displayReel.indexStatus === 'DEGRADED' ||
-      Boolean(reelDetail?.transcriptSegments?.length || reelDetail?.transcript?.trim()))
+    Boolean(
+      reelDetail?.transcriptSegments?.length ||
+        reelDetail?.transcript?.trim() ||
+        reelDetail?.sections?.length,
+    )
+  const activeTranscriptSegment = useMemo(() => {
+    const segments = reelDetail?.transcriptSegments ?? []
+
+    if (segments.length === 0) {
+      return null
+    }
+
+    return (
+      segments.find((segment, index) => {
+        const nextSegment = segments[index + 1]
+        const segmentEnd =
+          Number.isFinite(segment.end) && segment.end > segment.start
+            ? segment.end
+            : nextSegment?.start ?? Number.POSITIVE_INFINITY
+
+        return playbackPosition >= segment.start && playbackPosition < segmentEnd
+      }) ?? null
+    )
+  }, [playbackPosition, reelDetail?.transcriptSegments])
+  const liveTranscriptText = activeTranscriptSegment?.text.trim() ?? ''
   const captionText = hideCaption ? '' : descriptionText || titleText || 'Shared a new reel.'
   const hashtagLine = hideCaption
     ? ''
@@ -328,6 +354,12 @@ const ReelFeedItemComponent = function ReelFeedItem({
     playbackState.isPlayable &&
     !hasPlaybackError
   const shouldRenderVideo = playbackState.isPlayable && shouldWarmVideo
+  const shouldShowLiveTranscript =
+    isActive &&
+    playbackState.isPlayable &&
+    Boolean(liveTranscriptText) &&
+    !isScrubbing &&
+    !showTranscriptSheet
   const effectivePosition = isScrubbing ? scrubPosition : playbackPosition
   const timelinePosition = pendingSeekPosition ?? effectivePosition
   const bufferedRatio = durationSeconds > 0 ? clamp(bufferedPosition / durationSeconds, 0, 1) : 0
@@ -986,6 +1018,27 @@ const ReelFeedItemComponent = function ReelFeedItem({
           style={{ bottom: metadataBottom }}
         >
           <View className="px-4">
+            {shouldShowLiveTranscript ? (
+              <View className="mb-4 items-center px-8" pointerEvents="box-none">
+                <TouchableOpacity
+                  accessibilityLabel={`Transcript. ${liveTranscriptText}`}
+                  accessibilityHint="Opens the full transcript"
+                  accessibilityRole="button"
+                  activeOpacity={0.88}
+                  onPress={openTranscriptSheet}
+                  className="rounded-[18px] border border-white/10 px-4 py-2.5"
+                  style={{ backgroundColor: 'rgba(8, 8, 10, 0.62)', maxWidth: 340 }}
+                >
+                  <Text
+                    className="text-center text-[15px] font-medium leading-6 text-white"
+                    numberOfLines={2}
+                  >
+                    {liveTranscriptText}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
             <View className="flex-row items-start">
               <View className="max-w-[78%] flex-1 flex-row items-start">
                 <TouchableOpacity
@@ -1047,7 +1100,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
               <View className="ml-auto items-center gap-3">
                 {canOpenTranscript ? (
                   <TouchableOpacity
-                    accessibilityLabel="Open reel transcript"
+                    accessibilityLabel="Open transcript"
                     accessibilityRole="button"
                     className="h-10 w-10 items-center justify-center rounded-full bg-white/14"
                     activeOpacity={0.84}
