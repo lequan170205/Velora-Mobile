@@ -118,12 +118,12 @@ export function ReelTranscriptSheet({
         />
       </View>
       <Text className="mt-4 text-center font-heading text-lg text-text-primary">
-        {hasError ? 'Could not load transcript' : 'Transcript unavailable'}
+        {hasError ? 'Couldn’t load transcript' : 'No transcript available'}
       </Text>
       <Text className="mt-2 text-center text-sm2 leading-5 text-text-secondary">
         {hasError
-          ? 'Try opening the transcript again in a moment.'
-          : 'This reel does not have timestamped speech evidence yet.'}
+          ? 'Please try again in a moment.'
+          : 'A transcript isn’t available for this reel.'}
       </Text>
     </View>
   )
@@ -163,9 +163,9 @@ export function ReelTranscriptSheet({
 
           <View className="mt-3 flex-row items-start justify-between">
             <View className="flex-1 pr-4">
-              <Text className="font-heading text-xl text-text-primary">Reel transcript</Text>
+              <Text className="font-heading text-xl text-text-primary">Transcript</Text>
               <Text className="mt-1 text-base2 text-text-secondary" numberOfLines={1}>
-                {reelTitle?.trim() || 'Jump to what matters'}
+                {reelTitle?.trim() || 'Follow along'}
               </Text>
             </View>
 
@@ -224,7 +224,7 @@ export function ReelTranscriptSheet({
             {isLoading ? (
               <View className="flex-1 items-center justify-center py-14">
                 <ActivityIndicator color="#FF6B2C" size="small" />
-                <Text className="mt-3 text-sm2 text-text-secondary">Loading reel evidence…</Text>
+                <Text className="mt-3 text-sm2 text-text-secondary">Loading transcript…</Text>
               </View>
             ) : activeTab === 'chapters' && hasChapters ? (
               <FlatList
@@ -243,7 +243,7 @@ export function ReelTranscriptSheet({
                       )}`}
                       accessibilityRole="button"
                       className={`mb-2 rounded-[22px] px-4 py-4 ${
-                        isActive ? 'bg-[#FFF1EA]' : 'bg-surface-muted'
+                        isActive ? 'bg-[#FFF5F0]' : 'bg-surface-muted'
                       }`}
                       activeOpacity={0.84}
                       onPress={() => onSeek(section.startTime)}
@@ -302,7 +302,7 @@ export function ReelTranscriptSheet({
                       accessibilityLabel={`Jump to ${formatTimestamp(segment.start)}. ${segment.text}`}
                       accessibilityRole="button"
                       className={`mb-1.5 flex-row rounded-[18px] px-3 py-3 ${
-                        isActive ? 'bg-[#FFF1EA]' : 'bg-transparent'
+                        isActive ? 'bg-[#F6F6F6]' : 'bg-transparent'
                       }`}
                       activeOpacity={0.76}
                       onPress={() => onSeek(segment.start)}
