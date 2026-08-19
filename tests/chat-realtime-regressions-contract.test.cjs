@@ -47,3 +47,14 @@ test('message activity increments from cache instead of replaying the REST unrea
   )
   assert.match(socketProvider, /\.\.\.conversationActivityPatch/)
 })
+
+test('group read receipts mirror the reader frontier across every other author', () => {
+  const seenStart = socketProvider.indexOf("'messages_seen'")
+  const seenEnd = socketProvider.indexOf('const flushingOfflineMessageIds', seenStart)
+  const seenBlock = socketProvider.slice(seenStart, seenEnd)
+
+  assert.notEqual(seenStart, -1)
+  assert.notEqual(seenEnd, -1)
+  assert.match(seenBlock, /if \(msg\.senderId === readByUserId\)/)
+  assert.doesNotMatch(seenBlock, /if \(msg\.senderId !== currentUserId\)/)
+})

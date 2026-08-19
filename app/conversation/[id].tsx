@@ -1419,29 +1419,26 @@ export default function ChatScreen() {
       )
 
       groupParticipants.forEach((participant) => {
-        const newestReadOutgoingMessage =
-          orderedMessages.find((message) => {
-            if (message.senderId !== user.id || !Array.isArray(message.readBy)) {
-              return false
-            }
-
-            return message.readBy.some((entry) => entry.userId === participant.id)
-          }) ?? null
+        const newestReadMessage =
+          orderedMessages.find(
+            (message) =>
+              Array.isArray(message.readBy) &&
+              message.readBy.some((entry) => entry.userId === participant.id),
+          ) ?? null
         const newestParticipantMessage =
           orderedMessages.find((message) => message.senderId === participant.id) ?? null
-        const newestReadOutgoingIndex = newestReadOutgoingMessage
-          ? orderedMessages.indexOf(newestReadOutgoingMessage)
+        const newestReadMessageIndex = newestReadMessage
+          ? orderedMessages.indexOf(newestReadMessage)
           : -1
         const newestParticipantMessageIndex = newestParticipantMessage
           ? orderedMessages.indexOf(newestParticipantMessage)
           : -1
         const shouldAnchorToParticipantActivity =
           newestParticipantMessageIndex >= 0 &&
-          (newestReadOutgoingIndex === -1 ||
-            newestParticipantMessageIndex < newestReadOutgoingIndex)
+          (newestReadMessageIndex === -1 || newestParticipantMessageIndex < newestReadMessageIndex)
         const receiptAnchorMessage = shouldAnchorToParticipantActivity
           ? newestParticipantMessage
-          : newestReadOutgoingMessage
+          : newestReadMessage
         const receiptIdentityKey = getMessageIdentityKey(receiptAnchorMessage)
 
         if (!receiptAnchorMessage || !receiptIdentityKey) {

@@ -1852,7 +1852,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         )
 
         patchConversationMessageCollectionsInCache(queryClient, conversationId, (msg) => {
-          if (msg.senderId !== currentUserId) {
+          // Mirror the backend read rule exactly: the reader has seen every
+          // message from other participants up to the emitted frontier.
+          // This matters in groups because a read frontier can advance across
+          // messages authored by someone other than the current viewer.
+          if (msg.senderId === readByUserId) {
             return msg
           }
 
