@@ -43,7 +43,7 @@ import { ReelTranscriptSheet } from './ReelTranscriptSheet'
 import { ReelVideo } from './ReelVideo'
 
 import type { ReelVideoHandle, ReelVideoProgress } from './ReelVideo'
-import type { Reel } from '../../types/reel.types'
+import type { Reel, ReelTranscriptSegment } from '../../types/reel.types'
 
 interface ReelFeedItemProps {
   description?: string | undefined
@@ -147,6 +147,49 @@ const getCreatedAtLabel = (value: string) => {
   }
 }
 
+const getTranscriptSegmentAtTime = (
+  segments: readonly ReelTranscriptSegment[],
+  currentTime: number,
+) => {
+  if (segments.length === 0 || !Number.isFinite(currentTime)) {
+    return null
+  }
+
+  let low = 0
+  let high = segments.length - 1
+  let candidateIndex = -1
+
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2)
+    const segment = segments[middle]
+
+    if (!segment || segment.start > currentTime) {
+      high = middle - 1
+      continue
+    }
+
+    candidateIndex = middle
+    low = middle + 1
+  }
+
+  if (candidateIndex < 0) {
+    return null
+  }
+
+  const segment = segments[candidateIndex]
+  if (!segment) {
+    return null
+  }
+
+  const nextSegment = segments[candidateIndex + 1]
+  const segmentEnd =
+    Number.isFinite(segment.end) && segment.end > segment.start
+      ? segment.end
+      : nextSegment?.start ?? Number.POSITIVE_INFINITY
+
+  return currentTime < segmentEnd ? segment : null
+}
+
 const ReelFeedItemComponent = function ReelFeedItem({
   description,
   reel,
@@ -190,9 +233,9 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const { data: processingStatus } = useReelProcessingStatus(reel, {
     enabled: enableStatusPolling,
   })
-  const activeIndexStatus = processingStatus?.indexStatus ?? reel.indexStatus
+  const activeMediaStatus = processingStatus?.mediaStatus ?? reel.mediaStatus
   const shouldFetchLiveTranscript =
-    isActive && (activeIndexStatus === 'COMPLETED' || activeIndexStatus === 'DEGRADED')
+    isActive && (activeMediaStatus === 'COMPLETED' || reel.status === 'COMPLETED')
   const shouldFetchReelDetail =
     !reel.id.startsWith(CHAT_SHARED_REEL_FALLBACK_ID_PREFIX) &&
     (shouldFetchLiveTranscript ||
@@ -312,25 +355,10 @@ const ReelFeedItemComponent = function ReelFeedItem({
         reelDetail?.transcript?.trim() ||
         reelDetail?.sections?.length,
     )
-  const activeTranscriptSegment = useMemo(() => {
-    const segments = reelDetail?.transcriptSegments ?? []
-
-    if (segments.length === 0) {
-      return null
-    }
-
-    return (
-      segments.find((segment, index) => {
-        const nextSegment = segments[index + 1]
-        const segmentEnd =
-          Number.isFinite(segment.end) && segment.end > segment.start
-            ? segment.end
-            : nextSegment?.start ?? Number.POSITIVE_INFINITY
-
-        return playbackPosition >= segment.start && playbackPosition < segmentEnd
-      }) ?? null
-    )
-  }, [playbackPosition, reelDetail?.transcriptSegments])
+  const activeTranscriptSegment = useMemo(
+    () => getTranscriptSegmentAtTime(reelDetail?.transcriptSegments ?? [], playbackPosition),
+    [playbackPosition, reelDetail?.transcriptSegments],
+  )
   const liveTranscriptText = activeTranscriptSegment?.text.trim() ?? ''
   const captionText = hideCaption ? '' : descriptionText || titleText || 'Shared a new reel.'
   const hashtagLine = hideCaption
