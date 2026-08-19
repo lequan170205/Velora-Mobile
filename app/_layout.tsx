@@ -239,6 +239,20 @@ export default function RootLayout() {
                                       }}
                                     />
                                     <Stack.Screen
+                                      name="conversation/new-group"
+                                      options={{
+                                        animation: 'slide_from_right',
+                                        animationDuration: 250,
+                                      }}
+                                    />
+                                    <Stack.Screen
+                                      name="conversation/[id]/info"
+                                      options={{
+                                        animation: 'slide_from_right',
+                                        animationDuration: 250,
+                                      }}
+                                    />
+                                    <Stack.Screen
                                       name="reels/create"
                                       options={{ presentation: 'fullScreenModal' }}
                                     />

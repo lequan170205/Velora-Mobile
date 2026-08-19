@@ -549,7 +549,7 @@ const MessageBubbleComponent = function MessageBubble({
 
   const senderInfo = senderInfoProp ?? message.sender ?? null
   const [generatedReplyThumbnailUri, setGeneratedReplyThumbnailUri] = useState<string | null>(null)
-  const primaryMetaVisible = Boolean(primaryStatusLabel || readReceiptParticipants[0])
+  const primaryMetaVisible = Boolean(primaryStatusLabel || readReceiptParticipants.length > 0)
   const primaryMetaProgress = useSharedValue(primaryMetaVisible ? 1 : 0)
 
   useEffect(() => {
@@ -785,11 +785,11 @@ const MessageBubbleComponent = function MessageBubble({
   const senderName = senderInfo && 'name' in senderInfo ? senderInfo.name : undefined
   const fallbackInitial =
     senderName?.charAt(0).toUpperCase() || senderInfo?.email?.charAt(0).toUpperCase() || '?'
-  const primaryReceiptParticipant = readReceiptParticipants[0] ?? null
-  const primaryReceiptInitial =
-    primaryReceiptParticipant?.name?.charAt(0).toUpperCase() ||
-    primaryReceiptParticipant?.email?.charAt(0).toUpperCase() ||
-    '?'
+  const visibleReceiptParticipants = readReceiptParticipants.slice(0, 3)
+  const hiddenReceiptCount = Math.max(
+    0,
+    readReceiptParticipants.length - visibleReceiptParticipants.length,
+  )
 
   const reactionSummary = useMemo(() => {
     const summary: Record<string, number> = {}
@@ -1624,21 +1624,42 @@ const MessageBubbleComponent = function MessageBubble({
           </View>
 
           <Animated.View style={primaryMetaRowStyle} className="w-full">
-            {primaryStatusLabel || primaryReceiptParticipant ? (
+            {primaryStatusLabel || readReceiptParticipants.length > 0 ? (
               <View className="flex-row justify-end items-center gap-1 px-1">
-                {primaryReceiptParticipant ? (
-                  primaryReceiptParticipant.picture ? (
-                    <Image
-                      source={{ uri: primaryReceiptParticipant.picture }}
-                      className="h-4 w-4 rounded-full"
-                    />
-                  ) : (
-                    <View className="h-4 w-4 items-center justify-center rounded-full bg-surface-muted">
-                      <Text className="text-[8px] font-medium text-text-primary">
-                        {primaryReceiptInitial}
+                {readReceiptParticipants.length > 0 ? (
+                  <View className="flex-row items-center">
+                    {visibleReceiptParticipants.map((participant, index) => {
+                      const initial =
+                        participant.name?.charAt(0).toUpperCase() ||
+                        participant.fullName?.charAt(0).toUpperCase() ||
+                        participant.email?.charAt(0).toUpperCase() ||
+                        '?'
+
+                      return participant.picture ? (
+                        <Image
+                          key={participant.id}
+                          source={{ uri: participant.picture }}
+                          className="h-4 w-4 rounded-full border border-bg-primary"
+                          style={{ marginLeft: index === 0 ? 0 : -4, zIndex: 4 - index }}
+                        />
+                      ) : (
+                        <View
+                          key={participant.id}
+                          className="h-4 w-4 items-center justify-center rounded-full border border-bg-primary bg-surface-muted"
+                          style={{ marginLeft: index === 0 ? 0 : -4, zIndex: 4 - index }}
+                        >
+                          <Text className="text-[8px] font-medium text-text-primary">
+                            {initial}
+                          </Text>
+                        </View>
+                      )
+                    })}
+                    {hiddenReceiptCount > 0 ? (
+                      <Text className="ml-1 text-[10px] text-text-muted">
+                        +{hiddenReceiptCount}
                       </Text>
-                    </View>
-                  )
+                    ) : null}
+                  </View>
                 ) : primaryStatusLabel ? (
                   <Text className="text-[11px] text-text-muted">{primaryStatusLabel}</Text>
                 ) : null}
