@@ -22,8 +22,9 @@ export interface Conversation {
   isGroup: boolean
 
   // Custom frontend fields typically attached by the backend wrapper
-  name?: string
-  picture?: string
+  name?: string | null
+  picture?: string | null
+  memberJoinedAt?: Record<string, string>
   unreadCount?: number
 }
 

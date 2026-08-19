@@ -898,7 +898,7 @@ export default function ChatScreen() {
       }
     } else {
       displayName = currentConversation.name || 'Group Chat'
-      avatarUrl = currentConversation.picture
+      avatarUrl = currentConversation.picture ?? undefined
     }
   }
 

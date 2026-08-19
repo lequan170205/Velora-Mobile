@@ -51,7 +51,12 @@ export const conversationApi = {
     const response = await apiClient.get<Conversation[]>('/conversations')
     return response.data
   },
-  create: async (data: { participantIds: string[]; type: 'DIRECT' | 'GROUP'; name?: string }) => {
+  create: async (data: {
+    participantIds: string[]
+    type: 'DIRECT' | 'GROUP'
+    name?: string
+    picture?: string
+  }) => {
     const response = await apiClient.post<CreateConversationResponse>('/conversations', data)
     return response.data
   },
@@ -71,6 +76,10 @@ export const conversationApi = {
   },
   getById: async (id: string) => {
     const response = await apiClient.get<Conversation>(`/conversations/${id}`)
+    return response.data
+  },
+  updateGroup: async (id: string, data: { name?: string; picture?: string | null }) => {
+    const response = await apiClient.patch<Conversation>(`/conversations/${id}`, data)
     return response.data
   },
   delete: async (id: string) => {
@@ -202,5 +211,9 @@ export const conversationApi = {
   },
   removeMember: async (id: string, userId: string) => {
     await apiClient.delete(`/conversations/${id}/members/${userId}`)
+  },
+  leave: async (id: string) => {
+    const response = await apiClient.post<Conversation>(`/conversations/${id}/leave`)
+    return response.data
   },
 }

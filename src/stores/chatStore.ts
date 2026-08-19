@@ -65,6 +65,7 @@ interface ChatState {
   setReplyToMessage: (message: Message | null) => void
   markAsBotConversation: (conversationId: string) => void
   isBotConversation: (conversationId: string) => boolean
+  clearConversationState: (conversationId: string) => void
   clearCache: () => void
 }
 
@@ -481,6 +482,34 @@ export const useChatStore = create<ChatState>()(
       isBotConversation: (conversationId) => {
         return get().botConversationIds.has(conversationId)
       },
+
+      clearConversationState: (conversationId) =>
+        set((state) => {
+          const optimisticMessages = { ...state.optimisticMessages }
+          const optimisticSortAnchors = { ...state.optimisticSortAnchors }
+          const typingUsers = { ...state.typingUsers }
+          const seenMessages = { ...state.seenMessages }
+          const botConversationIds = new Set(state.botConversationIds)
+
+          delete optimisticMessages[conversationId]
+          delete optimisticSortAnchors[conversationId]
+          delete typingUsers[conversationId]
+          delete seenMessages[conversationId]
+          botConversationIds.delete(conversationId)
+
+          return {
+            optimisticMessages,
+            optimisticSortAnchors,
+            typingUsers,
+            seenMessages,
+            botConversationIds,
+            offlineQueue: state.offlineQueue.filter(
+              (message) => message.conversationId !== conversationId,
+            ),
+            replyToMessage:
+              state.replyToMessage?.conversationId === conversationId ? null : state.replyToMessage,
+          }
+        }),
 
       clearCache: async () => {
         set(() => ({
