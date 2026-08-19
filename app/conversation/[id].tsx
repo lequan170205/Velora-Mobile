@@ -459,6 +459,9 @@ export default function ChatScreen() {
   const activeTypers = useChatStore(
     useCallback((state) => state.typingUsers[conversationId] ?? EMPTY_TYPERS, [conversationId]),
   )
+  const isConversationRevoked = useChatStore(
+    useCallback((state) => state.revokedConversationIds.has(conversationId), [conversationId]),
+  )
   const replyToMessage = useChatStore((state) => state.replyToMessage)
   const setReplyToMessage = useChatStore((state) => state.setReplyToMessage)
   const confirmMessage = useChatStore((state) => state.confirmMessage)
@@ -1163,6 +1166,18 @@ export default function ChatScreen() {
       params: { id: conversationId },
     })
   }, [conversationId, currentConversation?.isGroup, dismissComposer, router])
+
+  useEffect(() => {
+    if (!isConversationRevoked) {
+      return
+    }
+
+    dismissComposer()
+    closeMediaViewer()
+    requestAnimationFrame(() => {
+      router.replace('/')
+    })
+  }, [closeMediaViewer, dismissComposer, isConversationRevoked, router])
 
   const loadOlderMessages = useCallback(() => {
     if (!hasNextPage || isInitialMessagesLoading || isFetchingNextPage) {
@@ -2104,6 +2119,10 @@ export default function ChatScreen() {
 
     scrollToBottom()
   }, [returnToLatestTimeline, scrollToBottom, timelineMode])
+
+  if (isConversationRevoked) {
+    return <View className="flex-1 bg-bg-primary" />
+  }
 
   return (
     <View className="flex-1 bg-bg-primary" style={{ paddingTop: insets.top }}>
