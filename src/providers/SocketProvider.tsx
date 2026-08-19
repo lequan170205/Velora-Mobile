@@ -28,6 +28,7 @@ import {
 } from '../lib/chatMessageCache'
 import {
   getMessageAnchorIdentityKey,
+  getMessageIdentityKey,
   isMessageBeyondOptimisticReadFrontier,
   isSameMessageIdentity,
   mergeMessageRecords,
@@ -1029,21 +1030,65 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       return request
     }
 
-    const syncConversationForMessage = (message: Message, incrementUnread: boolean) => {
+    const processedConversationActivityKeys = new Set<string>()
+    const processedConversationActivityOrder: string[] = []
+    const MAX_PROCESSED_CONVERSATION_ACTIVITY_KEYS = 512
+
+    const shouldIncrementUnreadForMessageActivity = (message: Message) => {
+      const identityKey = getMessageIdentityKey(message)
+      if (!identityKey) {
+        return true
+      }
+
+      const activityKey = `${message.conversationId}:${identityKey}`
+      if (processedConversationActivityKeys.has(activityKey)) {
+        return false
+      }
+
+      processedConversationActivityKeys.add(activityKey)
+      processedConversationActivityOrder.push(activityKey)
+
+      if (processedConversationActivityOrder.length > MAX_PROCESSED_CONVERSATION_ACTIVITY_KEYS) {
+        const oldestActivityKey = processedConversationActivityOrder.shift()
+        if (oldestActivityKey) {
+          processedConversationActivityKeys.delete(oldestActivityKey)
+        }
+      }
+
+      return true
+    }
+
+    const syncConversationForMessage = (
+      message: Message,
+      incrementUnread: boolean,
+      conversationOverride?: Conversation,
+    ) => {
       const applyConversation = (conversation: Conversation) => {
         persistSocketMessage(message, {
           conversation,
           incrementUnread,
         })
+
+        const { unreadCount: _snapshotUnreadCount, ...conversationWithoutUnreadCount } =
+          conversation
+        const conversationActivityPatch = incrementUnread
+          ? conversationWithoutUnreadCount
+          : conversation
+
         upsertConversationSummary(
           {
-            ...conversation,
+            ...conversationActivityPatch,
             lastMessage: message.content ?? null,
             lastMessageAt: message.createdAt || new Date().toISOString(),
             updatedAt: message.updatedAt || message.createdAt || new Date().toISOString(),
           },
           { allowPlaceholder: true, incrementUnread },
         )
+      }
+
+      if (conversationOverride) {
+        applyConversation(conversationOverride)
+        return
       }
 
       const cachedConversation = getCachedConversation(message.conversationId)
@@ -1356,7 +1401,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         reconcileStreamingBotMessage(message)
       }
 
-      syncConversationForMessage(message, !isOwnMessage)
+      const shouldIncrementUnread =
+        !isOwnMessage && shouldIncrementUnreadForMessageActivity(message)
+      syncConversationForMessage(message, shouldIncrementUnread)
 
       if (!isOwnMessage || !isPendingEcho) {
         upsertMessageQuery(message)
@@ -1379,6 +1426,30 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
       reconcileOptimisticMessage(message)
     })
+
+    newSocket.on(
+      'conversation_message_activity',
+      (payload: { conversation?: Conversation; message?: Message }) => {
+        const conversation = payload?.conversation
+        const incomingMessage = payload?.message
+        const currentUser = useAuthStore.getState().user
+
+        if (
+          !conversation?.id ||
+          !incomingMessage?.conversationId ||
+          conversation.id !== incomingMessage.conversationId ||
+          incomingMessage.senderId === currentUser?.id ||
+          removedConversationIds.has(conversation.id)
+        ) {
+          return
+        }
+
+        persistConversationMetadata(conversation)
+
+        const shouldIncrementUnread = shouldIncrementUnreadForMessageActivity(incomingMessage)
+        syncConversationForMessage(incomingMessage, shouldIncrementUnread, conversation)
+      },
+    )
 
     newSocket.on('conversation_updated', (conversation: Conversation) => {
       if (!conversation?.id || removedConversationIds.has(conversation.id)) return
@@ -1492,6 +1563,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           flushingOfflineConversationIdsRef.current.delete(message.conversationId)
           clearOfflineMessageAckTimeout(message.clientMessageId)
           store.confirmMessage(message.clientMessageId, message)
+          store.removeOptimisticSortAnchors(message.conversationId, [message.clientMessageId])
           store.dequeueOfflineMessage(message.clientMessageId)
           flushOfflineQueueRef.current(newSocket)
         } else {
@@ -1756,7 +1828,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           void applyReadReceiptUpdate({
             at: seenAt,
             conversationId,
-            currentUserId,
             messageId,
             readByUserId,
             ...(readFrontierAnchorIdentityKey
@@ -1780,7 +1851,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         )
 
         patchConversationMessageCollectionsInCache(queryClient, conversationId, (msg) => {
-          if (msg.senderId !== currentUserId) {
+          // Mirror the backend read rule exactly: the reader has seen every
+          // message from other participants up to the emitted frontier.
+          // This matters in groups because a read frontier can advance across
+          // messages authored by someone other than the current viewer.
+          if (msg.senderId === readByUserId) {
             return msg
           }
 
@@ -1824,7 +1899,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         void applyReadReceiptUpdate({
           at: seenAt,
           conversationId,
-          currentUserId,
           messageId,
           readByUserId,
           ...(readFrontierAnchorIdentityKey

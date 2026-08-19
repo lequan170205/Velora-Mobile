@@ -16,7 +16,11 @@ const useConversations = read('src/hooks/useConversations.ts')
 test('unknown socket messages resolve canonical conversation metadata instead of fabricating membership', () => {
   assert.match(socketProvider, /const inFlightConversationFetches = new Map/)
   assert.match(socketProvider, /conversationApi\s*\.getById\(conversationId\)/)
-  assert.match(socketProvider, /syncConversationForMessage\(message, !isOwnMessage\)/)
+  assert.match(
+    socketProvider,
+    /!isOwnMessage && shouldIncrementUnreadForMessageActivity\(message\)/,
+  )
+  assert.match(socketProvider, /syncConversationForMessage\(message, shouldIncrementUnread\)/)
   assert.match(socketProvider, /syncConversationForMessage\(message, false\)/)
   assert.doesNotMatch(socketProvider, /participantIds:\s*\[message\.senderId\]/)
 })

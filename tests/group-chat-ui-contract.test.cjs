@@ -28,15 +28,25 @@ test('group header resolves real typers and opens group info while calls stay di
   assert.match(chatScreen, /currentConversation\.participantIds\.length/)
 })
 
-test('group read receipts derive per-member frontiers from existing readBy data', () => {
+test('group receipt avatars follow each participant newest activity or read frontier', () => {
   assert.match(
     chatScreen,
     /const groupParticipants = \(currentConversation\.participants \?\? \[\]\)/,
   )
+  assert.match(chatScreen, /const newestReadMessage =/)
   assert.match(
     chatScreen,
-    /message\.readBy\.some\(\(entry\) => entry\.userId === participant\.id\)/,
+    /Array\.isArray\(message\.readBy\)[\s\S]*message\.readBy\.some\(\(entry\) => entry\.userId === participant\.id\)/,
   )
+  assert.doesNotMatch(
+    chatScreen,
+    /message\.senderId !== user\.id \|\| !Array\.isArray\(message\.readBy\)/,
+  )
+  assert.match(
+    chatScreen,
+    /orderedMessages\.find\(\(message\) => message\.senderId === participant\.id\)/,
+  )
+  assert.match(chatScreen, /shouldAnchorToParticipantActivity/)
   assert.match(
     chatScreen,
     /readReceiptMap\.set\(receiptIdentityKey, \[\.\.\.existingParticipants, participant\]\)/,
