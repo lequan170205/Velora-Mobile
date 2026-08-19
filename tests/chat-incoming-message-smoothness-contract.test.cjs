@@ -48,9 +48,9 @@ test('normal newest-message bottom follow does not wait two animation frames', (
     'prevNewestMessageId.current = newestMessageId',
   )
 
-  assert.match(block, /else \{\s*scrollToBottom\(\)\s*\}/)
+  assert.match(block, /else \{\s*scrollToBottomForNewestMessage\(\)\s*\}/)
   assert.doesNotMatch(
     block,
-    /requestAnimationFrame\(\(\) => \{\s*requestAnimationFrame\(\(\) => \{\s*scrollToBottom\(\)/,
+    /requestAnimationFrame\(\(\) => \{\s*requestAnimationFrame\(\(\) => \{\s*scrollToBottomForNewestMessage\(\)/,
   )
 })

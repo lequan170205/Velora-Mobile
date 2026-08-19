@@ -14,6 +14,7 @@ import Animated, { FadeIn } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { MAX_CAPTION_LENGTH } from '../../../constants/reel-creator'
+import { getCreatorPreviewContentFit } from '../../../lib/reel-creator'
 
 import { GlassIconButton } from './shared-ui'
 
@@ -31,6 +32,7 @@ const visibilityOptions: {
 
 export function PublishStage({ controller }: { controller: ReelCreatorController }) {
   const insets = useSafeAreaInsets()
+  const previewContentFit = getCreatorPreviewContentFit(controller.selectedAsset)
   const draftButtonLabel =
     controller.draftSaveStatus === 'saving'
       ? 'Saving...'
@@ -107,12 +109,12 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
 
         <View className="mt-3 rounded-[28px] bg-white p-3">
           <View className="flex-row items-center">
-            <View className="overflow-hidden rounded-[18px] border border-[#E9DED5] bg-[#F7F2EC]">
+            <View className="overflow-hidden rounded-[18px] border border-[#E9DED5] bg-[#17120F]">
               {controller.thumbnailUri ? (
                 <Image
                   source={{ uri: controller.thumbnailUri }}
-                  contentFit="cover"
-                  style={{ width: 58, height: 82 }}
+                  contentFit={previewContentFit}
+                  style={{ width: 58, height: 82, backgroundColor: '#17120F' }}
                 />
               ) : (
                 <View className="h-[82px] w-[58px] items-center justify-center bg-[#F7F2EC]">

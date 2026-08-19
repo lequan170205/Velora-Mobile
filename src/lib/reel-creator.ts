@@ -4,6 +4,9 @@ import { stripHashtagsFromCaption } from './reels'
 
 import type { StoredAsset, TimelineFrame } from '../types/reel-creator'
 
+export type CreatorVideoOrientation = 'PORTRAIT' | 'LANDSCAPE' | 'SQUARE'
+export type ReelContentFit = 'cover' | 'contain'
+
 export const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value))
 
@@ -49,14 +52,49 @@ export const getVideoDurationMs = (asset: StoredAsset | null, fallbackSeconds: n
   return fallbackSeconds > 0 ? Math.round(fallbackSeconds * 1000) : 0
 }
 
-export const getOrientationMessage = (asset: StoredAsset | null) => {
-  if (!asset?.width || !asset?.height) {
-    return 'Optimized for 9:16 vertical video'
+export const getCreatorVideoOrientation = (
+  asset: Pick<StoredAsset, 'width' | 'height'> | null,
+): CreatorVideoOrientation | null => {
+  const width = asset?.width ?? 0
+  const height = asset?.height ?? 0
+
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null
   }
 
-  return asset.height >= asset.width
-    ? 'Vertical framing looks ready'
-    : 'This clip will be framed to 9:16'
+  const aspectRatio = width / height
+
+  if (aspectRatio >= 1.1) {
+    return 'LANDSCAPE'
+  }
+
+  if (aspectRatio <= 0.9) {
+    return 'PORTRAIT'
+  }
+
+  return 'SQUARE'
+}
+
+export const getCreatorPreviewContentFit = (
+  asset: Pick<StoredAsset, 'width' | 'height'> | null,
+): ReelContentFit => (getCreatorVideoOrientation(asset) === 'PORTRAIT' ? 'cover' : 'contain')
+
+export const getOrientationMessage = (asset: StoredAsset | null) => {
+  const orientation = getCreatorVideoOrientation(asset)
+
+  if (orientation === 'PORTRAIT') {
+    return 'Ready for full-screen playback'
+  }
+
+  if (orientation === 'LANDSCAPE') {
+    return 'Full landscape frame will be preserved'
+  }
+
+  if (orientation === 'SQUARE') {
+    return 'Full square frame will be preserved'
+  }
+
+  return 'Full frame will be preserved'
 }
 
 export const getNearestFrame = (frames: TimelineFrame[], timeMs: number) => {
