@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as ImagePicker from 'expo-image-picker'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Alert, Image, ScrollView, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
@@ -92,6 +92,7 @@ export default function GroupInfoScreen() {
   const [draftName, setDraftName] = useState('')
   const [showAddMembers, setShowAddMembers] = useState(false)
   const [isUpdatingPicture, setIsUpdatingPicture] = useState(false)
+  const pictureMutationInFlightRef = useRef(false)
 
   const applyConversation = (nextConversation: Conversation) => {
     queryClient.setQueryData(queryKeys.conversations.detail(conversationId), nextConversation)
@@ -231,15 +232,12 @@ export default function GroupInfoScreen() {
   }, [isConversationRevoked, router])
 
   const pickAndUploadGroupPicture = async () => {
-    if (!canManageMetadata || isUpdatingPicture) return
+    if (!canManageMetadata || pictureMutationInFlightRef.current) return
+
+    pictureMutationInFlightRef.current = true
+    setIsUpdatingPicture(true)
 
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
-      if (!permission.granted) {
-        Alert.alert('Photo access required', 'Allow photo access to change the group photo.')
-        return
-      }
-
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
@@ -256,7 +254,6 @@ export default function GroupInfoScreen() {
         return
       }
 
-      setIsUpdatingPicture(true)
       const { uploadUrl, key } = await mediaApi.getChatUploadUrl({
         fileType,
         purpose: 'chat',
@@ -290,12 +287,20 @@ export default function GroupInfoScreen() {
         error instanceof Error ? error.message : 'Please try again.',
       )
     } finally {
+      pictureMutationInFlightRef.current = false
       setIsUpdatingPicture(false)
     }
   }
 
   const removeGroupPicture = () => {
-    if (!canManageMetadata || !conversation?.picture || isUpdatingPicture) return
+    if (
+      !canManageMetadata ||
+      !conversation?.picture ||
+      isUpdatingPicture ||
+      pictureMutationInFlightRef.current
+    ) {
+      return
+    }
 
     Alert.alert('Remove group photo?', 'The group will use its name initial instead.', [
       { text: 'Cancel', style: 'cancel' },
@@ -303,6 +308,9 @@ export default function GroupInfoScreen() {
         text: 'Remove',
         style: 'destructive',
         onPress: () => {
+          if (pictureMutationInFlightRef.current) return
+
+          pictureMutationInFlightRef.current = true
           setIsUpdatingPicture(true)
           void conversationApi
             .updateGroup(conversationId, { picture: null })
@@ -313,7 +321,10 @@ export default function GroupInfoScreen() {
                 error instanceof Error ? error.message : 'Please try again.',
               )
             })
-            .finally(() => setIsUpdatingPicture(false))
+            .finally(() => {
+              pictureMutationInFlightRef.current = false
+              setIsUpdatingPicture(false)
+            })
         },
       },
     ])
@@ -444,7 +455,11 @@ export default function GroupInfoScreen() {
             ) : null}
           </View>
           {canManageMetadata && conversation.picture ? (
-            <SafeTouchableOpacity className="mt-2 px-3 py-1.5" onPress={removeGroupPicture}>
+            <SafeTouchableOpacity
+              className="mt-2 px-3 py-1.5"
+              onPress={removeGroupPicture}
+              disabled={isUpdatingPicture}
+            >
               <AppText className="text-xs2 font-medium text-[#D84A3A]">Remove photo</AppText>
             </SafeTouchableOpacity>
           ) : null}
@@ -575,6 +590,7 @@ export default function GroupInfoScreen() {
                 !memberIsSelf &&
                 !memberIsOwner &&
                 (isOwner || (isAdmin && member.role === 'MEMBER'))
+              const hasMemberActions = canChangeRole || canTransferOwnership || canRemove
 
               return (
                 <View
@@ -590,63 +606,72 @@ export default function GroupInfoScreen() {
                       </AppText>
                     </View>
                   )}
-                  <View className="ml-3 flex-1">
-                    <View className="flex-row items-center">
-                      <AppText className="font-medium text-text-primary" numberOfLines={1}>
+                  <View className="ml-3 min-w-0 flex-1">
+                    <View className="min-w-0 flex-row items-center">
+                      <AppText
+                        className="min-w-0 flex-1 font-medium text-text-primary"
+                        numberOfLines={1}
+                      >
                         {memberIsSelf ? 'You' : displayName}
                       </AppText>
                       {member.role !== 'MEMBER' ? (
-                        <View className="ml-2 rounded-full bg-surface-accent px-2 py-1">
+                        <View className="ml-2 shrink-0 rounded-full bg-surface-accent px-2 py-1">
                           <AppText className="text-[10px] font-medium text-brand">
                             {roleLabel(member.role)}
                           </AppText>
                         </View>
                       ) : null}
                     </View>
-                    <AppText className="mt-0.5 text-xs2 text-text-muted" numberOfLines={1}>
+                    <AppText className="mt-0.5 min-w-0 text-xs2 text-text-muted" numberOfLines={1}>
                       {member.user.email}
                     </AppText>
                   </View>
-                  {canChangeRole ? (
-                    <SafeTouchableOpacity
-                      className="mr-2 h-9 w-9 items-center justify-center rounded-full bg-surface-input"
-                      disabled={updateRole.isPending}
-                      onPress={() => confirmRoleChange(member)}
-                      accessibilityRole="button"
-                      accessibilityLabel={
-                        member.role === 'ADMIN'
-                          ? `Remove admin role from ${displayName}`
-                          : `Make ${displayName} an admin`
-                      }
-                    >
-                      <MaterialIcons
-                        name={member.role === 'ADMIN' ? 'remove-moderator' : 'admin-panel-settings'}
-                        size={18}
-                        color="#161616"
-                      />
-                    </SafeTouchableOpacity>
-                  ) : null}
-                  {canTransferOwnership ? (
-                    <SafeTouchableOpacity
-                      className="mr-2 h-9 w-9 items-center justify-center rounded-full bg-surface-input"
-                      disabled={transferOwnership.isPending}
-                      onPress={() => confirmTransferOwnership(member)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Transfer ownership to ${displayName}`}
-                    >
-                      <MaterialIcons name="swap-horiz" size={19} color="#161616" />
-                    </SafeTouchableOpacity>
-                  ) : null}
-                  {canRemove ? (
-                    <SafeTouchableOpacity
-                      className="h-9 w-9 items-center justify-center rounded-full bg-surface-input"
-                      disabled={removeMember.isPending}
-                      onPress={() => confirmRemoveMember(member)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Remove ${displayName}`}
-                    >
-                      <MaterialIcons name="person-remove" size={18} color="#D84A3A" />
-                    </SafeTouchableOpacity>
+                  {hasMemberActions ? (
+                    <View className="ml-2 shrink-0 flex-row items-center gap-2">
+                      {canChangeRole ? (
+                        <SafeTouchableOpacity
+                          className="h-9 w-9 items-center justify-center rounded-full bg-surface-input"
+                          disabled={updateRole.isPending}
+                          onPress={() => confirmRoleChange(member)}
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            member.role === 'ADMIN'
+                              ? `Remove admin role from ${displayName}`
+                              : `Make ${displayName} an admin`
+                          }
+                        >
+                          <MaterialIcons
+                            name={
+                              member.role === 'ADMIN' ? 'remove-moderator' : 'admin-panel-settings'
+                            }
+                            size={18}
+                            color="#161616"
+                          />
+                        </SafeTouchableOpacity>
+                      ) : null}
+                      {canTransferOwnership ? (
+                        <SafeTouchableOpacity
+                          className="h-9 w-9 items-center justify-center rounded-full bg-surface-input"
+                          disabled={transferOwnership.isPending}
+                          onPress={() => confirmTransferOwnership(member)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Transfer ownership to ${displayName}`}
+                        >
+                          <MaterialIcons name="swap-horiz" size={19} color="#161616" />
+                        </SafeTouchableOpacity>
+                      ) : null}
+                      {canRemove ? (
+                        <SafeTouchableOpacity
+                          className="h-9 w-9 items-center justify-center rounded-full bg-surface-input"
+                          disabled={removeMember.isPending}
+                          onPress={() => confirmRemoveMember(member)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove ${displayName}`}
+                        >
+                          <MaterialIcons name="person-remove" size={18} color="#D84A3A" />
+                        </SafeTouchableOpacity>
+                      ) : null}
+                    </View>
                   ) : null}
                 </View>
               )
