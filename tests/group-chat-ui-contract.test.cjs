@@ -71,15 +71,27 @@ test('group info derives V2 permissions from projected roles and keeps owner-onl
   assert.match(groupInfoScreen, /memberCount > 2/)
 })
 
-test('group info keeps member rows compact and moves management into an overflow action sheet', () => {
+test('group info keeps member rows compact and uses a real bottom sheet for management actions', () => {
   assert.match(groupInfoScreen, /className="ml-3 min-w-0 flex-1"/)
   assert.match(groupInfoScreen, /className="min-w-0 flex-row items-center"/)
   assert.match(groupInfoScreen, /className="min-w-0 flex-1 font-medium text-text-primary"/)
   assert.match(groupInfoScreen, /name="more-vert"/)
-  assert.match(groupInfoScreen, /visible=\{Boolean\(selectedMember\)\}/)
+  assert.match(groupInfoScreen, /from '@gorhom\/bottom-sheet'/)
+  assert.match(groupInfoScreen, /<BottomSheetModal/)
+  assert.match(groupInfoScreen, /memberActionsSheetRef\.current\?\.present\(\)/)
+  assert.match(groupInfoScreen, /memberActionsSheetRef\.current\?\.dismiss\(\)/)
+  assert.match(groupInfoScreen, /enablePanDownToClose/)
+  assert.match(groupInfoScreen, /<BottomSheetBackdrop/)
+  assert.doesNotMatch(groupInfoScreen, /<Modal\b/)
   assert.match(groupInfoScreen, /Remove from group/)
   assert.match(groupInfoScreen, /Transfer ownership/)
   assert.match(groupInfoScreen, /Make admin/)
+})
+
+test('group member actions wait for sheet dismissal before presenting confirmation UI', () => {
+  assert.match(groupInfoScreen, /pendingMemberActionRef/)
+  assert.match(groupInfoScreen, /onDismiss=\{handleMemberActionsDismiss\}/)
+  assert.match(groupInfoScreen, /requestAnimationFrame\(\(\) => pendingAction\(\)\)/)
 })
 
 test('group info presents add-member and leave actions as dedicated rows instead of toolbar clutter', () => {
