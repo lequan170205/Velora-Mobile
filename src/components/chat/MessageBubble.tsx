@@ -1,9 +1,11 @@
-import React from 'react'
+import type { BottomSheetModal } from '@gorhom/bottom-sheet'
+import React, { useCallback, useMemo, useRef, useState } from 'react'
 import { Text, View } from 'react-native'
 
 import { getMessageBubbleRecyclingKey } from '../../lib/messageBubbleRecycling'
 
 import { MessageBubble as MemoizedMessageBubble } from './MessageBubbleImpl'
+import { ReactionDetailsSheet } from './ReactionDetailsSheet'
 
 export { VALID_EMOJIS } from './MessageBubbleImpl'
 export type { MessageBubbleContextMenuPayload } from './MessageBubbleImpl'
@@ -59,6 +61,29 @@ const getGroupActivityLabel = (props: MessageBubbleProps) => {
 }
 
 export function MessageBubble(props: MessageBubbleProps) {
+  const reactionDetailsSheetRef = useRef<BottomSheetModal>(null)
+  const [activeReactionEmoji, setActiveReactionEmoji] = useState<string | null>(null)
+  const reactionSignature = useMemo(
+    () =>
+      Object.entries(props.message.reactions ?? {})
+        .sort(([leftUserId], [rightUserId]) => leftUserId.localeCompare(rightUserId))
+        .map(([userId, reaction]) => `${userId}:${reaction.emoji}:${reaction.createdAt}`)
+        .join('|'),
+    [props.message.reactions],
+  )
+
+  const handleReactionPress = useCallback(
+    (emoji: string) => {
+      props.onReactionPress?.(emoji)
+      setActiveReactionEmoji(emoji)
+    },
+    [props.onReactionPress],
+  )
+
+  const handleReactionDetailsDismiss = useCallback(() => {
+    setActiveReactionEmoji(null)
+  }, [])
+
   if (props.message.metadata?.kind === 'group_system_activity') {
     return (
       <View className="items-center px-8 py-2.5">
@@ -72,9 +97,21 @@ export function MessageBubble(props: MessageBubbleProps) {
   }
 
   return (
-    <MemoizedMessageBubble
-      key={getMessageBubbleRecyclingKey(props.message.metadata?.citations)}
-      {...props}
-    />
+    <>
+      <MemoizedMessageBubble
+        key={getMessageBubbleRecyclingKey(props.message.metadata?.citations)}
+        {...props}
+        onReactionPress={handleReactionPress}
+      />
+      {activeReactionEmoji ? (
+        <ReactionDetailsSheet
+          sheetRef={reactionDetailsSheetRef}
+          messageId={props.message.id}
+          initialEmoji={activeReactionEmoji}
+          reactionSignature={reactionSignature}
+          onDismiss={handleReactionDetailsDismiss}
+        />
+      ) : null}
+    </>
   )
 }

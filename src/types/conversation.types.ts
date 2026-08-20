@@ -41,6 +41,27 @@ export interface ReactionMap {
   }
 }
 
+export interface MessageReactionActor {
+  id: string
+  fullName?: string | null
+  username?: string | null
+  picture?: string | null
+}
+
+export interface MessageReactionDetail {
+  userId: string
+  emoji: string
+  createdAt: string
+  user: MessageReactionActor | null
+}
+
+export interface MessageReactionDetails {
+  messageId: string
+  conversationId: string
+  total: number
+  reactions: MessageReactionDetail[]
+}
+
 export interface ReplyPreviewData {
   senderName: string
   senderId?: string
