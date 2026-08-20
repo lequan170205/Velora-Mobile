@@ -165,7 +165,10 @@ export default function ActiveCallScreen() {
   const hasRemoteVideo = isVideo && remoteVideoState === 'connected' && Boolean(remoteStreamUrl)
   const showOutgoingPreviewAsMain =
     isVideo && phase === 'outgoing_ringing' && cameraEnabled && Boolean(localStreamUrl)
-  const showVideoCanvas = hasRemoteVideo || showOutgoingPreviewAsMain
+  const showVideoCanvas =
+    hasRemoteVideo ||
+    showOutgoingPreviewAsMain ||
+    (isVideo && cameraEnabled && Boolean(localStreamUrl))
   const peerInitial = (peerName || 'U').charAt(0).toUpperCase()
   const visibleStatus =
     isVideo && remoteVideoState === 'off' && phase === 'active' ? 'Camera off' : statusLabel
