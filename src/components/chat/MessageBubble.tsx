@@ -62,7 +62,7 @@ const getGroupActivityLabel = (props: MessageBubbleProps) => {
 
 export function MessageBubble(props: MessageBubbleProps) {
   const reactionDetailsSheetRef = useRef<BottomSheetModal>(null)
-  const [activeReactionEmoji, setActiveReactionEmoji] = useState<string | null>(null)
+  const [isReactionDetailsOpen, setIsReactionDetailsOpen] = useState(false)
   const reactionSignature = useMemo(
     () =>
       Object.entries(props.message.reactions ?? {})
@@ -75,13 +75,13 @@ export function MessageBubble(props: MessageBubbleProps) {
   const handleReactionPress = useCallback(
     (emoji: string) => {
       props.onReactionPress?.(emoji)
-      setActiveReactionEmoji(emoji)
+      setIsReactionDetailsOpen(true)
     },
     [props.onReactionPress],
   )
 
   const handleReactionDetailsDismiss = useCallback(() => {
-    setActiveReactionEmoji(null)
+    setIsReactionDetailsOpen(false)
   }, [])
 
   if (props.message.metadata?.kind === 'group_system_activity') {
@@ -103,11 +103,10 @@ export function MessageBubble(props: MessageBubbleProps) {
         {...props}
         onReactionPress={handleReactionPress}
       />
-      {activeReactionEmoji ? (
+      {isReactionDetailsOpen ? (
         <ReactionDetailsSheet
           sheetRef={reactionDetailsSheetRef}
           messageId={props.message.id}
-          initialEmoji={activeReactionEmoji}
           reactionSignature={reactionSignature}
           onDismiss={handleReactionDetailsDismiss}
         />
