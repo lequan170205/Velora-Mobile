@@ -36,10 +36,7 @@ test('native VIDEO answer survives background recovery without silently downgrad
     source,
     /const shouldDeferLocalVideo =[\s\S]*callType === 'VIDEO' && AppState\.currentState !== 'active'/,
   )
-  assert.match(
-    source,
-    /cameraEnabled:[\s\S]*Boolean\(localVideoTrack\) \|\| shouldDeferLocalVideo/,
-  )
+  assert.match(source, /cameraEnabled:[\s\S]*Boolean\(localVideoTrack\) \|\| shouldDeferLocalVideo/)
   assert.match(source, /activateLocalVideo\(\{ requestPermission: false \}\)/)
 })
 

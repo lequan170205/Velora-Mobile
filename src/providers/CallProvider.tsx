@@ -2141,6 +2141,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       const callId = payload.callId
       const callType = payload.session.callType
+      const shouldDeferLocalVideo = callType === 'VIDEO' && AppState.currentState !== 'active'
       const telemetry = telemetrySessionRef.current
       assertCallSetupCurrent(options.setupToken, callId)
       const device = await ensureDeviceLoaded(payload)
@@ -2155,7 +2156,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           createTransport(socket, callId, 'send', device),
           mediaDevices.getUserMedia({
             audio: true,
-            video: callType === 'VIDEO' ? cameraConstraints(stateBeforeMedia.cameraFacing) : false,
+            video:
+              callType === 'VIDEO' && !shouldDeferLocalVideo
+                ? cameraConstraints(stateBeforeMedia.cameraFacing)
+                : false,
           }),
         ])
 
@@ -2195,7 +2199,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const localAudioTrack = localStream.getAudioTracks()[0]
       const localVideoTrack = localStream.getVideoTracks()[0]
       if (!localAudioTrack) throw new Error('No local audio track available')
-      if (callType === 'VIDEO' && !localVideoTrack)
+      if (callType === 'VIDEO' && !shouldDeferLocalVideo && !localVideoTrack)
         throw new Error('No local video track available')
 
       const muted = useCallStore.getState().muted
@@ -2242,12 +2246,16 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       assertCallSetupCurrent(options.setupToken, callId)
       callAnsweredRef.current = true
 
+      if (shouldDeferLocalVideo) {
+        cameraPausedByBackgroundRef.current = true
+      }
+
       const consumers = [...consumerMapRef.current.values()]
       useCallStore.getState().patch({
         phase: 'active',
         callType,
         muted,
-        cameraEnabled: callType === 'VIDEO' && Boolean(localVideoTrack),
+        cameraEnabled: callType === 'VIDEO' && (Boolean(localVideoTrack) || shouldDeferLocalVideo),
         localStreamUrl: localStream.toURL(),
         remoteAudioState: consumers.some((consumer) => consumer.kind === 'audio')
           ? 'connected'
@@ -3196,12 +3204,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           return
         }
 
-        if (callState.callType === 'VIDEO') {
-          veloraSystemCalls.dismissIncomingCall(action.callId)
-          completeNativeCallAction(action.actionId)
-          return
-        }
-
         if (
           callState.status === 'ended' ||
           callState.status === 'cancelled' ||
@@ -3492,11 +3494,16 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         previousState !== 'active' &&
         cameraPausedByBackgroundRef.current &&
         callState.callType === 'VIDEO' &&
-        callState.cameraEnabled &&
-        localVideoTrack
+        callState.cameraEnabled
       ) {
-        localVideoTrack.enabled = true
-        cameraPausedByBackgroundRef.current = false
+        if (localVideoTrack) {
+          localVideoTrack.enabled = true
+          cameraPausedByBackgroundRef.current = false
+        } else {
+          void activateLocalVideo({ requestPermission: false }).then((activated) => {
+            if (activated) cameraPausedByBackgroundRef.current = false
+          })
+        }
       }
 
       // Notification/full-screen actions are persisted by the Android receiver before
@@ -3524,7 +3531,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     return () => {
       subscription.remove()
     }
-  }, [processPendingNativeCallAction])
+  }, [activateLocalVideo, processPendingNativeCallAction])
 
   useEffect(() => {
     void flushCallTelemetry()
