@@ -26,6 +26,23 @@ test('CallProvider starts video with preview and keeps same call session for typ
   assert.doesNotMatch(source, /reason: 'unsupported_video'/)
 })
 
+test('native VIDEO answer survives background recovery without silently downgrading', () => {
+  const source = read('src/providers/CallProvider.tsx')
+  assert.doesNotMatch(
+    source,
+    /callState\.callType === 'VIDEO'[\s\S]{0,220}dismissIncomingCall\(action\.callId\)/,
+  )
+  assert.match(
+    source,
+    /const shouldDeferLocalVideo =[\s\S]*callType === 'VIDEO' && AppState\.currentState !== 'active'/,
+  )
+  assert.match(
+    source,
+    /cameraEnabled:[\s\S]*Boolean\(localVideoTrack\) \|\| shouldDeferLocalVideo/,
+  )
+  assert.match(source, /activateLocalVideo\(\{ requestPermission: false \}\)/)
+})
+
 test('active call screen renders RTC video and both conversion directions', () => {
   const source = read('app/call/[id].tsx')
   assert.match(source, /RTCView/)
