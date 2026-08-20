@@ -11,7 +11,7 @@ on:
       - scripts/fix-video-call-paused-optional.cjs
       - scripts/finalize-video-call-1to1.cjs
       - scripts/fix-video-speaker-helper-order.cjs
-      - scripts/finalize-native-call-type-sync.cjs
+      - scripts/finalize-native-call-type-sync-v2.cjs
       - scripts/video-call-ci-trigger.txt
       - .github/workflows/video-call-provider-patch.yml
 
@@ -56,7 +56,7 @@ jobs:
           finalizer=$?
           node scripts/fix-video-speaker-helper-order.cjs >> /tmp/patch.log 2>&1
           speaker_order=$?
-          node scripts/finalize-native-call-type-sync.cjs >> /tmp/patch.log 2>&1
+          node scripts/finalize-native-call-type-sync-v2.cjs >> /tmp/patch.log 2>&1
           native_type=$?
           code=$(( provider || native || harden || optional || finalizer || speaker_order || native_type ))
           echo "code=$code" >> "$GITHUB_OUTPUT"
@@ -115,7 +115,7 @@ jobs:
             echo
             echo '## Tests'
             echo '```text'
-            tail -n 200 /tmp/test.log
+            tail -n 220 /tmp/test.log
             echo '```'
             echo
             echo '## Feature lint'
