@@ -2,6 +2,7 @@ import { isAxiosError } from 'axios'
 import { create } from 'zustand'
 
 import { authApi } from '../api/auth.api'
+import { resumePushTokenRegistration } from '../lib/notifications/pushTokenOperationState'
 
 import type { UserSession } from '../types/user.types'
 
@@ -53,6 +54,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
 
       const data = await authApi.me()
+      await resumePushTokenRegistration()
       set({ user: data, isAuthenticated: true, isLoading: false, authHydrationError: null })
     } catch (error) {
       const hydrationError = getAuthHydrationError(error)
