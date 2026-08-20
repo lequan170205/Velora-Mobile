@@ -5,14 +5,7 @@ on:
     branches:
       - feat/video-call-1to1
     paths:
-      - scripts/apply-video-call-provider-patch.cjs
-      - scripts/apply-video-call-native-contract-patch.cjs
-      - scripts/harden-video-call-generated.cjs
-      - scripts/fix-video-call-paused-optional.cjs
-      - scripts/finalize-video-call-1to1.cjs
-      - scripts/fix-video-speaker-helper-order.cjs
-      - scripts/finalize-native-call-type-sync-v2.cjs
-      - scripts/fix-ios-simulator-call-lifecycle-v2.cjs
+      - scripts/fix-ios-simulator-call-lifecycle-v3.cjs
       - scripts/video-call-ci-trigger.txt
       - .github/workflows/video-call-provider-patch.yml
 
@@ -39,51 +32,18 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-      - name: Apply guarded patches
-        id: patch
-        shell: bash
-        run: |
-          set +e
-          : > /tmp/patch.log
-          node scripts/apply-video-call-provider-patch.cjs >> /tmp/patch.log 2>&1
-          provider=$?
-          node scripts/apply-video-call-native-contract-patch.cjs >> /tmp/patch.log 2>&1
-          native=$?
-          node scripts/harden-video-call-generated.cjs >> /tmp/patch.log 2>&1
-          harden=$?
-          node scripts/fix-video-call-paused-optional.cjs >> /tmp/patch.log 2>&1
-          optional=$?
-          node scripts/finalize-video-call-1to1.cjs >> /tmp/patch.log 2>&1
-          finalizer=$?
-          node scripts/fix-video-speaker-helper-order.cjs >> /tmp/patch.log 2>&1
-          speaker_order=$?
-          node scripts/finalize-native-call-type-sync-v2.cjs >> /tmp/patch.log 2>&1
-          native_type=$?
-          node scripts/fix-ios-simulator-call-lifecycle-v2.cjs >> /tmp/patch.log 2>&1
-          simulator=$?
-          code=$(( provider || native || harden || optional || finalizer || speaker_order || native_type || simulator ))
-          echo "code=$code" >> "$GITHUB_OUTPUT"
-          cat /tmp/patch.log
-          exit 0
+      - name: Apply simulator lifecycle patch
+        run: node scripts/fix-ios-simulator-call-lifecycle-v3.cjs
       - name: Install dependencies
-        if: steps.patch.outputs.code == '0'
-        shell: bash
         run: pnpm install --frozen-lockfile
-      - name: Format video-call touched files
-        if: steps.patch.outputs.code == '0'
-        shell: bash
+      - name: Format simulator-call touched files
         run: |
           pnpm exec prettier --write \
-            app/_layout.tsx \
             'app/call/[id].tsx' \
-            'app/conversation/[id].tsx' \
-            plugins/withVeloraSystemCalls.js \
             src/lib/systemCalls/veloraSystemCalls.ts \
             src/providers/CallProvider.tsx \
-            src/types/call.types.ts \
             tests/video-call-1to1-contract.test.cjs
       - name: Verify feature branch
-        if: steps.patch.outputs.code == '0'
         shell: bash
         run: |
           set +e
@@ -92,24 +52,17 @@ jobs:
           pnpm test > /tmp/test.log 2>&1
           TEST=$?
           pnpm exec eslint \
-            app/_layout.tsx \
             'app/call/[id].tsx' \
-            'app/conversation/[id].tsx' \
-            plugins/withVeloraSystemCalls.js \
             src/lib/systemCalls/veloraSystemCalls.ts \
             src/providers/CallProvider.tsx \
-            src/types/call.types.ts \
             tests/video-call-1to1-contract.test.cjs > /tmp/feature-lint.log 2>&1
           FEATURE_LINT=$?
-          pnpm lint > /tmp/lint.log 2>&1
-          LINT=$?
           {
             echo '# Video Call CI Result'
             echo
             echo "- Typecheck exit: $TYPECHECK"
             echo "- Tests exit: $TEST"
             echo "- Feature lint exit: $FEATURE_LINT"
-            echo "- Full repo lint exit: $LINT"
             echo
             echo '## Typecheck'
             echo '```text'
@@ -118,57 +71,33 @@ jobs:
             echo
             echo '## Tests'
             echo '```text'
-            tail -n 240 /tmp/test.log
+            tail -n 260 /tmp/test.log
             echo '```'
             echo
             echo '## Feature lint'
             echo '```text'
             tail -n 180 /tmp/feature-lint.log
             echo '```'
-            echo
-            echo '## Full repo lint'
-            echo '```text'
-            tail -n 180 /tmp/lint.log
-            echo '```'
           } > VIDEO_CALL_CI_RESULT.md
-          exit 0
-      - name: Record patch failure
-        if: steps.patch.outputs.code != '0'
-        shell: bash
-        run: |
-          {
-            echo '# Video Call CI Result'
-            echo
-            echo '- Guarded patch failed before verification.'
-            echo
-            echo '```text'
-            cat /tmp/patch.log
-            echo '```'
-          } > VIDEO_CALL_CI_RESULT.md
-      - name: Commit generated feature changes and result
+          if [ "$TEST" -ne 0 ] || [ "$FEATURE_LINT" -ne 0 ]; then
+            exit 1
+          fi
+      - name: Commit verified simulator lifecycle changes
         shell: bash
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add \
-            app/_layout.tsx \
             'app/call/[id].tsx' \
-            'app/conversation/[id].tsx' \
-            plugins/withVeloraSystemCalls.js \
             src/lib/systemCalls/veloraSystemCalls.ts \
             src/providers/CallProvider.tsx \
-            src/types/call.types.ts \
             modules/velora-system-calls/ios/VeloraSystemCallsModule.swift \
-            modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraSystemCallStore.kt \
-            modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraCallNotifications.kt \
-            modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraCallForegroundService.kt \
-            modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraSystemCallsModule.kt \
             tests/video-call-1to1-contract.test.cjs \
             VIDEO_CALL_CI_RESULT.md
           if git diff --cached --quiet; then
             exit 0
           fi
-          HUSKY=0 git commit -m 'fix(call): isolate iOS simulator call lifecycle'
+          HUSKY=0 git commit -m 'fix(call): isolate iOS simulator lifecycle'
           git fetch origin feat/video-call-1to1
           git rebase origin/feat/video-call-1to1
           git push origin HEAD:feat/video-call-1to1
