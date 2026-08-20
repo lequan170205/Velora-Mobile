@@ -16,7 +16,7 @@ import type { MessageReactionDetail } from '../../types/conversation.types'
 interface ReactionDetailsSheetProps {
   sheetRef: React.RefObject<BottomSheetModal | null>
   messageId: string
-  initialEmoji: string | null
+  initialEmoji: string
   reactionSignature: string
   onDismiss: () => void
 }
@@ -48,25 +48,23 @@ export function ReactionDetailsSheet({
   onDismiss,
 }: ReactionDetailsSheetProps) {
   const currentUserId = useAuthStore((state) => state.user?.id)
-  const [selectedFilter, setSelectedFilter] = useState(ALL_FILTER)
-  const isOpen = initialEmoji !== null
+  const [selectedFilter, setSelectedFilter] = useState(initialEmoji)
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['message-reaction-details', messageId],
     queryFn: () => conversationApi.getReactionDetails(messageId),
-    enabled: isOpen,
     staleTime: 10_000,
   })
 
   useEffect(() => {
-    if (!initialEmoji) return
     setSelectedFilter(initialEmoji)
-  }, [initialEmoji])
+    const frame = requestAnimationFrame(() => sheetRef.current?.present())
+    return () => cancelAnimationFrame(frame)
+  }, [initialEmoji, sheetRef])
 
   useEffect(() => {
-    if (!isOpen) return
     void refetch()
-  }, [isOpen, reactionSignature, refetch])
+  }, [reactionSignature, refetch])
 
   const reactionCounts = useMemo(() => {
     const counts = new Map<string, number>()
