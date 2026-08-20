@@ -96,6 +96,18 @@ const patchIosSystemCallsForVideo = (projectRoot) => {
     'update.hasVideo = isVideo',
     'incoming CXCallUpdate.hasVideo',
   )
+  source = replaceRequired(
+    source,
+    'let update = callUpdate(displayName: "Velora call")',
+    'let update = callUpdate(displayName: "Velora call", isVideo: false)',
+    'fallback incoming call update signature',
+  )
+  source = replaceRequired(
+    source,
+    'if payload["callType"] as? String == "VIDEO" {\n      return (\n        false,\n        callId,\n        "unsupported_call_type",\n        "VoIP incoming call reporting only supports audio calls."\n      )\n    }',
+    'if let callType = nonEmptyString(payload["callType"]),\n       callType != "VOICE" && callType != "VIDEO" {\n      return (\n        false,\n        callId,\n        "unsupported_call_type",\n        "VoIP incoming call reporting only supports VOICE or VIDEO calls."\n      )\n    }',
+    'native incoming VOICE/VIDEO validation',
+  )
 
   fs.writeFileSync(swiftPath, source)
 }

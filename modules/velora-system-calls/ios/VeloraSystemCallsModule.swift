@@ -1442,7 +1442,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     reportingIncomingCallIds.insert(callId)
     fallbackEndedIncomingCallReasonsById[callId] = endReason
 
-    let update = callUpdate(displayName: "Velora call")
+    let update = callUpdate(displayName: "Velora call", isVideo: false)
     logOperationalNotice(
       layer: layer,
       event: "report_new_incoming_call_started",
@@ -1848,15 +1848,22 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
           == .reportFallbackAndEnd
       )
 
-      let unsupportedVideo = validateIncomingPayload(
+      let supportedVideo = validateIncomingPayload(
         validPayload.merging(["callType": "VIDEO"]) { _, latest in latest },
         authenticatedUserIdOverride: "debug-user"
       )
-      assert(unsupportedVideo.errorCode == "unsupported_call_type")
+      assert(supportedVideo.accepted)
+      assert(supportedVideo.errorCode == nil)
       assert(
-        pushKitHandlingStrategy(validationAccepted: unsupportedVideo.accepted, existingState: nil)
-          == .reportFallbackAndEnd
+        pushKitHandlingStrategy(validationAccepted: supportedVideo.accepted, existingState: nil)
+          == .reportValidatedIncomingCall
       )
+
+      let unsupportedCallType = validateIncomingPayload(
+        validPayload.merging(["callType": "SCREEN_SHARE"]) { _, latest in latest },
+        authenticatedUserIdOverride: "debug-user"
+      )
+      assert(unsupportedCallType.errorCode == "unsupported_call_type")
 
       let activeUuid = UUID()
       assert(
@@ -1957,12 +1964,13 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       )
     }
 
-    if payload["callType"] as? String == "VIDEO" {
+    if let callType = nonEmptyString(payload["callType"]),
+       callType != "VOICE" && callType != "VIDEO" {
       return (
         false,
         callId,
         "unsupported_call_type",
-        "VoIP incoming call reporting only supports audio calls."
+        "VoIP incoming call reporting only supports VOICE or VIDEO calls."
       )
     }
 
