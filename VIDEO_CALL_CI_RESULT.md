@@ -21,152 +21,152 @@ app/conversation/[id]/info.tsx(650,38): error TS2339: Property 'email' does not 
 # Subtest: socket reconnect rejoins locally stored conversations so missed revocations are reconciled by server auth
 ok 35 - socket reconnect rejoins locally stored conversations so missed revocations are reconciled by server auth
   ---
-  duration_ms: 0.289793
+  duration_ms: 0.239969
   ...
 # Subtest: revocation tombstones are session-only and clear scoped optimistic state
 ok 36 - revocation tombstones are session-only and clear scoped optimistic state
   ---
-  duration_ms: 0.244569
+  duration_ms: 0.248081
   ...
 # Subtest: active chat and group info blank and exit immediately after revocation
 ok 37 - active chat and group info blank and exit immediately after revocation
   ---
-  duration_ms: 0.262162
+  duration_ms: 0.230795
   ...
 # Subtest: explicit leave clears local, query, and offline state even if socket removal event is missed
 ok 38 - explicit leave clears local, query, and offline state even if socket removal event is missed
   ---
-  duration_ms: 0.2928
+  duration_ms: 0.210905
   ...
 # Subtest: message merges preserve structured group activity and AI citation metadata
 ok 39 - message merges preserve structured group activity and AI citation metadata
   ---
-  duration_ms: 0.239098
+  duration_ms: 0.265617
   ...
 # Subtest: legacy group activity records keep their system kind even when the structured payload was lost
 ok 40 - legacy group activity records keep their system kind even when the structured payload was lost
   ---
-  duration_ms: 0.364024
+  duration_ms: 0.364014
   ...
 # Subtest: group system rows stay centered even when an older local record lost activity payload
 ok 41 - group system rows stay centered even when an older local record lost activity payload
   ---
-  duration_ms: 0.24501
+  duration_ms: 0.258846
   ...
 # Subtest: group photo picker is single-flight and launches the library without a permission round-trip
 ok 42 - group photo picker is single-flight and launches the library without a permission round-trip
   ---
-  duration_ms: 0.592513
+  duration_ms: 0.639216
   ...
 # Subtest: Messages exposes a dedicated new-group route without changing friendship state
 ok 43 - Messages exposes a dedicated new-group route without changing friendship state
   ---
-  duration_ms: 1.982452
+  duration_ms: 2.033801
   ...
 # Subtest: group header resolves real typers and opens group info while calls stay direct-only
 ok 44 - group header resolves real typers and opens group info while calls stay direct-only
   ---
-  duration_ms: 0.349656
+  duration_ms: 0.355541
   ...
 # Subtest: group receipt avatars follow each participant newest activity or read frontier
 ok 45 - group receipt avatars follow each participant newest activity or read frontier
   ---
-  duration_ms: 0.495621
+  duration_ms: 0.588019
   ...
 # Subtest: group info derives V2 permissions from projected roles and keeps owner-only controls separate
 ok 46 - group info derives V2 permissions from projected roles and keeps owner-only controls separate
   ---
-  duration_ms: 1.202097
+  duration_ms: 1.281116
   ...
 # Subtest: group info keeps member rows compact and uses a real bottom sheet for management actions
 ok 47 - group info keeps member rows compact and uses a real bottom sheet for management actions
   ---
-  duration_ms: 0.446117
+  duration_ms: 0.462912
   ...
 # Subtest: group member actions wait for sheet dismissal before presenting confirmation UI
 ok 48 - group member actions wait for sheet dismissal before presenting confirmation UI
   ---
-  duration_ms: 0.209503
+  duration_ms: 0.230705
   ...
 # Subtest: group info presents add-member and leave actions as dedicated rows instead of toolbar clutter
 ok 49 - group info presents add-member and leave actions as dedicated rows instead of toolbar clutter
   ---
-  duration_ms: 0.267553
+  duration_ms: 0.255573
   ...
 # Subtest: group member roster falls back to conversation participants when v2 projection is unavailable
 ok 50 - group member roster falls back to conversation participants when v2 projection is unavailable
   ---
-  duration_ms: 0.225052
+  duration_ms: 0.24758
   ...
 # Subtest: group ownership transfer uses the dedicated owner endpoint
 ok 51 - group ownership transfer uses the dedicated owner endpoint
   ---
-  duration_ms: 0.36781
+  duration_ms: 0.394469
   ...
 # Subtest: authenticated session hydration resumes push-token registration before exposing auth state
 ok 52 - authenticated session hydration resumes push-token registration before exposing auth state
   ---
-  duration_ms: 2.012127
+  duration_ms: 1.965068
   ...
 # Subtest: FCM provider rotates a token rejected as terminal-invalid
 ok 53 - FCM provider rotates a token rejected as terminal-invalid
   ---
-  duration_ms: 2.35401
+  duration_ms: 1.944346
   ...
 # Subtest: FCM provider reboots registration whenever an authenticated app returns active
 ok 54 - FCM provider reboots registration whenever an authenticated app returns active
   ---
-  duration_ms: 0.243157
+  duration_ms: 0.233129
   ...
 # Subtest: creator classifies portrait, landscape and square sources without forcing 9:16 crop
 ok 55 - creator classifies portrait, landscape and square sources without forcing 9:16 crop
   ---
-  duration_ms: 2.092408
+  duration_ms: 1.707703
   ...
 # Subtest: editor and publish previews preserve the full non-portrait frame
 ok 56 - editor and publish previews preserve the full non-portrait frame
   ---
-  duration_ms: 0.233489
+  duration_ms: 0.216885
   ...
 # Subtest: shared reel video playback detects non-portrait posters and switches to contain
 ok 57 - shared reel video playback detects non-portrait posters and switches to contain
   ---
-  duration_ms: 0.279364
+  duration_ms: 0.221771
   ...
 # Subtest: call socket contract supports audio/video, type switching and camera state
 ok 58 - call socket contract supports audio/video, type switching and camera state
   ---
-  duration_ms: 2.29019
+  duration_ms: 1.61228
   ...
 # Subtest: CallProvider starts video with preview and keeps same call session for type switching
 ok 59 - CallProvider starts video with preview and keeps same call session for type switching
   ---
-  duration_ms: 1.236201
+  duration_ms: 0.979524
   ...
 # Subtest: camera off/on is signaled without replacing the video producer
 ok 60 - camera off/on is signaled without replacing the video producer
   ---
-  duration_ms: 0.754447
+  duration_ms: 0.537033
   ...
 # Subtest: native VIDEO answer survives background recovery without silently downgrading
 ok 61 - native VIDEO answer survives background recovery without silently downgrading
   ---
-  duration_ms: 1.303477
+  duration_ms: 0.863131
   ...
 # Subtest: active call screen renders RTC video and both conversion directions
 ok 62 - active call screen renders RTC video and both conversion directions
   ---
-  duration_ms: 0.373
+  duration_ms: 0.270845
   ...
 # Subtest: conversation video entry point remains direct-chat only
 ok 63 - conversation video entry point remains direct-chat only
   ---
-  duration_ms: 0.819608
+  duration_ms: 0.567989
   ...
 # Subtest: native call surfaces preserve callType
 ok 64 - native call surfaces preserve callType
   ---
-  duration_ms: 2.152892
+  duration_ms: 1.365501
   ...
 1..64
 # tests 64
@@ -176,14 +176,14 @@ ok 64 - native call surfaces preserve callType
 # cancelled 0
 # skipped 0
 # todo 3
-# duration_ms 1656.056923
+# duration_ms 1525.622105
 ```
 
 ## Feature lint
 ```text
 
 /home/runner/work/Velora-Mobile/Velora-Mobile/src/providers/CallProvider.tsx
-  3912:29  warning  The ref value 'callSocketPromisesRef.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'callSocketPromisesRef.current' to a variable inside the effect, and use that variable in the cleanup function  react-hooks/exhaustive-deps
+  3917:29  warning  The ref value 'callSocketPromisesRef.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'callSocketPromisesRef.current' to a variable inside the effect, and use that variable in the cleanup function  react-hooks/exhaustive-deps
 
 /home/runner/work/Velora-Mobile/Velora-Mobile/tests/video-call-1to1-contract.test.cjs
   0:0  warning  File ignored because of a matching ignore pattern. Use "--no-ignore" to override
@@ -222,7 +222,7 @@ ok 64 - native call surfaces preserve callType
   309:2  error  Insert `⏎`  prettier/prettier
 
 /home/runner/work/Velora-Mobile/Velora-Mobile/src/providers/CallProvider.tsx
-  3912:29  warning  The ref value 'callSocketPromisesRef.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'callSocketPromisesRef.current' to a variable inside the effect, and use that variable in the cleanup function  react-hooks/exhaustive-deps
+  3917:29  warning  The ref value 'callSocketPromisesRef.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'callSocketPromisesRef.current' to a variable inside the effect, and use that variable in the cleanup function  react-hooks/exhaustive-deps
 
 ✖ 11 problems (8 errors, 3 warnings)
   8 errors and 0 warnings potentially fixable with the `--fix` option.
