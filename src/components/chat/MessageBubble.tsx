@@ -59,10 +59,7 @@ const getGroupActivityLabel = (props: MessageBubbleProps) => {
 }
 
 export function MessageBubble(props: MessageBubbleProps) {
-  if (
-    props.message.metadata?.kind === 'group_system_activity' &&
-    props.message.metadata.groupActivity
-  ) {
+  if (props.message.metadata?.kind === 'group_system_activity') {
     return (
       <View className="items-center px-8 py-2.5">
         <View className="max-w-[88%] rounded-full bg-surface-input px-3.5 py-2">
