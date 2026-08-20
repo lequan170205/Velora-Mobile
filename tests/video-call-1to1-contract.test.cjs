@@ -6,12 +6,15 @@ const test = require('node:test')
 const root = path.resolve(__dirname, '..')
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8')
 
-test('call socket contract supports audio and video plus type switching', () => {
+test('call socket contract supports audio/video, type switching and camera state', () => {
   const source = read('src/types/call.types.ts')
   assert.match(source, /kind: 'audio' \| 'video'/)
   assert.match(source, /set_call_type:/)
   assert.match(source, /call_type_changed:/)
   assert.match(source, /producer_closed:/)
+  assert.match(source, /set_video_enabled:/)
+  assert.match(source, /video_state_changed:/)
+  assert.match(source, /paused\?: boolean/)
 })
 
 test('CallProvider starts video with preview and keeps same call session for type switching', () => {
@@ -24,6 +27,17 @@ test('CallProvider starts video with preview and keeps same call session for typ
   assert.match(source, /localVideoTrack\.enabled = false/)
   assert.match(source, /cameraPausedByBackgroundRef/)
   assert.doesNotMatch(source, /reason: 'unsupported_video'/)
+})
+
+test('camera off/on is signaled without replacing the video producer', () => {
+  const source = read('src/providers/CallProvider.tsx')
+  assert.match(source, /const emitLocalVideoState = useCallback/)
+  assert.match(source, /socket\.emit\('set_video_enabled'/)
+  assert.match(source, /emitLocalVideoState\(false\)/)
+  assert.match(source, /emitLocalVideoState\(true\)/)
+  assert.match(source, /socket\.on\('video_state_changed', handleVideoStateChanged\)/)
+  assert.match(source, /remoteVideoEnabledByProducerRef/)
+  assert.match(source, /remoteVideoState: videoEnabled \? 'connected' : 'off'/)
 })
 
 test('native VIDEO answer survives background recovery without silently downgrading', () => {
