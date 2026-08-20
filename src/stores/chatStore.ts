@@ -307,6 +307,14 @@ export const useChatStore = create<ChatState>()(
 
       confirmMessage: (tempId, currentMessage) =>
         set((state) => {
+          // Server-authored group activities can share senderId with the user
+          // who triggered the action. They are never acknowledgements for a
+          // local optimistic message, even if SocketProvider's legacy fallback
+          // sees exactly one temp message in the conversation.
+          if (currentMessage.metadata?.kind === 'group_system_activity') {
+            return state
+          }
+
           const conversationId = currentMessage.conversationId
           const msgs = state.optimisticMessages[conversationId] || []
           const nextMessages = msgs.filter((message) => message.id !== tempId)
