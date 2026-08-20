@@ -1,4 +1,9 @@
-import type { AiRagCitation, MessageMetadata } from '../types/conversation.types'
+import type {
+  AiRagCitation,
+  GroupSystemActivity,
+  GroupSystemActivityType,
+  MessageMetadata,
+} from '../types/conversation.types'
 import type {
   ReelAuthor,
   ReelFeedListItem,
@@ -8,15 +13,33 @@ import type {
 
 const AI_RESPONSE_METADATA_KIND = 'velora_ai_response'
 const AI_RECOMMENDATION_METADATA_KIND = 'velora_ai_reel_recommendations'
+const GROUP_SYSTEM_ACTIVITY_METADATA_KIND = 'group_system_activity'
 const AI_RAG_EVIDENCE_TYPES = new Set(['TRANSCRIPT', 'VISUAL', 'METADATA'])
 const REEL_STATUS_VALUES = new Set(['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'])
 const REEL_VISIBILITY_VALUES = new Set(['public', 'private'])
+const GROUP_SYSTEM_ACTIVITY_TYPES = new Set<GroupSystemActivityType>([
+  'GROUP_CREATED',
+  'MEMBER_ADDED',
+  'MEMBER_LEFT',
+  'MEMBER_REMOVED',
+  'MEMBER_PROMOTED',
+  'MEMBER_DEMOTED',
+  'OWNERSHIP_TRANSFERRED',
+  'GROUP_RENAMED',
+  'GROUP_PICTURE_CHANGED',
+])
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const getTrimmedString = (value: unknown) =>
   typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+
+const getNullableString = (value: unknown): string | null | undefined => {
+  if (value === null) return null
+  if (typeof value !== 'string') return undefined
+  return value.trim()
+}
 
 const getFiniteNumber = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) ? value : null
@@ -59,6 +82,35 @@ const parseMetadataRecord = (value: unknown): Record<string, unknown> | null => 
     return isRecord(parsedValue) ? parsedValue : null
   } catch {
     return null
+  }
+}
+
+const normalizeGroupSystemActivity = (value: unknown): GroupSystemActivity | null => {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const type = getTrimmedString(value.type)?.toUpperCase() as GroupSystemActivityType | undefined
+  const actorUserId = getTrimmedString(value.actorUserId ?? value.actor_user_id)
+
+  if (!type || !GROUP_SYSTEM_ACTIVITY_TYPES.has(type) || !actorUserId) {
+    return null
+  }
+
+  const actorName = getTrimmedString(value.actorName ?? value.actor_name)
+  const targetUserId = getTrimmedString(value.targetUserId ?? value.target_user_id)
+  const targetName = getTrimmedString(value.targetName ?? value.target_name)
+  const previousValue = getNullableString(value.previousValue ?? value.previous_value)
+  const nextValue = getNullableString(value.nextValue ?? value.next_value)
+
+  return {
+    type,
+    actorUserId,
+    ...(actorName ? { actorName } : {}),
+    ...(targetUserId ? { targetUserId } : {}),
+    ...(targetName ? { targetName } : {}),
+    ...(previousValue !== undefined ? { previousValue } : {}),
+    ...(nextValue !== undefined ? { nextValue } : {}),
   }
 }
 
@@ -243,6 +295,20 @@ export const normalizeMessageMetadata = (value: unknown): MessageMetadata | unde
     getTrimmedString(rawValue.kind) ??
     getTrimmedString(rawValue.metadataKind) ??
     getTrimmedString(rawValue.metadata_kind)
+
+  if (rawKind === GROUP_SYSTEM_ACTIVITY_METADATA_KIND) {
+    const groupActivity = normalizeGroupSystemActivity(
+      rawValue.groupActivity ?? rawValue.group_activity,
+    )
+
+    return groupActivity
+      ? {
+          kind: GROUP_SYSTEM_ACTIVITY_METADATA_KIND,
+          groupActivity,
+        }
+      : undefined
+  }
+
   const citationsSource = Array.isArray(rawValue.citations)
     ? rawValue.citations
     : Array.isArray(rawValue.ragCitations)
