@@ -96,6 +96,13 @@ export type CallKitTransactionResult = {
   errorMessage: string | null
 }
 
+export type NativeOutgoingCallPayload = {
+  callId: string
+  conversationId: string
+  peerName: string
+  callType: CallType
+}
+
 type VeloraSystemCallsModule = {
   setAuthenticatedUserId: (userId?: string | null) => void
   getVoipRegistrationState: () => VoipRegistrationState
@@ -105,11 +112,7 @@ type VeloraSystemCallsModule = {
   getNativeAudioSessionState: () => Promise<NativeAudioSessionState>
   clearPendingCallAction: (actionId?: string | null) => void
   presentIncomingCall: (payload: NativeCallPayload) => Promise<CallKitTransactionResult>
-  registerOutgoingCall: (payload: {
-    callId: string
-    conversationId: string
-    peerName: string
-  }) => Promise<CallKitTransactionResult>
+  registerOutgoingCall: (payload: NativeOutgoingCallPayload) => Promise<CallKitTransactionResult>
   setCallActive: (callId: string) => boolean
   setSpeakerEnabled: (enabled: boolean) => boolean
   endCall: (callId: string) => Promise<CallKitTransactionResult>
@@ -192,11 +195,7 @@ export const veloraSystemCalls = {
     )
   },
 
-  registerOutgoingCall(payload: {
-    callId: string
-    conversationId: string
-    peerName: string
-  }): Promise<CallKitTransactionResult> {
+  registerOutgoingCall(payload: NativeOutgoingCallPayload): Promise<CallKitTransactionResult> {
     return (
       nativeModule?.registerOutgoingCall?.(payload) ??
       Promise.resolve({
