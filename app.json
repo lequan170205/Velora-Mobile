@@ -12,8 +12,8 @@
       "infoPlist": {
         "UIBackgroundModes": ["audio", "voip", "remote-notification"],
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": "Velora uses the camera to record reels.",
-        "NSMicrophoneUsageDescription": "Velora uses the microphone to record audio for reels."
+        "NSCameraUsageDescription": "Velora uses the camera for video calls and to record reels.",
+        "NSMicrophoneUsageDescription": "Velora uses the microphone for voice and video calls and to record audio."
       },
       "bundleIdentifier": "com.quan.velora.dev",
       "googleServicesFile": "./GoogleService-Info.plist"
@@ -66,8 +66,8 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Velora to use your camera to record reels.",
-          "microphonePermission": "Allow Velora to use your microphone to record reel audio.",
+          "cameraPermission": "Allow Velora to use your camera for video calls and reels.",
+          "microphonePermission": "Allow Velora to use your microphone for calls and recording.",
           "recordAudioAndroid": true
         }
       ],
