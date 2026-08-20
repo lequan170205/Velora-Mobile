@@ -2,7 +2,12 @@ import { normalizeMessageMetadata } from '../lib/messageMetadata'
 
 import { apiClient } from './client'
 
-import type { Conversation, ConversationMember, Message } from '../types/conversation.types'
+import type {
+  Conversation,
+  ConversationMember,
+  ConversationMemberRole,
+  Message,
+} from '../types/conversation.types'
 
 export interface AnchorWindowResponse {
   targetMessageId: string
@@ -180,8 +185,7 @@ export const conversationApi = {
     await apiClient.post(`/conversations/${id}/read`, data)
   },
 
-  // New methods for Recall, Reply, Reactions
-
+  // Recall, Reply, Reactions
   recallMessage: async (conversationId: string, messageId: string) => {
     const response = await apiClient.post<Message>(
       `/conversations/${conversationId}/messages/${messageId}/recall`,
@@ -201,16 +205,29 @@ export const conversationApi = {
     const response = await apiClient.delete<Message>(`/messages/${messageId}/reactions/${userId}`)
     return normalizeMessage(response.data)
   },
+
+  // Group Chat V2 membership / roles
   getMembers: async (id: string) => {
-    const response = await apiClient.get<ConversationMember[]>(`/conversations/${id}/members`)
+    const response = await apiClient.get<ConversationMember[]>(`/conversations/${id}/members/v2`)
     return response.data
   },
   addMember: async (id: string, data: { userId: string }) => {
-    const response = await apiClient.post<ConversationMember>(`/conversations/${id}/members`, data)
+    const response = await apiClient.post<Conversation>(`/conversations/${id}/members`, data)
     return response.data
   },
   removeMember: async (id: string, userId: string) => {
     await apiClient.delete(`/conversations/${id}/members/${userId}`)
+  },
+  updateMemberRole: async (
+    id: string,
+    userId: string,
+    role: Extract<ConversationMemberRole, 'ADMIN' | 'MEMBER'>,
+  ) => {
+    const response = await apiClient.patch<ConversationMember>(
+      `/conversations/${id}/members/${userId}/role`,
+      { role },
+    )
+    return response.data
   },
   transferOwnership: async (id: string, data: { userId: string }) => {
     const response = await apiClient.patch<Conversation>(`/conversations/${id}/owner`, data)
