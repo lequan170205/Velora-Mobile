@@ -104,13 +104,15 @@ export function MessageBubble(props: MessageBubbleProps) {
         {...props}
         onReactionPress={handleReactionPress}
       />
-      <ReactionDetailsSheet
-        sheetRef={reactionDetailsSheetRef}
-        messageId={props.message.id}
-        initialEmoji={activeReactionEmoji}
-        reactionSignature={reactionSignature}
-        onDismiss={handleReactionDetailsDismiss}
-      />
+      {activeReactionEmoji ? (
+        <ReactionDetailsSheet
+          sheetRef={reactionDetailsSheetRef}
+          messageId={props.message.id}
+          initialEmoji={activeReactionEmoji}
+          reactionSignature={reactionSignature}
+          onDismiss={handleReactionDetailsDismiss}
+        />
+      ) : null}
     </>
   )
 }
