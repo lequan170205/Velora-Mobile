@@ -3,7 +3,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as ImagePicker from 'expo-image-picker'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Alert, Image, ScrollView, View } from 'react-native'
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { conversationApi } from '../../../src/api/conversation.api'
@@ -40,7 +49,9 @@ const getMemberDisplayName = (
 
 type GroupPictureMimeType = 'image/jpeg' | 'image/png' | 'image/webp'
 
-const resolveGroupPictureMimeType = (asset: ImagePicker.ImagePickerAsset): GroupPictureMimeType | null => {
+const resolveGroupPictureMimeType = (
+  asset: ImagePicker.ImagePickerAsset,
+): GroupPictureMimeType | null => {
   const mimeType = asset.mimeType?.toLowerCase()
   if (mimeType === 'image/jpeg' || mimeType === 'image/png' || mimeType === 'image/webp') {
     return mimeType
@@ -92,6 +103,7 @@ export default function GroupInfoScreen() {
   const [draftName, setDraftName] = useState('')
   const [showAddMembers, setShowAddMembers] = useState(false)
   const [isUpdatingPicture, setIsUpdatingPicture] = useState(false)
+  const [selectedMember, setSelectedMember] = useState<ConversationMember | null>(null)
   const pictureMutationInFlightRef = useRef(false)
 
   const applyConversation = (nextConversation: Conversation) => {
@@ -231,6 +243,12 @@ export default function GroupInfoScreen() {
     }
   }, [isConversationRevoked, router])
 
+  useEffect(() => {
+    if (selectedMember && !memberIds.has(selectedMember.userId)) {
+      setSelectedMember(null)
+    }
+  }, [memberIds, selectedMember])
+
   const pickAndUploadGroupPicture = async () => {
     if (!canManageMetadata || pictureMutationInFlightRef.current) return
 
@@ -366,6 +384,23 @@ export default function GroupInfoScreen() {
   const groupName = conversation.name?.trim() || 'Group Chat'
   const memberCount = members.length || conversation.participantIds.length
 
+  const canTransferMemberOwnership = (member: ConversationMember) =>
+    isOwner && member.role !== 'OWNER' && member.userId !== currentUserId
+
+  const canChangeMemberRole = (member: ConversationMember) =>
+    isOwner && member.role !== 'OWNER' && member.userId !== currentUserId
+
+  const canRemoveGroupMember = (member: ConversationMember) =>
+    memberCount > 2 &&
+    member.userId !== currentUserId &&
+    member.role !== 'OWNER' &&
+    (isOwner || (isAdmin && member.role === 'MEMBER'))
+
+  const hasMemberActions = (member: ConversationMember) =>
+    canChangeMemberRole(member) ||
+    canTransferMemberOwnership(member) ||
+    canRemoveGroupMember(member)
+
   const confirmRemoveMember = (member: ConversationMember) => {
     const name = getMemberDisplayName(member, participantById.get(member.userId))
     Alert.alert('Remove member?', `${name} will lose access to this group.`, [
@@ -411,6 +446,35 @@ export default function GroupInfoScreen() {
     ])
   }
 
+  const handleLeavePress = () => {
+    if (isOwner) {
+      Alert.alert(
+        'Transfer ownership first',
+        'Choose another member and transfer ownership before leaving this group.',
+      )
+      return
+    }
+
+    if (memberCount <= 2) {
+      Alert.alert('Unable to leave', 'At least two active members must remain in the group.')
+      return
+    }
+
+    confirmLeave()
+  }
+
+  const closeMemberActionsAndRun = (
+    member: ConversationMember,
+    action: (target: ConversationMember) => void,
+  ) => {
+    setSelectedMember(null)
+    action(member)
+  }
+
+  const selectedMemberName = selectedMember
+    ? getMemberDisplayName(selectedMember, participantById.get(selectedMember.userId))
+    : ''
+
   return (
     <SafeAreaView className="flex-1 bg-bg-primary">
       <View className="flex-row items-center border-b border-border-light px-3 py-2">
@@ -426,21 +490,21 @@ export default function GroupInfoScreen() {
         <AppText className="flex-1 text-md font-semibold text-text-primary">Group info</AppText>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-        <View className="items-center px-5 pb-6 pt-7">
+      <ScrollView contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+        <View className="items-center px-5 pb-7 pt-6">
           <View className="relative">
             {conversation.picture ? (
-              <Image source={{ uri: conversation.picture }} className="h-24 w-24 rounded-full" />
+              <Image source={{ uri: conversation.picture }} className="h-28 w-28 rounded-full" />
             ) : (
-              <View className="h-24 w-24 items-center justify-center rounded-full bg-surface-input">
-                <AppText className="text-[28px] font-semibold text-text-primary">
+              <View className="h-28 w-28 items-center justify-center rounded-full bg-surface-input">
+                <AppText className="text-[32px] font-semibold text-text-primary">
                   {groupName.charAt(0).toUpperCase()}
                 </AppText>
               </View>
             )}
             {canManageMetadata ? (
               <SafeTouchableOpacity
-                className="absolute -bottom-1 -right-1 h-9 w-9 items-center justify-center rounded-full border-2 border-bg-primary bg-surface-input"
+                className="absolute -bottom-1 -right-1 h-10 w-10 items-center justify-center rounded-full border-2 border-bg-primary bg-surface-input"
                 onPress={() => void pickAndUploadGroupPicture()}
                 disabled={isUpdatingPicture}
                 accessibilityRole="button"
@@ -449,11 +513,12 @@ export default function GroupInfoScreen() {
                 {isUpdatingPicture ? (
                   <ActivityIndicator size="small" color="#FF6B2C" />
                 ) : (
-                  <MaterialIcons name="photo-camera" size={18} color="#161616" />
+                  <MaterialIcons name="photo-camera" size={19} color="#161616" />
                 )}
               </SafeTouchableOpacity>
             ) : null}
           </View>
+
           {canManageMetadata && conversation.picture ? (
             <SafeTouchableOpacity
               className="mt-2 px-3 py-1.5"
@@ -490,12 +555,17 @@ export default function GroupInfoScreen() {
               </View>
             </View>
           ) : (
-            <View className="mt-4 items-center">
-              <View className="flex-row items-center">
-                <AppText className="text-xl font-semibold text-text-primary">{groupName}</AppText>
+            <View className="mt-4 items-center px-4">
+              <View className="max-w-full flex-row items-center">
+                <AppText
+                  className="max-w-[85%] text-center text-xl font-semibold text-text-primary"
+                  numberOfLines={2}
+                >
+                  {groupName}
+                </AppText>
                 {canManageMetadata ? (
                   <SafeTouchableOpacity
-                    className="ml-2 h-8 w-8 items-center justify-center rounded-full bg-surface-input"
+                    className="ml-2 h-8 w-8 shrink-0 items-center justify-center"
                     onPress={() => {
                       setDraftName(groupName)
                       setIsEditingName(true)
@@ -503,42 +573,47 @@ export default function GroupInfoScreen() {
                     accessibilityRole="button"
                     accessibilityLabel="Rename group"
                   >
-                    <MaterialIcons name="edit" size={16} color="#161616" />
+                    <MaterialIcons name="edit" size={17} color="#767676" />
                   </SafeTouchableOpacity>
                 ) : null}
               </View>
               <AppText className="mt-1 text-sm2 text-text-muted">
                 {memberCount} member{memberCount === 1 ? '' : 's'}
-                {currentRole ? ` · ${roleLabel(currentRole)}` : ''}
               </AppText>
             </View>
           )}
         </View>
 
         <View className="border-t border-border-light">
-          <View className="flex-row items-center justify-between px-5 py-4">
-            <AppText className="text-xs uppercase tracking-[1.2px] text-text-muted">
-              Members
-            </AppText>
-            {canAddMembers ? (
-              <SafeTouchableOpacity
-                className="flex-row items-center rounded-full bg-surface-input px-3 py-2"
-                onPress={() => setShowAddMembers((value) => !value)}
-                activeOpacity={0.75}
-              >
-                <MaterialIcons name="person-add" size={17} color="#161616" />
-                <AppText className="ml-1.5 text-xs2 font-medium text-text-primary">Add</AppText>
-              </SafeTouchableOpacity>
-            ) : null}
+          <View className="flex-row items-center justify-between px-5 pb-2 pt-5">
+            <AppText className="text-sm2 font-semibold text-text-primary">Members</AppText>
+            <AppText className="text-xs2 text-text-muted">{memberCount}</AppText>
           </View>
 
+          {canAddMembers ? (
+            <SafeTouchableOpacity
+              className="flex-row items-center px-5 py-3.5"
+              onPress={() => setShowAddMembers((value) => !value)}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel={showAddMembers ? 'Hide add members' : 'Add members'}
+            >
+              <View className="h-10 w-10 items-center justify-center rounded-full bg-surface-input">
+                <MaterialIcons name="person-add" size={20} color="#161616" />
+              </View>
+              <AppText className="ml-3 flex-1 font-medium text-text-primary">Add members</AppText>
+              <MaterialIcons
+                name={showAddMembers ? 'expand-less' : 'expand-more'}
+                size={23}
+                color="#8A8A8A"
+              />
+            </SafeTouchableOpacity>
+          ) : null}
+
           {showAddMembers && canAddMembers ? (
-            <View className="border-b border-border-light bg-surface-card px-5 pb-3">
-              <AppText className="mb-2 text-xs2 text-text-muted">
-                Friends not already in this group
-              </AppText>
+            <View className="border-y border-border-light bg-surface-card px-5 py-2">
               {addCandidates.length === 0 ? (
-                <AppText className="py-3 text-sm2 text-text-secondary">
+                <AppText className="py-4 text-sm2 text-text-secondary">
                   No friends available to add.
                 </AppText>
               ) : (
@@ -547,19 +622,24 @@ export default function GroupInfoScreen() {
                   return (
                     <View key={item.user.id} className="flex-row items-center py-2.5">
                       {item.user.picture ? (
-                        <Image source={{ uri: item.user.picture }} className="h-9 w-9 rounded-full" />
+                        <Image source={{ uri: item.user.picture }} className="h-10 w-10 rounded-full" />
                       ) : (
-                        <View className="h-9 w-9 items-center justify-center rounded-full bg-surface-input">
+                        <View className="h-10 w-10 items-center justify-center rounded-full bg-surface-input">
                           <AppText className="text-xs2 font-medium text-text-primary">
                             {name.charAt(0).toUpperCase()}
                           </AppText>
                         </View>
                       )}
-                      <AppText className="ml-3 flex-1 font-medium text-text-primary" numberOfLines={1}>
-                        {name}
-                      </AppText>
+                      <View className="ml-3 min-w-0 flex-1">
+                        <AppText className="font-medium text-text-primary" numberOfLines={1}>
+                          {name}
+                        </AppText>
+                        <AppText className="mt-0.5 text-xs2 text-text-muted" numberOfLines={1}>
+                          {item.user.email}
+                        </AppText>
+                      </View>
                       <AppPressable
-                        className="rounded-full bg-brand px-3 py-2"
+                        className="ml-3 rounded-full bg-brand px-3 py-2"
                         disabled={addMember.isPending}
                         onPress={() => addMember.mutate(item.user.id)}
                       >
@@ -581,16 +661,8 @@ export default function GroupInfoScreen() {
               const participant = participantById.get(member.userId)
               const displayName = getMemberDisplayName(member, participant)
               const picture = participant?.picture || member.user.picture || undefined
-              const memberIsOwner = member.role === 'OWNER'
               const memberIsSelf = member.userId === currentUserId
-              const canTransferOwnership = isOwner && !memberIsOwner && !memberIsSelf
-              const canChangeRole = isOwner && !memberIsOwner && !memberIsSelf
-              const canRemove =
-                memberCount > 2 &&
-                !memberIsSelf &&
-                !memberIsOwner &&
-                (isOwner || (isAdmin && member.role === 'MEMBER'))
-              const hasMemberActions = canChangeRole || canTransferOwnership || canRemove
+              const memberHasActions = hasMemberActions(member)
 
               return (
                 <View
@@ -626,52 +698,15 @@ export default function GroupInfoScreen() {
                       {member.user.email}
                     </AppText>
                   </View>
-                  {hasMemberActions ? (
-                    <View className="ml-2 shrink-0 flex-row items-center gap-2">
-                      {canChangeRole ? (
-                        <SafeTouchableOpacity
-                          className="h-9 w-9 items-center justify-center rounded-full bg-surface-input"
-                          disabled={updateRole.isPending}
-                          onPress={() => confirmRoleChange(member)}
-                          accessibilityRole="button"
-                          accessibilityLabel={
-                            member.role === 'ADMIN'
-                              ? `Remove admin role from ${displayName}`
-                              : `Make ${displayName} an admin`
-                          }
-                        >
-                          <MaterialIcons
-                            name={
-                              member.role === 'ADMIN' ? 'remove-moderator' : 'admin-panel-settings'
-                            }
-                            size={18}
-                            color="#161616"
-                          />
-                        </SafeTouchableOpacity>
-                      ) : null}
-                      {canTransferOwnership ? (
-                        <SafeTouchableOpacity
-                          className="h-9 w-9 items-center justify-center rounded-full bg-surface-input"
-                          disabled={transferOwnership.isPending}
-                          onPress={() => confirmTransferOwnership(member)}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Transfer ownership to ${displayName}`}
-                        >
-                          <MaterialIcons name="swap-horiz" size={19} color="#161616" />
-                        </SafeTouchableOpacity>
-                      ) : null}
-                      {canRemove ? (
-                        <SafeTouchableOpacity
-                          className="h-9 w-9 items-center justify-center rounded-full bg-surface-input"
-                          disabled={removeMember.isPending}
-                          onPress={() => confirmRemoveMember(member)}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Remove ${displayName}`}
-                        >
-                          <MaterialIcons name="person-remove" size={18} color="#D84A3A" />
-                        </SafeTouchableOpacity>
-                      ) : null}
-                    </View>
+                  {memberHasActions ? (
+                    <SafeTouchableOpacity
+                      className="ml-2 h-10 w-10 shrink-0 items-center justify-center"
+                      onPress={() => setSelectedMember(member)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Actions for ${displayName}`}
+                    >
+                      <MaterialIcons name="more-vert" size={22} color="#767676" />
+                    </SafeTouchableOpacity>
                   ) : null}
                 </View>
               )
@@ -679,29 +714,128 @@ export default function GroupInfoScreen() {
           )}
         </View>
 
-        <View className="px-5 pt-6">
-          {isOwner ? (
-            <View className="rounded-[18px] border border-border-light bg-surface-card px-4 py-3.5">
-              <AppText className="text-sm2 font-medium text-text-primary">You own this group</AppText>
-              <AppText className="mt-1 text-xs2 leading-5 text-text-muted">
-                Transfer ownership to another member before leaving the group.
-              </AppText>
-            </View>
-          ) : (
-            <AppPressable
-              className="items-center rounded-[18px] border border-border-light bg-surface-card px-4 py-3.5"
-              disabled={leaveGroup.isPending || memberCount <= 2 || !currentRole}
-              onPress={confirmLeave}
-            >
+        <View className="mt-3 border-t border-border-light px-5 pt-2">
+          <AppPressable
+            className="flex-row items-center py-4"
+            disabled={leaveGroup.isPending || !currentRole}
+            onPress={handleLeavePress}
+          >
+            <View className="h-10 w-10 items-center justify-center rounded-full bg-[#FFF0EC]">
               {leaveGroup.isPending ? (
-                <ActivityIndicator color="#D84A3A" />
+                <ActivityIndicator size="small" color="#D84A3A" />
               ) : (
-                <AppText className="font-semibold text-[#D84A3A]">Leave group</AppText>
+                <MaterialIcons name="logout" size={20} color="#D84A3A" />
               )}
-            </AppPressable>
-          )}
+            </View>
+            <View className="ml-3 flex-1">
+              <AppText className="font-semibold text-[#D84A3A]">Leave group</AppText>
+              {isOwner ? (
+                <AppText className="mt-0.5 text-xs2 text-text-muted">
+                  Transfer ownership before leaving.
+                </AppText>
+              ) : memberCount <= 2 ? (
+                <AppText className="mt-0.5 text-xs2 text-text-muted">
+                  At least two members must remain.
+                </AppText>
+              ) : null}
+            </View>
+          </AppPressable>
         </View>
       </ScrollView>
+
+      <Modal
+        visible={Boolean(selectedMember)}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setSelectedMember(null)}
+      >
+        <View
+          className="flex-1 justify-end"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.32)' }}
+        >
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSelectedMember(null)} />
+          {selectedMember ? (
+            <View className="rounded-t-[28px] bg-bg-primary px-5 pb-8 pt-3">
+              <View className="mx-auto mb-4 h-1 w-10 rounded-full bg-border-light" />
+              <View className="mb-2 px-1">
+                <AppText className="text-base2 font-semibold text-text-primary" numberOfLines={1}>
+                  {selectedMemberName}
+                </AppText>
+                <AppText className="mt-0.5 text-xs2 text-text-muted">
+                  {roleLabel(selectedMember.role)}
+                </AppText>
+              </View>
+
+              {canChangeMemberRole(selectedMember) ? (
+                <SafeTouchableOpacity
+                  className="flex-row items-center py-3.5"
+                  disabled={updateRole.isPending}
+                  onPress={() =>
+                    closeMemberActionsAndRun(selectedMember, confirmRoleChange)
+                  }
+                >
+                  <View className="h-10 w-10 items-center justify-center rounded-full bg-surface-input">
+                    <MaterialIcons
+                      name={
+                        selectedMember.role === 'ADMIN'
+                          ? 'remove-moderator'
+                          : 'admin-panel-settings'
+                      }
+                      size={20}
+                      color="#161616"
+                    />
+                  </View>
+                  <AppText className="ml-3 font-medium text-text-primary">
+                    {selectedMember.role === 'ADMIN' ? 'Remove admin role' : 'Make admin'}
+                  </AppText>
+                </SafeTouchableOpacity>
+              ) : null}
+
+              {canTransferMemberOwnership(selectedMember) ? (
+                <SafeTouchableOpacity
+                  className="flex-row items-center py-3.5"
+                  disabled={transferOwnership.isPending}
+                  onPress={() =>
+                    closeMemberActionsAndRun(selectedMember, confirmTransferOwnership)
+                  }
+                >
+                  <View className="h-10 w-10 items-center justify-center rounded-full bg-surface-input">
+                    <MaterialIcons name="swap-horiz" size={21} color="#161616" />
+                  </View>
+                  <AppText className="ml-3 font-medium text-text-primary">
+                    Transfer ownership
+                  </AppText>
+                </SafeTouchableOpacity>
+              ) : null}
+
+              {canRemoveGroupMember(selectedMember) ? (
+                <SafeTouchableOpacity
+                  className="flex-row items-center py-3.5"
+                  disabled={removeMember.isPending}
+                  onPress={() =>
+                    closeMemberActionsAndRun(selectedMember, confirmRemoveMember)
+                  }
+                >
+                  <View className="h-10 w-10 items-center justify-center rounded-full bg-[#FFF0EC]">
+                    <MaterialIcons name="person-remove" size={20} color="#D84A3A" />
+                  </View>
+                  <AppText className="ml-3 font-medium text-[#D84A3A]">
+                    Remove from group
+                  </AppText>
+                </SafeTouchableOpacity>
+              ) : null}
+
+              <SafeTouchableOpacity
+                className="mt-2 items-center rounded-[16px] bg-surface-input py-3.5"
+                onPress={() => setSelectedMember(null)}
+              >
+                <AppText className="font-semibold text-text-primary">Cancel</AppText>
+              </SafeTouchableOpacity>
+            </View>
+          ) : null}
+        </View>
+      </Modal>
     </SafeAreaView>
   )
 }
