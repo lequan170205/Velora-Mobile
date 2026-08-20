@@ -221,6 +221,10 @@ export const mergeMessageMetadata = (
     incoming && Object.prototype.hasOwnProperty.call(incoming, 'kind')
       ? incoming.kind
       : existing?.kind
+  const citations =
+    incoming && Object.prototype.hasOwnProperty.call(incoming, 'citations')
+      ? incoming.citations
+      : existing?.citations
   const recommendedReels =
     incoming && Object.prototype.hasOwnProperty.call(incoming, 'recommendedReels')
       ? incoming.recommendedReels
@@ -229,15 +233,27 @@ export const mergeMessageMetadata = (
     incoming && Object.prototype.hasOwnProperty.call(incoming, 'suggestedQueries')
       ? incoming.suggestedQueries
       : existing?.suggestedQueries
+  const groupActivity =
+    incoming && Object.prototype.hasOwnProperty.call(incoming, 'groupActivity')
+      ? incoming.groupActivity
+      : existing?.groupActivity
 
-  if (!kind && recommendedReels === undefined && suggestedQueries === undefined) {
+  if (
+    !kind &&
+    citations === undefined &&
+    recommendedReels === undefined &&
+    suggestedQueries === undefined &&
+    groupActivity === undefined
+  ) {
     return undefined
   }
 
   return {
     ...(kind ? { kind } : {}),
+    ...(citations !== undefined ? { citations } : {}),
     ...(recommendedReels !== undefined ? { recommendedReels } : {}),
     ...(suggestedQueries !== undefined ? { suggestedQueries } : {}),
+    ...(groupActivity !== undefined ? { groupActivity } : {}),
   }
 }
 
