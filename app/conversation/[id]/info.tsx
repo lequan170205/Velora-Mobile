@@ -1,18 +1,10 @@
 import { MaterialIcons } from '@expo/vector-icons'
+import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as ImagePicker from 'expo-image-picker'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from 'react-native'
+import { ActivityIndicator, Alert, Image, ScrollView, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { conversationApi } from '../../../src/api/conversation.api'
@@ -105,6 +97,8 @@ export default function GroupInfoScreen() {
   const [isUpdatingPicture, setIsUpdatingPicture] = useState(false)
   const [selectedMember, setSelectedMember] = useState<ConversationMember | null>(null)
   const pictureMutationInFlightRef = useRef(false)
+  const memberActionsSheetRef = useRef<BottomSheetModal>(null)
+  const pendingMemberActionRef = useRef<(() => void) | null>(null)
 
   const applyConversation = (nextConversation: Conversation) => {
     queryClient.setQueryData(queryKeys.conversations.detail(conversationId), nextConversation)
@@ -245,6 +239,8 @@ export default function GroupInfoScreen() {
 
   useEffect(() => {
     if (selectedMember && !memberIds.has(selectedMember.userId)) {
+      pendingMemberActionRef.current = null
+      memberActionsSheetRef.current?.dismiss()
       setSelectedMember(null)
     }
   }, [memberIds, selectedMember])
@@ -463,12 +459,28 @@ export default function GroupInfoScreen() {
     confirmLeave()
   }
 
+  const openMemberActions = (member: ConversationMember) => {
+    pendingMemberActionRef.current = null
+    setSelectedMember(member)
+    requestAnimationFrame(() => memberActionsSheetRef.current?.present())
+  }
+
   const closeMemberActionsAndRun = (
     member: ConversationMember,
     action: (target: ConversationMember) => void,
   ) => {
+    pendingMemberActionRef.current = () => action(member)
+    memberActionsSheetRef.current?.dismiss()
+  }
+
+  const handleMemberActionsDismiss = () => {
+    const pendingAction = pendingMemberActionRef.current
+    pendingMemberActionRef.current = null
     setSelectedMember(null)
-    action(member)
+
+    if (pendingAction) {
+      requestAnimationFrame(() => pendingAction())
+    }
   }
 
   const selectedMemberName = selectedMember
@@ -701,7 +713,7 @@ export default function GroupInfoScreen() {
                   {memberHasActions ? (
                     <SafeTouchableOpacity
                       className="ml-2 h-10 w-10 shrink-0 items-center justify-center"
-                      onPress={() => setSelectedMember(member)}
+                      onPress={() => openMemberActions(member)}
                       accessibilityRole="button"
                       accessibilityLabel={`Actions for ${displayName}`}
                     >
@@ -743,21 +755,25 @@ export default function GroupInfoScreen() {
         </View>
       </ScrollView>
 
-      <Modal
-        visible={Boolean(selectedMember)}
-        transparent
-        animationType="fade"
-        statusBarTranslucent
-        onRequestClose={() => setSelectedMember(null)}
+      <BottomSheetModal
+        ref={memberActionsSheetRef}
+        enableDynamicSizing
+        enablePanDownToClose
+        onDismiss={handleMemberActionsDismiss}
+        backdropComponent={(props) => (
+          <BottomSheetBackdrop
+            {...props}
+            appearsOnIndex={0}
+            disappearsOnIndex={-1}
+            opacity={0.32}
+            pressBehavior="close"
+          />
+        )}
+        handleIndicatorStyle={{ backgroundColor: '#D8D8D8', width: 40 }}
       >
-        <View
-          className="flex-1 justify-end"
-          style={{ backgroundColor: 'rgba(0, 0, 0, 0.32)' }}
-        >
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSelectedMember(null)} />
+        <BottomSheetView>
           {selectedMember ? (
-            <View className="rounded-t-[28px] bg-bg-primary px-5 pb-8 pt-3">
-              <View className="mx-auto mb-4 h-1 w-10 rounded-full bg-border-light" />
+            <View className="px-5 pb-8 pt-1">
               <View className="mb-2 px-1">
                 <AppText className="text-base2 font-semibold text-text-primary" numberOfLines={1}>
                   {selectedMemberName}
@@ -771,9 +787,7 @@ export default function GroupInfoScreen() {
                 <SafeTouchableOpacity
                   className="flex-row items-center py-3.5"
                   disabled={updateRole.isPending}
-                  onPress={() =>
-                    closeMemberActionsAndRun(selectedMember, confirmRoleChange)
-                  }
+                  onPress={() => closeMemberActionsAndRun(selectedMember, confirmRoleChange)}
                 >
                   <View className="h-10 w-10 items-center justify-center rounded-full bg-surface-input">
                     <MaterialIcons
@@ -813,9 +827,7 @@ export default function GroupInfoScreen() {
                 <SafeTouchableOpacity
                   className="flex-row items-center py-3.5"
                   disabled={removeMember.isPending}
-                  onPress={() =>
-                    closeMemberActionsAndRun(selectedMember, confirmRemoveMember)
-                  }
+                  onPress={() => closeMemberActionsAndRun(selectedMember, confirmRemoveMember)}
                 >
                   <View className="h-10 w-10 items-center justify-center rounded-full bg-[#FFF0EC]">
                     <MaterialIcons name="person-remove" size={20} color="#D84A3A" />
@@ -828,14 +840,14 @@ export default function GroupInfoScreen() {
 
               <SafeTouchableOpacity
                 className="mt-2 items-center rounded-[16px] bg-surface-input py-3.5"
-                onPress={() => setSelectedMember(null)}
+                onPress={() => memberActionsSheetRef.current?.dismiss()}
               >
                 <AppText className="font-semibold text-text-primary">Cancel</AppText>
               </SafeTouchableOpacity>
             </View>
           ) : null}
-        </View>
-      </Modal>
+        </BottomSheetView>
+      </BottomSheetModal>
     </SafeAreaView>
   )
 }
