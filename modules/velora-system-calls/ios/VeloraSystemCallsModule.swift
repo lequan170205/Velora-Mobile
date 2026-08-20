@@ -241,7 +241,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
 
   private override init() {
     let configuration = CXProviderConfiguration()
-    configuration.supportsVideo = false
+    configuration.supportsVideo = true
     configuration.maximumCallsPerCallGroup = 1
     configuration.supportedHandleTypes = [.generic]
     configuration.includesCallsInRecents = false
@@ -537,7 +537,10 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     payloadsByCallId[callId] = payload
     reportingIncomingCallIds.insert(callId)
 
-    let update = callUpdate(displayName: callerName(from: payload))
+    let update = callUpdate(
+      displayName: callerName(from: payload),
+      isVideo: nonEmptyString(payload["callType"]) == "VIDEO"
+    )
     prepareWebRtcAudioSessionForCallKit(callId: callId, callUuid: uuid)
     logOperationalNotice(
       layer: layer,
@@ -670,7 +673,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       call: uuid,
       handle: CXHandle(type: .generic, value: peerName(from: payload))
     )
-    action.isVideo = false
+    action.isVideo = nonEmptyString(payload["callType"]) == "VIDEO"
 
     callController.request(CXTransaction(action: action)) { [weak self] error in
       guard let self else {
@@ -1544,11 +1547,11 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     }
   }
 
-  private func callUpdate(displayName: String) -> CXCallUpdate {
+  private func callUpdate(displayName: String, isVideo: Bool) -> CXCallUpdate {
     let update = CXCallUpdate()
     update.remoteHandle = CXHandle(type: .generic, value: displayName)
     update.localizedCallerName = displayName
-    update.hasVideo = false
+    update.hasVideo = isVideo
     update.supportsHolding = false
     update.supportsGrouping = false
     update.supportsUngrouping = false

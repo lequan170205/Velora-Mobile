@@ -443,7 +443,8 @@ export default function ChatScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const { user } = useAuthStore()
-  const { startVoiceCall } = useCall()
+  // VIDEO_CALL_1TO1_CONVERSATION_PATCH
+  const { startVideoCall, startVoiceCall } = useCall()
   const localOptimistic = useChatStore(
     useCallback(
       (state) => getRenderableOptimisticMessages(state.optimisticMessages[conversationId]),
@@ -949,6 +950,23 @@ export default function ChatScreen() {
     displayName,
     otherUserId,
     startVoiceCall,
+  ])
+
+  const handleStartVideoCall = useCallback(() => {
+    if (!otherUserId || currentConversation?.isGroup) return
+    void startVideoCall({
+      conversationId,
+      peerUserId: otherUserId,
+      ...(displayName ? { peerName: displayName } : {}),
+      ...(avatarUrl ? { peerAvatarUrl: avatarUrl } : {}),
+    })
+  }, [
+    avatarUrl,
+    conversationId,
+    currentConversation?.isGroup,
+    displayName,
+    otherUserId,
+    startVideoCall,
   ])
 
   const handleSaveMedia = useCallback(async (item: ChatMediaGalleryItem) => {
@@ -2199,15 +2217,26 @@ export default function ChatScreen() {
             </TouchableOpacity>
 
             {!currentConversation?.isGroup && otherUserId ? (
-              <TouchableOpacity
-                onPress={handleStartVoiceCall}
-                className="h-11 w-11 items-center justify-center rounded-full bg-surface-input"
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                accessibilityRole="button"
-                accessibilityLabel={`Call ${displayName}`}
-              >
-                <MaterialIcons name="call" size={22} color="#161616" />
-              </TouchableOpacity>
+              <View className="flex-row gap-2">
+                <TouchableOpacity
+                  onPress={handleStartVideoCall}
+                  className="h-11 w-11 items-center justify-center rounded-full bg-surface-input"
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Video call ${displayName}`}
+                >
+                  <MaterialIcons name="videocam" size={22} color="#161616" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleStartVoiceCall}
+                  className="h-11 w-11 items-center justify-center rounded-full bg-surface-input"
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Call ${displayName}`}
+                >
+                  <MaterialIcons name="call" size={22} color="#161616" />
+                </TouchableOpacity>
+              </View>
             ) : null}
           </View>
 

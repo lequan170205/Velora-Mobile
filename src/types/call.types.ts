@@ -129,7 +129,7 @@ export interface CallJoinedPayload {
     kind: 'audio' | 'video'
   }[]
   noAnswerTimeoutMs?: number
-  telemetryToken?: string
+  telemetryToken: string
 }
 
 export interface CallRejoinedPayload {
@@ -142,7 +142,7 @@ export interface CallRejoinedPayload {
     producerId: string
     kind: 'audio' | 'video'
   }[]
-  telemetryToken?: string
+  telemetryToken: string
 }
 
 export interface NewPeerPayload {
