@@ -4,11 +4,14 @@ import {
   onNotificationOpenedApp,
   type RemoteMessage,
 } from '@react-native-firebase/messaging'
+import { isAxiosError } from 'axios'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { AppState } from 'react-native'
 
 import { registerPushToken } from '../api/notification.api'
 import { useConversationNavigation } from '../hooks/useConversationNavigation'
 import {
+  deleteCurrentFcmToken,
   getFcmTokenForDebug,
   normalizeFcmError,
   requestFcmPermission,
@@ -55,6 +58,24 @@ const devWarn = (message: string, payload?: unknown) => {
 type NotificationConversationTarget = {
   conversationId: string
   dedupeKey: string | null
+}
+
+type NotificationApiErrorPayload = {
+  code?: unknown
+  message?: unknown
+}
+
+const isInvalidatedFcmRegistrationError = (error: unknown) => {
+  if (!isAxiosError(error) || error.response?.status !== 409) {
+    return false
+  }
+
+  const payload = error.response.data as NotificationApiErrorPayload | undefined
+
+  return (
+    payload?.code === 'FCM_TOKEN_INVALIDATED' ||
+    payload?.message === 'FCM push token has been invalidated'
+  )
 }
 
 const getRemoteMessageDataString = (data: RemoteMessage['data'] | undefined, key: string) => {
@@ -147,6 +168,25 @@ export function FcmDebugProvider({ children }: { children: ReactNode }) {
   }, [queueNotificationConversation])
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      return
+    }
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') {
+        return
+      }
+
+      registrationRetryAttemptsRef.current = 0
+      setRegistrationRetryVersion((version) => version + 1)
+    })
+
+    return () => {
+      subscription.remove()
+    }
+  }, [isAuthenticated])
+
+  useEffect(() => {
     if (!pendingNotificationConversationId || !canOpenNotificationConversation) {
       return
     }
@@ -194,7 +234,11 @@ export function FcmDebugProvider({ children }: { children: ReactNode }) {
       unsubscribeTokenRefresh = unsubscribe
     }
 
-    const registerFcmToken = async (token: string, maskedToken: string) => {
+    const registerFcmToken = async (
+      token: string,
+      maskedToken: string,
+      allowInvalidatedRecovery = true,
+    ): Promise<boolean> => {
       if (disposed || (await isPushTokenRegistrationBlocked())) {
         return false
       }
@@ -206,14 +250,52 @@ export function FcmDebugProvider({ children }: { children: ReactNode }) {
         return false
       }
 
-      await registerPushToken({
-        token,
-        deviceId,
-        appVersion: '1.0.0',
-        lifecycleVersion,
-      })
-      devLog(`${logPrefix} token registered with notification-service`, { maskedToken })
-      return true
+      try {
+        await registerPushToken({
+          token,
+          deviceId,
+          appVersion: '1.0.0',
+          lifecycleVersion,
+        })
+        devLog(`${logPrefix} token registered with notification-service`, { maskedToken })
+        return true
+      } catch (error) {
+        if (!allowInvalidatedRecovery || !isInvalidatedFcmRegistrationError(error)) {
+          throw error
+        }
+
+        devWarn(`${logPrefix} server rejected invalidated token; rotating FCM token`, {
+          maskedToken,
+        })
+
+        await deleteCurrentFcmToken()
+
+        if (disposed || (await isPushTokenRegistrationBlocked())) {
+          return false
+        }
+
+        const replacementTokenResult = await getFcmTokenForDebug()
+
+        if (replacementTokenResult.status !== 'success') {
+          throw new Error(
+            `Unable to obtain replacement FCM token: ${replacementTokenResult.error.message}`,
+          )
+        }
+
+        if (replacementTokenResult.token === token) {
+          throw new Error('Firebase returned the same invalidated FCM token after rotation')
+        }
+
+        devLog(`${logPrefix} replacement token acquired`, {
+          maskedToken: replacementTokenResult.maskedToken,
+        })
+
+        return registerFcmToken(
+          replacementTokenResult.token,
+          replacementTokenResult.maskedToken,
+          false,
+        )
+      }
     }
 
     const bootstrapFcmDebug = async () => {
