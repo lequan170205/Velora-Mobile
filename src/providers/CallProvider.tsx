@@ -2304,6 +2304,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         cameraPausedByBackgroundRef.current = true
       }
 
+      if (shouldDeferLocalVideo) {
+        cameraPausedByBackgroundRef.current = true
+      }
+
       const consumers = [...consumerMapRef.current.values()]
       useCallStore.getState().patch({
         phase: 'active',
@@ -3791,6 +3795,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
       consumerMapRef.current.delete(consumerId)
       handledRemoteProducerIdsRef.current.delete(payload.producerId)
+      remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       remoteVideoEnabledByProducerRef.current.delete(payload.producerId)

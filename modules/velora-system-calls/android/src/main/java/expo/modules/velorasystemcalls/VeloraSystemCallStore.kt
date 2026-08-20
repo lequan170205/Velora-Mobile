@@ -50,7 +50,12 @@ object VeloraSystemCallStore {
   }
 
   fun shouldAcceptIncomingPayload(context: Context, payload: Map<String, Any?>): Boolean {
-    if (payload["type"] != "INCOMING_CALL" || payload["callType"] == "VIDEO") {
+    if (payload["type"] != "INCOMING_CALL") {
+      return false
+    }
+
+    val callType = payload["callType"] as? String
+    if (callType != null && callType !in setOf("VOICE", "VIDEO")) {
       return false
     }
 
