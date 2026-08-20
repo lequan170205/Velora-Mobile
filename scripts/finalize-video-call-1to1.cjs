@@ -9,12 +9,14 @@ const replaceRequired = (source, before, after, label) => {
 const androidStorePath =
   'modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraSystemCallStore.kt'
 let androidStore = fs.readFileSync(androidStorePath, 'utf8')
-androidStore = replaceRequired(
-  androidStore,
-  `    if (payload["type"] != "INCOMING_CALL" || payload["callType"] == "VIDEO") {\n      return false\n    }`,
-  `    if (payload["type"] != "INCOMING_CALL") {\n      return false\n    }\n\n    val callType = payload["callType"] as? String\n    if (callType != null && callType != "VOICE" && callType != "VIDEO") {\n      return false\n    }`,
-  'Android incoming VOICE/VIDEO validation',
-)
+const blockedAndroidVideo = `    if (payload["type"] != "INCOMING_CALL" || payload["callType"] == "VIDEO") {\n      return false\n    }`
+const acceptedAndroidVideo = `    if (payload["type"] != "INCOMING_CALL") {\n      return false\n    }\n\n    val callType = payload["callType"] as? String\n    if (callType != null && callType !in setOf("VOICE", "VIDEO")) {\n      return false\n    }`
+if (!androidStore.includes(acceptedAndroidVideo)) {
+  if (!androidStore.includes(blockedAndroidVideo)) {
+    throw new Error('Finalizer anchor not found: Android incoming VOICE/VIDEO validation')
+  }
+  androidStore = androidStore.replace(blockedAndroidVideo, acceptedAndroidVideo)
+}
 fs.writeFileSync(androidStorePath, androidStore)
 
 const providerPath = 'src/providers/CallProvider.tsx'
@@ -82,7 +84,7 @@ fs.writeFileSync(providerPath, provider)
 const testPath = 'tests/video-call-1to1-contract.test.cjs'
 let tests = fs.readFileSync(testPath, 'utf8')
 if (!tests.includes("test('native incoming VIDEO is accepted on both platforms'")) {
-  tests += `\n\ntest('native incoming VIDEO is accepted on both platforms', () => {\n  const androidStore = read(\n    'modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraSystemCallStore.kt',\n  )\n  const swift = read('modules/velora-system-calls/ios/VeloraSystemCallsModule.swift')\n\n  assert.doesNotMatch(androidStore, /callType\\"\\] == \\"VIDEO\\"/)\n  assert.match(androidStore, /callType != \\"VOICE\\" && callType != \\"VIDEO\\"/)\n  assert.doesNotMatch(swift, /if payload\\[\\"callType\\"\\] as\\? String == \\"VIDEO\\"/)\n  assert.match(swift, /callType != \\"VOICE\\" && callType != \\"VIDEO\\"/)\n})\n\ntest('VIDEO defaults to speaker without overriding external audio routes', () => {\n  const source = read('src/providers/CallProvider.tsx')\n  assert.match(source, /const shouldDefaultVideoToSpeaker =/)\n  assert.match(source, /Bluetooth\\|Headphones\\|Headset\\|AirPlay\\|CarAudio\\|USB\\|LineOut\\|Wired/)\n  assert.match(source, /enableDefaultVideoSpeaker\\(audioSessionConfiguration\\)/)\n  assert.match(source, /enableDefaultVideoSpeaker\\(nativeAudioSessionState\\)/)\n})\n\ntest('background VIDEO camera deferral is applied exactly once', () => {\n  const source = read('src/providers/CallProvider.tsx')\n  const matches = source.match(\n    /if \\(shouldDeferLocalVideo\\) \\{\\s*cameraPausedByBackgroundRef\\.current = true\\s*\\}/g,\n  ) ?? []\n  assert.equal(matches.length, 1)\n})\n`
+  tests += `\n\ntest('native incoming VIDEO is accepted on both platforms', () => {\n  const androidStore = read(\n    'modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraSystemCallStore.kt',\n  )\n  const swift = read('modules/velora-system-calls/ios/VeloraSystemCallsModule.swift')\n\n  assert.doesNotMatch(androidStore, /payload\\[\\"callType\\"\\] == \\"VIDEO\\"/)\n  assert.match(androidStore, /callType != null && callType !in setOf\\(\\"VOICE\\", \\"VIDEO\\"\\)/)\n  assert.doesNotMatch(swift, /if payload\\[\\"callType\\"\\] as\\? String == \\"VIDEO\\"/)\n  assert.match(swift, /callType != \\"VOICE\\" && callType != \\"VIDEO\\"/)\n})\n\ntest('VIDEO defaults to speaker without overriding external audio routes', () => {\n  const source = read('src/providers/CallProvider.tsx')\n  assert.match(source, /const shouldDefaultVideoToSpeaker =/)\n  assert.match(source, /Bluetooth\\|Headphones\\|Headset\\|AirPlay\\|CarAudio\\|USB\\|LineOut\\|Wired/)\n  assert.match(source, /enableDefaultVideoSpeaker\\(audioSessionConfiguration\\)/)\n  assert.match(source, /enableDefaultVideoSpeaker\\(nativeAudioSessionState\\)/)\n})\n\ntest('background VIDEO camera deferral is applied exactly once', () => {\n  const source = read('src/providers/CallProvider.tsx')\n  const matches = source.match(\n    /if \\(shouldDeferLocalVideo\\) \\{\\s*cameraPausedByBackgroundRef\\.current = true\\s*\\}/g,\n  ) ?? []\n  assert.equal(matches.length, 1)\n})\n`
 }
 fs.writeFileSync(testPath, tests)
 
