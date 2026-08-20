@@ -110,8 +110,8 @@ export function ReactionDetailsSheet({
       snapPoints={['58%']}
       enablePanDownToClose
       backdropComponent={renderBackdrop}
-      backgroundStyle={{ backgroundColor: '#18181B' }}
-      handleIndicatorStyle={{ backgroundColor: '#71717A' }}
+      backgroundStyle={{ backgroundColor: '#FFFFFF' }}
+      handleIndicatorStyle={{ backgroundColor: '#D9D9D9' }}
       onDismiss={onDismiss}
     >
       <View className="flex-1 px-4 pb-4">
@@ -126,12 +126,12 @@ export function ReactionDetailsSheet({
             activeOpacity={0.8}
             onPress={() => setSelectedFilter(ALL_FILTER)}
             className={`rounded-full px-3 py-2 ${
-              selectedFilter === ALL_FILTER ? 'bg-primary/20' : 'bg-surface-input'
+              selectedFilter === ALL_FILTER ? 'bg-brand-soft' : 'bg-surface-input'
             }`}
           >
             <Text
               className={`text-sm ${
-                selectedFilter === ALL_FILTER ? 'font-semibold text-primary' : 'text-text-secondary'
+                selectedFilter === ALL_FILTER ? 'font-semibold text-brand' : 'text-text-secondary'
               }`}
             >
               All {data?.total ?? 0}
@@ -144,12 +144,12 @@ export function ReactionDetailsSheet({
               activeOpacity={0.8}
               onPress={() => setSelectedFilter(emoji)}
               className={`rounded-full px-3 py-2 ${
-                selectedFilter === emoji ? 'bg-primary/20' : 'bg-surface-input'
+                selectedFilter === emoji ? 'bg-brand-soft' : 'bg-surface-input'
               }`}
             >
               <Text
                 className={`text-sm ${
-                  selectedFilter === emoji ? 'font-semibold text-primary' : 'text-text-secondary'
+                  selectedFilter === emoji ? 'font-semibold text-brand' : 'text-text-secondary'
                 }`}
               >
                 {emoji} {count}
@@ -160,7 +160,7 @@ export function ReactionDetailsSheet({
 
         {isLoading ? (
           <View className="flex-1 items-center justify-center py-12">
-            <ActivityIndicator />
+            <ActivityIndicator color="#FF6B2C" />
           </View>
         ) : isError ? (
           <View className="items-center py-10">
@@ -194,7 +194,10 @@ export function ReactionDetailsSheet({
                     </View>
                   )}
 
-                  <Text className="ml-3 min-w-0 flex-1 text-[15px] font-medium text-text-primary" numberOfLines={1}>
+                  <Text
+                    className="ml-3 min-w-0 flex-1 text-[15px] font-medium text-text-primary"
+                    numberOfLines={1}
+                  >
                     {label}
                   </Text>
                   <Text className="ml-3 text-xl">{reaction.emoji}</Text>
