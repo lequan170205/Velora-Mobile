@@ -19,10 +19,11 @@ test('CallProvider starts video with preview and keeps same call session for typ
   assert.match(source, /const startVideoCall =/)
   assert.match(source, /audio: false,[\s\S]*video: cameraConstraints/)
   assert.match(source, /set_call_type/)
-  assert.match(source, /callType: 'VIDEO'/)
-  assert.match(source, /callType: 'VOICE'/)
-  assert.match(source, /videoTrack\.enabled = false/)
+  assert.match(source, /startCall\(input, 'VIDEO'\)/)
+  assert.match(source, /startCall\(input, 'VOICE'\)/)
+  assert.match(source, /localVideoTrack\.enabled = false/)
   assert.match(source, /cameraPausedByBackgroundRef/)
+  assert.doesNotMatch(source, /reason: 'unsupported_video'/)
 })
 
 test('active call screen renders RTC video and both conversion directions', () => {
@@ -35,10 +36,11 @@ test('active call screen renders RTC video and both conversion directions', () =
 })
 
 test('conversation video entry point remains direct-chat only', () => {
-  const source = read('app/_layout.tsx')
-  assert.match(source, /ConversationVideoCallShortcut/)
-  assert.match(source, /conversation\.isGroup/)
-  assert.match(source, /startVideoCall/)
+  const source = read('app/conversation/[id].tsx')
+  assert.match(source, /const \{ startVideoCall, startVoiceCall \} = useCall\(\)/)
+  assert.match(source, /const handleStartVideoCall =/)
+  assert.match(source, /!currentConversation\?\.isGroup && otherUserId/)
+  assert.match(source, /name="videocam"/)
 })
 
 test('native call surfaces preserve callType', () => {
@@ -46,10 +48,13 @@ test('native call surfaces preserve callType', () => {
   const android = read(
     'modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraCallNotifications.kt',
   )
+  const swift = read('modules/velora-system-calls/ios/VeloraSystemCallsModule.swift')
   const plugin = read('plugins/withVeloraSystemCalls.js')
 
   assert.match(wrapper, /callType: CallType/)
   assert.match(android, /Incoming video call/)
+  assert.match(swift, /configuration\.supportsVideo = true/)
+  assert.match(swift, /action\.isVideo = nonEmptyString\(payload\["callType"\]\) == "VIDEO"/)
   assert.match(plugin, /configuration\.supportsVideo = true/)
   assert.match(plugin, /action\.isVideo/)
   assert.match(plugin, /update\.hasVideo = isVideo/)
