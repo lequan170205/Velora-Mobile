@@ -122,3 +122,46 @@ test('background VIDEO camera deferral is applied exactly once', () => {
     ) ?? []
   assert.equal(matches.length, 1)
 })
+
+test('native call type follows active VOICE and VIDEO transitions', () => {
+  const wrapper = read('src/lib/systemCalls/veloraSystemCalls.ts')
+  const provider = read('src/providers/CallProvider.tsx')
+  const androidModule = read(
+    'modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraSystemCallsModule.kt',
+  )
+  const androidStore = read(
+    'modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraSystemCallStore.kt',
+  )
+  const foreground = read(
+    'modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraCallForegroundService.kt',
+  )
+  const swift = read('modules/velora-system-calls/ios/VeloraSystemCallsModule.swift')
+
+  assert.match(wrapper, /setCallType: \(callId: string, callType: CallType\) => boolean/)
+  assert.match(provider, /veloraSystemCalls\.setCallType\(payload\.callId, payload\.callType\)/)
+  assert.match(androidModule, /Function\(\"setCallType\"\)/)
+  assert.match(androidStore, /val callType: String\?/)
+  assert.match(foreground, /\"callType\" to currentCall/)
+  assert.match(swift, /func setCallType\(callId: String, callType: String\) -> Bool/)
+  assert.match(swift, /provider\.reportCall\([\s\S]*updated: callUpdate/)
+})
+
+test('video producer cleanup is not duplicated in CallProvider', () => {
+  const source = read('src/providers/CallProvider.tsx')
+  const marker = 'remoteVideoEnabledByProducerRef.current.delete(payload.producerId)'
+  assert.equal(source.split(marker).length - 1, 1)
+})
+
+test('peer video upgrade never turns on the local camera automatically', () => {
+  const source = read('src/providers/CallProvider.tsx')
+  assert.doesNotMatch(
+    source,
+    /payload\.changedByUserId !== currentUserId[\s\S]{0,180}activateLocalVideo/,
+  )
+})
+
+test('camera flip prefers constraints with a legacy WebRTC fallback', () => {
+  const source = read('src/providers/CallProvider.tsx')
+  assert.match(source, /track\.applyConstraints\(\{ facingMode: nextFacing \}\)/)
+  assert.match(source, /track\._switchCamera\(\)/)
+})

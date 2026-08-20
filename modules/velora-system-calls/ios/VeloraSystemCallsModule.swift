@@ -148,6 +148,13 @@ public class VeloraSystemCallsModule: Module {
       }
     }
 
+    Function("setCallType") { (callId: String, callType: String) -> Bool in
+      let callCenter = VeloraSystemCallCenter.shared
+      return callCenter.runOnMain {
+        callCenter.setCallType(callId: callId, callType: callType)
+      }
+    }
+
     Function("setSpeakerEnabled") { (enabled: Bool) -> Bool in
       let callCenter = VeloraSystemCallCenter.shared
       return callCenter.runOnMain {
@@ -755,6 +762,25 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       provider.reportOutgoingCall(with: uuid, connectedAt: Date())
     }
 
+    return true
+  }
+
+  func setCallType(callId: String, callType: String) -> Bool {
+    guard (callType == "VOICE" || callType == "VIDEO"),
+          let uuid = uuidsByCallId[callId],
+          var payload = payloadsByCallId[callId] else {
+      return false
+    }
+
+    payload["callType"] = callType
+    payloadsByCallId[callId] = payload
+    let displayName = payload["type"] as? String == "INCOMING_CALL"
+      ? callerName(from: payload)
+      : peerName(from: payload)
+    provider.reportCall(
+      with: uuid,
+      updated: callUpdate(displayName: displayName, isVideo: callType == "VIDEO")
+    )
     return true
   }
 

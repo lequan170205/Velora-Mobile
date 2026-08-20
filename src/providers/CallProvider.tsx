@@ -422,8 +422,12 @@ const getCallRejectedMessage = (payload: CallRejectedPayload) => {
     return 'The other person needs microphone access to answer'
   }
 
+  if (payload.reason === 'camera_permission_denied') {
+    return 'The other person needs camera access to answer a video call'
+  }
+
   if (payload.reason === 'unsupported_video') {
-    return 'Video calls are not supported yet'
+    return 'The other person is using a version that does not support video calls'
   }
 
   return 'The call was rejected'
@@ -3384,15 +3388,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     useCallStore.getState().patch({ muted: nextMuted })
   }, [])
 
-  const enableDefaultVideoSpeaker = useCallback(
-    (configuration?: AudioSessionConfiguration) => {
-      if (!shouldDefaultVideoToSpeaker(configuration)) return
-      if (veloraSystemCalls.setSpeakerEnabled(true)) {
-        useCallStore.getState().patch({ speakerEnabled: true })
-      }
-    },
-    [],
-  )
+  const enableDefaultVideoSpeaker = useCallback((configuration?: AudioSessionConfiguration) => {
+    if (!shouldDefaultVideoToSpeaker(configuration)) return
+    if (veloraSystemCalls.setSpeakerEnabled(true)) {
+      useCallStore.getState().patch({ speakerEnabled: true })
+    }
+  }, [])
 
   const toggleSpeaker = useCallback(() => {
     const state = useCallStore.getState()
@@ -3421,13 +3422,28 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const switchCamera = useCallback(async () => {
     const state = useCallStore.getState()
     if (state.phase !== 'active' || state.callType !== 'VIDEO' || !state.cameraEnabled) return
+    const nextFacing: CameraFacing = state.cameraFacing === 'user' ? 'environment' : 'user'
     const track = localStreamRef.current?.getVideoTracks()[0] as
-      (MediaStreamTrack & { _switchCamera?: () => void }) | undefined
-    if (!track?._switchCamera) return
+      | (MediaStreamTrack & {
+          applyConstraints?: (constraints: { facingMode?: CameraFacing }) => Promise<void>
+          _switchCamera?: () => void
+        })
+      | undefined
+    if (!track) return
+
+    if (track.applyConstraints) {
+      try {
+        await track.applyConstraints({ facingMode: nextFacing })
+        useCallStore.getState().patch({ cameraFacing: nextFacing })
+        return
+      } catch {
+        // Fall back to the legacy react-native-webrtc camera switch when constraints fail.
+      }
+    }
+
+    if (!track._switchCamera) return
     track._switchCamera()
-    useCallStore.getState().patch({
-      cameraFacing: state.cameraFacing === 'user' ? 'environment' : 'user',
-    })
+    useCallStore.getState().patch({ cameraFacing: nextFacing })
   }, [])
 
   const switchCallType = useCallback(
@@ -3810,14 +3826,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       consumerMapRef.current.delete(consumerId)
       handledRemoteProducerIdsRef.current.delete(payload.producerId)
       remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
-      remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
-      remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
-      remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
-      remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
-      remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
-      remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
-      remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
-      remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       useCallStore.getState().patch({
         remoteStreamUrl: remoteStream?.toURL() ?? null,
         ...(payload.kind === 'video' ? { remoteVideoState: 'off' as const } : {}),
@@ -3826,7 +3834,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
     const handleCallTypeChanged = (payload: CallTypeChangedPayload) => {
       if (!isCurrentCall(payload.callId)) return
-      const previousType = useCallStore.getState().callType
+      veloraSystemCalls.setCallType(payload.callId, payload.callType)
       useCallStore.getState().patch({
         callType: payload.callType,
         remoteVideoState: payload.callType === 'VIDEO' ? 'waiting' : 'idle',
@@ -3834,14 +3842,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (payload.callType === 'VOICE') {
         deactivateLocalVideo()
         clearRemoteVideoRuntime('idle')
-        return
-      }
-      if (
-        previousType !== 'VIDEO' &&
-        payload.changedByUserId !== currentUserId &&
-        useCallStore.getState().hasCameraPermission === true
-      ) {
-        void activateLocalVideo({ requestPermission: false })
       }
     }
 

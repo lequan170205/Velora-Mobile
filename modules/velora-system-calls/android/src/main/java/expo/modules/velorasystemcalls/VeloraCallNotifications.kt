@@ -29,7 +29,14 @@ object VeloraCallNotifications {
 
     val callId = payload["callId"] as? String ?: return
     val expiresAtMs = (payload["expiresAt"] as? String)?.let(VeloraSystemCallStore::parseIsoDateMs)
-    if (!VeloraSystemCallStore.beginRingingCall(context, callId, expiresAtMs)) {
+    if (
+      !VeloraSystemCallStore.beginRingingCall(
+        context,
+        callId,
+        expiresAtMs,
+        payload["callType"] as? String,
+      )
+    ) {
       return
     }
     expiresAtMs?.let { scheduleIncomingCallExpiration(context, callId, it) }
@@ -104,7 +111,14 @@ object VeloraCallNotifications {
 
   fun registerOutgoingCall(context: Context, payload: Map<String, Any?>) {
     val callId = payload["callId"] as? String ?: return
-    if (!VeloraSystemCallStore.beginRingingCall(context, callId, null)) {
+    if (
+      !VeloraSystemCallStore.beginRingingCall(
+        context,
+        callId,
+        null,
+        payload["callType"] as? String,
+      )
+    ) {
       return
     }
     ensureCallChannel(context)
@@ -127,6 +141,25 @@ object VeloraCallNotifications {
       context.startForegroundService(intent)
     } else {
       context.startService(intent)
+    }
+    return true
+  }
+
+  fun updateCallType(context: Context, callId: String, callType: String): Boolean {
+    if (!VeloraSystemCallStore.updateCallType(context, callId, callType)) return false
+    val currentCall = VeloraSystemCallStore.getCurrentCall(context) ?: return false
+    if (currentCall.phase == "active") {
+      notificationManager(context).notify(
+        ongoingNotificationId(callId),
+        ongoingNotification(
+          context,
+          mapOf(
+            "callId" to callId,
+            "initiatorDisplayName" to "Velora call",
+            "callType" to callType,
+          ),
+        ),
+      )
     }
     return true
   }

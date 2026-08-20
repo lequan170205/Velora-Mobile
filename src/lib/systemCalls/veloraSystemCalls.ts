@@ -114,6 +114,7 @@ type VeloraSystemCallsModule = {
   presentIncomingCall: (payload: NativeCallPayload) => Promise<CallKitTransactionResult>
   registerOutgoingCall: (payload: NativeOutgoingCallPayload) => Promise<CallKitTransactionResult>
   setCallActive: (callId: string) => boolean
+  setCallType: (callId: string, callType: CallType) => boolean
   setSpeakerEnabled: (enabled: boolean) => boolean
   endCall: (callId: string) => Promise<CallKitTransactionResult>
   dismissIncomingCall: (callId: string) => Promise<CallKitTransactionResult>
@@ -210,6 +211,10 @@ export const veloraSystemCalls = {
 
   setCallActive(callId: string) {
     return nativeModule?.setCallActive?.(callId) ?? false
+  },
+
+  setCallType(callId: string, callType: CallType) {
+    return nativeModule?.setCallType?.(callId, callType) ?? false
   },
 
   setSpeakerEnabled(enabled: boolean) {
