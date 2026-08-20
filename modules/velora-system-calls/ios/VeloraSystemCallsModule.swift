@@ -179,6 +179,16 @@ public class VeloraSystemCallsModule: Module {
         }
       }
     }
+
+    Function("activateSimulatorAudioSession") { (callId: String) -> Bool in
+      let callCenter = VeloraSystemCallCenter.shared
+      return callCenter.runOnMain { callCenter.activateSimulatorAudioSession(callId: callId) }
+    }
+
+    Function("deactivateSimulatorAudioSession") { (callId: String) -> Bool in
+      let callCenter = VeloraSystemCallCenter.shared
+      return callCenter.runOnMain { callCenter.deactivateSimulatorAudioSession(callId: callId) }
+    }
   }
 }
 
@@ -2743,6 +2753,53 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     }
 
     NSLog("VeloraSystemCalls %@", encoded)
+  }
+
+  func activateSimulatorAudioSession(callId: String) -> Bool {
+    #if targetEnvironment(simulator)
+      let audioSession = AVAudioSession.sharedInstance()
+      resetAudioConfigurationState()
+      speakerOverrideEnabled = false
+      do {
+        try audioSession.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP, .allowBluetoothA2DP])
+        try audioSession.setActive(true)
+        isNativeAudioSessionActivated = true
+        nativeAudioSessionActivatedAt = Date()
+        nativeAudioSessionDeactivatedAt = nil
+        nativeAudioSessionActivationSequence += 1
+        nativeAudioSessionCallUuid = uuidsByCallId[callId]
+        configureWebRtcAudioSession(audioSession)
+        logOperationalNotice(layer: "simulator", event: "simulator_audio_session_activated", callId: callId, success: isAudioSessionConfigured)
+        return isAudioSessionConfigured
+      } catch {
+        audioSessionConfigurationErrorCode = "simulator_audio_session_activation_failed"
+        logOperationalNotice(layer: "simulator", event: "simulator_audio_session_activation_failed", callId: callId, success: false, errorCode: audioSessionConfigurationErrorCode)
+        return false
+      }
+    #else
+      return false
+    #endif
+  }
+
+  func deactivateSimulatorAudioSession(callId: String) -> Bool {
+    #if targetEnvironment(simulator)
+      let audioSession = AVAudioSession.sharedInstance()
+      RTCAudioSession.sharedInstance().isAudioEnabled = false
+      do {
+        try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+      } catch {
+        logOperationalNotice(layer: "simulator", event: "simulator_audio_session_deactivation_failed", callId: callId, success: false, errorCode: "simulator_audio_session_deactivation_failed")
+        return false
+      }
+      isNativeAudioSessionActivated = false
+      nativeAudioSessionDeactivatedAt = Date()
+      nativeAudioSessionCallUuid = nil
+      resetAudioConfigurationState()
+      logOperationalNotice(layer: "simulator", event: "simulator_audio_session_deactivated", callId: callId, success: true)
+      return true
+    #else
+      return false
+    #endif
   }
 
   private func prepareWebRtcAudioSessionForCallKit(callId: String?, callUuid: UUID?) {

@@ -44,8 +44,16 @@ const ControlButton = ({
 export default function ActiveCallScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
-  const { endCall, switchCallType, switchCamera, toggleCamera, toggleMute, toggleSpeaker } =
-    useCall()
+  const {
+    acceptIncomingCall,
+    endCall,
+    rejectIncomingCall,
+    switchCallType,
+    switchCamera,
+    toggleCamera,
+    toggleMute,
+    toggleSpeaker,
+  } = useCall()
   const {
     callId,
     callType,
@@ -75,6 +83,7 @@ export default function ActiveCallScreen() {
 
   const isValidPhase = useMemo(
     () =>
+      phase === 'incoming_ringing' ||
       phase === 'outgoing_ringing' ||
       phase === 'connecting' ||
       phase === 'reconnecting' ||
@@ -91,6 +100,8 @@ export default function ActiveCallScreen() {
   }, [callId, id, isValidPhase, router])
 
   const statusLabel = useMemo(() => {
+    if (phase === 'incoming_ringing')
+      return callType === 'VIDEO' ? 'Incoming video call' : 'Incoming call'
     if (phase === 'outgoing_ringing') return 'Calling...'
     if (phase === 'connecting') return 'Connecting...'
     if (phase === 'reconnecting') return 'Reconnecting...'
@@ -217,69 +228,92 @@ export default function ActiveCallScreen() {
         )}
 
         <View className={`z-20 w-full pb-8 pt-5 ${isVideo ? 'bg-black/20' : ''}`}>
-          <View className="flex-row flex-wrap items-center justify-center gap-4 px-6">
-            <ControlButton
-              icon={muted ? 'mic-off' : 'mic'}
-              active={muted}
-              disabled={phase === 'reconnecting'}
-              label={muted ? 'Unmute microphone' : 'Mute microphone'}
-              onPress={toggleMute}
-            />
-
-            {isVideo ? (
-              <>
+          {phase === 'incoming_ringing' ? (
+            <View className="flex-row items-center justify-center gap-12 px-6">
+              <TouchableOpacity
+                className="h-20 w-20 items-center justify-center rounded-full bg-status-error"
+                onPress={() => void rejectIncomingCall()}
+                accessibilityRole="button"
+                accessibilityLabel="Decline call"
+              >
+                <MaterialIcons name="call-end" size={36} color="#FFFFFF" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                className="h-20 w-20 items-center justify-center rounded-full bg-call-green"
+                onPress={() => void acceptIncomingCall('ui')}
+                accessibilityRole="button"
+                accessibilityLabel="Answer call"
+              >
+                <MaterialIcons name={isVideo ? 'videocam' : 'call'} size={36} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <>
+              <View className="flex-row flex-wrap items-center justify-center gap-4 px-6">
                 <ControlButton
-                  icon={cameraEnabled ? 'videocam' : 'videocam-off'}
-                  active={!cameraEnabled}
+                  icon={muted ? 'mic-off' : 'mic'}
+                  active={muted}
+                  disabled={phase === 'reconnecting'}
+                  label={muted ? 'Unmute microphone' : 'Mute microphone'}
+                  onPress={toggleMute}
+                />
+
+                {isVideo ? (
+                  <>
+                    <ControlButton
+                      icon={cameraEnabled ? 'videocam' : 'videocam-off'}
+                      active={!cameraEnabled}
+                      disabled={controlsDisabled}
+                      label={cameraEnabled ? 'Turn camera off' : 'Turn camera on'}
+                      onPress={() => void toggleCamera()}
+                    />
+                    <ControlButton
+                      icon="flip-camera-ios"
+                      disabled={controlsDisabled || !cameraEnabled}
+                      label="Switch camera"
+                      onPress={() => void switchCamera()}
+                    />
+                  </>
+                ) : (
+                  <ControlButton
+                    icon="videocam"
+                    disabled={controlsDisabled}
+                    label="Switch to video call"
+                    onPress={() => void switchCallType('VIDEO')}
+                  />
+                )}
+
+                <ControlButton
+                  icon="volume-up"
+                  active={speakerEnabled}
                   disabled={controlsDisabled}
-                  label={cameraEnabled ? 'Turn camera off' : 'Turn camera on'}
-                  onPress={() => void toggleCamera()}
+                  label={speakerEnabled ? 'Turn speaker off' : 'Turn speaker on'}
+                  onPress={toggleSpeaker}
                 />
-                <ControlButton
-                  icon="flip-camera-ios"
-                  disabled={controlsDisabled || !cameraEnabled}
-                  label="Switch camera"
-                  onPress={() => void switchCamera()}
-                />
-              </>
-            ) : (
-              <ControlButton
-                icon="videocam"
-                disabled={controlsDisabled}
-                label="Switch to video call"
-                onPress={() => void switchCallType('VIDEO')}
-              />
-            )}
 
-            <ControlButton
-              icon="volume-up"
-              active={speakerEnabled}
-              disabled={controlsDisabled}
-              label={speakerEnabled ? 'Turn speaker off' : 'Turn speaker on'}
-              onPress={toggleSpeaker}
-            />
+                {isVideo ? (
+                  <ControlButton
+                    icon="call"
+                    disabled={controlsDisabled}
+                    label="Switch to voice call"
+                    onPress={() => void switchCallType('VOICE')}
+                  />
+                ) : null}
+              </View>
 
-            {isVideo ? (
-              <ControlButton
-                icon="call"
-                disabled={controlsDisabled}
-                label="Switch to voice call"
-                onPress={() => void switchCallType('VOICE')}
-              />
-            ) : null}
-          </View>
-
-          <View className="mt-7 items-center">
-            <TouchableOpacity
-              className="h-20 w-20 items-center justify-center rounded-full bg-status-error"
-              onPress={() => void endCall()}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel="End call"
-            >
-              <MaterialIcons name="call-end" size={36} color="#FFFFFF" />
-            </TouchableOpacity>
-          </View>
+              <View className="mt-7 items-center">
+                <TouchableOpacity
+                  className="h-20 w-20 items-center justify-center rounded-full bg-status-error"
+                  onPress={() => void endCall()}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="End call"
+                >
+                  <MaterialIcons name="call-end" size={36} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
         </View>
       </SafeAreaView>
     </View>

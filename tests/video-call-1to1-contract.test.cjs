@@ -165,3 +165,24 @@ test('camera flip prefers constraints with a legacy WebRTC fallback', () => {
   assert.match(source, /track\.applyConstraints\(\{ facingMode: nextFacing \}\)/)
   assert.match(source, /track\._switchCamera\(\)/)
 })
+
+test('iOS Simulator uses in-app ringing and isolates CallKit lifecycle', () => {
+  const systemCalls = fs.readFileSync('src/lib/systemCalls/veloraSystemCalls.ts', 'utf8')
+  const provider = fs.readFileSync('src/providers/CallProvider.tsx', 'utf8')
+  const callScreen = fs.readFileSync('app/call/[id].tsx', 'utf8')
+  const swift = fs.readFileSync(
+    'modules/velora-system-calls/ios/VeloraSystemCallsModule.swift',
+    'utf8',
+  )
+  assert.ok(systemCalls.includes("Platform.OS === 'ios' && !Device.isDevice"))
+  assert.ok(systemCalls.includes('if (isIosSimulator || !nativeModule?.addListener)'))
+  assert.ok(provider.includes('router.push(`/call/${payload.callId}` as never)'))
+  assert.ok(provider.includes('activateSimulatorAudioSession(callId)'))
+  assert.ok(provider.includes('activateSimulatorAudioSession(joined.callId)'))
+  assert.ok(callScreen.includes("phase === 'incoming_ringing'"))
+  assert.ok(callScreen.includes("acceptIncomingCall('ui')"))
+  assert.ok(callScreen.includes('rejectIncomingCall()'))
+  assert.ok(swift.includes('#if targetEnvironment(simulator)'))
+  assert.ok(swift.includes('simulator_audio_session_activated'))
+  assert.ok(swift.includes('deactivateSimulatorAudioSession'))
+})

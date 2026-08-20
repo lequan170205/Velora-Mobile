@@ -2777,7 +2777,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         error: null,
         durationSec: 0,
       })
-      veloraSystemCalls.presentIncomingCall(nativePayload)
+      if (veloraSystemCalls.isIosSimulator) {
+        router.push(`/call/${payload.callId}` as never)
+      } else {
+        veloraSystemCalls.presentIncomingCall(nativePayload)
+      }
     },
     [currentUserId, queryClient],
   )
@@ -2981,6 +2985,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         router.push(`/call/${callId}` as never)
 
         debugCall('[Call] Waiting for configured native audio session...')
+        if (
+          veloraSystemCalls.isIosSimulator &&
+          !veloraSystemCalls.activateSimulatorAudioSession(callId)
+        ) {
+          throw new Error('simulator_audio_session_activation_failed')
+        }
         const audioSessionConfiguration = await waitForConfiguredAudioSession(setupToken, callId)
         assertCallSetupCurrent(setupToken, callId)
         const audioRoute = toAudioRouteTelemetry(audioSessionConfiguration)
@@ -3154,6 +3164,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         useCallStore.getState().patch({ phase: 'connecting', reconnectDeadlineMs: null })
         stopRingingPreview()
 
+        if (
+          veloraSystemCalls.isIosSimulator &&
+          !veloraSystemCalls.activateSimulatorAudioSession(joined.callId)
+        ) {
+          throw new Error('simulator_audio_session_activation_failed')
+        }
         const audioSessionConfiguration = await waitForConfiguredAudioSession(
           setupToken,
           joined.callId,
@@ -3388,15 +3404,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     useCallStore.getState().patch({ muted: nextMuted })
   }, [])
 
-  const enableDefaultVideoSpeaker = useCallback(
-    (configuration?: AudioSessionConfiguration) => {
-      if (!shouldDefaultVideoToSpeaker(configuration)) return
-      if (veloraSystemCalls.setSpeakerEnabled(true)) {
-        useCallStore.getState().patch({ speakerEnabled: true })
-      }
-    },
-    [],
-  )
+  const enableDefaultVideoSpeaker = useCallback((configuration?: AudioSessionConfiguration) => {
+    if (!shouldDefaultVideoToSpeaker(configuration)) return
+    if (veloraSystemCalls.setSpeakerEnabled(true)) {
+      useCallStore.getState().patch({ speakerEnabled: true })
+    }
+  }, [])
 
   const toggleSpeaker = useCallback(() => {
     const state = useCallStore.getState()
