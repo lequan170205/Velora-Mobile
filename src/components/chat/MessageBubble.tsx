@@ -4,13 +4,18 @@ import { Text, View } from 'react-native'
 
 import { getMessageBubbleRecyclingKey } from '../../lib/messageBubbleRecycling'
 
-import { MessageBubble as MemoizedMessageBubble } from './MessageBubbleImpl'
+import {
+  MessageBubble as MemoizedMessageBubble,
+  type MessageBubbleContextMenuPayload,
+} from './MessageBubbleImpl'
 import { ReactionDetailsSheet } from './ReactionDetailsSheet'
 
 export { VALID_EMOJIS } from './MessageBubbleImpl'
-export type { MessageBubbleContextMenuPayload } from './MessageBubbleImpl'
+export type { MessageBubbleContextMenuPayload }
 
 type MessageBubbleProps = React.ComponentProps<typeof MemoizedMessageBubble>
+
+const MAX_VISIBLE_REACTION_EMOJIS = 3
 
 const getParticipantDisplayName = (participant: MessageBubbleProps['senderInfo']) => {
   if (!participant) return null
@@ -60,6 +65,53 @@ const getGroupActivityLabel = (props: MessageBubbleProps) => {
   }
 }
 
+const getReactionDisplayMessage = (message: MessageBubbleProps['message']) => {
+  const reactionEntries = Object.entries(message.reactions ?? {}).filter(
+    ([, reaction]) => Boolean(reaction?.emoji),
+  )
+
+  if (reactionEntries.length === 0) return message
+
+  const counts = new Map<string, { count: number; latestAt: number }>()
+
+  for (const [, reaction] of reactionEntries) {
+    const timestamp = Date.parse(reaction.createdAt)
+    const current = counts.get(reaction.emoji)
+
+    counts.set(reaction.emoji, {
+      count: (current?.count ?? 0) + 1,
+      latestAt: Math.max(current?.latestAt ?? 0, Number.isFinite(timestamp) ? timestamp : 0),
+    })
+  }
+
+  const groupedEmoji = Array.from(counts.entries())
+    .map(([emoji, summary]) => ({ emoji, ...summary }))
+    .sort(
+      (left, right) =>
+        right.count - left.count ||
+        right.latestAt - left.latestAt ||
+        left.emoji.localeCompare(right.emoji),
+    )
+    .slice(0, MAX_VISIBLE_REACTION_EMOJIS)
+    .map(({ emoji }) => emoji)
+    .join(' ')
+
+  const groupedReactions = Object.fromEntries(
+    reactionEntries.map(([userId, reaction]) => [
+      userId,
+      {
+        ...reaction,
+        emoji: groupedEmoji,
+      },
+    ]),
+  )
+
+  return {
+    ...message,
+    reactions: groupedReactions,
+  }
+}
+
 export function MessageBubble(props: MessageBubbleProps) {
   const reactionDetailsSheetRef = useRef<BottomSheetModal>(null)
   const [isReactionDetailsOpen, setIsReactionDetailsOpen] = useState(false)
@@ -71,6 +123,10 @@ export function MessageBubble(props: MessageBubbleProps) {
         .join('|'),
     [props.message.reactions],
   )
+  const reactionDisplayMessage = useMemo(
+    () => getReactionDisplayMessage(props.message),
+    [props.message],
+  )
 
   const handleReactionPress = useCallback(
     (emoji: string) => {
@@ -78,6 +134,16 @@ export function MessageBubble(props: MessageBubbleProps) {
       setIsReactionDetailsOpen(true)
     },
     [props.onReactionPress],
+  )
+
+  const handleOpenContextMenu = useCallback(
+    (payload: MessageBubbleContextMenuPayload) => {
+      props.onOpenContextMenu?.({
+        ...payload,
+        message: props.message,
+      })
+    },
+    [props.message, props.onOpenContextMenu],
   )
 
   const handleReactionDetailsDismiss = useCallback(() => {
@@ -101,7 +167,9 @@ export function MessageBubble(props: MessageBubbleProps) {
       <MemoizedMessageBubble
         key={getMessageBubbleRecyclingKey(props.message.metadata?.citations)}
         {...props}
+        message={reactionDisplayMessage}
         onReactionPress={handleReactionPress}
+        onOpenContextMenu={props.onOpenContextMenu ? handleOpenContextMenu : undefined}
       />
       {isReactionDetailsOpen ? (
         <ReactionDetailsSheet
