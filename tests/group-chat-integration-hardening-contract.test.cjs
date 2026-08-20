@@ -12,6 +12,8 @@ const socketProvider = read('src/providers/SocketProvider.tsx')
 const chatStore = read('src/stores/chatStore.ts')
 const chatScreen = read('app/conversation/[id].tsx')
 const groupInfo = read('app/conversation/[id]/info.tsx')
+const messageIdentity = read('src/lib/messageIdentity.ts')
+const messageBubble = read('src/components/chat/MessageBubble.tsx')
 
 test('paginated conversation list is not treated as an authoritative deletion snapshot', () => {
   assert.doesNotMatch(useConversations, /reconcileConversationSnapshot/)
@@ -46,4 +48,29 @@ test('explicit leave clears local, query, and offline state even if socket remov
   assert.match(groupInfo, /store\.clearConversationState\(conversationId\)/)
   assert.match(groupInfo, /removeConversationLocalData\(conversationId\)/)
   assert.match(groupInfo, /cancelQueries/)
+})
+
+test('message merges preserve structured group activity and AI citation metadata', () => {
+  assert.match(messageIdentity, /const citations =/)
+  assert.match(messageIdentity, /existing\?\.citations/)
+  assert.match(messageIdentity, /const groupActivity =/)
+  assert.match(messageIdentity, /existing\?\.groupActivity/)
+  assert.match(messageIdentity, /citations !== undefined \? \{ citations \} : \{\}/)
+  assert.match(messageIdentity, /groupActivity !== undefined \? \{ groupActivity \} : \{\}/)
+})
+
+test('group system rows stay centered even when an older local record lost activity payload', () => {
+  assert.match(messageBubble, /metadata\?\.kind === 'group_system_activity'/)
+  assert.match(messageBubble, /if \(!activity\) return props\.message\.content/)
+  assert.doesNotMatch(
+    messageBubble,
+    /metadata\?\.kind === 'group_system_activity' &&\s*props\.message\.metadata\.groupActivity/,
+  )
+})
+
+test('group photo picker is single-flight and launches the library without a permission round-trip', () => {
+  assert.match(groupInfo, /const pictureMutationInFlightRef = useRef\(false\)/)
+  assert.match(groupInfo, /pictureMutationInFlightRef\.current = true[\s\S]*launchImageLibraryAsync/)
+  assert.match(groupInfo, /finally \{[\s\S]*pictureMutationInFlightRef\.current = false/)
+  assert.doesNotMatch(groupInfo, /requestMediaLibraryPermissionsAsync/)
 })
