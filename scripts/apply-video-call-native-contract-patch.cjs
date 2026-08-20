@@ -63,6 +63,17 @@ swift = replaceRequired(
 )
 fs.writeFileSync(swiftPath, swift)
 
+const androidStorePath =
+  'modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraSystemCallStore.kt'
+let androidStore = fs.readFileSync(androidStorePath, 'utf8')
+androidStore = replaceRequired(
+  androidStore,
+  `    if (payload["type"] != "INCOMING_CALL" || payload["callType"] == "VIDEO") {\n      return false\n    }`,
+  `    if (payload["type"] != "INCOMING_CALL") {\n      return false\n    }\n\n    val callType = payload["callType"] as? String\n    if (callType != null && callType !in setOf("VOICE", "VIDEO")) {\n      return false\n    }`,
+  'Android incoming VOICE/VIDEO validation',
+)
+fs.writeFileSync(androidStorePath, androidStore)
+
 const pluginPath = 'plugins/withVeloraSystemCalls.js'
 let plugin = fs.readFileSync(pluginPath, 'utf8')
 if (!plugin.includes('native incoming VOICE/VIDEO validation')) {
