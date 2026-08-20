@@ -5,7 +5,6 @@ on:
     branches:
       - feat/video-call-1to1
     paths:
-      - scripts/fix-ios-simulator-call-lifecycle-v3.cjs
       - scripts/finalize-ios-simulator-call-lifecycle.cjs
       - scripts/video-call-ci-trigger.txt
       - .github/workflows/video-call-provider-patch.yml
@@ -33,10 +32,8 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-      - name: Apply simulator lifecycle patch
-        run: |
-          node scripts/fix-ios-simulator-call-lifecycle-v3.cjs
-          node scripts/finalize-ios-simulator-call-lifecycle.cjs
+      - name: Finalize simulator lifecycle source
+        run: node scripts/finalize-ios-simulator-call-lifecycle.cjs
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Format simulator-call touched files
@@ -94,13 +91,12 @@ jobs:
             'app/call/[id].tsx' \
             src/lib/systemCalls/veloraSystemCalls.ts \
             src/providers/CallProvider.tsx \
-            modules/velora-system-calls/ios/VeloraSystemCallsModule.swift \
             tests/video-call-1to1-contract.test.cjs \
             VIDEO_CALL_CI_RESULT.md
           if git diff --cached --quiet; then
             exit 0
           fi
-          HUSKY=0 git commit -m 'fix(call): isolate iOS simulator lifecycle'
+          HUSKY=0 git commit -m 'fix(call): finalize iOS simulator lifecycle'
           git fetch origin feat/video-call-1to1
           git rebase origin/feat/video-call-1to1
           git push origin HEAD:feat/video-call-1to1
