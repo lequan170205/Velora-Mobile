@@ -76,7 +76,6 @@ export function MessageBubble(props: MessageBubbleProps) {
     (emoji: string) => {
       props.onReactionPress?.(emoji)
       setActiveReactionEmoji(emoji)
-      requestAnimationFrame(() => reactionDetailsSheetRef.current?.present())
     },
     [props.onReactionPress],
   )
