@@ -1,11 +1,13 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import * as ImagePicker from 'expo-image-picker'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Alert, Image, ScrollView, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { conversationApi } from '../../../src/api/conversation.api'
+import { mediaApi } from '../../../src/api/media.api'
 import { AppPressable, AppText, AppTextInput } from '../../../src/components/base'
 import { SafeTouchableOpacity } from '../../../src/components/common/SafeTouchableOpacity'
 import { queryKeys } from '../../../src/constants/queryKeys'
@@ -14,11 +16,45 @@ import { useFriends } from '../../../src/hooks/useFriends'
 import { useAuthStore } from '../../../src/stores/authStore'
 import { useChatStore } from '../../../src/stores/chatStore'
 
-import type { Conversation, ConversationMember } from '../../../src/types/conversation.types'
+import type {
+  Conversation,
+  ConversationMember,
+  ConversationMemberRole,
+} from '../../../src/types/conversation.types'
 import type { FriendSummary } from '../../../src/types/friend.types'
 
 const getFriendName = (friend: FriendSummary) =>
   friend.user.fullName || friend.user.username || 'Velora user'
+
+const getMemberDisplayName = (
+  member: ConversationMember,
+  participant?: Conversation['participants'] extends (infer T)[] | undefined ? T : never,
+) =>
+  participant?.name ||
+  participant?.fullName ||
+  participant?.email ||
+  member.user.fullName ||
+  member.user.username ||
+  member.user.email ||
+  'Velora user'
+
+type GroupPictureMimeType = 'image/jpeg' | 'image/png' | 'image/webp'
+
+const resolveGroupPictureMimeType = (asset: ImagePicker.ImagePickerAsset): GroupPictureMimeType | null => {
+  const mimeType = asset.mimeType?.toLowerCase()
+  if (mimeType === 'image/jpeg' || mimeType === 'image/png' || mimeType === 'image/webp') {
+    return mimeType
+  }
+
+  const source = `${asset.fileName ?? ''} ${asset.uri}`.toLowerCase()
+  if (/\.jpe?g(?:\?|$)/.test(source)) return 'image/jpeg'
+  if (/\.png(?:\?|$)/.test(source)) return 'image/png'
+  if (/\.webp(?:\?|$)/.test(source)) return 'image/webp'
+  return null
+}
+
+const roleLabel = (role: ConversationMemberRole) =>
+  role === 'OWNER' ? 'Owner' : role === 'ADMIN' ? 'Admin' : 'Member'
 
 export default function GroupInfoScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -42,11 +78,20 @@ export default function GroupInfoScreen() {
     queryFn: () => conversationApi.getMembers(conversationId),
     enabled: Boolean(conversation?.isGroup),
   })
-  const isOwner = Boolean(currentUserId && conversation?.creatorId === currentUserId)
-  const { data: friends = [] } = useFriends(undefined, { enabled: isOwner })
+  const currentMember = useMemo(
+    () => members.find((member) => member.userId === currentUserId) ?? null,
+    [currentUserId, members],
+  )
+  const currentRole: ConversationMemberRole | null = currentMember?.role ?? null
+  const isOwner = currentRole === 'OWNER'
+  const isAdmin = currentRole === 'ADMIN'
+  const canManageMetadata = isOwner || isAdmin
+  const canAddMembers = isOwner || isAdmin
+  const { data: friends = [] } = useFriends(undefined, { enabled: canAddMembers })
   const [isEditingName, setIsEditingName] = useState(false)
   const [draftName, setDraftName] = useState('')
   const [showAddMembers, setShowAddMembers] = useState(false)
+  const [isUpdatingPicture, setIsUpdatingPicture] = useState(false)
 
   const applyConversation = (nextConversation: Conversation) => {
     queryClient.setQueryData(queryKeys.conversations.detail(conversationId), nextConversation)
@@ -57,12 +102,16 @@ export default function GroupInfoScreen() {
     )
   }
 
-  const refreshConversation = async () => {
-    const nextConversation = await conversationApi.getById(conversationId)
-    applyConversation(nextConversation)
+  const refreshMembers = async () => {
     await queryClient.invalidateQueries({
       queryKey: queryKeys.conversations.members(conversationId),
     })
+  }
+
+  const refreshConversation = async () => {
+    const nextConversation = await conversationApi.getById(conversationId)
+    applyConversation(nextConversation)
+    await refreshMembers()
     return nextConversation
   }
 
@@ -104,10 +153,28 @@ export default function GroupInfoScreen() {
       ),
   })
 
+  const updateRole = useMutation({
+    mutationFn: async ({
+      userId,
+      role,
+    }: {
+      userId: string
+      role: Extract<ConversationMemberRole, 'ADMIN' | 'MEMBER'>
+    }) => {
+      await conversationApi.updateMemberRole(conversationId, userId, role)
+      await refreshMembers()
+    },
+    onError: (error) =>
+      Alert.alert(
+        'Unable to update role',
+        error instanceof Error ? error.message : 'Please try again.',
+      ),
+  })
+
   const transferOwnership = useMutation({
-    mutationFn: (userId: string) => conversationApi.transferOwnership(conversationId, { userId }),
-    onSuccess: (nextConversation) => {
-      applyConversation(nextConversation)
+    mutationFn: async (userId: string) => {
+      await conversationApi.transferOwnership(conversationId, { userId })
+      await refreshConversation()
     },
     onError: (error) =>
       Alert.alert(
@@ -163,6 +230,95 @@ export default function GroupInfoScreen() {
     }
   }, [isConversationRevoked, router])
 
+  const pickAndUploadGroupPicture = async () => {
+    if (!canManageMetadata || isUpdatingPicture) return
+
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      if (!permission.granted) {
+        Alert.alert('Photo access required', 'Allow photo access to change the group photo.')
+        return
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      })
+
+      if (result.canceled || !result.assets[0]) return
+
+      const asset = result.assets[0]
+      const fileType = resolveGroupPictureMimeType(asset)
+      if (!fileType) {
+        Alert.alert('Unsupported image', 'Please choose a JPEG, PNG, or WebP image.')
+        return
+      }
+
+      setIsUpdatingPicture(true)
+      const { uploadUrl, key } = await mediaApi.getChatUploadUrl({
+        fileType,
+        purpose: 'chat',
+      })
+      const localResponse = await fetch(asset.uri)
+      if (!localResponse.ok) {
+        throw new Error('Unable to read the selected image.')
+      }
+      const blob = await localResponse.blob()
+      const uploadResponse = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': fileType },
+        body: blob,
+      })
+      if (!uploadResponse.ok) {
+        throw new Error(`Group photo upload failed (${uploadResponse.status}).`)
+      }
+
+      const finalized = await mediaApi.finalizeChatUpload({ key, fileType })
+      if (!finalized.fileUrl) {
+        throw new Error('The uploaded group photo did not return a public URL.')
+      }
+
+      const nextConversation = await conversationApi.updateGroup(conversationId, {
+        picture: finalized.fileUrl,
+      })
+      applyConversation(nextConversation)
+    } catch (error) {
+      Alert.alert(
+        'Unable to update group photo',
+        error instanceof Error ? error.message : 'Please try again.',
+      )
+    } finally {
+      setIsUpdatingPicture(false)
+    }
+  }
+
+  const removeGroupPicture = () => {
+    if (!canManageMetadata || !conversation?.picture || isUpdatingPicture) return
+
+    Alert.alert('Remove group photo?', 'The group will use its name initial instead.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          setIsUpdatingPicture(true)
+          void conversationApi
+            .updateGroup(conversationId, { picture: null })
+            .then(applyConversation)
+            .catch((error) => {
+              Alert.alert(
+                'Unable to remove group photo',
+                error instanceof Error ? error.message : 'Please try again.',
+              )
+            })
+            .finally(() => setIsUpdatingPicture(false))
+        },
+      },
+    ])
+  }
+
   if (isConversationRevoked) {
     return <SafeAreaView className="flex-1 bg-bg-primary" />
   }
@@ -200,29 +356,39 @@ export default function GroupInfoScreen() {
   const memberCount = members.length || conversation.participantIds.length
 
   const confirmRemoveMember = (member: ConversationMember) => {
-    const participant = participantById.get(member.userId)
-    const name =
-      participant?.name || participant?.fullName || participant?.email || member.user.email
+    const name = getMemberDisplayName(member, participantById.get(member.userId))
     Alert.alert('Remove member?', `${name} will lose access to this group.`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: () => removeMember.mutate(member.userId) },
     ])
   }
 
-  const confirmTransferOwnership = (member: ConversationMember) => {
-    const participant = participantById.get(member.userId)
-    const name =
-      participant?.name || participant?.fullName || participant?.email || member.user.email
+  const confirmRoleChange = (member: ConversationMember) => {
+    const name = getMemberDisplayName(member, participantById.get(member.userId))
+    const nextRole = member.role === 'ADMIN' ? 'MEMBER' : 'ADMIN'
+    Alert.alert(
+      nextRole === 'ADMIN' ? 'Make admin?' : 'Remove admin role?',
+      nextRole === 'ADMIN'
+        ? `${name} will be able to rename the group, change its photo, add members, and remove regular members.`
+        : `${name} will return to regular member permissions.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: nextRole === 'ADMIN' ? 'Make admin' : 'Remove admin',
+          onPress: () => updateRole.mutate({ userId: member.userId, role: nextRole }),
+        },
+      ],
+    )
+  }
 
+  const confirmTransferOwnership = (member: ConversationMember) => {
+    const name = getMemberDisplayName(member, participantById.get(member.userId))
     Alert.alert(
       'Transfer ownership?',
       `${name} will become the group owner. You will stay in the group as a regular member.`,
       [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Transfer',
-          onPress: () => transferOwnership.mutate(member.userId),
-        },
+        { text: 'Transfer', onPress: () => transferOwnership.mutate(member.userId) },
       ],
     )
   }
@@ -251,15 +417,37 @@ export default function GroupInfoScreen() {
 
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
         <View className="items-center px-5 pb-6 pt-7">
-          {conversation.picture ? (
-            <Image source={{ uri: conversation.picture }} className="h-24 w-24 rounded-full" />
-          ) : (
-            <View className="h-24 w-24 items-center justify-center rounded-full bg-surface-input">
-              <AppText className="text-[28px] font-semibold text-text-primary">
-                {groupName.charAt(0).toUpperCase()}
-              </AppText>
-            </View>
-          )}
+          <View className="relative">
+            {conversation.picture ? (
+              <Image source={{ uri: conversation.picture }} className="h-24 w-24 rounded-full" />
+            ) : (
+              <View className="h-24 w-24 items-center justify-center rounded-full bg-surface-input">
+                <AppText className="text-[28px] font-semibold text-text-primary">
+                  {groupName.charAt(0).toUpperCase()}
+                </AppText>
+              </View>
+            )}
+            {canManageMetadata ? (
+              <SafeTouchableOpacity
+                className="absolute -bottom-1 -right-1 h-9 w-9 items-center justify-center rounded-full border-2 border-bg-primary bg-surface-input"
+                onPress={() => void pickAndUploadGroupPicture()}
+                disabled={isUpdatingPicture}
+                accessibilityRole="button"
+                accessibilityLabel="Change group photo"
+              >
+                {isUpdatingPicture ? (
+                  <ActivityIndicator size="small" color="#FF6B2C" />
+                ) : (
+                  <MaterialIcons name="photo-camera" size={18} color="#161616" />
+                )}
+              </SafeTouchableOpacity>
+            ) : null}
+          </View>
+          {canManageMetadata && conversation.picture ? (
+            <SafeTouchableOpacity className="mt-2 px-3 py-1.5" onPress={removeGroupPicture}>
+              <AppText className="text-xs2 font-medium text-[#D84A3A]">Remove photo</AppText>
+            </SafeTouchableOpacity>
+          ) : null}
 
           {isEditingName ? (
             <View className="mt-4 w-full">
@@ -290,7 +478,7 @@ export default function GroupInfoScreen() {
             <View className="mt-4 items-center">
               <View className="flex-row items-center">
                 <AppText className="text-xl font-semibold text-text-primary">{groupName}</AppText>
-                {isOwner ? (
+                {canManageMetadata ? (
                   <SafeTouchableOpacity
                     className="ml-2 h-8 w-8 items-center justify-center rounded-full bg-surface-input"
                     onPress={() => {
@@ -306,6 +494,7 @@ export default function GroupInfoScreen() {
               </View>
               <AppText className="mt-1 text-sm2 text-text-muted">
                 {memberCount} member{memberCount === 1 ? '' : 's'}
+                {currentRole ? ` · ${roleLabel(currentRole)}` : ''}
               </AppText>
             </View>
           )}
@@ -316,7 +505,7 @@ export default function GroupInfoScreen() {
             <AppText className="text-xs uppercase tracking-[1.2px] text-text-muted">
               Members
             </AppText>
-            {isOwner ? (
+            {canAddMembers ? (
               <SafeTouchableOpacity
                 className="flex-row items-center rounded-full bg-surface-input px-3 py-2"
                 onPress={() => setShowAddMembers((value) => !value)}
@@ -328,7 +517,7 @@ export default function GroupInfoScreen() {
             ) : null}
           </View>
 
-          {showAddMembers && isOwner ? (
+          {showAddMembers && canAddMembers ? (
             <View className="border-b border-border-light bg-surface-card px-5 pb-3">
               <AppText className="mb-2 text-xs2 text-text-muted">
                 Friends not already in this group
@@ -343,10 +532,7 @@ export default function GroupInfoScreen() {
                   return (
                     <View key={item.user.id} className="flex-row items-center py-2.5">
                       {item.user.picture ? (
-                        <Image
-                          source={{ uri: item.user.picture }}
-                          className="h-9 w-9 rounded-full"
-                        />
+                        <Image source={{ uri: item.user.picture }} className="h-9 w-9 rounded-full" />
                       ) : (
                         <View className="h-9 w-9 items-center justify-center rounded-full bg-surface-input">
                           <AppText className="text-xs2 font-medium text-text-primary">
@@ -354,10 +540,7 @@ export default function GroupInfoScreen() {
                           </AppText>
                         </View>
                       )}
-                      <AppText
-                        className="ml-3 flex-1 font-medium text-text-primary"
-                        numberOfLines={1}
-                      >
+                      <AppText className="ml-3 flex-1 font-medium text-text-primary" numberOfLines={1}>
                         {name}
                       </AppText>
                       <AppPressable
@@ -381,15 +564,17 @@ export default function GroupInfoScreen() {
           ) : (
             members.map((member) => {
               const participant = participantById.get(member.userId)
-              const displayName =
-                participant?.name ||
-                participant?.fullName ||
-                participant?.email ||
-                member.user.email
+              const displayName = getMemberDisplayName(member, participant)
               const picture = participant?.picture || member.user.picture || undefined
-              const memberIsOwner = member.userId === conversation.creatorId
-              const canTransferOwnership = isOwner && !memberIsOwner
-              const canRemove = isOwner && !memberIsOwner && memberCount > 2
+              const memberIsOwner = member.role === 'OWNER'
+              const memberIsSelf = member.userId === currentUserId
+              const canTransferOwnership = isOwner && !memberIsOwner && !memberIsSelf
+              const canChangeRole = isOwner && !memberIsOwner && !memberIsSelf
+              const canRemove =
+                memberCount > 2 &&
+                !memberIsSelf &&
+                !memberIsOwner &&
+                (isOwner || (isAdmin && member.role === 'MEMBER'))
 
               return (
                 <View
@@ -408,11 +593,13 @@ export default function GroupInfoScreen() {
                   <View className="ml-3 flex-1">
                     <View className="flex-row items-center">
                       <AppText className="font-medium text-text-primary" numberOfLines={1}>
-                        {member.userId === currentUserId ? 'You' : displayName}
+                        {memberIsSelf ? 'You' : displayName}
                       </AppText>
-                      {memberIsOwner ? (
+                      {member.role !== 'MEMBER' ? (
                         <View className="ml-2 rounded-full bg-surface-accent px-2 py-1">
-                          <AppText className="text-[10px] font-medium text-brand">Owner</AppText>
+                          <AppText className="text-[10px] font-medium text-brand">
+                            {roleLabel(member.role)}
+                          </AppText>
                         </View>
                       ) : null}
                     </View>
@@ -420,6 +607,25 @@ export default function GroupInfoScreen() {
                       {member.user.email}
                     </AppText>
                   </View>
+                  {canChangeRole ? (
+                    <SafeTouchableOpacity
+                      className="mr-2 h-9 w-9 items-center justify-center rounded-full bg-surface-input"
+                      disabled={updateRole.isPending}
+                      onPress={() => confirmRoleChange(member)}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        member.role === 'ADMIN'
+                          ? `Remove admin role from ${displayName}`
+                          : `Make ${displayName} an admin`
+                      }
+                    >
+                      <MaterialIcons
+                        name={member.role === 'ADMIN' ? 'remove-moderator' : 'admin-panel-settings'}
+                        size={18}
+                        color="#161616"
+                      />
+                    </SafeTouchableOpacity>
+                  ) : null}
                   {canTransferOwnership ? (
                     <SafeTouchableOpacity
                       className="mr-2 h-9 w-9 items-center justify-center rounded-full bg-surface-input"
@@ -434,6 +640,7 @@ export default function GroupInfoScreen() {
                   {canRemove ? (
                     <SafeTouchableOpacity
                       className="h-9 w-9 items-center justify-center rounded-full bg-surface-input"
+                      disabled={removeMember.isPending}
                       onPress={() => confirmRemoveMember(member)}
                       accessibilityRole="button"
                       accessibilityLabel={`Remove ${displayName}`}
@@ -450,9 +657,7 @@ export default function GroupInfoScreen() {
         <View className="px-5 pt-6">
           {isOwner ? (
             <View className="rounded-[18px] border border-border-light bg-surface-card px-4 py-3.5">
-              <AppText className="text-sm2 font-medium text-text-primary">
-                You own this group
-              </AppText>
+              <AppText className="text-sm2 font-medium text-text-primary">You own this group</AppText>
               <AppText className="mt-1 text-xs2 leading-5 text-text-muted">
                 Transfer ownership to another member before leaving the group.
               </AppText>
@@ -460,7 +665,7 @@ export default function GroupInfoScreen() {
           ) : (
             <AppPressable
               className="items-center rounded-[18px] border border-border-light bg-surface-card px-4 py-3.5"
-              disabled={leaveGroup.isPending || memberCount <= 2}
+              disabled={leaveGroup.isPending || memberCount <= 2 || !currentRole}
               onPress={confirmLeave}
             >
               {leaveGroup.isPending ? (
