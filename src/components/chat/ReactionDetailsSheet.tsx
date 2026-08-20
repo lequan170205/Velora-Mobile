@@ -7,6 +7,7 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Image, ScrollView, Text, TouchableOpacity, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { conversationApi } from '../../api/conversation.api'
 import { useAuthStore } from '../../stores/authStore'
@@ -22,6 +23,8 @@ interface ReactionDetailsSheetProps {
 }
 
 const ALL_FILTER = '__all__'
+const INITIAL_SNAP_POINT = '46%'
+const EXPANDED_SNAP_POINT = '72%'
 
 const getActorLabel = (reaction: MessageReactionDetail, currentUserId?: string) => {
   if (reaction.userId === currentUserId) return 'Bạn'
@@ -47,8 +50,10 @@ export function ReactionDetailsSheet({
   reactionSignature,
   onDismiss,
 }: ReactionDetailsSheetProps) {
+  const insets = useSafeAreaInsets()
   const currentUserId = useAuthStore((state) => state.user?.id)
   const [selectedFilter, setSelectedFilter] = useState(initialEmoji)
+  const snapPoints = useMemo(() => [INITIAL_SNAP_POINT, EXPANDED_SNAP_POINT], [])
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['message-reaction-details', messageId],
@@ -101,24 +106,28 @@ export function ReactionDetailsSheet({
     [],
   )
 
+  const bottomPadding = Math.max(insets.bottom, 16)
+
   return (
     <BottomSheetModal
       ref={sheetRef}
       index={0}
-      snapPoints={['58%']}
+      snapPoints={snapPoints}
+      enableDynamicSizing={false}
       enablePanDownToClose
       backdropComponent={renderBackdrop}
       backgroundStyle={{ backgroundColor: '#FFFFFF' }}
       handleIndicatorStyle={{ backgroundColor: '#D9D9D9' }}
       onDismiss={onDismiss}
     >
-      <View className="flex-1 px-4 pb-4">
+      <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <Text className="mb-3 text-center text-[17px] font-semibold text-text-primary">Reactions</Text>
 
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 8, paddingBottom: 12 }}
+          style={{ flexGrow: 0, flexShrink: 0 }}
+          contentContainerStyle={{ gap: 8, paddingBottom: 12, alignItems: 'center' }}
         >
           <TouchableOpacity
             activeOpacity={0.8}
@@ -157,11 +166,11 @@ export function ReactionDetailsSheet({
         </ScrollView>
 
         {isLoading ? (
-          <View className="flex-1 items-center justify-center py-12">
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: bottomPadding }}>
             <ActivityIndicator color="#FF6B2C" />
           </View>
         ) : isError ? (
-          <View className="items-center py-10">
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: bottomPadding }}>
             <Text className="mb-3 text-sm text-text-muted">Không thể tải danh sách reactions.</Text>
             <TouchableOpacity
               onPress={() => void refetch()}
@@ -171,11 +180,15 @@ export function ReactionDetailsSheet({
             </TouchableOpacity>
           </View>
         ) : visibleReactions.length === 0 ? (
-          <View className="items-center py-10">
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: bottomPadding }}>
             <Text className="text-sm text-text-muted">Chưa có reaction nào.</Text>
           </View>
         ) : (
-          <BottomSheetScrollView showsVerticalScrollIndicator={false}>
+          <BottomSheetScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingBottom: bottomPadding }}
+            showsVerticalScrollIndicator={false}
+          >
             {visibleReactions.map((reaction) => {
               const label = getActorLabel(reaction, currentUserId)
               const picture = reaction.user?.picture?.trim()
