@@ -1451,10 +1451,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     localStream?.getVideoTracks().forEach((track) => {
       try {
         localStream.removeTrack(track)
-      } catch {}
+      } catch {
+        // Best-effort media cleanup; the native resource may already be closed.
+      }
       try {
         track.stop()
-      } catch {}
+      } catch {
+        // Best-effort media cleanup; the native resource may already be closed.
+      }
     })
 
     cameraPausedByBackgroundRef.current = false
@@ -1527,10 +1531,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (consumer.kind !== 'video') continue
       try {
         remoteStream?.removeTrack(consumer.track as unknown as MediaStreamTrack)
-      } catch {}
+      } catch {
+        // Best-effort media cleanup; the native resource may already be closed.
+      }
       try {
         consumer.close()
-      } catch {}
+      } catch {
+        // Best-effort media cleanup; the native resource may already be closed.
+      }
       consumerMapRef.current.delete(consumerId)
       handledRemoteProducerIdsRef.current.delete(consumer.producerId)
     }
@@ -2065,15 +2073,20 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
         if (reconnectModeRef.current) {
           queuedRemoteProducerMapRef.current.set(payload.producerId, payload)
-          useCallStore.getState().patch(
-            payload.kind === 'audio' ? { remoteAudioState: 'waiting' } : { remoteVideoState: 'waiting' },
-          )
+          useCallStore
+            .getState()
+            .patch(
+              payload.kind === 'audio'
+                ? { remoteAudioState: 'waiting' }
+                : { remoteVideoState: 'waiting' },
+            )
           if (!retryingProducerIdsRef.current.has(payload.producerId)) {
             retryingProducerIdsRef.current.add(payload.producerId)
             setTimeout(() => {
               retryingProducerIdsRef.current.delete(payload.producerId)
               const queuedPayload = queuedRemoteProducerMapRef.current.get(payload.producerId)
-              if (queuedPayload && reconnectModeRef.current) void consumeRemoteProducer(queuedPayload)
+              if (queuedPayload && reconnectModeRef.current)
+                void consumeRemoteProducer(queuedPayload)
             }, 750)
           }
           return
@@ -2136,14 +2149,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       stopRingingPreview()
       const stateBeforeMedia = useCallStore.getState()
-      const [recvTransportResult, sendTransportResult, localStreamResult] = await Promise.allSettled([
-        createTransport(socket, callId, 'recv', device),
-        createTransport(socket, callId, 'send', device),
-        mediaDevices.getUserMedia({
-          audio: true,
-          video: callType === 'VIDEO' ? cameraConstraints(stateBeforeMedia.cameraFacing) : false,
-        }),
-      ])
+      const [recvTransportResult, sendTransportResult, localStreamResult] =
+        await Promise.allSettled([
+          createTransport(socket, callId, 'recv', device),
+          createTransport(socket, callId, 'send', device),
+          mediaDevices.getUserMedia({
+            audio: true,
+            video: callType === 'VIDEO' ? cameraConstraints(stateBeforeMedia.cameraFacing) : false,
+          }),
+        ])
 
       if (
         recvTransportResult.status !== 'fulfilled' ||
@@ -2181,7 +2195,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const localAudioTrack = localStream.getAudioTracks()[0]
       const localVideoTrack = localStream.getVideoTracks()[0]
       if (!localAudioTrack) throw new Error('No local audio track available')
-      if (callType === 'VIDEO' && !localVideoTrack) throw new Error('No local video track available')
+      if (callType === 'VIDEO' && !localVideoTrack)
+        throw new Error('No local video track available')
 
       const muted = useCallStore.getState().muted
       localAudioTrack.enabled = !muted
@@ -2234,7 +2249,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         muted,
         cameraEnabled: callType === 'VIDEO' && Boolean(localVideoTrack),
         localStreamUrl: localStream.toURL(),
-        remoteAudioState: consumers.some((consumer) => consumer.kind === 'audio') ? 'connected' : 'waiting',
+        remoteAudioState: consumers.some((consumer) => consumer.kind === 'audio')
+          ? 'connected'
+          : 'waiting',
         remoteVideoState:
           callType === 'VIDEO'
             ? consumers.some((consumer) => consumer.kind === 'video')
@@ -2656,15 +2673,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
-      if (payload.callType === 'VIDEO') {
-        socketRef.current?.emit('reject_call', {
-          callId: payload.callId,
-          reason: 'unsupported_video',
-        })
-        presentError('Video calls are not supported yet')
-        return
-      }
-
       if (isBusyPhase(currentState.phase)) {
         socketRef.current?.emit('reject_call', {
           callId: payload.callId,
@@ -3039,7 +3047,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           remoteAudioState: 'idle',
           remoteVideoState: callType === 'VIDEO' ? 'waiting' : 'idle',
           localStreamUrl:
-            callType === 'VIDEO' ? ringingPreviewStreamRef.current?.toURL() ?? null : null,
+            callType === 'VIDEO' ? (ringingPreviewStreamRef.current?.toURL() ?? null) : null,
           remoteStreamUrl: null,
           reconnectDeadlineMs: null,
           error: null,
@@ -3078,7 +3086,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         useCallStore.getState().patch({ phase: 'connecting', reconnectDeadlineMs: null })
         stopRingingPreview()
 
-        const audioSessionConfiguration = await waitForConfiguredAudioSession(setupToken, joined.callId)
+        const audioSessionConfiguration = await waitForConfiguredAudioSession(
+          setupToken,
+          joined.callId,
+        )
         assertCallSetupCurrent(setupToken, joined.callId)
         const audioRoute = toAudioRouteTelemetry(audioSessionConfiguration)
         telemetry.record('native_audio_configured', {
@@ -3339,8 +3350,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const state = useCallStore.getState()
     if (state.phase !== 'active' || state.callType !== 'VIDEO' || !state.cameraEnabled) return
     const track = localStreamRef.current?.getVideoTracks()[0] as
-      | (MediaStreamTrack & { _switchCamera?: () => void })
-      | undefined
+      (MediaStreamTrack & { _switchCamera?: () => void }) | undefined
     if (!track?._switchCamera) return
     track._switchCamera()
     useCallStore.getState().patch({
@@ -3387,7 +3397,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         clearRemoteVideoRuntime('idle')
       }
     },
-    [activateLocalVideo, clearRemoteVideoRuntime, deactivateLocalVideo, ensureCameraPermission, presentError],
+    [
+      activateLocalVideo,
+      clearRemoteVideoRuntime,
+      deactivateLocalVideo,
+      ensureCameraPermission,
+      presentError,
+    ],
   )
 
   const dismissCallError = useCallback(() => {
@@ -3698,8 +3714,16 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         return
       }
       const [consumerId, consumer] = entry
-      try { remoteStream?.removeTrack(consumer.track as unknown as MediaStreamTrack) } catch {}
-      try { consumer.close() } catch {}
+      try {
+        remoteStream?.removeTrack(consumer.track as unknown as MediaStreamTrack)
+      } catch {
+        // Best-effort media cleanup; the native resource may already be closed.
+      }
+      try {
+        consumer.close()
+      } catch {
+        // Best-effort media cleanup; the native resource may already be closed.
+      }
       consumerMapRef.current.delete(consumerId)
       handledRemoteProducerIdsRef.current.delete(payload.producerId)
       useCallStore.getState().patch({

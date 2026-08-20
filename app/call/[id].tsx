@@ -44,14 +44,8 @@ const ControlButton = ({
 export default function ActiveCallScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
-  const {
-    endCall,
-    switchCallType,
-    switchCamera,
-    toggleCamera,
-    toggleMute,
-    toggleSpeaker,
-  } = useCall()
+  const { endCall, switchCallType, switchCamera, toggleCamera, toggleMute, toggleSpeaker } =
+    useCall()
   const {
     callId,
     callType,
@@ -101,7 +95,8 @@ export default function ActiveCallScreen() {
     if (phase === 'connecting') return 'Connecting...'
     if (phase === 'reconnecting') return 'Reconnecting...'
     if (phase === 'ending') return 'Ending...'
-    if (phase === 'active' && remoteAudioState === 'waiting') return "Waiting for the other person's audio"
+    if (phase === 'active' && remoteAudioState === 'waiting')
+      return "Waiting for the other person's audio"
     if (phase === 'active') return formatDuration(durationSec)
     return ''
   }, [durationSec, phase, remoteAudioState])
@@ -120,7 +115,10 @@ export default function ActiveCallScreen() {
   const avatarFallback = (
     <View className="items-center justify-center">
       {peerAvatarUrl ? (
-        <Image source={{ uri: peerAvatarUrl }} style={{ width: 144, height: 144, borderRadius: 72 }} />
+        <Image
+          source={{ uri: peerAvatarUrl }}
+          style={{ width: 144, height: 144, borderRadius: 72 }}
+        />
       ) : (
         <View className="h-36 w-36 items-center justify-center rounded-full bg-surface-card">
           <Text className="text-[58px] font-bold text-text-primary">
@@ -128,7 +126,10 @@ export default function ActiveCallScreen() {
           </Text>
         </View>
       )}
-      <Text className="mt-5 px-8 text-center text-[25px] font-bold text-text-primary" numberOfLines={1}>
+      <Text
+        className="mt-5 px-8 text-center text-[25px] font-bold text-text-primary"
+        numberOfLines={1}
+      >
         {peerName || 'Unknown'}
       </Text>
       <Text className="mt-2 text-center text-base font-medium text-text-secondary">
@@ -142,11 +143,18 @@ export default function ActiveCallScreen() {
       {isVideo ? (
         <View className="absolute inset-0">
           {hasRemoteVideo ? (
-            <RTCView streamURL={remoteStreamUrl!} objectFit="cover" mirror={false} style={{ flex: 1 }} />
+            <RTCView
+              streamURL={remoteStreamUrl!}
+              objectFit="cover"
+              mirror={false}
+              style={{ flex: 1 }}
+            />
           ) : showOutgoingPreviewAsMain ? (
             <RTCView streamURL={localStreamUrl!} objectFit="cover" mirror style={{ flex: 1 }} />
           ) : (
-            <View className="flex-1 items-center justify-center bg-bg-primary">{avatarFallback}</View>
+            <View className="flex-1 items-center justify-center bg-bg-primary">
+              {avatarFallback}
+            </View>
           )}
           {isVideo && localStreamUrl && cameraEnabled && !showOutgoingPreviewAsMain ? (
             <View
@@ -165,11 +173,19 @@ export default function ActiveCallScreen() {
             className={`h-12 w-12 items-center justify-center rounded-full ${isVideo ? 'bg-black/35' : ''}`}
             onPress={() => router.back()}
           >
-            <MaterialIcons name="keyboard-arrow-down" size={32} color={isVideo ? '#FFFFFF' : '#1C1C1E'} />
+            <MaterialIcons
+              name="keyboard-arrow-down"
+              size={32}
+              color={isVideo ? '#FFFFFF' : '#1C1C1E'}
+            />
           </TouchableOpacity>
-          <View className={`flex-row items-center rounded-full px-3 py-1.5 ${isVideo ? 'bg-black/35' : ''}`}>
+          <View
+            className={`flex-row items-center rounded-full px-3 py-1.5 ${isVideo ? 'bg-black/35' : ''}`}
+          >
             <MaterialIcons name="lock" size={14} color={isVideo ? '#FFFFFF' : '#AEAEB2'} />
-            <Text className={`ml-1 text-xs2 font-medium ${isVideo ? 'text-white' : 'text-text-secondary'}`}>
+            <Text
+              className={`ml-1 text-xs2 font-medium ${isVideo ? 'text-white' : 'text-text-secondary'}`}
+            >
               Encrypted call
             </Text>
           </View>
@@ -187,7 +203,9 @@ export default function ActiveCallScreen() {
             </View>
             {phase === 'reconnecting' ? (
               <Text className="mt-2 text-xs2 text-white/85">
-                {reconnectSecondsLeft !== null ? `${reconnectSecondsLeft}s to restore` : 'Restoring call...'}
+                {reconnectSecondsLeft !== null
+                  ? `${reconnectSecondsLeft}s to restore`
+                  : 'Restoring call...'}
               </Text>
             ) : null}
           </View>
