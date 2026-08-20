@@ -101,6 +101,17 @@ test('group info presents add-member and leave actions as dedicated rows instead
   assert.match(groupInfoScreen, /name="logout"/)
 })
 
+test('group member roster falls back to conversation participants when v2 projection is unavailable', () => {
+  assert.match(conversationApi, /fallbackGroupMembersFromConversation/)
+  assert.match(conversationApi, /conversation\.participantIds\.map/)
+  assert.match(conversationApi, /userId === conversation\.creatorId \? 'OWNER' : 'MEMBER'/)
+  assert.match(conversationApi, /Group V2 member projection unavailable; using roster fallback/)
+  assert.match(
+    conversationApi,
+    /apiClient\.get<Conversation>\(`\/conversations\/\$\{id\}`\)/,
+  )
+})
+
 test('group ownership transfer uses the dedicated owner endpoint', () => {
   assert.match(conversationApi, /transferOwnership: async/)
   assert.match(
