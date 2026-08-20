@@ -162,11 +162,16 @@ export interface Message {
 export type ConversationMemberRole = 'OWNER' | 'ADMIN' | 'MEMBER'
 export type ConversationMemberStatus = 'ACTIVE' | 'LEFT' | 'REMOVED'
 
+export interface ConversationMemberUser extends UserSummary {
+  name?: string
+  fullName?: string
+}
+
 export interface ConversationMember {
   userId: string
   role: ConversationMemberRole
   status: ConversationMemberStatus
-  user: UserSummary
+  user: ConversationMemberUser
   joinedAt: string
   invitedBy?: string
 }
