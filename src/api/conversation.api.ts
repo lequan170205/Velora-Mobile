@@ -222,11 +222,7 @@ export const conversationApi = {
     userId: string,
     role: Extract<ConversationMemberRole, 'ADMIN' | 'MEMBER'>,
   ) => {
-    const response = await apiClient.patch<ConversationMember>(
-      `/conversations/${id}/members/${userId}/role`,
-      { role },
-    )
-    return response.data
+    await apiClient.patch(`/conversations/${id}/members/${userId}/role`, { role })
   },
   transferOwnership: async (id: string, data: { userId: string }) => {
     const response = await apiClient.patch<Conversation>(`/conversations/${id}/owner`, data)
