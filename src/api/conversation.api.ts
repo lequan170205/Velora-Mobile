@@ -51,6 +51,33 @@ const normalizeMessage = (message: Message): Message => {
 
 const normalizeMessages = (messages: Message[]) => messages.map(normalizeMessage)
 
+const fallbackGroupMembersFromConversation = (
+  conversation: Conversation,
+): ConversationMember[] => {
+  const participantById = new Map(
+    (conversation.participants ?? []).map((participant) => [participant.id, participant]),
+  )
+  const fallbackJoinedAt = conversation.createdAt
+
+  return conversation.participantIds.map((userId) => {
+    const participant = participantById.get(userId)
+
+    return {
+      userId,
+      role: userId === conversation.creatorId ? 'OWNER' : 'MEMBER',
+      status: 'ACTIVE',
+      joinedAt: conversation.memberJoinedAt?.[userId] ?? fallbackJoinedAt,
+      user: {
+        id: userId,
+        email: participant?.email ?? '',
+        ...(participant?.name ? { name: participant.name } : {}),
+        ...(participant?.fullName ? { fullName: participant.fullName } : {}),
+        ...(participant?.picture ? { picture: participant.picture } : {}),
+      },
+    }
+  })
+}
+
 export const conversationApi = {
   getAll: async () => {
     const response = await apiClient.get<Conversation[]>('/conversations')
@@ -208,8 +235,17 @@ export const conversationApi = {
 
   // Group Chat V2 membership / roles
   getMembers: async (id: string) => {
-    const response = await apiClient.get<ConversationMember[]>(`/conversations/${id}/members/v2`)
-    return response.data
+    try {
+      const response = await apiClient.get<ConversationMember[]>(`/conversations/${id}/members/v2`)
+      if (response.data.length > 0) {
+        return response.data
+      }
+    } catch (error) {
+      console.warn('[ConversationApi] Group V2 member projection unavailable; using roster fallback', error)
+    }
+
+    const conversationResponse = await apiClient.get<Conversation>(`/conversations/${id}`)
+    return fallbackGroupMembersFromConversation(conversationResponse.data)
   },
   addMember: async (id: string, data: { userId: string }) => {
     await apiClient.post(`/conversations/${id}/members`, data)
