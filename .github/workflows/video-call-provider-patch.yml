@@ -12,7 +12,7 @@ on:
       - scripts/finalize-video-call-1to1.cjs
       - scripts/fix-video-speaker-helper-order.cjs
       - scripts/finalize-native-call-type-sync-v2.cjs
-      - scripts/fix-ios-simulator-call-lifecycle.cjs
+      - scripts/fix-ios-simulator-call-lifecycle-v2.cjs
       - scripts/video-call-ci-trigger.txt
       - .github/workflows/video-call-provider-patch.yml
 
@@ -59,7 +59,7 @@ jobs:
           speaker_order=$?
           node scripts/finalize-native-call-type-sync-v2.cjs >> /tmp/patch.log 2>&1
           native_type=$?
-          node scripts/fix-ios-simulator-call-lifecycle.cjs >> /tmp/patch.log 2>&1
+          node scripts/fix-ios-simulator-call-lifecycle-v2.cjs >> /tmp/patch.log 2>&1
           simulator=$?
           code=$(( provider || native || harden || optional || finalizer || speaker_order || native_type || simulator ))
           echo "code=$code" >> "$GITHUB_OUTPUT"
