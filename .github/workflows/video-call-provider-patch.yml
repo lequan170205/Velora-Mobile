@@ -6,10 +6,15 @@ on:
       - feat/video-call-1to1
     paths:
       - scripts/apply-video-call-provider-patch.cjs
+      - scripts/apply-video-call-native-contract-patch.cjs
       - .github/workflows/video-call-provider-patch.yml
 
 permissions:
   contents: write
+
+concurrency:
+  group: video-call-provider-patch
+  cancel-in-progress: true
 
 jobs:
   patch-and-verify:
@@ -28,12 +33,18 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-      - name: Apply guarded patch
+      - name: Apply guarded patches
         id: patch
         shell: bash
         run: |
           set +e
-          node scripts/apply-video-call-provider-patch.cjs > /tmp/patch.log 2>&1
+          {
+            node scripts/apply-video-call-provider-patch.cjs
+            provider=$?
+            node scripts/apply-video-call-native-contract-patch.cjs
+            native=$?
+            exit $(( provider || native ))
+          } > /tmp/patch.log 2>&1
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
           cat /tmp/patch.log
@@ -62,17 +73,17 @@ jobs:
             echo
             echo '## Typecheck'
             echo '```text'
-            tail -n 120 /tmp/typecheck.log
+            tail -n 160 /tmp/typecheck.log
             echo '```'
             echo
             echo '## Tests'
             echo '```text'
-            tail -n 120 /tmp/test.log
+            tail -n 160 /tmp/test.log
             echo '```'
             echo
             echo '## Lint'
             echo '```text'
-            tail -n 120 /tmp/lint.log
+            tail -n 160 /tmp/lint.log
             echo '```'
           } > VIDEO_CALL_CI_RESULT.md
           exit 0
@@ -83,18 +94,23 @@ jobs:
           {
             echo '# Video Call CI Result'
             echo
-            echo '- Provider patch failed before verification.'
+            echo '- Guarded patch failed before verification.'
             echo
             echo '```text'
             cat /tmp/patch.log
             echo '```'
           } > VIDEO_CALL_CI_RESULT.md
-      - name: Commit generated provider changes and result
+      - name: Commit generated feature changes and result
         shell: bash
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/providers/CallProvider.tsx 'app/conversation/[id].tsx' VIDEO_CALL_CI_RESULT.md
+          git add \
+            src/providers/CallProvider.tsx \
+            src/types/call.types.ts \
+            'app/conversation/[id].tsx' \
+            modules/velora-system-calls/ios/VeloraSystemCallsModule.swift \
+            VIDEO_CALL_CI_RESULT.md
           if git diff --cached --quiet; then
             exit 0
           fi
