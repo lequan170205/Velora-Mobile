@@ -11,6 +11,7 @@ on:
       - scripts/fix-video-call-paused-optional.cjs
       - scripts/finalize-video-call-1to1.cjs
       - scripts/fix-video-speaker-helper-order.cjs
+      - scripts/finalize-native-call-type-sync.cjs
       - scripts/video-call-ci-trigger.txt
       - .github/workflows/video-call-provider-patch.yml
 
@@ -55,7 +56,9 @@ jobs:
           finalizer=$?
           node scripts/fix-video-speaker-helper-order.cjs >> /tmp/patch.log 2>&1
           speaker_order=$?
-          code=$(( provider || native || harden || optional || finalizer || speaker_order ))
+          node scripts/finalize-native-call-type-sync.cjs >> /tmp/patch.log 2>&1
+          native_type=$?
+          code=$(( provider || native || harden || optional || finalizer || speaker_order || native_type ))
           echo "code=$code" >> "$GITHUB_OUTPUT"
           cat /tmp/patch.log
           exit 0
@@ -72,6 +75,7 @@ jobs:
             'app/call/[id].tsx' \
             'app/conversation/[id].tsx' \
             plugins/withVeloraSystemCalls.js \
+            src/lib/systemCalls/veloraSystemCalls.ts \
             src/providers/CallProvider.tsx \
             src/types/call.types.ts \
             tests/video-call-1to1-contract.test.cjs
@@ -89,6 +93,7 @@ jobs:
             'app/call/[id].tsx' \
             'app/conversation/[id].tsx' \
             plugins/withVeloraSystemCalls.js \
+            src/lib/systemCalls/veloraSystemCalls.ts \
             src/providers/CallProvider.tsx \
             src/types/call.types.ts \
             tests/video-call-1to1-contract.test.cjs > /tmp/feature-lint.log 2>&1
@@ -110,7 +115,7 @@ jobs:
             echo
             echo '## Tests'
             echo '```text'
-            tail -n 180 /tmp/test.log
+            tail -n 200 /tmp/test.log
             echo '```'
             echo
             echo '## Feature lint'
@@ -147,16 +152,20 @@ jobs:
             'app/call/[id].tsx' \
             'app/conversation/[id].tsx' \
             plugins/withVeloraSystemCalls.js \
+            src/lib/systemCalls/veloraSystemCalls.ts \
             src/providers/CallProvider.tsx \
             src/types/call.types.ts \
             modules/velora-system-calls/ios/VeloraSystemCallsModule.swift \
             modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraSystemCallStore.kt \
+            modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraCallNotifications.kt \
+            modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraCallForegroundService.kt \
+            modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraSystemCallsModule.kt \
             tests/video-call-1to1-contract.test.cjs \
             VIDEO_CALL_CI_RESULT.md
           if git diff --cached --quiet; then
             exit 0
           fi
-          HUSKY=0 git commit -m 'fix(call): finalize 1:1 video call integration'
+          HUSKY=0 git commit -m 'fix(call): finalize native video call state'
           git fetch origin feat/video-call-1to1
           git rebase origin/feat/video-call-1to1
           git push origin HEAD:feat/video-call-1to1
