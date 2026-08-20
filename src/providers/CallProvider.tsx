@@ -3388,13 +3388,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     useCallStore.getState().patch({ muted: nextMuted })
   }, [])
 
-  const enableDefaultVideoSpeaker = useCallback((configuration?: AudioSessionConfiguration) => {
-    if (!shouldDefaultVideoToSpeaker(configuration)) return
-    if (veloraSystemCalls.setSpeakerEnabled(true)) {
-      useCallStore.getState().patch({ speakerEnabled: true })
-    }
-  }, [])
-
   const toggleSpeaker = useCallback(() => {
     const state = useCallStore.getState()
     if (state.phase !== 'active') return
