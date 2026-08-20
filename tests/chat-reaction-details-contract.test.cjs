@@ -15,7 +15,8 @@ const messageActions = read('src/hooks/useMessageActions.ts')
 test('reaction chips open a dedicated reaction-details bottom sheet', () => {
   assert.match(messageBubble, /ReactionDetailsSheet/)
   assert.match(messageBubble, /setActiveReactionEmoji\(emoji\)/)
-  assert.match(messageBubble, /reactionDetailsSheetRef\.current\?\.present\(\)/)
+  assert.match(messageBubble, /activeReactionEmoji \? \(/)
+  assert.match(reactionSheet, /sheetRef\.current\?\.present\(\)/)
   assert.match(reactionSheet, /<BottomSheetModal/)
   assert.match(reactionSheet, /enablePanDownToClose/)
 })
@@ -23,7 +24,7 @@ test('reaction chips open a dedicated reaction-details bottom sheet', () => {
 test('reaction details are fetched lazily and filterable by emoji', () => {
   assert.match(conversationApi, /getReactionDetails: async/)
   assert.match(conversationApi, /`\/messages\/\$\{messageId\}\/reactions`/)
-  assert.match(reactionSheet, /enabled: isOpen/)
+  assert.match(messageBubble, /activeReactionEmoji \? \(/)
   assert.match(reactionSheet, /All \{data\?\.total \?\? 0\}/)
   assert.match(reactionSheet, /setSelectedFilter\(emoji\)/)
 })
