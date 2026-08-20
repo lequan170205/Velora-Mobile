@@ -6,6 +6,7 @@ on:
       - feat/video-call-1to1
     paths:
       - scripts/fix-ios-simulator-call-lifecycle-v3.cjs
+      - scripts/finalize-ios-simulator-call-lifecycle.cjs
       - scripts/video-call-ci-trigger.txt
       - .github/workflows/video-call-provider-patch.yml
 
@@ -33,7 +34,9 @@ jobs:
           node-version: 20
           cache: pnpm
       - name: Apply simulator lifecycle patch
-        run: node scripts/fix-ios-simulator-call-lifecycle-v3.cjs
+        run: |
+          node scripts/fix-ios-simulator-call-lifecycle-v3.cjs
+          node scripts/finalize-ios-simulator-call-lifecycle.cjs
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Format simulator-call touched files
