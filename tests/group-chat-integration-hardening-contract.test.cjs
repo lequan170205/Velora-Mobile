@@ -13,6 +13,7 @@ const chatStore = read('src/stores/chatStore.ts')
 const chatScreen = read('app/conversation/[id].tsx')
 const groupInfo = read('app/conversation/[id]/info.tsx')
 const messageIdentity = read('src/lib/messageIdentity.ts')
+const messageMetadata = read('src/lib/messageMetadata.ts')
 const messageBubble = read('src/components/chat/MessageBubble.tsx')
 
 test('paginated conversation list is not treated as an authoritative deletion snapshot', () => {
@@ -57,6 +58,14 @@ test('message merges preserve structured group activity and AI citation metadata
   assert.match(messageIdentity, /existing\?\.groupActivity/)
   assert.match(messageIdentity, /citations !== undefined \? \{ citations \} : \{\}/)
   assert.match(messageIdentity, /groupActivity !== undefined \? \{ groupActivity \} : \{\}/)
+})
+
+test('legacy group activity records keep their system kind even when the structured payload was lost', () => {
+  assert.match(
+    messageMetadata,
+    /if \(rawKind === GROUP_SYSTEM_ACTIVITY_METADATA_KIND\)[\s\S]*kind: GROUP_SYSTEM_ACTIVITY_METADATA_KIND/,
+  )
+  assert.match(messageMetadata, /\.\.\.\(groupActivity \? \{ groupActivity \} : \{\}\)/)
 })
 
 test('group system rows stay centered even when an older local record lost activity payload', () => {
