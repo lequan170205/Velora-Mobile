@@ -306,6 +306,13 @@ const shouldDefaultVideoToSpeaker = (configuration: AudioSessionConfiguration | 
   )
 }
 
+const enableDefaultVideoSpeaker = (configuration?: AudioSessionConfiguration) => {
+  if (!shouldDefaultVideoToSpeaker(configuration)) return
+  if (veloraSystemCalls.setSpeakerEnabled(true)) {
+    useCallStore.getState().patch({ speakerEnabled: true })
+  }
+}
+
 const getRtcQualityCounters = (report: RTCStatsReport | unknown): RtcQualityCounters => {
   const entries = normalizeRtcStatsEntries(report)
   const inbound = pickRtcStat(entries, 'inbound-rtp')
@@ -3023,7 +3030,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       ensureMicPermission,
       ensureCameraPermission,
       ensureCallSocketConnected,
-      enableDefaultVideoSpeaker,
       postAnswerSetup,
       router,
       teardownOnce,
@@ -3193,7 +3199,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       ensureCameraPermission,
       ensureMicPermission,
       ensureSocketConnected,
-      enableDefaultVideoSpeaker,
       postAnswerSetup,
       presentError,
       router,
@@ -3379,13 +3384,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     useCallStore.getState().patch({ muted: nextMuted })
   }, [])
 
-  const enableDefaultVideoSpeaker = useCallback((configuration?: AudioSessionConfiguration) => {
-    if (!shouldDefaultVideoToSpeaker(configuration)) return
-    if (veloraSystemCalls.setSpeakerEnabled(true)) {
-      useCallStore.getState().patch({ speakerEnabled: true })
-    }
-  }, [])
-
   const toggleSpeaker = useCallback(() => {
     const state = useCallStore.getState()
     if (state.phase !== 'active') return
@@ -3469,7 +3467,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       activateLocalVideo,
       clearRemoteVideoRuntime,
       deactivateLocalVideo,
-      enableDefaultVideoSpeaker,
       ensureCameraPermission,
       presentError,
     ],
@@ -3802,6 +3799,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
       consumerMapRef.current.delete(consumerId)
       handledRemoteProducerIdsRef.current.delete(payload.producerId)
+      remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
