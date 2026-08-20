@@ -97,11 +97,33 @@ export interface AiRagCitation {
   quote?: string
 }
 
+export type GroupSystemActivityType =
+  | 'GROUP_CREATED'
+  | 'MEMBER_ADDED'
+  | 'MEMBER_LEFT'
+  | 'MEMBER_REMOVED'
+  | 'MEMBER_PROMOTED'
+  | 'MEMBER_DEMOTED'
+  | 'OWNERSHIP_TRANSFERRED'
+  | 'GROUP_RENAMED'
+  | 'GROUP_PICTURE_CHANGED'
+
+export interface GroupSystemActivity {
+  type: GroupSystemActivityType
+  actorUserId: string
+  actorName?: string
+  targetUserId?: string
+  targetName?: string
+  previousValue?: string | null
+  nextValue?: string | null
+}
+
 export interface MessageMetadata {
-  kind?: 'velora_ai_response' | 'velora_ai_reel_recommendations'
+  kind?: 'velora_ai_response' | 'velora_ai_reel_recommendations' | 'group_system_activity'
   citations?: AiRagCitation[]
   recommendedReels?: ReelFeedListItem[]
   suggestedQueries?: string[]
+  groupActivity?: GroupSystemActivity
 }
 
 export interface Message {
@@ -137,8 +159,14 @@ export interface Message {
   reply_preview?: string
 }
 
+export type ConversationMemberRole = 'OWNER' | 'ADMIN' | 'MEMBER'
+export type ConversationMemberStatus = 'ACTIVE' | 'LEFT' | 'REMOVED'
+
 export interface ConversationMember {
   userId: string
+  role: ConversationMemberRole
+  status: ConversationMemberStatus
   user: UserSummary
   joinedAt: string
+  invitedBy?: string
 }
