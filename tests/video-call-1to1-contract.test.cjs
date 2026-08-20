@@ -71,7 +71,7 @@ test('conversation video entry point remains direct-chat only', () => {
   assert.match(source, /name="videocam"/)
 })
 
-test('native call surfaces preserve callType', () => {
+test('native call surfaces preserve and validate VIDEO callType', () => {
   const wrapper = read('src/lib/systemCalls/veloraSystemCalls.ts')
   const android = read(
     'modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraCallNotifications.kt',
@@ -83,7 +83,13 @@ test('native call surfaces preserve callType', () => {
   assert.match(android, /Incoming video call/)
   assert.match(swift, /configuration\.supportsVideo = true/)
   assert.match(swift, /action\.isVideo = nonEmptyString\(payload\["callType"\]\) == "VIDEO"/)
+  assert.match(swift, /callType != "VOICE" && callType != "VIDEO"/)
+  assert.match(swift, /let supportedVideo = validateIncomingPayload/)
+  assert.match(swift, /assert\(supportedVideo\.accepted\)/)
+  assert.match(swift, /callUpdate\(displayName: "Velora call", isVideo: false\)/)
+  assert.doesNotMatch(swift, /VoIP incoming call reporting only supports audio calls/)
   assert.match(plugin, /configuration\.supportsVideo = true/)
   assert.match(plugin, /action\.isVideo/)
   assert.match(plugin, /update\.hasVideo = isVideo/)
+  assert.match(plugin, /native incoming VOICE\/VIDEO validation/)
 })
