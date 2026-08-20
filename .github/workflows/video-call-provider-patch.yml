@@ -10,10 +10,11 @@ on:
       - .github/workflows/video-call-provider-patch.yml
   pull_request:
     branches:
-      - main
+      - feat/video-call-1to1
     paths:
       - scripts/apply-video-call-provider-patch.cjs
       - scripts/apply-video-call-native-contract-patch.cjs
+      - scripts/video-call-ci-trigger.txt
       - .github/workflows/video-call-provider-patch.yml
 
 permissions:
