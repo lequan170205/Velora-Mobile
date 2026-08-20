@@ -11,6 +11,7 @@ const chatScreen = read('app/conversation/[id].tsx')
 const newGroupScreen = read('app/conversation/new-group.tsx')
 const groupInfoScreen = read('app/conversation/[id]/info.tsx')
 const messageBubble = read('src/components/chat/MessageBubbleImpl.tsx')
+const conversationApi = read('src/api/conversation.api.ts')
 
 test('Messages exposes a dedicated new-group route without changing friendship state', () => {
   assert.match(conversationsScreen, /router\.push\('\/conversation\/new-group'\)/)
@@ -60,7 +61,19 @@ test('group info enforces owner-only management and non-owner leave UX', () => {
   assert.match(groupInfoScreen, /conversationApi\.updateGroup/)
   assert.match(groupInfoScreen, /conversationApi\.addMember/)
   assert.match(groupInfoScreen, /conversationApi\.removeMember/)
+  assert.match(groupInfoScreen, /conversationApi\.transferOwnership/)
+  assert.match(groupInfoScreen, /confirmTransferOwnership/)
+  assert.match(groupInfoScreen, /swap-horiz/)
   assert.match(groupInfoScreen, /conversationApi\.leave/)
-  assert.match(groupInfoScreen, /Ownership transfer is not available yet/)
+  assert.match(groupInfoScreen, /Transfer ownership to another member before leaving the group/)
+  assert.doesNotMatch(groupInfoScreen, /Ownership transfer is not available yet/)
   assert.match(groupInfoScreen, /memberCount > 2/)
+})
+
+test('group ownership transfer uses the dedicated owner endpoint', () => {
+  assert.match(conversationApi, /transferOwnership: async/)
+  assert.match(
+    conversationApi,
+    /apiClient\.patch<Conversation>\(`\/conversations\/\$\{id\}\/owner`, data\)/,
+  )
 })
