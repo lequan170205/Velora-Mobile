@@ -2275,7 +2275,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             userId: producer.userId,
             producerId: producer.producerId,
             kind: producer.kind,
-            paused: producer.paused,
+            ...(producer.paused !== undefined ? { paused: producer.paused } : {}),
           },
           { propagateFailure: producer.kind === 'audio', setupToken: options.setupToken },
         )
@@ -2283,6 +2283,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       await flushQueuedRemoteProducers({ setupToken: options.setupToken })
       assertCallSetupCurrent(options.setupToken, callId)
       callAnsweredRef.current = true
+
+      if (shouldDeferLocalVideo) {
+        cameraPausedByBackgroundRef.current = true
+      }
 
       if (shouldDeferLocalVideo) {
         cameraPausedByBackgroundRef.current = true
@@ -2416,7 +2420,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             userId: producer.userId,
             producerId: producer.producerId,
             kind: producer.kind,
-            paused: producer.paused,
+            ...(producer.paused !== undefined ? { paused: producer.paused } : {}),
           })
         }
         if (
@@ -3779,6 +3783,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
       consumerMapRef.current.delete(consumerId)
       handledRemoteProducerIdsRef.current.delete(payload.producerId)
+      remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       useCallStore.getState().patch({
         remoteStreamUrl: remoteStream?.toURL() ?? null,
