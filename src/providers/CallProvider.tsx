@@ -61,6 +61,7 @@ import type {
   TransportCreatedPayload,
   IceRestartedPayload,
   UseCallValue,
+  VideoStateChangedPayload,
 } from '../types/call.types'
 import type { Conversation } from '../types/conversation.types'
 import type { Device as MediasoupDevice } from 'mediasoup-client'
@@ -545,6 +546,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const connectedTransportIdsRef = useRef<Set<string>>(new Set())
   const queuedRemoteProducerMapRef = useRef<Map<string, NewProducerPayload>>(new Map())
   const handledRemoteProducerIdsRef = useRef<Set<string>>(new Set())
+  const remoteVideoEnabledByProducerRef = useRef<Map<string, boolean>>(new Map())
   const consumingProducerIdsRef = useRef<Set<string>>(new Set())
   const retryingProducerIdsRef = useRef<Set<string>>(new Set())
   const activeCallIdRef = useRef<string | null>(null)
@@ -1153,6 +1155,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       connectedTransportIdsRef.current.clear()
       queuedRemoteProducerMapRef.current.clear()
       handledRemoteProducerIdsRef.current.clear()
+      remoteVideoEnabledByProducerRef.current.clear()
       consumingProducerIdsRef.current.clear()
       retryingProducerIdsRef.current.clear()
       audioFlowingRef.current = false
@@ -1439,6 +1442,27 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  const emitLocalVideoState = useCallback((enabled: boolean) => {
+    const state = useCallStore.getState()
+    const socket = socketRef.current
+    const producerId = videoProducerRef.current?.id
+    if (
+      state.phase !== 'active' ||
+      state.callType !== 'VIDEO' ||
+      !state.callId ||
+      !producerId ||
+      !socket?.connected
+    ) {
+      return
+    }
+
+    socket.emit('set_video_enabled', {
+      callId: state.callId,
+      producerId,
+      enabled,
+    })
+  }, [])
+
   const deactivateLocalVideo = useCallback(() => {
     try {
       videoProducerRef.current?.close()
@@ -1486,6 +1510,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const existingTrack = localStreamRef.current?.getVideoTracks()[0]
       if (existingTrack && existingTrack.readyState === 'live') {
         existingTrack.enabled = true
+        emitLocalVideoState(true)
         useCallStore.getState().patch({
           cameraEnabled: true,
           localStreamUrl: localStreamRef.current?.toURL() ?? null,
@@ -1522,7 +1547,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       })
       return true
     },
-    [ensureCameraPermission, presentError],
+    [emitLocalVideoState, ensureCameraPermission, presentError],
   )
 
   const clearRemoteVideoRuntime = useCallback((state: 'idle' | 'off' = 'off') => {
@@ -2037,7 +2062,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         queuedRemoteProducerMapRef.current.delete(payload.producerId)
 
         if (payload.kind === 'video') {
-          useCallStore.getState().patch({ remoteVideoState: 'connected' })
+          if (payload.paused !== undefined) {
+            remoteVideoEnabledByProducerRef.current.set(payload.producerId, !payload.paused)
+          }
+          const videoEnabled =
+            remoteVideoEnabledByProducerRef.current.get(payload.producerId) ?? !payload.paused
+          useCallStore.getState().patch({
+            remoteVideoState: videoEnabled ? 'connected' : 'off',
+          })
           return
         }
 
@@ -2238,13 +2270,23 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       for (const producer of payload.activeProducers ?? []) {
         await consumeRemoteProducer(
-          { callId, userId: producer.userId, producerId: producer.producerId, kind: producer.kind },
+          {
+            callId,
+            userId: producer.userId,
+            producerId: producer.producerId,
+            kind: producer.kind,
+            paused: producer.paused,
+          },
           { propagateFailure: producer.kind === 'audio', setupToken: options.setupToken },
         )
       }
       await flushQueuedRemoteProducers({ setupToken: options.setupToken })
       assertCallSetupCurrent(options.setupToken, callId)
       callAnsweredRef.current = true
+
+      if (shouldDeferLocalVideo) {
+        cameraPausedByBackgroundRef.current = true
+      }
 
       if (shouldDeferLocalVideo) {
         cameraPausedByBackgroundRef.current = true
@@ -2374,6 +2416,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             userId: producer.userId,
             producerId: producer.producerId,
             kind: producer.kind,
+            paused: producer.paused,
           })
         }
         if (
@@ -3345,8 +3388,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
     const track = localStreamRef.current?.getVideoTracks()[0]
     if (track) track.enabled = false
+    emitLocalVideoState(false)
     useCallStore.getState().patch({ cameraEnabled: false })
-  }, [activateLocalVideo])
+  }, [activateLocalVideo, emitLocalVideoState])
 
   const switchCamera = useCallback(async () => {
     const state = useCallStore.getState()
@@ -3485,6 +3529,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           localVideoTrack
         ) {
           localVideoTrack.enabled = false
+          emitLocalVideoState(false)
           cameraPausedByBackgroundRef.current = true
         }
         return
@@ -3498,6 +3543,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       ) {
         if (localVideoTrack) {
           localVideoTrack.enabled = true
+          emitLocalVideoState(true)
           cameraPausedByBackgroundRef.current = false
         } else {
           void activateLocalVideo({ requestPermission: false }).then((activated) => {
@@ -3531,7 +3577,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     return () => {
       subscription.remove()
     }
-  }, [activateLocalVideo, processPendingNativeCallAction])
+  }, [activateLocalVideo, emitLocalVideoState, processPendingNativeCallAction])
 
   useEffect(() => {
     void flushCallTelemetry()
@@ -3733,6 +3779,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
       consumerMapRef.current.delete(consumerId)
       handledRemoteProducerIdsRef.current.delete(payload.producerId)
+      remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       useCallStore.getState().patch({
         remoteStreamUrl: remoteStream?.toURL() ?? null,
         ...(payload.kind === 'video' ? { remoteVideoState: 'off' as const } : {}),
@@ -3760,6 +3807,18 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    const handleVideoStateChanged = (payload: VideoStateChangedPayload) => {
+      if (!isCurrentCall(payload.callId) || payload.userId === currentUserId) return
+
+      remoteVideoEnabledByProducerRef.current.set(payload.producerId, payload.enabled)
+      const hasVideoConsumer = [...consumerMapRef.current.values()].some(
+        (consumer) => consumer.producerId === payload.producerId && consumer.kind === 'video',
+      )
+      useCallStore.getState().patch({
+        remoteVideoState: payload.enabled ? (hasVideoConsumer ? 'connected' : 'waiting') : 'off',
+      })
+    }
+
     const handlePeerLeft = (payload: PeerLeftPayload) => {
       if (!isCurrentCall(payload.callId)) {
         return
@@ -3784,6 +3843,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     })
     socket.on('producer_closed', handleProducerClosed)
     socket.on('call_type_changed', handleCallTypeChanged)
+    socket.on('video_state_changed', handleVideoStateChanged)
     socket.on('call_answered', (payload) => {
       if (isCurrentCall(payload.callId)) {
         callAnsweredRef.current = true
@@ -3810,6 +3870,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socket.off('new_producer')
       socket.off('producer_closed', handleProducerClosed)
       socket.off('call_type_changed', handleCallTypeChanged)
+      socket.off('video_state_changed', handleVideoStateChanged)
       socket.off('call_answered')
     }
   }, [

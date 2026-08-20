@@ -105,6 +105,12 @@ export interface SetCallTypePayload {
   callType: CallType
 }
 
+export interface SetVideoEnabledPayload {
+  callId: string
+  producerId: string
+  enabled: boolean
+}
+
 export interface IncomingCallPayload {
   callId: string
   conversationId: string
@@ -127,6 +133,7 @@ export interface CallJoinedPayload {
     userId: string
     producerId: string
     kind: 'audio' | 'video'
+    paused?: boolean
   }[]
   noAnswerTimeoutMs?: number
   telemetryToken: string
@@ -141,6 +148,7 @@ export interface CallRejoinedPayload {
     userId: string
     producerId: string
     kind: 'audio' | 'video'
+    paused?: boolean
   }[]
   telemetryToken: string
 }
@@ -169,6 +177,7 @@ export interface NewProducerPayload {
   userId: string
   producerId: string
   kind: 'audio' | 'video'
+  paused?: boolean
 }
 
 export interface ProducerClosedPayload {
@@ -206,6 +215,13 @@ export interface CallTypeChangedPayload {
   callId: string
   callType: CallType
   changedByUserId: string
+}
+
+export interface VideoStateChangedPayload {
+  callId: string
+  userId: string
+  producerId: string
+  enabled: boolean
 }
 
 export interface CallAnsweredPayload {
@@ -265,6 +281,7 @@ export interface CallServerEvents {
   ice_restarted: (payload: IceRestartedPayload) => void
   audio_bitrate_updated: (payload: AudioBitrateUpdatedPayload) => void
   call_type_changed: (payload: CallTypeChangedPayload) => void
+  video_state_changed: (payload: VideoStateChangedPayload) => void
   call_answered: (payload: CallAnsweredPayload) => void
   call_rejected: (payload: CallRejectedPayload) => void
   peer_reconnecting: (payload: PeerReconnectingPayload) => void
@@ -289,6 +306,7 @@ export interface CallClientEvents {
   restart_ice: (payload: RestartIcePayload) => void
   set_audio_bitrate: (payload: SetAudioBitratePayload) => void
   set_call_type: (payload: SetCallTypePayload) => void
+  set_video_enabled: (payload: SetVideoEnabledPayload) => void
 }
 
 export type CallSocket = Socket<CallServerEvents, CallClientEvents>
