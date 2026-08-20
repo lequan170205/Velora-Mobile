@@ -299,6 +299,13 @@ const toAudioRouteTelemetry = (
   }
 }
 
+const shouldDefaultVideoToSpeaker = (configuration: AudioSessionConfiguration | undefined) => {
+  const externalRoutePattern = /Bluetooth|Headphones|Headset|AirPlay|CarAudio|USB|LineOut|Wired/i
+  return !(configuration?.outputRouteTypes ?? []).some((routeType) =>
+    externalRoutePattern.test(routeType),
+  )
+}
+
 const getRtcQualityCounters = (report: RTCStatsReport | unknown): RtcQualityCounters => {
   const entries = normalizeRtcStatsEntries(report)
   const inbound = pickRtcStat(entries, 'inbound-rtp')
@@ -2288,26 +2295,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         cameraPausedByBackgroundRef.current = true
       }
 
-      if (shouldDeferLocalVideo) {
-        cameraPausedByBackgroundRef.current = true
-      }
-
-      if (shouldDeferLocalVideo) {
-        cameraPausedByBackgroundRef.current = true
-      }
-
-      if (shouldDeferLocalVideo) {
-        cameraPausedByBackgroundRef.current = true
-      }
-
-      if (shouldDeferLocalVideo) {
-        cameraPausedByBackgroundRef.current = true
-      }
-
-      if (shouldDeferLocalVideo) {
-        cameraPausedByBackgroundRef.current = true
-      }
-
       const consumers = [...consumerMapRef.current.values()]
       useCallStore.getState().patch({
         phase: 'active',
@@ -2994,6 +2981,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         telemetry.record('media_setup_started', { outcome: 'started' })
         await postAnswerSetup(joined, { setupToken })
         assertCallSetupCurrent(setupToken, callId)
+        if (state.callType === 'VIDEO') {
+          enableDefaultVideoSpeaker(audioSessionConfiguration)
+        }
         if (!veloraSystemCalls.setCallActive(callId)) {
           throw new Error('Native call is no longer active')
         }
@@ -3033,6 +3023,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       ensureMicPermission,
       ensureCameraPermission,
       ensureCallSocketConnected,
+      enableDefaultVideoSpeaker,
       postAnswerSetup,
       router,
       teardownOnce,
@@ -3166,6 +3157,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
         await postAnswerSetup(joined, { setupToken })
         assertCallSetupCurrent(setupToken, joined.callId)
+        if (callType === 'VIDEO') {
+          enableDefaultVideoSpeaker(audioSessionConfiguration)
+        }
         if (!veloraSystemCalls.setCallActive(joined.callId)) {
           throw new Error('Native call is no longer active')
         }
@@ -3199,6 +3193,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       ensureCameraPermission,
       ensureMicPermission,
       ensureSocketConnected,
+      enableDefaultVideoSpeaker,
       postAnswerSetup,
       presentError,
       router,
@@ -3384,6 +3379,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     useCallStore.getState().patch({ muted: nextMuted })
   }, [])
 
+  const enableDefaultVideoSpeaker = useCallback((configuration?: AudioSessionConfiguration) => {
+    if (!shouldDefaultVideoToSpeaker(configuration)) return
+    if (veloraSystemCalls.setSpeakerEnabled(true)) {
+      useCallStore.getState().patch({ speakerEnabled: true })
+    }
+  }, [])
+
   const toggleSpeaker = useCallback(() => {
     const state = useCallStore.getState()
     if (state.phase !== 'active') return
@@ -3454,6 +3456,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       })
       if (nextCallType === 'VIDEO') {
         await activateLocalVideo({ requestPermission: false })
+        const nativeAudioSessionState = await veloraSystemCalls
+          .getNativeAudioSessionState()
+          .catch(() => undefined)
+        enableDefaultVideoSpeaker(nativeAudioSessionState)
       } else {
         deactivateLocalVideo()
         clearRemoteVideoRuntime('idle')
@@ -3463,6 +3469,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       activateLocalVideo,
       clearRemoteVideoRuntime,
       deactivateLocalVideo,
+      enableDefaultVideoSpeaker,
       ensureCameraPermission,
       presentError,
     ],
@@ -3795,6 +3802,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
       consumerMapRef.current.delete(consumerId)
       handledRemoteProducerIdsRef.current.delete(payload.producerId)
+      remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       remoteVideoEnabledByProducerRef.current.delete(payload.producerId)

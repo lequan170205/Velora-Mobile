@@ -93,3 +93,32 @@ test('native call surfaces preserve and validate VIDEO callType', () => {
   assert.match(plugin, /update\.hasVideo = isVideo/)
   assert.match(plugin, /native incoming VOICE\/VIDEO validation/)
 })
+
+test('native incoming VIDEO is accepted on both platforms', () => {
+  const androidStore = read(
+    'modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraSystemCallStore.kt',
+  )
+  const swift = read('modules/velora-system-calls/ios/VeloraSystemCallsModule.swift')
+
+  assert.doesNotMatch(androidStore, /payload\[\"callType\"\] == \"VIDEO\"/)
+  assert.match(androidStore, /callType != null && callType !in setOf\(\"VOICE\", \"VIDEO\"\)/)
+  assert.doesNotMatch(swift, /if payload\[\"callType\"\] as\? String == \"VIDEO\"/)
+  assert.match(swift, /callType != \"VOICE\" && callType != \"VIDEO\"/)
+})
+
+test('VIDEO defaults to speaker without overriding external audio routes', () => {
+  const source = read('src/providers/CallProvider.tsx')
+  assert.match(source, /const shouldDefaultVideoToSpeaker =/)
+  assert.match(source, /Bluetooth\|Headphones\|Headset\|AirPlay\|CarAudio\|USB\|LineOut\|Wired/)
+  assert.match(source, /enableDefaultVideoSpeaker\(audioSessionConfiguration\)/)
+  assert.match(source, /enableDefaultVideoSpeaker\(nativeAudioSessionState\)/)
+})
+
+test('background VIDEO camera deferral is applied exactly once', () => {
+  const source = read('src/providers/CallProvider.tsx')
+  const matches =
+    source.match(
+      /if \(shouldDeferLocalVideo\) \{\s*cameraPausedByBackgroundRef\.current = true\s*\}/g,
+    ) ?? []
+  assert.equal(matches.length, 1)
+})
