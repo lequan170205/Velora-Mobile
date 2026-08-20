@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useKeepAwake } from 'expo-keep-awake'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useEffect, useMemo, useState } from 'react'
+import { type ComponentProps, useEffect, useMemo, useState } from 'react'
 import { Image, Text, TouchableOpacity, View } from 'react-native'
 import { RTCView } from 'react-native-webrtc'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -22,7 +22,7 @@ const ControlButton = ({
   label,
   onPress,
 }: {
-  icon: React.ComponentProps<typeof MaterialIcons>['name']
+  icon: ComponentProps<typeof MaterialIcons>['name']
   active?: boolean
   disabled?: boolean
   label: string
