@@ -22,6 +22,7 @@ object VeloraSystemCallStore {
     val callId: String,
     val phase: String,
     val expiresAtMs: Long?,
+    val callType: String?,
   )
 
   private val actionObservers = mutableSetOf<(Map<String, Any?>) -> Unit>()
@@ -50,7 +51,12 @@ object VeloraSystemCallStore {
   }
 
   fun shouldAcceptIncomingPayload(context: Context, payload: Map<String, Any?>): Boolean {
-    if (payload["type"] != "INCOMING_CALL" || payload["callType"] == "VIDEO") {
+    if (payload["type"] != "INCOMING_CALL") {
+      return false
+    }
+
+    val callType = payload["callType"] as? String
+    if (callType != null && callType !in setOf("VOICE", "VIDEO")) {
       return false
     }
 
@@ -135,7 +141,12 @@ object VeloraSystemCallStore {
   }
 
   @Synchronized
-  fun beginRingingCall(context: Context, callId: String, expiresAtMs: Long?): Boolean {
+  fun beginRingingCall(
+    context: Context,
+    callId: String,
+    expiresAtMs: Long?,
+    callType: String? = null,
+  ): Boolean {
     val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val now = System.currentTimeMillis()
     val terminalCalls = readTerminalCalls(prefs).filterValues { it > now }.toMutableMap()
@@ -161,6 +172,7 @@ object VeloraSystemCallStore {
         callId = callId,
         phase = PHASE_RINGING,
         expiresAtMs = expiresAtMs,
+        callType = callType?.takeIf { it == "VOICE" || it == "VIDEO" },
       ),
     )
     return true
@@ -188,8 +200,19 @@ object VeloraSystemCallStore {
         callId = callId,
         phase = PHASE_ACTIVE,
         expiresAtMs = currentCall.expiresAtMs,
+        callType = currentCall.callType,
       ),
     )
+    return true
+  }
+
+  @Synchronized
+  fun updateCallType(context: Context, callId: String, callType: String): Boolean {
+    if (callType != "VOICE" && callType != "VIDEO") return false
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val currentCall = readCurrentCall(prefs) ?: return false
+    if (currentCall.callId != callId) return false
+    writeCurrentCall(prefs, currentCall.copy(callType = callType))
     return true
   }
 
@@ -287,6 +310,7 @@ object VeloraSystemCallStore {
         callId = callId,
         phase = phase,
         expiresAtMs = if (json.has("expiresAtMs")) json.optLong("expiresAtMs") else null,
+        callType = json.optString("callType").takeIf { it == "VOICE" || it == "VIDEO" },
       )
     }.getOrNull()
   }
@@ -296,6 +320,7 @@ object VeloraSystemCallStore {
       .put("callId", call.callId)
       .put("phase", call.phase)
     call.expiresAtMs?.let { json.put("expiresAtMs", it) }
+    call.callType?.let { json.put("callType", it) }
     prefs.edit().putString(KEY_CURRENT_CALL, json.toString()).apply()
   }
 

@@ -148,6 +148,13 @@ public class VeloraSystemCallsModule: Module {
       }
     }
 
+    Function("setCallType") { (callId: String, callType: String) -> Bool in
+      let callCenter = VeloraSystemCallCenter.shared
+      return callCenter.runOnMain {
+        callCenter.setCallType(callId: callId, callType: callType)
+      }
+    }
+
     Function("setSpeakerEnabled") { (enabled: Bool) -> Bool in
       let callCenter = VeloraSystemCallCenter.shared
       return callCenter.runOnMain {
@@ -171,6 +178,16 @@ public class VeloraSystemCallsModule: Module {
           promise.resolve(result)
         }
       }
+    }
+
+    Function("activateSimulatorAudioSession") { (callId: String) -> Bool in
+      let callCenter = VeloraSystemCallCenter.shared
+      return callCenter.runOnMain { callCenter.activateSimulatorAudioSession(callId: callId) }
+    }
+
+    Function("deactivateSimulatorAudioSession") { (callId: String) -> Bool in
+      let callCenter = VeloraSystemCallCenter.shared
+      return callCenter.runOnMain { callCenter.deactivateSimulatorAudioSession(callId: callId) }
     }
   }
 }
@@ -241,7 +258,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
 
   private override init() {
     let configuration = CXProviderConfiguration()
-    configuration.supportsVideo = false
+    configuration.supportsVideo = true
     configuration.maximumCallsPerCallGroup = 1
     configuration.supportedHandleTypes = [.generic]
     configuration.includesCallsInRecents = false
@@ -537,7 +554,10 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     payloadsByCallId[callId] = payload
     reportingIncomingCallIds.insert(callId)
 
-    let update = callUpdate(displayName: callerName(from: payload))
+    let update = callUpdate(
+      displayName: callerName(from: payload),
+      isVideo: nonEmptyString(payload["callType"]) == "VIDEO"
+    )
     prepareWebRtcAudioSessionForCallKit(callId: callId, callUuid: uuid)
     logOperationalNotice(
       layer: layer,
@@ -670,7 +690,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       call: uuid,
       handle: CXHandle(type: .generic, value: peerName(from: payload))
     )
-    action.isVideo = false
+    action.isVideo = nonEmptyString(payload["callType"]) == "VIDEO"
 
     callController.request(CXTransaction(action: action)) { [weak self] error in
       guard let self else {
@@ -752,6 +772,25 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       provider.reportOutgoingCall(with: uuid, connectedAt: Date())
     }
 
+    return true
+  }
+
+  func setCallType(callId: String, callType: String) -> Bool {
+    guard (callType == "VOICE" || callType == "VIDEO"),
+          let uuid = uuidsByCallId[callId],
+          var payload = payloadsByCallId[callId] else {
+      return false
+    }
+
+    payload["callType"] = callType
+    payloadsByCallId[callId] = payload
+    let displayName = payload["type"] as? String == "INCOMING_CALL"
+      ? callerName(from: payload)
+      : peerName(from: payload)
+    provider.reportCall(
+      with: uuid,
+      updated: callUpdate(displayName: displayName, isVideo: callType == "VIDEO")
+    )
     return true
   }
 
@@ -1439,7 +1478,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     reportingIncomingCallIds.insert(callId)
     fallbackEndedIncomingCallReasonsById[callId] = endReason
 
-    let update = callUpdate(displayName: "Velora call")
+    let update = callUpdate(displayName: "Velora call", isVideo: false)
     logOperationalNotice(
       layer: layer,
       event: "report_new_incoming_call_started",
@@ -1544,11 +1583,11 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     }
   }
 
-  private func callUpdate(displayName: String) -> CXCallUpdate {
+  private func callUpdate(displayName: String, isVideo: Bool) -> CXCallUpdate {
     let update = CXCallUpdate()
     update.remoteHandle = CXHandle(type: .generic, value: displayName)
     update.localizedCallerName = displayName
-    update.hasVideo = false
+    update.hasVideo = isVideo
     update.supportsHolding = false
     update.supportsGrouping = false
     update.supportsUngrouping = false
@@ -1845,15 +1884,22 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
           == .reportFallbackAndEnd
       )
 
-      let unsupportedVideo = validateIncomingPayload(
+      let supportedVideo = validateIncomingPayload(
         validPayload.merging(["callType": "VIDEO"]) { _, latest in latest },
         authenticatedUserIdOverride: "debug-user"
       )
-      assert(unsupportedVideo.errorCode == "unsupported_call_type")
+      assert(supportedVideo.accepted)
+      assert(supportedVideo.errorCode == nil)
       assert(
-        pushKitHandlingStrategy(validationAccepted: unsupportedVideo.accepted, existingState: nil)
-          == .reportFallbackAndEnd
+        pushKitHandlingStrategy(validationAccepted: supportedVideo.accepted, existingState: nil)
+          == .reportValidatedIncomingCall
       )
+
+      let unsupportedCallType = validateIncomingPayload(
+        validPayload.merging(["callType": "SCREEN_SHARE"]) { _, latest in latest },
+        authenticatedUserIdOverride: "debug-user"
+      )
+      assert(unsupportedCallType.errorCode == "unsupported_call_type")
 
       let activeUuid = UUID()
       assert(
@@ -1954,12 +2000,13 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       )
     }
 
-    if payload["callType"] as? String == "VIDEO" {
+    if let callType = nonEmptyString(payload["callType"]),
+       callType != "VOICE" && callType != "VIDEO" {
       return (
         false,
         callId,
         "unsupported_call_type",
-        "VoIP incoming call reporting only supports audio calls."
+        "VoIP incoming call reporting only supports VOICE or VIDEO calls."
       )
     }
 
@@ -2706,6 +2753,53 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     }
 
     NSLog("VeloraSystemCalls %@", encoded)
+  }
+
+  func activateSimulatorAudioSession(callId: String) -> Bool {
+    #if targetEnvironment(simulator)
+      let audioSession = AVAudioSession.sharedInstance()
+      resetAudioConfigurationState()
+      speakerOverrideEnabled = false
+      do {
+        try audioSession.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP, .allowBluetoothA2DP])
+        try audioSession.setActive(true)
+        isNativeAudioSessionActivated = true
+        nativeAudioSessionActivatedAt = Date()
+        nativeAudioSessionDeactivatedAt = nil
+        nativeAudioSessionActivationSequence += 1
+        nativeAudioSessionCallUuid = uuidsByCallId[callId]
+        configureWebRtcAudioSession(audioSession)
+        logOperationalNotice(layer: "simulator", event: "simulator_audio_session_activated", callId: callId, success: isAudioSessionConfigured)
+        return isAudioSessionConfigured
+      } catch {
+        audioSessionConfigurationErrorCode = "simulator_audio_session_activation_failed"
+        logOperationalNotice(layer: "simulator", event: "simulator_audio_session_activation_failed", callId: callId, success: false, errorCode: audioSessionConfigurationErrorCode)
+        return false
+      }
+    #else
+      return false
+    #endif
+  }
+
+  func deactivateSimulatorAudioSession(callId: String) -> Bool {
+    #if targetEnvironment(simulator)
+      let audioSession = AVAudioSession.sharedInstance()
+      RTCAudioSession.sharedInstance().isAudioEnabled = false
+      do {
+        try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+      } catch {
+        logOperationalNotice(layer: "simulator", event: "simulator_audio_session_deactivation_failed", callId: callId, success: false, errorCode: "simulator_audio_session_deactivation_failed")
+        return false
+      }
+      isNativeAudioSessionActivated = false
+      nativeAudioSessionDeactivatedAt = Date()
+      nativeAudioSessionCallUuid = nil
+      resetAudioConfigurationState()
+      logOperationalNotice(layer: "simulator", event: "simulator_audio_session_deactivated", callId: callId, success: true)
+      return true
+    #else
+      return false
+    #endif
   }
 
   private func prepareWebRtcAudioSessionForCallKit(callId: String?, callUuid: UUID?) {

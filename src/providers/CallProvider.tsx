@@ -38,6 +38,7 @@ import {
 import { useAuthStore } from '../stores/authStore'
 import { useCallStore } from '../stores/callStore'
 
+// VIDEO_CALL_1TO1_PROVIDER_PATCH
 import type {
   AudioBitrateProfile,
   CallAnsweredPayload,
@@ -47,15 +48,20 @@ import type {
   CallRejoinedPayload,
   CallRejectedPayload,
   CallSocket,
+  CallType,
+  CallTypeChangedPayload,
+  CameraFacing,
   IncomingCallPayload,
   NewProducerPayload,
   PeerReconnectedPayload,
   PeerReconnectingPayload,
   PeerLeftPayload,
-  StartVoiceCallInput,
+  ProducerClosedPayload,
+  StartCallInput,
   TransportCreatedPayload,
   IceRestartedPayload,
   UseCallValue,
+  VideoStateChangedPayload,
 } from '../types/call.types'
 import type { Conversation } from '../types/conversation.types'
 import type { Device as MediasoupDevice } from 'mediasoup-client'
@@ -293,6 +299,20 @@ const toAudioRouteTelemetry = (
   }
 }
 
+const shouldDefaultVideoToSpeaker = (configuration: AudioSessionConfiguration | undefined) => {
+  const externalRoutePattern = /Bluetooth|Headphones|Headset|AirPlay|CarAudio|USB|LineOut|Wired/i
+  return !(configuration?.outputRouteTypes ?? []).some((routeType) =>
+    externalRoutePattern.test(routeType),
+  )
+}
+
+const enableDefaultVideoSpeaker = (configuration?: AudioSessionConfiguration) => {
+  if (!shouldDefaultVideoToSpeaker(configuration)) return
+  if (veloraSystemCalls.setSpeakerEnabled(true)) {
+    useCallStore.getState().patch({ speakerEnabled: true })
+  }
+}
+
 const getRtcQualityCounters = (report: RTCStatsReport | unknown): RtcQualityCounters => {
   const entries = normalizeRtcStatsEntries(report)
   const inbound = pickRtcStat(entries, 'inbound-rtp')
@@ -314,11 +334,15 @@ const getRtcQualityCounters = (report: RTCStatsReport | unknown): RtcQualityCoun
 
 const CallContext = createContext<UseCallValue>({
   startVoiceCall: async () => {},
+  startVideoCall: async () => {},
   acceptIncomingCall: async () => {},
   rejectIncomingCall: async () => {},
   endCall: async () => {},
   toggleMute: () => {},
   toggleSpeaker: () => {},
+  toggleCamera: async () => {},
+  switchCamera: async () => {},
+  switchCallType: async () => {},
   dismissCallError: () => {},
 })
 
@@ -398,8 +422,12 @@ const getCallRejectedMessage = (payload: CallRejectedPayload) => {
     return 'The other person needs microphone access to answer'
   }
 
+  if (payload.reason === 'camera_permission_denied') {
+    return 'The other person needs camera access to answer a video call'
+  }
+
   if (payload.reason === 'unsupported_video') {
-    return 'Video calls are not supported yet'
+    return 'The other person is using a version that does not support video calls'
   }
 
   return 'The call was rejected'
@@ -440,6 +468,13 @@ const getAcceptIncomingCallFailureCode = (error: unknown) => {
 
 const getRemoteSetupFailureReason = (errorCode: string) =>
   errorCode === 'remote_audio_not_ready' ? errorCode : 'remote_accept_failed'
+
+const cameraConstraints = (facing: CameraFacing) => ({
+  facingMode: facing,
+  width: { ideal: 1280 },
+  height: { ideal: 720 },
+  frameRate: { ideal: 24, max: 30 },
+})
 
 const isConnectedTransportState = (state: string) => state === 'connected' || state === 'completed'
 
@@ -518,8 +553,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const sendTransportRef = useRef<MediasoupTypes.Transport<Record<string, unknown>> | null>(null)
   const recvTransportRef = useRef<MediasoupTypes.Transport<Record<string, unknown>> | null>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
+  const ringingPreviewStreamRef = useRef<MediaStream | null>(null)
   const remoteStreamRef = useRef<MediaStream | null>(null)
   const audioProducerRef = useRef<MediasoupTypes.Producer<Record<string, unknown>> | null>(null)
+  const videoProducerRef = useRef<MediasoupTypes.Producer<Record<string, unknown>> | null>(null)
   const cachedDeviceRef = useRef<CachedMediasoupDevice | null>(null)
   const consumerMapRef = useRef<Map<string, MediasoupTypes.Consumer<Record<string, unknown>>>>(
     new Map(),
@@ -527,6 +564,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const connectedTransportIdsRef = useRef<Set<string>>(new Set())
   const queuedRemoteProducerMapRef = useRef<Map<string, NewProducerPayload>>(new Map())
   const handledRemoteProducerIdsRef = useRef<Set<string>>(new Set())
+  const remoteVideoEnabledByProducerRef = useRef<Map<string, boolean>>(new Map())
   const consumingProducerIdsRef = useRef<Set<string>>(new Set())
   const retryingProducerIdsRef = useRef<Set<string>>(new Set())
   const activeCallIdRef = useRef<string | null>(null)
@@ -565,6 +603,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const socketConnectPromiseRef = useRef<Promise<CallSocket> | null>(null)
   const callSocketPromisesRef = useRef(new Map<string, Promise<CallSocket>>())
   const callSocketAuthenticatedRef = useRef(false)
+  const cameraPausedByBackgroundRef = useRef(false)
+  const lastAppStateRef = useRef(AppState.currentState)
 
   const clearNativeActionRetryTimeout = useCallback(() => {
     if (nativeActionRetryTimeoutRef.current) {
@@ -933,8 +973,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const sampleRtcQuality = useCallback(async () => {
     const telemetry = telemetrySessionRef.current
-    const consumer = consumerMapRef.current.values().next().value as
-      MediasoupTypes.Consumer | undefined
+    const consumer = [...consumerMapRef.current.values()].find(
+      (candidate) => candidate.kind === 'audio',
+    ) as MediasoupTypes.Consumer | undefined
 
     if (!telemetry || !consumer) {
       return
@@ -1132,6 +1173,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       connectedTransportIdsRef.current.clear()
       queuedRemoteProducerMapRef.current.clear()
       handledRemoteProducerIdsRef.current.clear()
+      remoteVideoEnabledByProducerRef.current.clear()
       consumingProducerIdsRef.current.clear()
       retryingProducerIdsRef.current.clear()
       audioFlowingRef.current = false
@@ -1145,8 +1187,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       sendTransportRef.current = null
       recvTransportRef.current = null
       localStreamRef.current = null
+      ringingPreviewStreamRef.current = null
       remoteStreamRef.current = null
       audioProducerRef.current = null
+      videoProducerRef.current = null
+      cameraPausedByBackgroundRef.current = false
       routerRtpCapabilitiesRef.current = null
       reconnectRecoveryInFlightRef.current = false
       reconnectModeRef.current = null
@@ -1168,7 +1213,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const disposeMediaRuntime = useCallback(
     (options?: { preserveActiveCall?: boolean }) => {
       const currentConsumers = [...consumerMapRef.current.values()]
-      const currentProducer = audioProducerRef.current
+      const currentAudioProducer = audioProducerRef.current
+      const currentVideoProducer = videoProducerRef.current
+      const currentPreviewStream = ringingPreviewStreamRef.current
       const currentSendTransport = sendTransportRef.current
       const currentRecvTransport = recvTransportRef.current
       const localStream = localStreamRef.current
@@ -1182,9 +1229,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
       })
 
-      if (currentProducer) {
+      for (const producer of [currentAudioProducer, currentVideoProducer]) {
+        if (!producer) continue
         try {
-          currentProducer.close()
+          producer.close()
         } catch {
           console.warn('[Call] Failed to close producer during teardown')
         }
@@ -1211,6 +1259,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           track.stop()
         } catch {
           console.warn('[Call] Failed to stop local track during teardown')
+        }
+      })
+      currentPreviewStream?.getTracks().forEach((track) => {
+        try {
+          track.stop()
+        } catch {
+          console.warn('[Call] Failed to stop camera preview during teardown')
         }
       })
 
@@ -1253,7 +1308,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     retryingProducerIdsRef.current.clear()
     queuedRemoteProducerMapRef.current.clear()
     remoteStreamRef.current = null
-    useCallStore.getState().patch({ remoteStreamUrl: null })
+    useCallStore.getState().patch({
+      remoteStreamUrl: null,
+      remoteVideoState: useCallStore.getState().callType === 'VIDEO' ? 'waiting' : 'idle',
+    })
   }, [])
 
   const teardownOnce = useCallback(
@@ -1374,6 +1432,163 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const granted = permission.granted === true
     useCallStore.getState().patch({ hasMicPermission: granted })
     return granted
+  }, [])
+
+  const ensureCameraPermission = useCallback(async () => {
+    if (typeof Camera.requestCameraPermissionsAsync !== 'function') {
+      throw new Error('Camera permission API is unavailable in this build')
+    }
+
+    const permission = await Camera.requestCameraPermissionsAsync()
+    const granted = permission.granted === true
+    useCallStore.getState().patch({ hasCameraPermission: granted })
+    return granted
+  }, [])
+
+  const stopRingingPreview = useCallback(() => {
+    const preview = ringingPreviewStreamRef.current
+    preview?.getTracks().forEach((track) => {
+      try {
+        track.stop()
+      } catch {
+        // Best-effort preview cleanup.
+      }
+    })
+    ringingPreviewStreamRef.current = null
+    if (!localStreamRef.current) {
+      useCallStore.getState().patch({ localStreamUrl: null })
+    }
+  }, [])
+
+  const emitLocalVideoState = useCallback((enabled: boolean) => {
+    const state = useCallStore.getState()
+    const socket = socketRef.current
+    const producerId = videoProducerRef.current?.id
+    if (
+      state.phase !== 'active' ||
+      state.callType !== 'VIDEO' ||
+      !state.callId ||
+      !producerId ||
+      !socket?.connected
+    ) {
+      return
+    }
+
+    socket.emit('set_video_enabled', {
+      callId: state.callId,
+      producerId,
+      enabled,
+    })
+  }, [])
+
+  const deactivateLocalVideo = useCallback(() => {
+    try {
+      videoProducerRef.current?.close()
+    } catch {
+      // The server may already have closed the producer during a downgrade.
+    }
+    videoProducerRef.current = null
+
+    const localStream = localStreamRef.current
+    localStream?.getVideoTracks().forEach((track) => {
+      try {
+        localStream.removeTrack(track)
+      } catch {
+        // Best-effort media cleanup; the native resource may already be closed.
+      }
+      try {
+        track.stop()
+      } catch {
+        // Best-effort media cleanup; the native resource may already be closed.
+      }
+    })
+
+    cameraPausedByBackgroundRef.current = false
+    useCallStore.getState().patch({
+      cameraEnabled: false,
+      localStreamUrl: localStream?.toURL() ?? null,
+    })
+  }, [])
+
+  const activateLocalVideo = useCallback(
+    async (options?: { requestPermission?: boolean }) => {
+      const state = useCallStore.getState()
+      if (state.phase !== 'active' || state.callType !== 'VIDEO' || !state.callId) {
+        return false
+      }
+
+      if (options?.requestPermission !== false && state.hasCameraPermission !== true) {
+        const granted = await ensureCameraPermission()
+        if (!granted) {
+          presentError('Velora needs camera access for video calls')
+          return false
+        }
+      }
+
+      const existingTrack = localStreamRef.current?.getVideoTracks()[0]
+      if (existingTrack && existingTrack.readyState === 'live') {
+        existingTrack.enabled = true
+        emitLocalVideoState(true)
+        useCallStore.getState().patch({
+          cameraEnabled: true,
+          localStreamUrl: localStreamRef.current?.toURL() ?? null,
+        })
+        return true
+      }
+
+      const sendTransport = sendTransportRef.current
+      const device = deviceRef.current
+      if (!sendTransport || !device?.loaded || !device.canProduce('video')) {
+        presentError('Video is unavailable on this call')
+        return false
+      }
+
+      const stream = await mediaDevices.getUserMedia({
+        audio: false,
+        video: cameraConstraints(state.cameraFacing),
+      })
+      const track = stream.getVideoTracks()[0]
+      if (!track) {
+        stream.getTracks().forEach((candidate) => candidate.stop())
+        throw new Error('No local video track available')
+      }
+
+      if (!localStreamRef.current) {
+        localStreamRef.current = new MediaStream()
+      }
+      localStreamRef.current.addTrack(track as unknown as MediaStreamTrack)
+      const producer = await sendTransport.produce({ track: track as never, stopTracks: false })
+      videoProducerRef.current = producer
+      useCallStore.getState().patch({
+        cameraEnabled: true,
+        localStreamUrl: localStreamRef.current.toURL(),
+      })
+      return true
+    },
+    [emitLocalVideoState, ensureCameraPermission, presentError],
+  )
+
+  const clearRemoteVideoRuntime = useCallback((state: 'idle' | 'off' = 'off') => {
+    const remoteStream = remoteStreamRef.current
+    for (const [consumerId, consumer] of consumerMapRef.current.entries()) {
+      if (consumer.kind !== 'video') continue
+      try {
+        remoteStream?.removeTrack(consumer.track as unknown as MediaStreamTrack)
+      } catch {
+        // Best-effort media cleanup; the native resource may already be closed.
+      }
+      try {
+        consumer.close()
+      } catch {
+        // Best-effort media cleanup; the native resource may already be closed.
+      }
+      consumerMapRef.current.delete(consumerId)
+      handledRemoteProducerIdsRef.current.delete(consumer.producerId)
+    }
+    useCallStore.getState().patch({
+      remoteVideoState: state,
+      remoteStreamUrl: remoteStream?.toURL() ?? null,
+    })
   }, [])
 
   const ensureAuthenticatedSession = useCallback(async (callId: string) => {
@@ -1733,7 +1948,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                 {
                   callId,
                   transportId: transport.id,
-                  kind: kind as 'audio',
+                  kind: kind as 'audio' | 'video',
                   rtpParameters: rtpParameters as unknown as Record<string, unknown>,
                 },
                 {
@@ -1743,7 +1958,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                   filter: (payload) =>
                     payload.callId === callId &&
                     payload.userId === currentUserId &&
-                    payload.kind === 'audio',
+                    payload.kind === kind,
                 },
               )
 
@@ -1766,7 +1981,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
                   error: error instanceof Error ? error.message : 'unknown_error',
                 }),
               )
-              errback(error instanceof Error ? error : new Error('Failed to produce audio'))
+              errback(error instanceof Error ? error : new Error('Failed to produce local media'))
             }
           })()
         })
@@ -1788,68 +2003,25 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const recvTransport = recvTransportRef.current
       const setupToken = options?.setupToken ?? callSetupGenerationRef.current
 
-      if (!callId || payload.callId !== callId) {
-        return
-      }
-
+      if (!callId || payload.callId !== callId) return
       assertCallSetupCurrent(setupToken, callId)
 
       if (!socket || !device?.loaded || !recvTransport) {
-        if (options?.propagateFailure) {
-          throw new Error('Remote consumer runtime is unavailable')
-        }
-
-        debugCall(
-          '[Call] Queueing remote producer until runtime is ready',
-          JSON.stringify({
-            payloadCallId: payload.callId,
-            activeCallId: callId,
-            producerId: payload.producerId,
-            hasSocket: Boolean(socket),
-            deviceLoaded: Boolean(device?.loaded),
-            hasRecvTransport: Boolean(recvTransport),
-          }),
-        )
+        if (options?.propagateFailure) throw new Error('Remote consumer runtime is unavailable')
         queuedRemoteProducerMapRef.current.set(payload.producerId, payload)
         return
       }
 
       if (
-        payload.callId !== callId ||
         payload.userId === currentUserId ||
-        payload.kind !== 'audio' ||
         handledRemoteProducerIdsRef.current.has(payload.producerId) ||
         consumingProducerIdsRef.current.has(payload.producerId)
       ) {
-        debugCall(
-          '[Call] Ignoring new_producer event',
-          JSON.stringify({
-            payloadCallId: payload.callId,
-            activeCallId: callId,
-            payloadUserId: payload.userId,
-            currentUserId,
-            producerId: payload.producerId,
-            kind: payload.kind,
-            alreadyHandled: handledRemoteProducerIdsRef.current.has(payload.producerId),
-            alreadyConsuming: consumingProducerIdsRef.current.has(payload.producerId),
-          }),
-        )
         return
       }
 
-      const rtpCapabilities = device.rtpCapabilities
       consumingProducerIdsRef.current.add(payload.producerId)
-
       try {
-        debugCall(
-          '[Call] Consuming remote producer',
-          JSON.stringify({
-            callId,
-            recvTransportId: recvTransport.id,
-            producerId: payload.producerId,
-            peerUserId: payload.userId,
-          }),
-        )
         const consumerCreated = await emitAndWaitForEvent<'consume', 'consumer_created'>(
           socket,
           'consume',
@@ -1857,7 +2029,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             callId,
             transportId: recvTransport.id,
             producerId: payload.producerId,
-            rtpCapabilities: rtpCapabilities as unknown as Record<string, unknown>,
+            rtpCapabilities: device.rtpCapabilities as unknown as Record<string, unknown>,
           },
           {
             event: 'consumer_created',
@@ -1869,16 +2041,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         )
         assertCallSetupCurrent(setupToken, callId)
 
-        debugCall(
-          '[Call] Remote consumer created',
-          JSON.stringify({
-            callId,
-            recvTransportId: recvTransport.id,
-            consumerId: consumerCreated.consumerId,
-            producerId: consumerCreated.producerId,
-            kind: consumerCreated.kind,
-          }),
-        )
         const consumer = await recvTransport.consume({
           id: consumerCreated.consumerId,
           producerId: consumerCreated.producerId,
@@ -1890,49 +2052,20 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           throw new Error(CALL_SETUP_CANCELLED_ERROR)
         }
 
+        const firstRemoteAudio =
+          payload.kind === 'audio' &&
+          ![...consumerMapRef.current.values()].some((existing) => existing.kind === 'audio')
         consumerMapRef.current.set(consumer.id, consumer)
         telemetrySessionRef.current?.record('remote_consumer_ready', { outcome: 'succeeded' })
-        debugCall(
-          '[Call] Remote consumer attached locally',
-          JSON.stringify({
-            callId,
-            consumerId: consumer.id,
-            producerId: payload.producerId,
-            trackId: consumer.track.id,
-            muted: consumer.track.muted,
-            enabled: consumer.track.enabled,
-            readyState: consumer.track.readyState,
-          }),
-        )
 
-        consumer.track.addEventListener('mute', () => {
-          debugCall(
-            '[Call] Remote audio track muted',
-            JSON.stringify({ callId, consumerId: consumer.id, trackId: consumer.track.id }),
-          )
-        })
-
-        consumer.track.addEventListener('unmute', () => {
-          debugCall(
-            '[Call] Remote audio track unmuted',
-            JSON.stringify({ callId, consumerId: consumer.id, trackId: consumer.track.id }),
-          )
-        })
-
-        if (!remoteStreamRef.current) {
-          remoteStreamRef.current = new MediaStream()
-        }
-
+        if (!remoteStreamRef.current) remoteStreamRef.current = new MediaStream()
         remoteStreamRef.current.addTrack(consumer.track as unknown as MediaStreamTrack)
         useCallStore.getState().patch({ remoteStreamUrl: remoteStreamRef.current.toURL() })
 
         await emitAndWaitForEvent<'resume_consumer', 'consumer_resumed'>(
           socket,
           'resume_consumer',
-          {
-            callId,
-            consumerId: consumer.id,
-          },
+          { callId, consumerId: consumer.id },
           {
             event: 'consumer_resumed',
             timeoutMs: CONSUMER_RESUMED_TIMEOUT_MS,
@@ -1943,14 +2076,21 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         )
         assertCallSetupCurrent(setupToken, callId)
 
-        debugCall(
-          '[Call] Remote consumer resumed',
-          JSON.stringify({
-            callId,
-            consumerId: consumer.id,
-            producerId: payload.producerId,
-          }),
-        )
+        handledRemoteProducerIdsRef.current.add(payload.producerId)
+        queuedRemoteProducerMapRef.current.delete(payload.producerId)
+
+        if (payload.kind === 'video') {
+          if (payload.paused !== undefined) {
+            remoteVideoEnabledByProducerRef.current.set(payload.producerId, !payload.paused)
+          }
+          const videoEnabled =
+            remoteVideoEnabledByProducerRef.current.get(payload.producerId) ?? !payload.paused
+          useCallStore.getState().patch({
+            remoteVideoState: videoEnabled ? 'connected' : 'off',
+          })
+          return
+        }
+
         scheduleRtcStatsLog({
           callId,
           label: 'Remote consumer',
@@ -1958,9 +2098,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           getStats: () => consumer.getStats(),
         })
         const wasWaitingForPeerAudio = reconnectModeRef.current === 'peer'
-        const firstRemoteAudio = handledRemoteProducerIdsRef.current.size === 0
-        handledRemoteProducerIdsRef.current.add(payload.producerId)
-        queuedRemoteProducerMapRef.current.delete(payload.producerId)
         reconnectModeRef.current = null
         clearReconnectTimeout()
         clearRemoteAudioFallback()
@@ -1977,74 +2114,54 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             void sampleRtcQuality()
           }, AUDIO_FLOW_CONFIRMATION_DELAY_MS)
         }
-
-        if (wasWaitingForPeerAudio) {
-          startTimer(useCallStore.getState().durationSec)
-        }
+        if (wasWaitingForPeerAudio) startTimer(useCallStore.getState().durationSec)
       } catch (error) {
         if (!isCallSetupCurrent(setupToken, callId)) {
-          if (options?.propagateFailure) {
-            throw new Error(CALL_SETUP_CANCELLED_ERROR)
-          }
+          if (options?.propagateFailure) throw new Error(CALL_SETUP_CANCELLED_ERROR)
           return
         }
 
-        const state = useCallStore.getState()
-        console.warn(
-          '[Call] Failed to consume remote producer',
-          JSON.stringify({
-            callId,
-            recvTransportId: recvTransport.id,
-            producerId: payload.producerId,
-            phase: state.phase,
-            reconnectMode: reconnectModeRef.current,
-            error: error instanceof Error ? error.message : 'unknown_error',
-          }),
-        )
-
         if (reconnectModeRef.current) {
           queuedRemoteProducerMapRef.current.set(payload.producerId, payload)
-          useCallStore.getState().patch({ remoteAudioState: 'waiting' })
-
+          useCallStore
+            .getState()
+            .patch(
+              payload.kind === 'audio'
+                ? { remoteAudioState: 'waiting' }
+                : { remoteVideoState: 'waiting' },
+            )
           if (!retryingProducerIdsRef.current.has(payload.producerId)) {
             retryingProducerIdsRef.current.add(payload.producerId)
             setTimeout(() => {
               retryingProducerIdsRef.current.delete(payload.producerId)
               const queuedPayload = queuedRemoteProducerMapRef.current.get(payload.producerId)
-
-              if (
-                queuedPayload &&
-                reconnectModeRef.current &&
-                !handledRemoteProducerIdsRef.current.has(payload.producerId)
-              ) {
+              if (queuedPayload && reconnectModeRef.current)
                 void consumeRemoteProducer(queuedPayload)
-              }
             }, 750)
           }
           return
         }
 
-        if (options?.propagateFailure) {
-          throw error instanceof Error ? error : new Error('Failed to consume remote producer')
+        if (options?.propagateFailure) throw error
+        if (payload.kind === 'video') {
+          useCallStore.getState().patch({ remoteVideoState: 'waiting' })
+          return
         }
-
-        await teardownOnce('consume_remote_producer', {
-          errorMessage: 'Unable to set up the call',
-        })
+        await teardownOnce('consume_remote_producer', { errorMessage: 'Unable to set up the call' })
       } finally {
         consumingProducerIdsRef.current.delete(payload.producerId)
       }
     },
     [
+      assertCallSetupCurrent,
+      clearAudioFlowConfirmation,
       clearReconnectTimeout,
       clearRemoteAudioFallback,
-      clearAudioFlowConfirmation,
       currentUserId,
-      assertCallSetupCurrent,
       getCurrentCallId,
       isCallSetupCurrent,
-      scheduleRtcStatsLog,
       sampleRtcQuality,
+      scheduleRtcStatsLog,
       startTimer,
       teardownOnce,
     ],
@@ -2070,29 +2187,30 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       options: { resumeDurationSec?: number; setupToken: number },
     ) => {
       const socket = socketRef.current
-      if (!socket) {
-        throw new Error('Call socket is not connected')
-      }
+      if (!socket) throw new Error('Call socket is not connected')
 
       const callId = payload.callId
+      const callType = payload.session.callType
+      const shouldDeferLocalVideo = callType === 'VIDEO' && AppState.currentState !== 'active'
       const telemetry = telemetrySessionRef.current
       assertCallSetupCurrent(options.setupToken, callId)
       const device = await ensureDeviceLoaded(payload)
       telemetry?.record('device_loaded', { outcome: 'succeeded' })
       assertCallSetupCurrent(options.setupToken, callId)
-      debugCall(
-        '[Call] Requesting local media',
-        JSON.stringify({
-          callId,
-          at: new Date().toISOString(),
-          timestampMs: Date.now(),
-        }),
-      )
+
+      stopRingingPreview()
+      const stateBeforeMedia = useCallStore.getState()
       const [recvTransportResult, sendTransportResult, localStreamResult] =
         await Promise.allSettled([
           createTransport(socket, callId, 'recv', device),
           createTransport(socket, callId, 'send', device),
-          mediaDevices.getUserMedia({ audio: true, video: false }),
+          mediaDevices.getUserMedia({
+            audio: true,
+            video:
+              callType === 'VIDEO' && !shouldDeferLocalVideo
+                ? cameraConstraints(stateBeforeMedia.cameraFacing)
+                : false,
+          }),
         ])
 
       if (
@@ -2100,16 +2218,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         sendTransportResult.status !== 'fulfilled' ||
         localStreamResult.status !== 'fulfilled'
       ) {
-        if (recvTransportResult.status === 'fulfilled') {
-          recvTransportResult.value.close()
-        }
-        if (sendTransportResult.status === 'fulfilled') {
-          sendTransportResult.value.close()
-        }
+        if (recvTransportResult.status === 'fulfilled') recvTransportResult.value.close()
+        if (sendTransportResult.status === 'fulfilled') sendTransportResult.value.close()
         if (localStreamResult.status === 'fulfilled') {
           localStreamResult.value.getTracks().forEach((track) => track.stop())
         }
-
         const failedResult = [recvTransportResult, sendTransportResult, localStreamResult].find(
           (result) => result.status === 'rejected',
         )
@@ -2129,36 +2242,22 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         localStream.getTracks().forEach((track) => track.stop())
         throw new Error(CALL_SETUP_CANCELLED_ERROR)
       }
+
       recvTransportRef.current = recvTransport
       sendTransportRef.current = sendTransport
+      localStreamRef.current = localStream
       const localAudioTrack = localStream.getAudioTracks()[0]
-
-      if (!localAudioTrack) {
-        localStream.getTracks().forEach((track) => track.stop())
-        throw new Error('No local audio track available')
-      }
+      const localVideoTrack = localStream.getVideoTracks()[0]
+      if (!localAudioTrack) throw new Error('No local audio track available')
+      if (callType === 'VIDEO' && !shouldDeferLocalVideo && !localVideoTrack)
+        throw new Error('No local video track available')
 
       const muted = useCallStore.getState().muted
       localAudioTrack.enabled = !muted
-      localStreamRef.current = localStream
+      if (localVideoTrack) localVideoTrack.enabled = true
       telemetry?.record('microphone_ready', { outcome: 'succeeded' })
-      debugCall(
-        '[Call] Local audio track ready',
-        JSON.stringify({
-          callId,
-          at: new Date().toISOString(),
-          timestampMs: Date.now(),
-          trackId: localAudioTrack.id,
-          enabled: localAudioTrack.enabled,
-          muted: localAudioTrack.muted,
-          readyState: localAudioTrack.readyState,
-        }),
-      )
 
-      if (!device.canProduce('audio')) {
-        throw new Error('Device cannot produce audio')
-      }
-
+      if (!device.canProduce('audio')) throw new Error('Device cannot produce audio')
       const audioProducer = await sendTransport.produce({
         track: localAudioTrack as never,
         codecOptions: VOICE_OPUS_CODEC_OPTIONS,
@@ -2177,6 +2276,16 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         getStats: () => audioProducer.getStats(),
       })
 
+      if (callType === 'VIDEO' && localVideoTrack) {
+        if (!device.canProduce('video')) throw new Error('Device cannot produce video')
+        const videoProducer = await sendTransport.produce({
+          track: localVideoTrack as never,
+          stopTracks: false,
+        })
+        videoProducerRef.current = videoProducer
+        telemetry?.record('video_producer_ready', { outcome: 'succeeded' })
+      }
+
       for (const producer of payload.activeProducers ?? []) {
         await consumeRemoteProducer(
           {
@@ -2184,21 +2293,35 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             userId: producer.userId,
             producerId: producer.producerId,
             kind: producer.kind,
+            ...(producer.paused !== undefined ? { paused: producer.paused } : {}),
           },
-          {
-            propagateFailure: true,
-            setupToken: options.setupToken,
-          },
+          { propagateFailure: producer.kind === 'audio', setupToken: options.setupToken },
         )
       }
-
       await flushQueuedRemoteProducers({ setupToken: options.setupToken })
       assertCallSetupCurrent(options.setupToken, callId)
       callAnsweredRef.current = true
+
+      if (shouldDeferLocalVideo) {
+        cameraPausedByBackgroundRef.current = true
+      }
+
+      const consumers = [...consumerMapRef.current.values()]
       useCallStore.getState().patch({
         phase: 'active',
+        callType,
         muted,
-        remoteAudioState: handledRemoteProducerIdsRef.current.size > 0 ? 'connected' : 'waiting',
+        cameraEnabled: callType === 'VIDEO' && (Boolean(localVideoTrack) || shouldDeferLocalVideo),
+        localStreamUrl: localStream.toURL(),
+        remoteAudioState: consumers.some((consumer) => consumer.kind === 'audio')
+          ? 'connected'
+          : 'waiting',
+        remoteVideoState:
+          callType === 'VIDEO'
+            ? consumers.some((consumer) => consumer.kind === 'video')
+              ? 'connected'
+              : 'waiting'
+            : 'idle',
         remoteStreamUrl: remoteStreamRef.current?.toURL() ?? null,
         reconnectDeadlineMs: null,
       })
@@ -2215,6 +2338,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       isCallSetupCurrent,
       scheduleRtcStatsLog,
       startTimer,
+      stopRingingPreview,
     ],
   )
 
@@ -2282,6 +2406,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       activeCallIdRef.current = rejoined.callId
       callAnsweredRef.current = true
       telemetrySessionRef.current?.attachCall(rejoined.telemetryToken)
+      const recoveredCallType = rejoined.session.callType
+      useCallStore.getState().patch({
+        callType: recoveredCallType,
+        remoteVideoState: recoveredCallType === 'VIDEO' ? 'waiting' : 'idle',
+      })
+      if (recoveredCallType === 'VOICE') {
+        deactivateLocalVideo()
+        clearRemoteVideoRuntime('idle')
+      }
       try {
         await restartConnectedTransports(socket, rejoined.callId)
         reconnectModeRef.current = null
@@ -2291,6 +2424,22 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           reconnectDeadlineMs: null,
         })
         startTimer(useCallStore.getState().durationSec)
+        for (const producer of rejoined.activeProducers ?? []) {
+          await consumeRemoteProducer({
+            callId: rejoined.callId,
+            userId: producer.userId,
+            producerId: producer.producerId,
+            kind: producer.kind,
+            ...(producer.paused !== undefined ? { paused: producer.paused } : {}),
+          })
+        }
+        if (
+          recoveredCallType === 'VIDEO' &&
+          useCallStore.getState().hasCameraPermission === true &&
+          !videoProducerRef.current
+        ) {
+          await activateLocalVideo({ requestPermission: false })
+        }
         telemetrySessionRef.current?.record('reconnect_transport_connected', {
           outcome: 'succeeded',
         })
@@ -2351,6 +2500,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     invalidateCallSetup,
     postAnswerSetup,
     restartConnectedTransports,
+    activateLocalVideo,
+    clearRemoteVideoRuntime,
+    consumeRemoteProducer,
+    deactivateLocalVideo,
     startTimer,
     teardownRecoveryFailure,
   ])
@@ -2585,15 +2738,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
-      if (payload.callType === 'VIDEO') {
-        socketRef.current?.emit('reject_call', {
-          callId: payload.callId,
-          reason: 'unsupported_video',
-        })
-        presentError('Video calls are not supported yet')
-        return
-      }
-
       if (isBusyPhase(currentState.phase)) {
         socketRef.current?.emit('reject_call', {
           callId: payload.callId,
@@ -2623,15 +2767,23 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         peerAvatarUrl: payload.initiatorAvatarUrl ?? peerInfo.peerAvatarUrl,
         callType: payload.callType,
         muted: false,
+        cameraEnabled: false,
+        cameraFacing: 'user',
         remoteAudioState: 'idle',
+        remoteVideoState: payload.callType === 'VIDEO' ? 'waiting' : 'idle',
+        localStreamUrl: null,
         remoteStreamUrl: null,
         reconnectDeadlineMs: null,
         error: null,
         durationSec: 0,
       })
-      veloraSystemCalls.presentIncomingCall(nativePayload)
+      if (veloraSystemCalls.isIosSimulator) {
+        router.push(`/call/${payload.callId}` as never)
+      } else {
+        veloraSystemCalls.presentIncomingCall(nativePayload)
+      }
     },
-    [currentUserId, presentError, queryClient],
+    [currentUserId, queryClient, router],
   )
 
   const prepareIncomingCallFromState = useCallback(
@@ -2660,7 +2812,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         peerAvatarUrl: callState.initiatorAvatarUrl ?? peerInfo.peerAvatarUrl,
         callType: callState.callType,
         muted: false,
+        cameraEnabled: false,
+        cameraFacing: 'user',
         remoteAudioState: 'idle',
+        remoteVideoState: callState.callType === 'VIDEO' ? 'waiting' : 'idle',
+        localStreamUrl: null,
         remoteStreamUrl: null,
         reconnectDeadlineMs: null,
         error: null,
@@ -2764,6 +2920,23 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
       telemetry.record('microphone_permission', { outcome: 'succeeded' })
 
+      if (state.callType === 'VIDEO') {
+        let cameraGranted = false
+        try {
+          cameraGranted = await ensureCameraPermission()
+        } catch (error) {
+          telemetry.record('camera_permission', { outcome: 'failed', error })
+        }
+        if (!cameraGranted) {
+          socket.emit('reject_call', { callId, reason: 'camera_permission_denied' })
+          await teardownOnce('accept_video_call_camera_permission_denied', {
+            errorMessage: 'Velora needs camera access for video calls',
+          })
+          return
+        }
+        telemetry.record('camera_permission', { outcome: 'succeeded' })
+      }
+
       let joinedCall = false
 
       try {
@@ -2804,12 +2977,20 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         useCallStore.getState().patch({
           phase: 'connecting',
           remoteAudioState: 'idle',
+          remoteVideoState: state.callType === 'VIDEO' ? 'waiting' : 'idle',
+          localStreamUrl: null,
           remoteStreamUrl: null,
           reconnectDeadlineMs: null,
         })
         router.push(`/call/${callId}` as never)
 
         debugCall('[Call] Waiting for configured native audio session...')
+        if (
+          veloraSystemCalls.isIosSimulator &&
+          !veloraSystemCalls.activateSimulatorAudioSession(callId)
+        ) {
+          throw new Error('simulator_audio_session_activation_failed')
+        }
         const audioSessionConfiguration = await waitForConfiguredAudioSession(setupToken, callId)
         assertCallSetupCurrent(setupToken, callId)
         const audioRoute = toAudioRouteTelemetry(audioSessionConfiguration)
@@ -2821,6 +3002,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         telemetry.record('media_setup_started', { outcome: 'started' })
         await postAnswerSetup(joined, { setupToken })
         assertCallSetupCurrent(setupToken, callId)
+        if (state.callType === 'VIDEO') {
+          enableDefaultVideoSpeaker(audioSessionConfiguration)
+        }
         if (!veloraSystemCalls.setCallActive(callId)) {
           throw new Error('Native call is no longer active')
         }
@@ -2858,6 +3042,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       assertCallSetupCurrent,
       beginCallSetup,
       ensureMicPermission,
+      ensureCameraPermission,
       ensureCallSocketConnected,
       postAnswerSetup,
       router,
@@ -2866,50 +3051,48 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     ],
   )
 
-  const startVoiceCall = useCallback(
-    async (input: StartVoiceCallInput) => {
-      if (!currentUserId || isBusyPhase(useCallStore.getState().phase)) {
-        return
-      }
+  const startCall = useCallback(
+    async (input: StartCallInput, callType: CallType) => {
+      if (!currentUserId || isBusyPhase(useCallStore.getState().phase)) return
 
       const telemetry = new CallTelemetrySession('outgoing')
       telemetrySessionRef.current = telemetry
       telemetry.record('call_attempt', { outcome: 'started' })
 
-      let hasPermission: boolean
       try {
-        hasPermission = await ensureMicPermission()
-      } catch (error) {
-        telemetry.record('microphone_permission', { outcome: 'failed', error })
-        telemetry.terminal('start_voice_call_failed', error)
-        telemetrySessionRef.current = null
-        presentError('Velora needs microphone access to place calls')
-        useCallStore.getState().patch({ phase: 'idle' })
-        return
-      }
-      if (!hasPermission) {
-        telemetry.record('microphone_permission', {
-          outcome: 'failed',
-          error: new Error('microphone permission denied'),
-        })
-        telemetry.terminal('start_voice_call_failed', new Error('microphone permission denied'))
-        telemetrySessionRef.current = null
-        presentError('Velora needs microphone access to place calls')
-        useCallStore.getState().patch({ phase: 'idle' })
-        return
-      }
+        const micGranted = await ensureMicPermission()
+        if (!micGranted) throw new Error('microphone permission denied')
+        telemetry.record('microphone_permission', { outcome: 'succeeded' })
 
-      try {
+        if (callType === 'VIDEO') {
+          const cameraGranted = await ensureCameraPermission()
+          if (!cameraGranted) throw new Error('camera permission denied')
+          telemetry.record('camera_permission', { outcome: 'succeeded' })
+
+          const preview = await mediaDevices.getUserMedia({
+            audio: false,
+            video: cameraConstraints('user'),
+          })
+          const previewTrack = preview.getVideoTracks()[0]
+          if (!previewTrack) {
+            preview.getTracks().forEach((track) => track.stop())
+            throw new Error('camera preview unavailable')
+          }
+          ringingPreviewStreamRef.current = preview
+          useCallStore.getState().patch({
+            cameraEnabled: true,
+            cameraFacing: 'user',
+            hasCameraPermission: true,
+            localStreamUrl: preview.toURL(),
+          })
+        }
+
         const socket = await ensureSocketConnected()
         telemetry.record('socket_connected', { outcome: 'succeeded' })
         const joined = await emitAndWaitForEvent<'initiate_call', 'call_joined'>(
           socket,
           'initiate_call',
-          {
-            conversationId: input.conversationId,
-            targetUserId: input.peerUserId,
-            callType: 'VOICE',
-          },
+          { conversationId: input.conversationId, targetUserId: input.peerUserId, callType },
           {
             event: 'call_joined',
             timeoutMs: CALL_JOINED_TIMEOUT_MS,
@@ -2922,10 +3105,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         telemetry.attachCall(joined.telemetryToken)
         telemetry.record('call_joined', { outcome: 'succeeded' })
         callAnsweredRef.current = false
-        veloraSystemCalls.registerOutgoingCall({
+        void veloraSystemCalls.registerOutgoingCall({
           callId: joined.callId,
           conversationId: input.conversationId,
           peerName: input.peerName ?? 'Unknown',
+          callType,
         })
         useCallStore.getState().patch({
           phase: 'outgoing_ringing',
@@ -2935,9 +3119,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           peerUserId: input.peerUserId,
           peerName: input.peerName ?? 'Unknown',
           peerAvatarUrl: input.peerAvatarUrl ?? null,
-          callType: 'VOICE',
+          callType,
           muted: false,
+          cameraEnabled: callType === 'VIDEO',
           remoteAudioState: 'idle',
+          remoteVideoState: callType === 'VIDEO' ? 'waiting' : 'idle',
+          localStreamUrl:
+            callType === 'VIDEO' ? (ringingPreviewStreamRef.current?.toURL() ?? null) : null,
           remoteStreamUrl: null,
           reconnectDeadlineMs: null,
           error: null,
@@ -2946,9 +3134,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         router.push(`/call/${joined.callId}` as never)
 
         const answerWaitRegistry: CallWaitRegistry = new Set()
-        let answerOutcome: 'answered' | 'ended' | 'rejected'
         const answerWaitTimeoutMs = getOutgoingRingWaitTimeoutMs(joined.noAnswerTimeoutMs)
-
+        let answerOutcome: 'answered' | 'ended' | 'rejected'
         try {
           answerOutcome = await Promise.race([
             waitForEventWhere(socket, 'call_answered', {
@@ -2970,16 +3157,19 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         } finally {
           clearWaitRegistry(answerWaitRegistry)
         }
-
-        if (answerOutcome !== 'answered') {
-          return
-        }
+        if (answerOutcome !== 'answered') return
 
         callAnsweredRef.current = true
         const setupToken = beginCallSetup()
         useCallStore.getState().patch({ phase: 'connecting', reconnectDeadlineMs: null })
+        stopRingingPreview()
 
-        debugCall('[Call] Waiting for configured native audio session...')
+        if (
+          veloraSystemCalls.isIosSimulator &&
+          !veloraSystemCalls.activateSimulatorAudioSession(joined.callId)
+        ) {
+          throw new Error('simulator_audio_session_activation_failed')
+        }
         const audioSessionConfiguration = await waitForConfiguredAudioSession(
           setupToken,
           joined.callId,
@@ -2993,40 +3183,58 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
         await postAnswerSetup(joined, { setupToken })
         assertCallSetupCurrent(setupToken, joined.callId)
+        if (callType === 'VIDEO') {
+          enableDefaultVideoSpeaker(audioSessionConfiguration)
+        }
         if (!veloraSystemCalls.setCallActive(joined.callId)) {
           throw new Error('Native call is no longer active')
         }
         telemetry.record('control_plane_active', { outcome: 'succeeded' })
       } catch (error) {
-        if (isCallSetupCancelledError(error)) {
-          return
-        }
-
+        if (isCallSetupCancelledError(error)) return
+        stopRingingPreview()
         const activeCallId = activeCallIdRef.current
         if (socketRef.current?.connected && activeCallId) {
-          socketRef.current.emit('leave_call', {
-            callId: activeCallId,
-            reason: 'timeout',
-          })
+          socketRef.current.emit('leave_call', { callId: activeCallId, reason: 'timeout' })
         }
         telemetry.record('setup_failed', { outcome: 'failed', error })
-        await teardownOnce('start_voice_call_failed', {
-          errorMessage: 'Unable to set up the call',
-        })
+        if (!activeCallId) {
+          telemetry.terminal('start_call_failed', error)
+          telemetrySessionRef.current = null
+          useCallStore.getState().patch({ phase: 'idle' })
+          presentError(
+            error instanceof Error && /camera/i.test(error.message)
+              ? 'Velora needs camera access for video calls'
+              : 'Velora needs microphone access to place calls',
+          )
+          return
+        }
+        await teardownOnce('start_call_failed', { errorMessage: 'Unable to set up the call' })
       }
     },
     [
       assertCallSetupCurrent,
       beginCallSetup,
       currentUserId,
+      ensureCameraPermission,
       ensureMicPermission,
       ensureSocketConnected,
       postAnswerSetup,
       presentError,
       router,
+      stopRingingPreview,
       teardownOnce,
       waitForConfiguredAudioSession,
     ],
+  )
+
+  const startVoiceCall = useCallback(
+    (input: StartCallInput) => startCall(input, 'VOICE'),
+    [startCall],
+  )
+  const startVideoCall = useCallback(
+    (input: StartCallInput) => startCall(input, 'VIDEO'),
+    [startCall],
   )
 
   const processNativeCallAction = useCallback(
@@ -3070,12 +3278,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             return
           }
 
-          veloraSystemCalls.dismissIncomingCall(action.callId)
-          completeNativeCallAction(action.actionId)
-          return
-        }
-
-        if (callState.callType === 'VIDEO') {
           veloraSystemCalls.dismissIncomingCall(action.callId)
           completeNativeCallAction(action.actionId)
           return
@@ -3196,29 +3398,121 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const toggleMute = useCallback(() => {
     const localAudioTrack = localStreamRef.current?.getAudioTracks()[0]
-    if (!localAudioTrack) {
-      return
-    }
-
+    if (!localAudioTrack) return
     const nextMuted = !useCallStore.getState().muted
     localAudioTrack.enabled = !nextMuted
     useCallStore.getState().patch({ muted: nextMuted })
   }, [])
 
+  const enableDefaultVideoSpeaker = useCallback((configuration?: AudioSessionConfiguration) => {
+    if (!shouldDefaultVideoToSpeaker(configuration)) return
+    if (veloraSystemCalls.setSpeakerEnabled(true)) {
+      useCallStore.getState().patch({ speakerEnabled: true })
+    }
+  }, [])
+
   const toggleSpeaker = useCallback(() => {
     const state = useCallStore.getState()
-    if (state.phase !== 'active') {
-      return
-    }
-
+    if (state.phase !== 'active') return
     const nextSpeakerEnabled = !state.speakerEnabled
     if (!veloraSystemCalls.setSpeakerEnabled(nextSpeakerEnabled)) {
       console.warn('[Call] Failed to change speaker route')
       return
     }
-
     state.patch({ speakerEnabled: nextSpeakerEnabled })
   }, [])
+
+  const toggleCamera = useCallback(async () => {
+    const state = useCallStore.getState()
+    if (state.phase !== 'active' || state.callType !== 'VIDEO') return
+    if (!state.cameraEnabled) {
+      await activateLocalVideo()
+      return
+    }
+    const track = localStreamRef.current?.getVideoTracks()[0]
+    if (track) track.enabled = false
+    emitLocalVideoState(false)
+    useCallStore.getState().patch({ cameraEnabled: false })
+  }, [activateLocalVideo, emitLocalVideoState])
+
+  const switchCamera = useCallback(async () => {
+    const state = useCallStore.getState()
+    if (state.phase !== 'active' || state.callType !== 'VIDEO' || !state.cameraEnabled) return
+    const nextFacing: CameraFacing = state.cameraFacing === 'user' ? 'environment' : 'user'
+    const track = localStreamRef.current?.getVideoTracks()[0] as
+      | (MediaStreamTrack & {
+          applyConstraints?: (constraints: { facingMode?: CameraFacing }) => Promise<void>
+          _switchCamera?: () => void
+        })
+      | undefined
+    if (!track) return
+
+    if (track.applyConstraints) {
+      try {
+        await track.applyConstraints({ facingMode: nextFacing })
+        useCallStore.getState().patch({ cameraFacing: nextFacing })
+        return
+      } catch {
+        // Fall back to the legacy react-native-webrtc camera switch when constraints fail.
+      }
+    }
+
+    if (!track._switchCamera) return
+    track._switchCamera()
+    useCallStore.getState().patch({ cameraFacing: nextFacing })
+  }, [])
+
+  const switchCallType = useCallback(
+    async (nextCallType: CallType) => {
+      const state = useCallStore.getState()
+      const socket = socketRef.current
+      if (state.phase !== 'active' || !state.callId || !socket?.connected) return
+      if (state.callType === nextCallType) return
+
+      if (nextCallType === 'VIDEO') {
+        const granted = await ensureCameraPermission()
+        if (!granted) {
+          presentError('Velora needs camera access for video calls')
+          return
+        }
+      }
+
+      await emitAndWaitForEvent(
+        socket,
+        'set_call_type',
+        { callId: state.callId, callType: nextCallType },
+        {
+          event: 'call_type_changed',
+          timeoutMs: CALL_JOINED_TIMEOUT_MS,
+          registry: waitRegistryRef.current,
+          filter: (payload: CallTypeChangedPayload) =>
+            payload.callId === state.callId && payload.callType === nextCallType,
+        },
+      )
+
+      useCallStore.getState().patch({
+        callType: nextCallType,
+        remoteVideoState: nextCallType === 'VIDEO' ? 'waiting' : 'idle',
+      })
+      if (nextCallType === 'VIDEO') {
+        await activateLocalVideo({ requestPermission: false })
+        const nativeAudioSessionState = await veloraSystemCalls
+          .getNativeAudioSessionState()
+          .catch(() => undefined)
+        enableDefaultVideoSpeaker(nativeAudioSessionState)
+      } else {
+        deactivateLocalVideo()
+        clearRemoteVideoRuntime('idle')
+      }
+    },
+    [
+      activateLocalVideo,
+      clearRemoteVideoRuntime,
+      deactivateLocalVideo,
+      ensureCameraPermission,
+      presentError,
+    ],
+  )
 
   const dismissCallError = useCallback(() => {
     useCallStore.getState().patch({ error: null })
@@ -3282,8 +3576,42 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
+      const previousState = lastAppStateRef.current
+      lastAppStateRef.current = nextState
+      const callState = useCallStore.getState()
+      const localVideoTrack =
+        localStreamRef.current?.getVideoTracks()[0] ??
+        ringingPreviewStreamRef.current?.getVideoTracks()[0]
+
       if (nextState !== 'active') {
+        if (
+          (nextState === 'background' || nextState === 'inactive') &&
+          callState.callType === 'VIDEO' &&
+          callState.cameraEnabled &&
+          localVideoTrack
+        ) {
+          localVideoTrack.enabled = false
+          emitLocalVideoState(false)
+          cameraPausedByBackgroundRef.current = true
+        }
         return
+      }
+
+      if (
+        previousState !== 'active' &&
+        cameraPausedByBackgroundRef.current &&
+        callState.callType === 'VIDEO' &&
+        callState.cameraEnabled
+      ) {
+        if (localVideoTrack) {
+          localVideoTrack.enabled = true
+          emitLocalVideoState(true)
+          cameraPausedByBackgroundRef.current = false
+        } else {
+          void activateLocalVideo({ requestPermission: false }).then((activated) => {
+            if (activated) cameraPausedByBackgroundRef.current = false
+          })
+        }
       }
 
       // Notification/full-screen actions are persisted by the Android receiver before
@@ -3311,7 +3639,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     return () => {
       subscription.remove()
     }
-  }, [processPendingNativeCallAction])
+  }, [activateLocalVideo, emitLocalVideoState, processPendingNativeCallAction])
 
   useEffect(() => {
     void flushCallTelemetry()
@@ -3490,6 +3818,61 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       handleTerminalCall(payload, 'live')
     }
 
+    const handleProducerClosed = (payload: ProducerClosedPayload) => {
+      if (!isCurrentCall(payload.callId)) return
+      const remoteStream = remoteStreamRef.current
+      const entry = [...consumerMapRef.current.entries()].find(
+        ([, consumer]) => consumer.producerId === payload.producerId,
+      )
+      if (!entry) {
+        if (payload.kind === 'video') useCallStore.getState().patch({ remoteVideoState: 'off' })
+        return
+      }
+      const [consumerId, consumer] = entry
+      try {
+        remoteStream?.removeTrack(consumer.track as unknown as MediaStreamTrack)
+      } catch {
+        // Best-effort media cleanup; the native resource may already be closed.
+      }
+      try {
+        consumer.close()
+      } catch {
+        // Best-effort media cleanup; the native resource may already be closed.
+      }
+      consumerMapRef.current.delete(consumerId)
+      handledRemoteProducerIdsRef.current.delete(payload.producerId)
+      remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
+      useCallStore.getState().patch({
+        remoteStreamUrl: remoteStream?.toURL() ?? null,
+        ...(payload.kind === 'video' ? { remoteVideoState: 'off' as const } : {}),
+      })
+    }
+
+    const handleCallTypeChanged = (payload: CallTypeChangedPayload) => {
+      if (!isCurrentCall(payload.callId)) return
+      veloraSystemCalls.setCallType(payload.callId, payload.callType)
+      useCallStore.getState().patch({
+        callType: payload.callType,
+        remoteVideoState: payload.callType === 'VIDEO' ? 'waiting' : 'idle',
+      })
+      if (payload.callType === 'VOICE') {
+        deactivateLocalVideo()
+        clearRemoteVideoRuntime('idle')
+      }
+    }
+
+    const handleVideoStateChanged = (payload: VideoStateChangedPayload) => {
+      if (!isCurrentCall(payload.callId) || payload.userId === currentUserId) return
+
+      remoteVideoEnabledByProducerRef.current.set(payload.producerId, payload.enabled)
+      const hasVideoConsumer = [...consumerMapRef.current.values()].some(
+        (consumer) => consumer.producerId === payload.producerId && consumer.kind === 'video',
+      )
+      useCallStore.getState().patch({
+        remoteVideoState: payload.enabled ? (hasVideoConsumer ? 'connected' : 'waiting') : 'off',
+      })
+    }
+
     const handlePeerLeft = (payload: PeerLeftPayload) => {
       if (!isCurrentCall(payload.callId)) {
         return
@@ -3512,6 +3895,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     socket.on('new_producer', (payload) => {
       void consumeRemoteProducer(payload)
     })
+    socket.on('producer_closed', handleProducerClosed)
+    socket.on('call_type_changed', handleCallTypeChanged)
+    socket.on('video_state_changed', handleVideoStateChanged)
     socket.on('call_answered', (payload) => {
       if (isCurrentCall(payload.callId)) {
         callAnsweredRef.current = true
@@ -3536,11 +3922,17 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socket.off('call_ended', handleCallEnded)
       socket.off('incoming_call')
       socket.off('new_producer')
+      socket.off('producer_closed', handleProducerClosed)
+      socket.off('call_type_changed', handleCallTypeChanged)
+      socket.off('video_state_changed', handleVideoStateChanged)
       socket.off('call_answered')
     }
   }, [
     consumeRemoteProducer,
     currentUserId,
+    activateLocalVideo,
+    clearRemoteVideoRuntime,
+    deactivateLocalVideo,
     beginReconnectRecovery,
     clearSocketDisconnectGraceTimeout,
     handlePeerReconnected,
@@ -3588,11 +3980,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<UseCallValue>(
     () => ({
       startVoiceCall,
+      startVideoCall,
       acceptIncomingCall,
       rejectIncomingCall,
       endCall,
       toggleMute,
       toggleSpeaker,
+      toggleCamera,
+      switchCamera,
+      switchCallType,
       dismissCallError,
     }),
     [
@@ -3601,8 +3997,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       endCall,
       rejectIncomingCall,
       startVoiceCall,
+      startVideoCall,
       toggleMute,
       toggleSpeaker,
+      toggleCamera,
+      switchCamera,
+      switchCallType,
     ],
   )
 

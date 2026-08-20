@@ -88,6 +88,7 @@ class VeloraIncomingCallActivity : Activity() {
     val callerName = (payload["initiatorDisplayName"] as? String)
       ?.takeIf { it.isNotBlank() }
       ?: "Velora call"
+    val isVideoCall = (payload["callType"] as? String)?.uppercase() == "VIDEO"
 
     val container = LinearLayout(this).apply {
       orientation = LinearLayout.VERTICAL
@@ -102,7 +103,7 @@ class VeloraIncomingCallActivity : Activity() {
       setTextColor(0xFFFFFFFF.toInt())
     }
     val subtitle = TextView(this).apply {
-      text = "Incoming voice call"
+      text = if (isVideoCall) "Incoming video call" else "Incoming voice call"
       textSize = 16f
       gravity = Gravity.CENTER
       setTextColor(0xFFD6E4EA.toInt())

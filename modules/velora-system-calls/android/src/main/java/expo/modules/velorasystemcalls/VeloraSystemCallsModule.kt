@@ -61,6 +61,10 @@ class VeloraSystemCallsModule : Module() {
       VeloraCallNotifications.setCallActive(context, callId)
     }
 
+    Function("setCallType") { callId: String, callType: String ->
+      VeloraCallNotifications.updateCallType(context, callId, callType)
+    }
+
     Function("setSpeakerEnabled") { enabled: Boolean ->
       val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 

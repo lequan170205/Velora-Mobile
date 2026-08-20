@@ -41,25 +41,17 @@ import { useCallStore } from '../src/stores/callStore'
 SplashScreen.preventAutoHideAsync()
 
 function ActiveCallBanner() {
-  const { phase, durationSec, callId, reconnectDeadlineMs } = useCallStore()
+  const { phase, durationSec, callId, reconnectDeadlineMs, callType } = useCallStore()
   const pathname = usePathname()
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const [nowMs, setNowMs] = useState(Date.now())
 
   useEffect(() => {
-    if (phase !== 'reconnecting' || !reconnectDeadlineMs) {
-      return
-    }
-
+    if (phase !== 'reconnecting' || !reconnectDeadlineMs) return
     setNowMs(Date.now())
-    const intervalId = setInterval(() => {
-      setNowMs(Date.now())
-    }, 1000)
-
-    return () => {
-      clearInterval(intervalId)
-    }
+    const intervalId = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(intervalId)
   }, [phase, reconnectDeadlineMs])
 
   if (
@@ -87,18 +79,24 @@ function ActiveCallBanner() {
         bottom:
           Platform.OS === 'ios' ? insets.bottom + 64 : insets.bottom > 0 ? insets.bottom + 84 : 90,
       }}
-      className="absolute left-5 right-5 flex-row items-center justify-between rounded-xl border border-call-green bg-surface-card px-4 py-3 z-[9999]"
+      className="absolute left-5 right-5 z-[9999] flex-row items-center justify-between rounded-xl border border-call-green bg-surface-card px-4 py-3"
       activeOpacity={0.9}
-      onPress={() => {
-        router.push(`/call/${callId}` as never)
-      }}
+      onPress={() => router.push(`/call/${callId}` as never)}
     >
       <View className="flex-row items-center gap-3">
         <View className="h-7 w-7 items-center justify-center rounded-full bg-call-green">
-          <MaterialIcons name="call" size={16} color="#ffffff" />
+          <MaterialIcons
+            name={callType === 'VIDEO' ? 'videocam' : 'call'}
+            size={16}
+            color="#ffffff"
+          />
         </View>
         <Text className="text-md font-medium text-text-primary">
-          {phase === 'reconnecting' ? 'Reconnecting...' : 'Call in progress...'}
+          {phase === 'reconnecting'
+            ? 'Reconnecting...'
+            : callType === 'VIDEO'
+              ? 'Video call in progress...'
+              : 'Call in progress...'}
         </Text>
       </View>
       <Text className="text-md font-semibold text-call-green">
@@ -141,22 +139,15 @@ export default function RootLayout() {
   }, [error, isReelPlaybackVideoCacheReady, loaded])
 
   useEffect(() => {
-    if (Platform.OS !== 'ios') {
-      return undefined
-    }
-
+    if (Platform.OS !== 'ios') return undefined
     let isMounted = true
-
     void initializeReelPlaybackVideoCache()
-      .catch((error: unknown) => {
-        console.warn('[ReelVideoCache] Failed to start iOS HLS cache', error)
-      })
+      .catch((error: unknown) =>
+        console.warn('[ReelVideoCache] Failed to start iOS HLS cache', error),
+      )
       .finally(() => {
-        if (isMounted) {
-          setIsReelPlaybackVideoCacheReady(true)
-        }
+        if (isMounted) setIsReelPlaybackVideoCacheReady(true)
       })
-
     return () => {
       isMounted = false
     }
@@ -176,26 +167,19 @@ export default function RootLayout() {
 
   useEffect(() => {
     void runReelOfflineStartupMaintenance().catch(() => undefined)
-
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
         void runReelOfflineAppActiveMaintenance().catch(() => undefined)
         return
       }
-
       if (nextState === 'background' || nextState === 'inactive') {
         void runReelOfflineBackgroundMaintenance().catch(() => undefined)
       }
     })
-
-    return () => {
-      subscription.remove()
-    }
+    return () => subscription.remove()
   }, [])
 
-  if ((!loaded && !error) || !isReelPlaybackVideoCacheReady) {
-    return null
-  }
+  if ((!loaded && !error) || !isReelPlaybackVideoCacheReady) return null
 
   return (
     <GestureHandlerRootView className="flex-1 bg-bg-primary">
@@ -261,7 +245,6 @@ export default function RootLayout() {
                                       options={{ presentation: 'fullScreenModal' }}
                                     />
                                   </Stack>
-
                                   <CallUiOverlays />
                                 </ChatMediaViewerProvider>
                               </ChatMediaUploadProvider>
