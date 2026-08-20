@@ -56,18 +56,29 @@ test('group receipt avatars follow each participant newest activity or read fron
   assert.match(messageBubble, /hiddenReceiptCount/)
 })
 
-test('group info enforces owner-only management and non-owner leave UX', () => {
-  assert.match(groupInfoScreen, /conversation\?\.creatorId === currentUserId/)
-  assert.match(groupInfoScreen, /conversationApi\.updateGroup/)
-  assert.match(groupInfoScreen, /conversationApi\.addMember/)
-  assert.match(groupInfoScreen, /conversationApi\.removeMember/)
+test('group info derives V2 permissions from projected roles and keeps owner-only controls separate', () => {
+  assert.match(groupInfoScreen, /const currentMember = useMemo/)
+  assert.match(groupInfoScreen, /const currentRole: ConversationMemberRole \| null/)
+  assert.match(groupInfoScreen, /const isOwner = currentRole === 'OWNER'/)
+  assert.match(groupInfoScreen, /const isAdmin = currentRole === 'ADMIN'/)
+  assert.match(groupInfoScreen, /const canManageMetadata = isOwner \|\| isAdmin/)
+  assert.match(groupInfoScreen, /const canAddMembers = isOwner \|\| isAdmin/)
+  assert.match(groupInfoScreen, /conversationApi\.updateMemberRole/)
   assert.match(groupInfoScreen, /conversationApi\.transferOwnership/)
   assert.match(groupInfoScreen, /confirmTransferOwnership/)
   assert.match(groupInfoScreen, /swap-horiz/)
   assert.match(groupInfoScreen, /conversationApi\.leave/)
   assert.match(groupInfoScreen, /Transfer ownership to another member before leaving the group/)
-  assert.doesNotMatch(groupInfoScreen, /Ownership transfer is not available yet/)
   assert.match(groupInfoScreen, /memberCount > 2/)
+})
+
+test('group member rows reserve action width so long names and role badges cannot overlap controls', () => {
+  assert.match(groupInfoScreen, /className="ml-3 min-w-0 flex-1"/)
+  assert.match(groupInfoScreen, /className="min-w-0 flex-row items-center"/)
+  assert.match(groupInfoScreen, /className="min-w-0 flex-1 font-medium text-text-primary"/)
+  assert.match(groupInfoScreen, /className="ml-2 shrink-0 rounded-full bg-surface-accent px-2 py-1"/)
+  assert.match(groupInfoScreen, /const hasMemberActions =/)
+  assert.match(groupInfoScreen, /className="ml-2 shrink-0 flex-row items-center gap-2"/)
 })
 
 test('group ownership transfer uses the dedicated owner endpoint', () => {
