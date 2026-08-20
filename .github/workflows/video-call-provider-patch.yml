@@ -10,6 +10,7 @@ on:
       - scripts/harden-video-call-generated.cjs
       - scripts/fix-video-call-paused-optional.cjs
       - scripts/finalize-video-call-1to1.cjs
+      - scripts/fix-video-speaker-helper-order.cjs
       - scripts/video-call-ci-trigger.txt
       - .github/workflows/video-call-provider-patch.yml
 
@@ -52,7 +53,9 @@ jobs:
           optional=$?
           node scripts/finalize-video-call-1to1.cjs >> /tmp/patch.log 2>&1
           finalizer=$?
-          code=$(( provider || native || harden || optional || finalizer ))
+          node scripts/fix-video-speaker-helper-order.cjs >> /tmp/patch.log 2>&1
+          speaker_order=$?
+          code=$(( provider || native || harden || optional || finalizer || speaker_order ))
           echo "code=$code" >> "$GITHUB_OUTPUT"
           cat /tmp/patch.log
           exit 0
