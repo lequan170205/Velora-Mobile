@@ -3,8 +3,8 @@ import { useKeepAwake } from 'expo-keep-awake'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { type ComponentProps, useEffect, useMemo, useState } from 'react'
 import { Image, Text, TouchableOpacity, View } from 'react-native'
-import { RTCView } from 'react-native-webrtc'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { RTCView } from 'react-native-webrtc'
 
 import { useCall } from '../../src/providers/CallProvider'
 import { useCallStore } from '../../src/stores/callStore'
@@ -144,13 +144,18 @@ export default function ActiveCallScreen() {
         <View className="absolute inset-0">
           {hasRemoteVideo ? (
             <RTCView
-              streamURL={remoteStreamUrl!}
+              streamURL={remoteStreamUrl ?? ''}
               objectFit="cover"
               mirror={false}
               style={{ flex: 1 }}
             />
           ) : showOutgoingPreviewAsMain ? (
-            <RTCView streamURL={localStreamUrl!} objectFit="cover" mirror style={{ flex: 1 }} />
+            <RTCView
+              streamURL={localStreamUrl ?? ''}
+              objectFit="cover"
+              mirror
+              style={{ flex: 1 }}
+            />
           ) : (
             <View className="flex-1 items-center justify-center bg-bg-primary">
               {avatarFallback}

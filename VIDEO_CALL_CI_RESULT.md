@@ -2,7 +2,7 @@
 
 - Typecheck exit: 2
 - Tests exit: 0
-- Feature lint exit: 1
+- Feature lint exit: 0
 - Full repo lint exit: 1
 
 ## Typecheck
@@ -21,152 +21,152 @@ app/conversation/[id]/info.tsx(650,38): error TS2339: Property 'email' does not 
 # Subtest: mobile API and types expose the backend group contract without a schema migration
 ok 33 - mobile API and types expose the backend group contract without a schema migration
   ---
-  duration_ms: 0.19292
+  duration_ms: 0.216996
   ...
 # Subtest: paginated conversation list is not treated as an authoritative deletion snapshot
 ok 34 - paginated conversation list is not treated as an authoritative deletion snapshot
   ---
-  duration_ms: 1.37653
+  duration_ms: 1.391433
   ...
 # Subtest: socket reconnect rejoins locally stored conversations so missed revocations are reconciled by server auth
 ok 35 - socket reconnect rejoins locally stored conversations so missed revocations are reconciled by server auth
   ---
-  duration_ms: 0.193301
+  duration_ms: 0.245559
   ...
 # Subtest: revocation tombstones are session-only and clear scoped optimistic state
 ok 36 - revocation tombstones are session-only and clear scoped optimistic state
   ---
-  duration_ms: 0.179039
+  duration_ms: 0.273462
   ...
 # Subtest: active chat and group info blank and exit immediately after revocation
 ok 37 - active chat and group info blank and exit immediately after revocation
   ---
-  duration_ms: 0.187232
+  duration_ms: 0.253303
   ...
 # Subtest: explicit leave clears local, query, and offline state even if socket removal event is missed
 ok 38 - explicit leave clears local, query, and offline state even if socket removal event is missed
   ---
-  duration_ms: 0.177127
+  duration_ms: 0.249778
   ...
 # Subtest: message merges preserve structured group activity and AI citation metadata
 ok 39 - message merges preserve structured group activity and AI citation metadata
   ---
-  duration_ms: 0.1658
+  duration_ms: 0.268372
   ...
 # Subtest: legacy group activity records keep their system kind even when the structured payload was lost
 ok 40 - legacy group activity records keep their system kind even when the structured payload was lost
   ---
-  duration_ms: 0.277327
+  duration_ms: 0.361266
   ...
 # Subtest: group system rows stay centered even when an older local record lost activity payload
 ok 41 - group system rows stay centered even when an older local record lost activity payload
   ---
-  duration_ms: 0.196216
+  duration_ms: 0.191128
   ...
 # Subtest: group photo picker is single-flight and launches the library without a permission round-trip
 ok 42 - group photo picker is single-flight and launches the library without a permission round-trip
   ---
-  duration_ms: 0.491129
+  duration_ms: 0.388086
   ...
 # Subtest: Messages exposes a dedicated new-group route without changing friendship state
 ok 43 - Messages exposes a dedicated new-group route without changing friendship state
   ---
-  duration_ms: 1.660378
+  duration_ms: 2.088486
   ...
 # Subtest: group header resolves real typers and opens group info while calls stay direct-only
 ok 44 - group header resolves real typers and opens group info while calls stay direct-only
   ---
-  duration_ms: 0.27263
+  duration_ms: 0.37922
   ...
 # Subtest: group receipt avatars follow each participant newest activity or read frontier
 ok 45 - group receipt avatars follow each participant newest activity or read frontier
   ---
-  duration_ms: 0.446952
+  duration_ms: 0.55562
   ...
 # Subtest: group info derives V2 permissions from projected roles and keeps owner-only controls separate
 ok 46 - group info derives V2 permissions from projected roles and keeps owner-only controls separate
   ---
-  duration_ms: 0.949819
+  duration_ms: 1.54466
   ...
 # Subtest: group info keeps member rows compact and uses a real bottom sheet for management actions
 ok 47 - group info keeps member rows compact and uses a real bottom sheet for management actions
   ---
-  duration_ms: 0.331058
+  duration_ms: 0.460672
   ...
 # Subtest: group member actions wait for sheet dismissal before presenting confirmation UI
 ok 48 - group member actions wait for sheet dismissal before presenting confirmation UI
   ---
-  duration_ms: 0.167372
+  duration_ms: 0.228146
   ...
 # Subtest: group info presents add-member and leave actions as dedicated rows instead of toolbar clutter
 ok 49 - group info presents add-member and leave actions as dedicated rows instead of toolbar clutter
   ---
-  duration_ms: 0.219741
+  duration_ms: 0.26742
   ...
 # Subtest: group member roster falls back to conversation participants when v2 projection is unavailable
 ok 50 - group member roster falls back to conversation participants when v2 projection is unavailable
   ---
-  duration_ms: 0.157207
+  duration_ms: 0.271147
   ...
 # Subtest: group ownership transfer uses the dedicated owner endpoint
 ok 51 - group ownership transfer uses the dedicated owner endpoint
   ---
-  duration_ms: 0.274043
+  duration_ms: 0.403324
   ...
 # Subtest: authenticated session hydration resumes push-token registration before exposing auth state
 ok 52 - authenticated session hydration resumes push-token registration before exposing auth state
   ---
-  duration_ms: 1.438523
+  duration_ms: 1.842907
   ...
 # Subtest: FCM provider rotates a token rejected as terminal-invalid
 ok 53 - FCM provider rotates a token rejected as terminal-invalid
   ---
-  duration_ms: 1.694479
+  duration_ms: 1.493143
   ...
 # Subtest: FCM provider reboots registration whenever an authenticated app returns active
 ok 54 - FCM provider reboots registration whenever an authenticated app returns active
   ---
-  duration_ms: 0.197728
+  duration_ms: 0.168395
   ...
 # Subtest: creator classifies portrait, landscape and square sources without forcing 9:16 crop
 ok 55 - creator classifies portrait, landscape and square sources without forcing 9:16 crop
   ---
-  duration_ms: 1.472685
+  duration_ms: 1.582159
   ...
 # Subtest: editor and publish previews preserve the full non-portrait frame
 ok 56 - editor and publish previews preserve the full non-portrait frame
   ---
-  duration_ms: 0.18561
+  duration_ms: 0.247233
   ...
 # Subtest: shared reel video playback detects non-portrait posters and switches to contain
 ok 57 - shared reel video playback detects non-portrait posters and switches to contain
   ---
-  duration_ms: 0.181804
+  duration_ms: 0.238255
   ...
 # Subtest: call socket contract supports audio and video plus type switching
 ok 58 - call socket contract supports audio and video plus type switching
   ---
-  duration_ms: 1.082708
+  duration_ms: 1.444502
   ...
 # Subtest: CallProvider starts video with preview and keeps same call session for type switching
 ok 59 - CallProvider starts video with preview and keeps same call session for type switching
   ---
-  duration_ms: 0.72465
+  duration_ms: 0.867302
   ...
 # Subtest: active call screen renders RTC video and both conversion directions
 ok 60 - active call screen renders RTC video and both conversion directions
   ---
-  duration_ms: 0.208133
+  duration_ms: 0.225993
   ...
 # Subtest: conversation video entry point remains direct-chat only
 ok 61 - conversation video entry point remains direct-chat only
   ---
-  duration_ms: 0.411579
+  duration_ms: 0.539299
   ...
 # Subtest: native call surfaces preserve callType
 ok 62 - native call surfaces preserve callType
   ---
-  duration_ms: 0.397338
+  duration_ms: 0.488003
   ...
 1..62
 # tests 62
@@ -176,26 +176,19 @@ ok 62 - native call surfaces preserve callType
 # cancelled 0
 # skipped 0
 # todo 3
-# duration_ms 1210.133278
+# duration_ms 1656.819817
 ```
 
 ## Feature lint
 ```text
 
-/home/runner/work/Velora-Mobile/Velora-Mobile/app/call/[id].tsx
-    7:1   error    `react-native-safe-area-context` import should occur before import of `react-native-webrtc`  import/order
-  147:26  warning  Forbidden non-null assertion                                                                 @typescript-eslint/no-non-null-assertion
-  153:33  warning  Forbidden non-null assertion                                                                 @typescript-eslint/no-non-null-assertion
-
 /home/runner/work/Velora-Mobile/Velora-Mobile/src/providers/CallProvider.tsx
-  2717:5   warning  React Hook useCallback has an unnecessary dependency: 'presentError'. Either exclude it or remove the dependency array                                                                                                                                                                     react-hooks/exhaustive-deps
   3839:29  warning  The ref value 'callSocketPromisesRef.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'callSocketPromisesRef.current' to a variable inside the effect, and use that variable in the cleanup function  react-hooks/exhaustive-deps
 
 /home/runner/work/Velora-Mobile/Velora-Mobile/tests/video-call-1to1-contract.test.cjs
   0:0  warning  File ignored because of a matching ignore pattern. Use "--no-ignore" to override
 
-✖ 6 problems (1 error, 5 warnings)
-  1 error and 0 warnings potentially fixable with the `--fix` option.
+✖ 2 problems (0 errors, 2 warnings)
 
 ```
 
@@ -206,11 +199,6 @@ ok 62 - native call surfaces preserve callType
 > eslint .
 
 
-/home/runner/work/Velora-Mobile/Velora-Mobile/app/call/[id].tsx
-    7:1   error    `react-native-safe-area-context` import should occur before import of `react-native-webrtc`  import/order
-  147:26  warning  Forbidden non-null assertion                                                                 @typescript-eslint/no-non-null-assertion
-  153:33  warning  Forbidden non-null assertion                                                                 @typescript-eslint/no-non-null-assertion
-
 /home/runner/work/Velora-Mobile/Velora-Mobile/app/conversation/[id]/info.tsx
   637:31  error  Replace `·source={{·uri:·item.user.picture·}}·className="h-10·w-10·rounded-full"` with `⏎··························source={{·uri:·item.user.picture·}}⏎··························className="h-10·w-10·rounded-full"⏎·······················`  prettier/prettier
   813:33  error  Replace `⏎····················closeMemberActionsAndRun(selectedMember,·confirmTransferOwnership)⏎··················` with `·closeMemberActionsAndRun(selectedMember,·confirmTransferOwnership)`                                               prettier/prettier
@@ -218,9 +206,6 @@ ok 62 - native call surfaces preserve callType
 
 /home/runner/work/Velora-Mobile/Velora-Mobile/plugins/withPodfileCodeSign.js
   44:9  warning  Unexpected console statement  no-console
-
-/home/runner/work/Velora-Mobile/Velora-Mobile/plugins/withVeloraSystemCalls.js
-  2:14  error  There should be at least one empty line between import groups  import/order
 
 /home/runner/work/Velora-Mobile/Velora-Mobile/src/api/conversation.api.ts
    54:47  error  Replace `⏎··conversation:·Conversation,⏎` with `conversation:·Conversation`                                                                                                                                                  prettier/prettier
@@ -237,11 +222,10 @@ ok 62 - native call surfaces preserve callType
   309:2  error  Insert `⏎`  prettier/prettier
 
 /home/runner/work/Velora-Mobile/Velora-Mobile/src/providers/CallProvider.tsx
-  2717:5   warning  React Hook useCallback has an unnecessary dependency: 'presentError'. Either exclude it or remove the dependency array                                                                                                                                                                     react-hooks/exhaustive-deps
   3839:29  warning  The ref value 'callSocketPromisesRef.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'callSocketPromisesRef.current' to a variable inside the effect, and use that variable in the cleanup function  react-hooks/exhaustive-deps
 
-✖ 16 problems (10 errors, 6 warnings)
-  10 errors and 0 warnings potentially fixable with the `--fix` option.
+✖ 11 problems (8 errors, 3 warnings)
+  8 errors and 0 warnings potentially fixable with the `--fix` option.
 
  ELIFECYCLE  Command failed with exit code 1.
 ```
