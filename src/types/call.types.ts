@@ -12,6 +12,8 @@ export type CallPhase =
 export type CallDirection = 'outgoing' | 'incoming'
 export type CallType = 'VOICE' | 'VIDEO'
 export type RemoteAudioState = 'idle' | 'waiting' | 'connected'
+export type RemoteVideoState = 'idle' | 'waiting' | 'connected' | 'off'
+export type CameraFacing = 'user' | 'environment'
 export type AudioBitrateProfile = 'normal' | 'constrained'
 
 export interface CallSessionPayload {
@@ -71,7 +73,7 @@ export interface ConnectTransportPayload {
 export interface ProducePayload {
   callId: string
   transportId: string
-  kind: 'audio'
+  kind: 'audio' | 'video'
   rtpParameters: Record<string, unknown>
 }
 
@@ -96,6 +98,11 @@ export interface SetAudioBitratePayload {
   callId: string
   transportId: string
   profile: AudioBitrateProfile
+}
+
+export interface SetCallTypePayload {
+  callId: string
+  callType: CallType
 }
 
 export interface IncomingCallPayload {
@@ -164,6 +171,12 @@ export interface NewProducerPayload {
   kind: 'audio' | 'video'
 }
 
+export interface ProducerClosedPayload {
+  callId: string
+  producerId: string
+  kind: 'audio' | 'video'
+}
+
 export interface ConsumerCreatedPayload {
   callId: string
   consumerId: string
@@ -187,6 +200,12 @@ export interface AudioBitrateUpdatedPayload {
   callId: string
   transportId: string
   profile: AudioBitrateProfile
+}
+
+export interface CallTypeChangedPayload {
+  callId: string
+  callType: CallType
+  changedByUserId: string
 }
 
 export interface CallAnsweredPayload {
@@ -240,10 +259,12 @@ export interface CallServerEvents {
   transport_created: (payload: TransportCreatedPayload) => void
   transport_connected: (payload: TransportConnectedPayload) => void
   new_producer: (payload: NewProducerPayload) => void
+  producer_closed: (payload: ProducerClosedPayload) => void
   consumer_created: (payload: ConsumerCreatedPayload) => void
   consumer_resumed: (payload: ConsumerResumedPayload) => void
   ice_restarted: (payload: IceRestartedPayload) => void
   audio_bitrate_updated: (payload: AudioBitrateUpdatedPayload) => void
+  call_type_changed: (payload: CallTypeChangedPayload) => void
   call_answered: (payload: CallAnsweredPayload) => void
   call_rejected: (payload: CallRejectedPayload) => void
   peer_reconnecting: (payload: PeerReconnectingPayload) => void
@@ -267,6 +288,7 @@ export interface CallClientEvents {
   resume_consumer: (payload: ResumeConsumerPayload) => void
   restart_ice: (payload: RestartIcePayload) => void
   set_audio_bitrate: (payload: SetAudioBitratePayload) => void
+  set_call_type: (payload: SetCallTypePayload) => void
 }
 
 export type CallSocket = Socket<CallServerEvents, CallClientEvents>
@@ -282,27 +304,39 @@ export interface CallUiState {
   callType: CallType | null
   muted: boolean
   speakerEnabled: boolean
+  cameraEnabled: boolean
+  cameraFacing: CameraFacing
   hasMicPermission: boolean | null
+  hasCameraPermission: boolean | null
   error: string | null
   durationSec: number
   remoteAudioState: RemoteAudioState
+  remoteVideoState: RemoteVideoState
+  localStreamUrl: string | null
   remoteStreamUrl: string | null
   reconnectDeadlineMs: number | null
 }
 
-export interface StartVoiceCallInput {
+export interface StartCallInput {
   conversationId: string
   peerUserId: string
   peerName?: string
   peerAvatarUrl?: string
 }
 
+export type StartVoiceCallInput = StartCallInput
+export type StartVideoCallInput = StartCallInput
+
 export interface UseCallValue {
   startVoiceCall: (input: StartVoiceCallInput) => Promise<void>
+  startVideoCall: (input: StartVideoCallInput) => Promise<void>
   acceptIncomingCall: () => Promise<void>
   rejectIncomingCall: () => Promise<void>
   endCall: (reason?: string) => Promise<void>
   toggleMute: () => void
   toggleSpeaker: () => void
+  toggleCamera: () => void
+  switchCamera: () => void
+  switchCallType: (callType: CallType) => Promise<void>
   dismissCallError: () => void
 }
