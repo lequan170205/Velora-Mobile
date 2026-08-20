@@ -1,7 +1,10 @@
+const fs = require('fs')
+const path = require('path')
 const {
   AndroidConfig,
   createRunOncePlugin,
   withAndroidManifest,
+  withDangerousMod,
   withInfoPlist,
 } = require('expo/config-plugins')
 
@@ -40,11 +43,60 @@ const ensureApplicationChild = (application, key, name, value) => {
 }
 
 const removeApplicationChild = (application, key, name) => {
-  if (!application[key]) {
-    return
-  }
-
+  if (!application[key]) return
   application[key] = application[key].filter((entry) => entry.$?.['android:name'] !== name)
+}
+
+const replaceRequired = (source, before, after, label) => {
+  if (source.includes(after)) return source
+  if (!source.includes(before)) {
+    throw new Error(`withVeloraSystemCalls could not patch ${label}; expected source was not found`)
+  }
+  return source.replace(before, after)
+}
+
+const patchIosSystemCallsForVideo = (projectRoot) => {
+  const swiftPath = path.join(
+    projectRoot,
+    'modules',
+    'velora-system-calls',
+    'ios',
+    'VeloraSystemCallsModule.swift',
+  )
+  let source = fs.readFileSync(swiftPath, 'utf8')
+
+  source = replaceRequired(
+    source,
+    'configuration.supportsVideo = false',
+    'configuration.supportsVideo = true',
+    'CXProviderConfiguration.supportsVideo',
+  )
+  source = replaceRequired(
+    source,
+    'let update = callUpdate(displayName: callerName(from: payload))',
+    'let update = callUpdate(\n      displayName: callerName(from: payload),\n      isVideo: nonEmptyString(payload["callType"]) == "VIDEO"\n    )',
+    'incoming CXCallUpdate call type',
+  )
+  source = replaceRequired(
+    source,
+    'action.isVideo = false',
+    'action.isVideo = nonEmptyString(payload["callType"]) == "VIDEO"',
+    'outgoing CXStartCallAction.isVideo',
+  )
+  source = replaceRequired(
+    source,
+    'private func callUpdate(displayName: String) -> CXCallUpdate {',
+    'private func callUpdate(displayName: String, isVideo: Bool) -> CXCallUpdate {',
+    'callUpdate signature',
+  )
+  source = replaceRequired(
+    source,
+    'update.hasVideo = false',
+    'update.hasVideo = isVideo',
+    'incoming CXCallUpdate.hasVideo',
+  )
+
+  fs.writeFileSync(swiftPath, source)
 }
 
 const withVeloraSystemCalls = (config) => {
@@ -57,17 +109,20 @@ const withVeloraSystemCalls = (config) => {
     return plistConfig
   })
 
+  config = withDangerousMod(config, [
+    'ios',
+    async (modConfig) => {
+      patchIosSystemCallsForVideo(modConfig.modRequest.projectRoot)
+      return modConfig
+    },
+  ])
+
   config = withAndroidManifest(config, (manifestConfig) => {
     const manifest = manifestConfig.modResults.manifest
     ANDROID_PERMISSIONS.forEach((permission) => ensurePermission(manifest, permission))
 
     const application = AndroidConfig.Manifest.getMainApplicationOrThrow(manifestConfig.modResults)
 
-    // Remove entries emitted by v1.1.0. The RN Firebase receiver must remain
-    // registered: it forwards ordinary foreground/background FCM messages to
-    // React Native. Android delivers the incoming broadcast to both receivers,
-    // so the call-specific receiver below can handle calls without swallowing
-    // chat or other app notifications.
     removeApplicationChild(application, 'service', '.VeloraFirebaseMessagingService')
     removeApplicationChild(
       application,
@@ -157,4 +212,4 @@ const withVeloraSystemCalls = (config) => {
   return config
 }
 
-module.exports = createRunOncePlugin(withVeloraSystemCalls, 'with-velora-system-calls', '1.3.0')
+module.exports = createRunOncePlugin(withVeloraSystemCalls, 'with-velora-system-calls', '1.4.0')
