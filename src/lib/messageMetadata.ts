@@ -301,12 +301,10 @@ export const normalizeMessageMetadata = (value: unknown): MessageMetadata | unde
       rawValue.groupActivity ?? rawValue.group_activity,
     )
 
-    return groupActivity
-      ? {
-          kind: GROUP_SYSTEM_ACTIVITY_METADATA_KIND,
-          groupActivity,
-        }
-      : undefined
+    return {
+      kind: GROUP_SYSTEM_ACTIVITY_METADATA_KIND,
+      ...(groupActivity ? { groupActivity } : {}),
+    }
   }
 
   const citationsSource = Array.isArray(rawValue.citations)
