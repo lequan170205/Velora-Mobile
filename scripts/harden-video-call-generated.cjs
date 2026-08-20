@@ -7,12 +7,72 @@ provider = provider.replace(
   '\n',
 )
 provider = provider.replace(
+  /\n        if \(callState\.callType === 'VIDEO'\) \{\n          veloraSystemCalls\.dismissIncomingCall\(action\.callId\)\n          completeNativeCallAction\(action\.actionId\)\n          return\n        \}\n/g,
+  '\n',
+)
+provider = provider.replace(
   /catch \{\}/g,
   "catch {\n        // Best-effort media cleanup; the native resource may already be closed.\n      }",
 )
 provider = provider.replace(
   '    [currentUserId, presentError, queryClient],\n  )',
   '    [currentUserId, queryClient],\n  )',
+)
+
+if (!provider.includes('const shouldDeferLocalVideo =')) {
+  provider = provider.replace(
+    "      const callType = payload.session.callType\n      const telemetry = telemetrySessionRef.current",
+    "      const callType = payload.session.callType\n      const shouldDeferLocalVideo =\n        callType === 'VIDEO' && AppState.currentState !== 'active'\n      const telemetry = telemetrySessionRef.current",
+  )
+}
+provider = provider.replace(
+  "            video: callType === 'VIDEO' ? cameraConstraints(stateBeforeMedia.cameraFacing) : false,",
+  "            video:\n              callType === 'VIDEO' && !shouldDeferLocalVideo\n                ? cameraConstraints(stateBeforeMedia.cameraFacing)\n                : false,",
+)
+provider = provider.replace(
+  "      if (callType === 'VIDEO' && !localVideoTrack)\n        throw new Error('No local video track available')",
+  "      if (callType === 'VIDEO' && !shouldDeferLocalVideo && !localVideoTrack)\n        throw new Error('No local video track available')",
+)
+if (!provider.includes('cameraPausedByBackgroundRef.current = true\n\n      const consumers =')) {
+  provider = provider.replace(
+    '      const consumers = [...consumerMapRef.current.values()]',
+    "      if (shouldDeferLocalVideo) {\n        cameraPausedByBackgroundRef.current = true\n      }\n\n      const consumers = [...consumerMapRef.current.values()]",
+  )
+}
+provider = provider.replace(
+  "        cameraEnabled: callType === 'VIDEO' && Boolean(localVideoTrack),",
+  "        cameraEnabled:\n          callType === 'VIDEO' && (Boolean(localVideoTrack) || shouldDeferLocalVideo),",
+)
+provider = provider.replace(
+  `      if (
+        previousState !== 'active' &&
+        cameraPausedByBackgroundRef.current &&
+        callState.callType === 'VIDEO' &&
+        callState.cameraEnabled &&
+        localVideoTrack
+      ) {
+        localVideoTrack.enabled = true
+        cameraPausedByBackgroundRef.current = false
+      }`,
+  `      if (
+        previousState !== 'active' &&
+        cameraPausedByBackgroundRef.current &&
+        callState.callType === 'VIDEO' &&
+        callState.cameraEnabled
+      ) {
+        if (localVideoTrack) {
+          localVideoTrack.enabled = true
+          cameraPausedByBackgroundRef.current = false
+        } else {
+          void activateLocalVideo({ requestPermission: false }).then((activated) => {
+            if (activated) cameraPausedByBackgroundRef.current = false
+          })
+        }
+      }`,
+)
+provider = provider.replace(
+  '  }, [processPendingNativeCallAction])',
+  '  }, [activateLocalVideo, processPendingNativeCallAction])',
 )
 fs.writeFileSync(providerPath, provider)
 
