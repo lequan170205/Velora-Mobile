@@ -212,8 +212,7 @@ export const conversationApi = {
     return response.data
   },
   addMember: async (id: string, data: { userId: string }) => {
-    const response = await apiClient.post<Conversation>(`/conversations/${id}/members`, data)
-    return response.data
+    await apiClient.post(`/conversations/${id}/members`, data)
   },
   removeMember: async (id: string, userId: string) => {
     await apiClient.delete(`/conversations/${id}/members/${userId}`)
