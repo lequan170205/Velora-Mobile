@@ -7,6 +7,7 @@ import type {
   ConversationMember,
   ConversationMemberRole,
   Message,
+  MessageReactionDetails,
 } from '../types/conversation.types'
 
 export interface AnchorWindowResponse {
@@ -218,6 +219,11 @@ export const conversationApi = {
       `/conversations/${conversationId}/messages/${messageId}/recall`,
     )
     return normalizeMessage(response.data)
+  },
+
+  getReactionDetails: async (messageId: string) => {
+    const response = await apiClient.get<MessageReactionDetails>(`/messages/${messageId}/reactions`)
+    return response.data
   },
 
   addReaction: async (messageId: string, userId: string, emoji: string) => {
