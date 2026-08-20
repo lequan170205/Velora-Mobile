@@ -73,6 +73,7 @@ jobs:
             app/_layout.tsx \
             'app/call/[id].tsx' \
             'app/conversation/[id].tsx' \
+            plugins/withVeloraSystemCalls.js \
             src/providers/CallProvider.tsx \
             src/types/call.types.ts \
             tests/video-call-1to1-contract.test.cjs
@@ -89,6 +90,7 @@ jobs:
             app/_layout.tsx \
             'app/call/[id].tsx' \
             'app/conversation/[id].tsx' \
+            plugins/withVeloraSystemCalls.js \
             src/providers/CallProvider.tsx \
             src/types/call.types.ts \
             tests/video-call-1to1-contract.test.cjs > /tmp/feature-lint.log 2>&1
@@ -146,6 +148,7 @@ jobs:
             app/_layout.tsx \
             'app/call/[id].tsx' \
             'app/conversation/[id].tsx' \
+            plugins/withVeloraSystemCalls.js \
             src/providers/CallProvider.tsx \
             src/types/call.types.ts \
             modules/velora-system-calls/ios/VeloraSystemCallsModule.swift \
