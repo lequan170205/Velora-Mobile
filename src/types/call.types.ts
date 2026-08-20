@@ -335,8 +335,8 @@ export interface UseCallValue {
   endCall: (reason?: string) => Promise<void>
   toggleMute: () => void
   toggleSpeaker: () => void
-  toggleCamera: () => void
-  switchCamera: () => void
+  toggleCamera: () => Promise<void>
+  switchCamera: () => Promise<void>
   switchCallType: (callType: CallType) => Promise<void>
   dismissCallError: () => void
 }
