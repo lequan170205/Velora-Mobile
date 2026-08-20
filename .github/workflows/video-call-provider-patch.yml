@@ -12,6 +12,7 @@ on:
       - scripts/finalize-video-call-1to1.cjs
       - scripts/fix-video-speaker-helper-order.cjs
       - scripts/finalize-native-call-type-sync-v2.cjs
+      - scripts/fix-ios-simulator-call-lifecycle.cjs
       - scripts/video-call-ci-trigger.txt
       - .github/workflows/video-call-provider-patch.yml
 
@@ -58,7 +59,9 @@ jobs:
           speaker_order=$?
           node scripts/finalize-native-call-type-sync-v2.cjs >> /tmp/patch.log 2>&1
           native_type=$?
-          code=$(( provider || native || harden || optional || finalizer || speaker_order || native_type ))
+          node scripts/fix-ios-simulator-call-lifecycle.cjs >> /tmp/patch.log 2>&1
+          simulator=$?
+          code=$(( provider || native || harden || optional || finalizer || speaker_order || native_type || simulator ))
           echo "code=$code" >> "$GITHUB_OUTPUT"
           cat /tmp/patch.log
           exit 0
@@ -115,17 +118,17 @@ jobs:
             echo
             echo '## Tests'
             echo '```text'
-            tail -n 220 /tmp/test.log
+            tail -n 240 /tmp/test.log
             echo '```'
             echo
             echo '## Feature lint'
             echo '```text'
-            tail -n 160 /tmp/feature-lint.log
+            tail -n 180 /tmp/feature-lint.log
             echo '```'
             echo
             echo '## Full repo lint'
             echo '```text'
-            tail -n 160 /tmp/lint.log
+            tail -n 180 /tmp/lint.log
             echo '```'
           } > VIDEO_CALL_CI_RESULT.md
           exit 0
@@ -165,7 +168,7 @@ jobs:
           if git diff --cached --quiet; then
             exit 0
           fi
-          HUSKY=0 git commit -m 'fix(call): finalize native video call state'
+          HUSKY=0 git commit -m 'fix(call): isolate iOS simulator call lifecycle'
           git fetch origin feat/video-call-1to1
           git rebase origin/feat/video-call-1to1
           git push origin HEAD:feat/video-call-1to1
