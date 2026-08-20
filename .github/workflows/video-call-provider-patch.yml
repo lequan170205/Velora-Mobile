@@ -52,20 +52,18 @@ jobs:
         shell: bash
         run: |
           set +e
-          {
-            node scripts/apply-video-call-provider-patch.cjs
-            provider=$?
-            node scripts/apply-video-call-native-contract-patch.cjs
-            native=$?
-            node scripts/harden-video-call-generated.cjs
-            harden=$?
-            node scripts/fix-video-call-paused-optional.cjs
-            optional=$?
-            node scripts/finalize-video-call-1to1.cjs
-            finalizer=$?
-            exit $(( provider || native || harden || optional || finalizer ))
-          } > /tmp/patch.log 2>&1
-          code=$?
+          : > /tmp/patch.log
+          node scripts/apply-video-call-provider-patch.cjs >> /tmp/patch.log 2>&1
+          provider=$?
+          node scripts/apply-video-call-native-contract-patch.cjs >> /tmp/patch.log 2>&1
+          native=$?
+          node scripts/harden-video-call-generated.cjs >> /tmp/patch.log 2>&1
+          harden=$?
+          node scripts/fix-video-call-paused-optional.cjs >> /tmp/patch.log 2>&1
+          optional=$?
+          node scripts/finalize-video-call-1to1.cjs >> /tmp/patch.log 2>&1
+          finalizer=$?
+          code=$(( provider || native || harden || optional || finalizer ))
           echo "code=$code" >> "$GITHUB_OUTPUT"
           cat /tmp/patch.log
           exit 0
