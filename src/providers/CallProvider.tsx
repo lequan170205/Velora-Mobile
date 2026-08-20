@@ -3384,6 +3384,16 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     useCallStore.getState().patch({ muted: nextMuted })
   }, [])
 
+  const enableDefaultVideoSpeaker = useCallback(
+    (configuration?: AudioSessionConfiguration) => {
+      if (!shouldDefaultVideoToSpeaker(configuration)) return
+      if (veloraSystemCalls.setSpeakerEnabled(true)) {
+        useCallStore.getState().patch({ speakerEnabled: true })
+      }
+    },
+    [],
+  )
+
   const toggleSpeaker = useCallback(() => {
     const state = useCallStore.getState()
     if (state.phase !== 'active') return
@@ -3799,6 +3809,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
       consumerMapRef.current.delete(consumerId)
       handledRemoteProducerIdsRef.current.delete(payload.producerId)
+      remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
