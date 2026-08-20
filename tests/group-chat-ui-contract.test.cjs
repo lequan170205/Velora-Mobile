@@ -66,19 +66,27 @@ test('group info derives V2 permissions from projected roles and keeps owner-onl
   assert.match(groupInfoScreen, /conversationApi\.updateMemberRole/)
   assert.match(groupInfoScreen, /conversationApi\.transferOwnership/)
   assert.match(groupInfoScreen, /confirmTransferOwnership/)
-  assert.match(groupInfoScreen, /swap-horiz/)
   assert.match(groupInfoScreen, /conversationApi\.leave/)
-  assert.match(groupInfoScreen, /Transfer ownership to another member before leaving the group/)
+  assert.match(groupInfoScreen, /Transfer ownership before leaving\./)
   assert.match(groupInfoScreen, /memberCount > 2/)
 })
 
-test('group member rows reserve action width so long names and role badges cannot overlap controls', () => {
+test('group info keeps member rows compact and moves management into an overflow action sheet', () => {
   assert.match(groupInfoScreen, /className="ml-3 min-w-0 flex-1"/)
   assert.match(groupInfoScreen, /className="min-w-0 flex-row items-center"/)
   assert.match(groupInfoScreen, /className="min-w-0 flex-1 font-medium text-text-primary"/)
-  assert.match(groupInfoScreen, /className="ml-2 shrink-0 rounded-full bg-surface-accent px-2 py-1"/)
-  assert.match(groupInfoScreen, /const hasMemberActions =/)
-  assert.match(groupInfoScreen, /className="ml-2 shrink-0 flex-row items-center gap-2"/)
+  assert.match(groupInfoScreen, /name="more-vert"/)
+  assert.match(groupInfoScreen, /visible=\{Boolean\(selectedMember\)\}/)
+  assert.match(groupInfoScreen, /Remove from group/)
+  assert.match(groupInfoScreen, /Transfer ownership/)
+  assert.match(groupInfoScreen, /Make admin/)
+})
+
+test('group info presents add-member and leave actions as dedicated rows instead of toolbar clutter', () => {
+  assert.match(groupInfoScreen, />Add members</)
+  assert.match(groupInfoScreen, />Leave group</)
+  assert.match(groupInfoScreen, /name="person-add"/)
+  assert.match(groupInfoScreen, /name="logout"/)
 })
 
 test('group ownership transfer uses the dedicated owner endpoint', () => {
