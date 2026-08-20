@@ -1,4 +1,5 @@
 import { requireOptionalNativeModule } from 'expo'
+import * as Device from 'expo-device'
 import { Platform } from 'react-native'
 
 import type { CallType } from '../../types/call.types'
@@ -118,6 +119,8 @@ type VeloraSystemCallsModule = {
   setSpeakerEnabled: (enabled: boolean) => boolean
   endCall: (callId: string) => Promise<CallKitTransactionResult>
   dismissIncomingCall: (callId: string) => Promise<CallKitTransactionResult>
+  activateSimulatorAudioSession: (callId: string) => boolean
+  deactivateSimulatorAudioSession: (callId: string) => boolean
 }
 
 type VeloraSystemCallsNativeModule = Partial<VeloraSystemCallsModule> & {
@@ -130,9 +133,21 @@ type VeloraSystemCallsNativeModule = Partial<VeloraSystemCallsModule> & {
 }
 
 const nativeModule = requireOptionalNativeModule<VeloraSystemCallsNativeModule>('VeloraSystemCalls')
+const isIosSimulator = Platform.OS === 'ios' && !Device.isDevice
+
+const simulatorCallResult = (callId: string): Promise<CallKitTransactionResult> =>
+  Promise.resolve({
+    success: true,
+    callId,
+    callUuid: null,
+    errorCode: null,
+    errorMessage: null,
+  })
 
 export const veloraSystemCalls = {
   isAvailable: Boolean(nativeModule),
+  isIosSimulator,
+  usesNativeCallUi: Boolean(nativeModule) && !isIosSimulator,
 
   setAuthenticatedUserId(userId?: string | null) {
     nativeModule?.setAuthenticatedUserId?.(userId ?? null)
@@ -156,6 +171,7 @@ export const veloraSystemCalls = {
   },
 
   getPendingCallAction() {
+    if (isIosSimulator) return null
     return nativeModule?.getPendingCallAction?.() ?? null
   },
 
@@ -184,6 +200,7 @@ export const veloraSystemCalls = {
   },
 
   presentIncomingCall(payload: NativeCallPayload): Promise<CallKitTransactionResult> {
+    if (isIosSimulator) return simulatorCallResult(payload.callId)
     return (
       nativeModule?.presentIncomingCall?.(payload) ??
       Promise.resolve({
@@ -197,6 +214,7 @@ export const veloraSystemCalls = {
   },
 
   registerOutgoingCall(payload: NativeOutgoingCallPayload): Promise<CallKitTransactionResult> {
+    if (isIosSimulator) return simulatorCallResult(payload.callId)
     return (
       nativeModule?.registerOutgoingCall?.(payload) ??
       Promise.resolve({
@@ -210,10 +228,12 @@ export const veloraSystemCalls = {
   },
 
   setCallActive(callId: string) {
+    if (isIosSimulator) return true
     return nativeModule?.setCallActive?.(callId) ?? false
   },
 
   setCallType(callId: string, callType: CallType) {
+    if (isIosSimulator) return true
     return nativeModule?.setCallType?.(callId, callType) ?? false
   },
 
@@ -222,6 +242,10 @@ export const veloraSystemCalls = {
   },
 
   endCall(callId: string): Promise<CallKitTransactionResult> {
+    if (isIosSimulator) {
+      nativeModule?.deactivateSimulatorAudioSession?.(callId)
+      return simulatorCallResult(callId)
+    }
     return (
       nativeModule?.endCall?.(callId) ??
       Promise.resolve({
@@ -235,6 +259,10 @@ export const veloraSystemCalls = {
   },
 
   dismissIncomingCall(callId: string): Promise<CallKitTransactionResult> {
+    if (isIosSimulator) {
+      nativeModule?.deactivateSimulatorAudioSession?.(callId)
+      return simulatorCallResult(callId)
+    }
     return (
       nativeModule?.dismissIncomingCall?.(callId) ??
       Promise.resolve({
@@ -247,8 +275,18 @@ export const veloraSystemCalls = {
     )
   },
 
+  activateSimulatorAudioSession(callId: string) {
+    if (!isIosSimulator) return true
+    return nativeModule?.activateSimulatorAudioSession?.(callId) ?? false
+  },
+
+  deactivateSimulatorAudioSession(callId: string) {
+    if (!isIosSimulator) return true
+    return nativeModule?.deactivateSimulatorAudioSession?.(callId) ?? false
+  },
+
   addCallActionListener(listener: (event: NativeCallAction) => void) {
-    if (!nativeModule?.addListener) {
+    if (isIosSimulator || !nativeModule?.addListener) {
       return { remove: () => undefined }
     }
 
