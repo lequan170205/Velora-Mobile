@@ -17,7 +17,6 @@ import type { MessageReactionDetail } from '../../types/conversation.types'
 interface ReactionDetailsSheetProps {
   sheetRef: React.RefObject<BottomSheetModal | null>
   messageId: string
-  initialEmoji: string
   reactionSignature: string
   onDismiss: () => void
 }
@@ -46,13 +45,12 @@ const getActorInitial = (label: string) => {
 export function ReactionDetailsSheet({
   sheetRef,
   messageId,
-  initialEmoji,
   reactionSignature,
   onDismiss,
 }: ReactionDetailsSheetProps) {
   const insets = useSafeAreaInsets()
   const currentUserId = useAuthStore((state) => state.user?.id)
-  const [selectedFilter, setSelectedFilter] = useState(initialEmoji)
+  const [selectedFilter, setSelectedFilter] = useState(ALL_FILTER)
   const snapPoints = useMemo(() => [INITIAL_SNAP_POINT, EXPANDED_SNAP_POINT], [])
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -62,10 +60,10 @@ export function ReactionDetailsSheet({
   })
 
   useEffect(() => {
-    setSelectedFilter(initialEmoji)
+    setSelectedFilter(ALL_FILTER)
     const frame = requestAnimationFrame(() => sheetRef.current?.present())
     return () => cancelAnimationFrame(frame)
-  }, [initialEmoji, sheetRef])
+  }, [messageId, sheetRef])
 
   useEffect(() => {
     void refetch()
@@ -76,7 +74,9 @@ export function ReactionDetailsSheet({
     for (const reaction of data?.reactions ?? []) {
       counts.set(reaction.emoji, (counts.get(reaction.emoji) ?? 0) + 1)
     }
-    return Array.from(counts.entries())
+    return Array.from(counts.entries()).sort(
+      (left, right) => right[1] - left[1] || left[0].localeCompare(right[0]),
+    )
   }, [data?.reactions])
 
   useEffect(() => {
