@@ -3808,6 +3808,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
+      remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       useCallStore.getState().patch({
         remoteStreamUrl: remoteStream?.toURL() ?? null,
         ...(payload.kind === 'video' ? { remoteVideoState: 'off' as const } : {}),
