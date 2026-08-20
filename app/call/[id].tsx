@@ -252,13 +252,13 @@ export default function ActiveCallScreen() {
         pointerEvents="none"
         colors={['rgba(8,10,15,0.88)', 'rgba(8,10,15,0.10)', 'rgba(8,10,15,0.08)']}
         locations={[0, 0.2, 0.46]}
-        className="absolute left-0 right-0 top-0 h-[42%]"
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '42%' }}
       />
       <LinearGradient
         pointerEvents="none"
         colors={['rgba(8,10,15,0)', 'rgba(8,10,15,0.42)', 'rgba(8,10,15,0.98)']}
         locations={[0, 0.42, 1]}
-        className="absolute bottom-0 left-0 right-0 h-[52%]"
+        style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '52%' }}
       />
 
       <SafeAreaView className="flex-1" edges={['top', 'bottom']}>
