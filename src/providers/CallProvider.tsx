@@ -2783,7 +2783,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         veloraSystemCalls.presentIncomingCall(nativePayload)
       }
     },
-    [currentUserId, queryClient],
+    [currentUserId, queryClient, router],
   )
 
   const prepareIncomingCallFromState = useCallback(

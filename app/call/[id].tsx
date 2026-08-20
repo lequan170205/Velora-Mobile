@@ -110,7 +110,7 @@ export default function ActiveCallScreen() {
       return "Waiting for the other person's audio"
     if (phase === 'active') return formatDuration(durationSec)
     return ''
-  }, [durationSec, phase, remoteAudioState])
+  }, [callType, durationSec, phase, remoteAudioState])
 
   const reconnectSecondsLeft =
     reconnectDeadlineMs && phase === 'reconnecting'
@@ -240,7 +240,7 @@ export default function ActiveCallScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 className="h-20 w-20 items-center justify-center rounded-full bg-call-green"
-                onPress={() => void acceptIncomingCall('ui')}
+                onPress={() => void acceptIncomingCall()}
                 accessibilityRole="button"
                 accessibilityLabel="Answer call"
               >

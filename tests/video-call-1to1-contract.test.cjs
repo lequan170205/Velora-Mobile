@@ -180,7 +180,7 @@ test('iOS Simulator uses in-app ringing and isolates CallKit lifecycle', () => {
   assert.ok(provider.includes('activateSimulatorAudioSession(callId)'))
   assert.ok(provider.includes('activateSimulatorAudioSession(joined.callId)'))
   assert.ok(callScreen.includes("phase === 'incoming_ringing'"))
-  assert.ok(callScreen.includes("acceptIncomingCall('ui')"))
+  assert.ok(callScreen.includes('acceptIncomingCall()'))
   assert.ok(callScreen.includes('rejectIncomingCall()'))
   assert.ok(swift.includes('#if targetEnvironment(simulator)'))
   assert.ok(swift.includes('simulator_audio_session_activated'))
