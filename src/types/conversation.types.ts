@@ -165,6 +165,7 @@ export type ConversationMemberStatus = 'ACTIVE' | 'LEFT' | 'REMOVED'
 export interface ConversationMemberUser extends UserSummary {
   name?: string
   fullName?: string
+  username?: string | null
 }
 
 export interface ConversationMember {
