@@ -7,6 +7,7 @@ on:
     paths:
       - scripts/apply-video-call-provider-patch.cjs
       - scripts/apply-video-call-native-contract-patch.cjs
+      - scripts/harden-video-call-generated.cjs
       - .github/workflows/video-call-provider-patch.yml
   pull_request:
     branches:
@@ -14,6 +15,7 @@ on:
     paths:
       - scripts/apply-video-call-provider-patch.cjs
       - scripts/apply-video-call-native-contract-patch.cjs
+      - scripts/harden-video-call-generated.cjs
       - scripts/video-call-ci-trigger.txt
       - .github/workflows/video-call-provider-patch.yml
 
@@ -51,7 +53,9 @@ jobs:
             provider=$?
             node scripts/apply-video-call-native-contract-patch.cjs
             native=$?
-            exit $(( provider || native ))
+            node scripts/harden-video-call-generated.cjs
+            harden=$?
+            exit $(( provider || native || harden ))
           } > /tmp/patch.log 2>&1
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
@@ -61,6 +65,17 @@ jobs:
         if: steps.patch.outputs.code == '0'
         shell: bash
         run: pnpm install --frozen-lockfile
+      - name: Format video-call touched files
+        if: steps.patch.outputs.code == '0'
+        shell: bash
+        run: |
+          pnpm exec prettier --write \
+            app/_layout.tsx \
+            'app/call/[id].tsx' \
+            'app/conversation/[id].tsx' \
+            src/providers/CallProvider.tsx \
+            src/types/call.types.ts \
+            tests/video-call-1to1-contract.test.cjs
       - name: Verify feature branch
         if: steps.patch.outputs.code == '0'
         shell: bash
@@ -70,6 +85,14 @@ jobs:
           TYPECHECK=$?
           pnpm test > /tmp/test.log 2>&1
           TEST=$?
+          pnpm exec eslint \
+            app/_layout.tsx \
+            'app/call/[id].tsx' \
+            'app/conversation/[id].tsx' \
+            src/providers/CallProvider.tsx \
+            src/types/call.types.ts \
+            tests/video-call-1to1-contract.test.cjs > /tmp/feature-lint.log 2>&1
+          FEATURE_LINT=$?
           pnpm lint > /tmp/lint.log 2>&1
           LINT=$?
           {
@@ -77,7 +100,8 @@ jobs:
             echo
             echo "- Typecheck exit: $TYPECHECK"
             echo "- Tests exit: $TEST"
-            echo "- Lint exit: $LINT"
+            echo "- Feature lint exit: $FEATURE_LINT"
+            echo "- Full repo lint exit: $LINT"
             echo
             echo '## Typecheck'
             echo '```text'
@@ -89,7 +113,12 @@ jobs:
             tail -n 160 /tmp/test.log
             echo '```'
             echo
-            echo '## Lint'
+            echo '## Feature lint'
+            echo '```text'
+            tail -n 160 /tmp/feature-lint.log
+            echo '```'
+            echo
+            echo '## Full repo lint'
             echo '```text'
             tail -n 160 /tmp/lint.log
             echo '```'
@@ -114,13 +143,16 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add \
+            app/_layout.tsx \
+            'app/call/[id].tsx' \
+            'app/conversation/[id].tsx' \
             src/providers/CallProvider.tsx \
             src/types/call.types.ts \
-            'app/conversation/[id].tsx' \
             modules/velora-system-calls/ios/VeloraSystemCallsModule.swift \
+            tests/video-call-1to1-contract.test.cjs \
             VIDEO_CALL_CI_RESULT.md
           if git diff --cached --quiet; then
             exit 0
           fi
-          HUSKY=0 git commit -m 'feat(call): integrate video into hardened call provider'
+          HUSKY=0 git commit -m 'fix(call): harden 1:1 video call integration'
           git push origin HEAD:feat/video-call-1to1
