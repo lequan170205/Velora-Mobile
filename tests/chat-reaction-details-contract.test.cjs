@@ -12,19 +12,30 @@ const reactionSheet = read('src/components/chat/ReactionDetailsSheet.tsx')
 const socketProvider = read('src/providers/SocketProvider.tsx')
 const messageActions = read('src/hooks/useMessageActions.ts')
 
-test('reaction chips open a dedicated reaction-details bottom sheet', () => {
+test('message reactions render as one grouped cluster with at most three top emojis', () => {
+  assert.match(messageBubble, /const MAX_VISIBLE_REACTION_EMOJIS = 3/)
+  assert.match(messageBubble, /getReactionDisplayMessage/)
+  assert.match(messageBubble, /right\.count - left\.count/)
+  assert.match(messageBubble, /\.slice\(0, MAX_VISIBLE_REACTION_EMOJIS\)/)
+  assert.match(messageBubble, /\.join\(' '\)/)
+  assert.match(messageBubble, /message=\{reactionDisplayMessage\}/)
+})
+
+test('grouped reaction cluster opens a dedicated reaction-details bottom sheet', () => {
   assert.match(messageBubble, /ReactionDetailsSheet/)
-  assert.match(messageBubble, /setActiveReactionEmoji\(emoji\)/)
-  assert.match(messageBubble, /activeReactionEmoji \? \(/)
+  assert.match(messageBubble, /setIsReactionDetailsOpen\(true\)/)
+  assert.match(messageBubble, /isReactionDetailsOpen \? \(/)
   assert.match(reactionSheet, /sheetRef\.current\?\.present\(\)/)
   assert.match(reactionSheet, /<BottomSheetModal/)
   assert.match(reactionSheet, /enablePanDownToClose/)
 })
 
-test('reaction details are fetched lazily and filterable by emoji', () => {
+test('reaction details always open on All and remain filterable by emoji', () => {
   assert.match(conversationApi, /getReactionDetails: async/)
   assert.match(conversationApi, /`\/messages\/\$\{messageId\}\/reactions`/)
-  assert.match(messageBubble, /activeReactionEmoji \? \(/)
+  assert.match(reactionSheet, /useState\(ALL_FILTER\)/)
+  assert.match(reactionSheet, /setSelectedFilter\(ALL_FILTER\)/)
+  assert.doesNotMatch(reactionSheet, /initialEmoji/)
   assert.match(reactionSheet, /All \{data\?\.total \?\? 0\}/)
   assert.match(reactionSheet, /setSelectedFilter\(emoji\)/)
 })
@@ -43,7 +54,8 @@ test('open reaction details refresh when realtime reaction state changes', () =>
   assert.match(reactionSheet, /void refetch\(\)/)
 })
 
-test('long-press reaction mutation remains separate from tapping reaction details', () => {
+test('grouped presentation never replaces original reaction state for long-press mutations', () => {
+  assert.match(messageBubble, /message: props\.message/)
   assert.match(messageActions, /useAddReaction/)
   assert.match(messageActions, /useRemoveReaction/)
   assert.doesNotMatch(reactionSheet, /useAddReaction|useRemoveReaction/)
