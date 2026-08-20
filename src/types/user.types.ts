@@ -30,6 +30,9 @@ export interface DirectoryUser {
 export interface UserSummary {
   id: string
   email: string
+  name?: string
+  fullName?: string
+  username?: string | null
   picture?: string | null
 }
 
