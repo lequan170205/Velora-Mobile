@@ -260,7 +260,7 @@ test('join and reconnect effects retain delay, cancellation and local-first refr
   const bundle = readBundle()
   const reconnectBlock = findBlock(
     'const syncConversationAfterReconnect = async () => {',
-    'const participantsMap = useMemo',
+    'const { primaryStatusByIdentityKey, readReceiptsByIdentityKey } = useConversationReceiptModel',
   )
 
   assert.match(bundle, /socket\.emit\('join_conversation', conversationId\)[\s\S]*}, 100\)/)
@@ -310,7 +310,7 @@ test('typing emits and cleanup preserve the two-second debounce', () => {
 test('keyboard and context-menu ordering preserves focus and layout space', () => {
   const openBlock = findBlock(
     'const prepareContextMenuKeyboardPreservation = useCallback',
-    'const { displayName, avatarUrl, otherUserId }',
+    'const groupTypingLabel = useMemo',
   )
 
   assertOrdered(
@@ -382,6 +382,46 @@ test('group receipts and direct-only call entry points remain distinct', () => {
   assert.match(bundle, /if \(!otherUserId \|\| currentConversation\?\.isGroup\)/)
   assert.match(bundle, /startVoiceCall\(\{/)
   assert.match(bundle, /startVideoCall\(\{/)
+})
+
+test('metadata, receipt and presence hooks preserve their original ownership boundaries', () => {
+  const metadata = sources().find(({ relativePath }) =>
+    relativePath.endsWith('useConversationMetadata.ts'),
+  )?.source
+  const receipt = sources().find(({ relativePath }) =>
+    relativePath.endsWith('useConversationReceiptModel.ts'),
+  )?.source
+  const presence = sources().find(({ relativePath }) =>
+    relativePath.endsWith('useConversationPresence.ts'),
+  )?.source
+
+  assert.ok(metadata)
+  assert.ok(receipt)
+  assert.ok(presence)
+
+  assert.match(metadata, /queryKey: queryKeys\.conversations\.all/)
+  assert.match(metadata, /allConversations\.find/)
+  assert.match(metadata, /getConversationHeaderIdentity/)
+  assert.match(metadata, /currentConversation\?\.participants\?\.forEach/)
+  assert.match(metadata, /participant\.id !== currentUserId/)
+
+  assert.match(receipt, /buildConversationReceiptModel\(\{/)
+  assert.match(receipt, /\[conversation, currentUserId, orderedMessages, otherParticipant\]/)
+
+  assertOrdered(
+    presence,
+    [
+      'if (!transitionDone) return',
+      'if (!isConnected || !otherUserId || isGroup) return',
+      'requestPresence([otherUserId], { conversationId })',
+    ],
+    'presence request',
+  )
+  assert.match(
+    presence,
+    /setInterval\(\(\) => \{[\s\S]*setPresenceTick\(Date\.now\(\)\)[\s\S]*60 \* 1000/,
+  )
+  assert.match(presence, /return \(\) => clearInterval\(intervalId\)/)
 })
 
 test('FlashList parity keeps inversion and Android manual insert ownership', () => {

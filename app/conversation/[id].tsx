@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { FlashList, type FlashListRef, type ListRenderItemInfo } from '@shopify/flash-list'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -45,6 +45,9 @@ import { ConversationMessageRow } from '../../src/components/chat/conversation/C
 import { MessageContextMenu } from '../../src/components/chat/MessageContextMenu'
 import { MessageInput, type MessageInputHandle } from '../../src/components/chat/MessageInput'
 import { queryKeys } from '../../src/constants/queryKeys'
+import { useConversationMetadata } from '../../src/hooks/conversation/useConversationMetadata'
+import { useConversationPresence } from '../../src/hooks/conversation/useConversationPresence'
+import { useConversationReceiptModel } from '../../src/hooks/conversation/useConversationReceiptModel'
 import { useAnchoredMessages } from '../../src/hooks/useAnchoredMessages'
 import { useChatMediaUploads } from '../../src/hooks/useChatMediaUploads'
 import { useRecallMessage } from '../../src/hooks/useMessageActions'
@@ -68,9 +71,7 @@ import {
 } from '../../src/lib/conversation/conversationMessagePolicies'
 import {
   buildConversationMediaGalleryItems,
-  buildConversationReceiptModel,
   EMPTY_READ_RECEIPT_PARTICIPANTS,
-  getConversationHeaderIdentity,
   getConversationMediaViewerItems,
   getGroupTypingLabel,
 } from '../../src/lib/conversation/conversationPresentationPolicies'
@@ -84,7 +85,6 @@ import {
   sortMessagesCanonicalNewestFirst,
   type MessageLayout,
 } from '../../src/lib/messageListState'
-import { formatLastSeenLabel } from '../../src/lib/presence'
 import { useCall } from '../../src/providers/CallProvider'
 import { useChatMediaViewer } from '../../src/providers/ChatMediaViewerProvider'
 import { useSocket } from '../../src/providers/SocketProvider'
@@ -95,7 +95,7 @@ import { useMessageListUiStore } from '../../src/stores/messageListUiStore'
 
 import type { MessageBubbleContextMenuPayload } from '../../src/components/chat/MessageBubble'
 import type { OptimisticSortAnchor } from '../../src/stores/chatStore'
-import type { ChatParticipant, Conversation, Message } from '../../src/types/conversation.types'
+import type { Conversation, Message } from '../../src/types/conversation.types'
 import type { ImagePickerAsset } from 'expo-image-picker'
 
 type ActiveContextMenuState = MessageBubbleContextMenuPayload
@@ -143,8 +143,6 @@ export default function ChatScreen() {
   const setReplyToMessage = useChatStore((state) => state.setReplyToMessage)
   const confirmMessage = useChatStore((state) => state.confirmMessage)
   const dequeueOfflineMessage = useChatStore((state) => state.dequeueOfflineMessage)
-  const onlineUsers = useChatStore((state) => state.onlineUsers)
-  const lastSeenByUserId = useChatStore((state) => state.lastSeenByUserId)
   const queuedMessageCount = useChatStore(
     useCallback(
       (state) =>
@@ -153,24 +151,18 @@ export default function ChatScreen() {
     ),
   )
   const queryClient = useQueryClient()
-
-  const { data: conversationsCacheData } = useQuery({
-    queryKey: queryKeys.conversations.all,
-    queryFn: () => Promise.resolve(null),
-    enabled: false,
+  const {
+    avatarUrl,
+    currentConversation,
+    displayName,
+    isGroup,
+    otherParticipant,
+    otherUserId,
+    participantsMap,
+  } = useConversationMetadata({
+    conversationId,
+    currentUserId: user?.id ?? null,
   })
-
-  const allConversations = useMemo(() => {
-    if (!conversationsCacheData) return []
-    if (Array.isArray(conversationsCacheData)) {
-      return conversationsCacheData as Conversation[]
-    }
-    return (conversationsCacheData as { pages?: Conversation[][] })?.pages?.flat() || []
-  }, [conversationsCacheData])
-
-  const currentConversation = useMemo(() => {
-    return allConversations.find((c: Conversation) => c?.id === conversationId)
-  }, [allConversations, conversationId])
 
   const { socket, isConnected, requestPresence } = useSocket()
 
@@ -352,7 +344,6 @@ export default function ChatScreen() {
   )
 
   const [transitionDone, setTransitionDone] = useState(false)
-  const [presenceTick, setPresenceTick] = useState(() => Date.now())
 
   useEffect(() => {
     const handle = InteractionManager.runAfterInteractions(() => {
@@ -531,15 +522,6 @@ export default function ChatScreen() {
       }
     },
     [prepareContextMenuKeyboardPreservation],
-  )
-
-  const { displayName, avatarUrl, otherUserId } = useMemo(
-    () =>
-      getConversationHeaderIdentity({
-        conversation: currentConversation ?? null,
-        currentUserId: user?.id ?? null,
-      }),
-    [currentConversation, user?.id],
   )
 
   const groupTypingLabel = useMemo(() => {
@@ -1007,70 +989,20 @@ export default function ChatScreen() {
     user,
   ])
 
-  const participantsMap = useMemo(() => {
-    const map = new Map<string, ChatParticipant>()
-    currentConversation?.participants?.forEach((p: ChatParticipant) => {
-      map.set(p.id, p)
-    })
-    return map
-  }, [currentConversation?.participants])
-  const otherParticipant = useMemo(() => {
-    if (currentConversation?.isGroup) {
-      return null
-    }
-
-    return (
-      currentConversation?.participants?.find((participant) => participant.id !== user?.id) ?? null
-    )
-  }, [currentConversation?.isGroup, currentConversation?.participants, user?.id])
-  const {
-    latestOutgoingIdentityKey: _latestOutgoingIdentityKey,
-    primaryStatusByIdentityKey,
-    readReceiptsByIdentityKey,
-  } = useMemo(
-    () =>
-      buildConversationReceiptModel({
-        conversation: currentConversation ?? null,
-        currentUserId: user?.id ?? null,
-        orderedMessages,
-        otherParticipant,
-      }),
-    [currentConversation, orderedMessages, otherParticipant, user?.id],
-  )
-
-  const isOnline = otherUserId ? onlineUsers.has(otherUserId) : false
-  const lastSeenAt = otherUserId ? (lastSeenByUserId[otherUserId] ?? null) : null
-  const presenceLabel = !isConnected
-    ? 'Reconnecting…'
-    : isOnline
-      ? 'Online'
-      : formatLastSeenLabel(lastSeenAt, presenceTick)
-
-  useEffect(() => {
-    if (!transitionDone) return
-    if (!isConnected || !otherUserId || currentConversation?.isGroup) return
-
-    requestPresence([otherUserId], { conversationId })
-  }, [
+  const { primaryStatusByIdentityKey, readReceiptsByIdentityKey } = useConversationReceiptModel({
+    conversation: currentConversation ?? null,
+    currentUserId: user?.id ?? null,
+    orderedMessages,
+    otherParticipant,
+  })
+  const { isOnline, presenceLabel } = useConversationPresence({
     conversationId,
-    currentConversation?.isGroup,
     isConnected,
-    otherUserId,
+    isGroup,
+    otherUserId: otherUserId ?? null,
     requestPresence,
     transitionDone,
-  ])
-
-  useEffect(() => {
-    if (isOnline || !lastSeenAt) {
-      return
-    }
-
-    const intervalId = setInterval(() => {
-      setPresenceTick(Date.now())
-    }, 60 * 1000)
-
-    return () => clearInterval(intervalId)
-  }, [isOnline, lastSeenAt])
+  })
 
   const handleSendMedia = useCallback(
     async (assets: ImagePickerAsset[]) => {
@@ -1639,7 +1571,7 @@ export default function ChatScreen() {
           displayName={displayName}
           groupTypingLabel={groupTypingLabel}
           isConnected={isConnected}
-          isGroup={currentConversation?.isGroup === true}
+          isGroup={isGroup}
           isOnline={isOnline}
           participantCount={currentConversation?.participantIds.length ?? 0}
           presenceLabel={presenceLabel}
