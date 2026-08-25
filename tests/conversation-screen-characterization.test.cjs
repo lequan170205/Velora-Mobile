@@ -203,7 +203,7 @@ test('bottom follow preserves Android one-frame and reply/return two-frame sched
   const replyHelper = findBlock('const runReplyScroll = useCallback', 'const handleScrollToMessage')
   const returnEffect = findBlock(
     'const pendingAnchorTargetId = pendingAnchorScrollTargetIdRef.current',
-    'useEffect(() => {\n    return () => {',
+    'const currentOlderLoader',
   )
 
   assert.equal((newestHelper.match(/requestAnimationFrame\(/g) ?? []).length, 1)
@@ -260,7 +260,7 @@ test('join and reconnect effects retain delay, cancellation and local-first refr
   const bundle = readBundle()
   const reconnectBlock = findBlock(
     'const syncConversationAfterReconnect = async () => {',
-    'const { primaryStatusByIdentityKey, readReceiptsByIdentityKey } = useConversationReceiptModel',
+    'return { transitionDone }',
   )
 
   assert.match(bundle, /socket\.emit\('join_conversation', conversationId\)[\s\S]*}, 100\)/)
@@ -274,6 +274,32 @@ test('join and reconnect effects retain delay, cancellation and local-first refr
       'cancelled = true',
     ],
     'reconnect sync',
+  )
+})
+
+test('session runtime owns the transition, seen frontier and query lifecycle only', () => {
+  const session = sources().find(({ relativePath }) =>
+    relativePath.endsWith('useConversationSessionRuntime.ts'),
+  )?.source
+
+  assert.ok(session)
+  assertOrdered(
+    session,
+    [
+      'InteractionManager.runAfterInteractions',
+      'setTransitionDone(true)',
+      'return () => handle.cancel()',
+    ],
+    'transition gate',
+  )
+  assert.match(session, /const lastSentSeenFrontierRef = useRef<string \| null>\(null\)/)
+  assert.match(session, /const previousIsConnectedRef = useRef\(isConnected\)/)
+  assert.match(session, /lastSentSeenFrontierRef\.current = null/)
+  assert.match(session, /queryClient\.setQueryData<[\s\S]*queryKeys\.conversations\.all/)
+  assert.match(session, /queryKeys\.conversations\.messages\(conversationId\)/)
+  assert.doesNotMatch(
+    session,
+    /typingTimeoutRef|replyHighlightTimeoutRef|replyJumpSettleTimeoutRef/,
   )
 })
 
@@ -343,8 +369,12 @@ test('conversation change and unmount cleanup retain every owned resource action
     "if (timelineMode !== 'latest')",
   )
   const unmountBlock = findBlock(
-    'useEffect(() => {\n    return () => {',
-    'const currentOlderLoader',
+    'if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)',
+    'const serverMessages = useMemo',
+  )
+  const sessionCleanupBlock = findBlock(
+    'const messagesQueryKey = queryKeys.conversations.messages(conversationId)',
+    'return { transitionDone }',
   )
 
   for (const marker of [
@@ -363,11 +393,24 @@ test('conversation change and unmount cleanup retain every owned resource action
       'clearTimeout(typingTimeoutRef.current)',
       "socket.emit('typing_stop'",
       'clearTimeout(replyHighlightTimeoutRef.current)',
-      'clearReplyJumpSettleTimeout()',
-      'queryClient.cancelQueries',
-      'trimMessagesCache(queryClient, conversationId)',
+      'clearTimeout(replyJumpSettleTimeoutRef.current)',
     ],
-    'unmount cleanup',
+    'composer and timeline unmount cleanup',
+  )
+  assertOrdered(
+    sessionCleanupBlock,
+    ['queryClient.cancelQueries', 'trimMessagesCache(queryClient, conversationId)'],
+    'session query cleanup',
+  )
+
+  const screen = sources().find(
+    ({ relativePath }) => relativePath === 'app/conversation/[id].tsx',
+  )?.source
+  assert.ok(screen)
+  assert.ok(
+    screen.indexOf('if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)') <
+      screen.indexOf('useConversationSessionRuntime({'),
+    'composer/timeline cleanup must register before session query cleanup',
   )
 })
 

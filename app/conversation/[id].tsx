@@ -1,6 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { FlashList, type FlashListRef, type ListRenderItemInfo } from '@shopify/flash-list'
-import { useQueryClient } from '@tanstack/react-query'
 import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -8,7 +7,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
-  InteractionManager,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Platform,
@@ -44,20 +42,14 @@ import {
 import { ConversationMessageRow } from '../../src/components/chat/conversation/ConversationMessageRow'
 import { MessageContextMenu } from '../../src/components/chat/MessageContextMenu'
 import { MessageInput, type MessageInputHandle } from '../../src/components/chat/MessageInput'
-import { queryKeys } from '../../src/constants/queryKeys'
 import { useConversationMetadata } from '../../src/hooks/conversation/useConversationMetadata'
 import { useConversationPresence } from '../../src/hooks/conversation/useConversationPresence'
 import { useConversationReceiptModel } from '../../src/hooks/conversation/useConversationReceiptModel'
+import { useConversationSessionRuntime } from '../../src/hooks/conversation/useConversationSessionRuntime'
 import { useAnchoredMessages } from '../../src/hooks/useAnchoredMessages'
 import { useChatMediaUploads } from '../../src/hooks/useChatMediaUploads'
 import { useRecallMessage } from '../../src/hooks/useMessageActions'
-import {
-  refreshLatestMessagesPageFromLocalStore,
-  syncLatestMessagesToLocalStore,
-  trimMessagesCache,
-  useMessages,
-  useSendMessage,
-} from '../../src/hooks/useMessages'
+import { useMessages, useSendMessage } from '../../src/hooks/useMessages'
 import { saveChatMediaToLibrary } from '../../src/lib/chatMediaSave'
 import {
   backfillReplyPreviewFromResolvedTarget,
@@ -95,7 +87,7 @@ import { useMessageListUiStore } from '../../src/stores/messageListUiStore'
 
 import type { MessageBubbleContextMenuPayload } from '../../src/components/chat/MessageBubble'
 import type { OptimisticSortAnchor } from '../../src/stores/chatStore'
-import type { Conversation, Message } from '../../src/types/conversation.types'
+import type { Message } from '../../src/types/conversation.types'
 import type { ImagePickerAsset } from 'expo-image-picker'
 
 type ActiveContextMenuState = MessageBubbleContextMenuPayload
@@ -150,7 +142,6 @@ export default function ChatScreen() {
       [conversationId],
     ),
   )
-  const queryClient = useQueryClient()
   const {
     avatarUrl,
     currentConversation,
@@ -204,8 +195,6 @@ export default function ChatScreen() {
   const pendingOwnMediaBatchByClientMessageIdRef = useRef<Map<string, string>>(new Map())
   const isScrollButtonVisible = useSharedValue(false)
   const isNearBottomRef = useRef(true)
-  const lastSentSeenFrontierRef = useRef<string | null>(null)
-  const previousIsConnectedRef = useRef(isConnected)
   const timestampRevealOffset = useSharedValue(0)
   const [isNearBottom, setIsNearBottom] = useState(true)
   const [messageViewportHeight, setMessageViewportHeight] = useState(0)
@@ -331,6 +320,18 @@ export default function ChatScreen() {
   const pendingReturnToLatestRef = useRef(false)
   const anchorBottomLoadArmedRef = useRef(false)
 
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+      if (socket?.connected) socket.emit('typing_stop', conversationId)
+      if (replyHighlightTimeoutRef.current) clearTimeout(replyHighlightTimeoutRef.current)
+      if (replyJumpSettleTimeoutRef.current) {
+        clearTimeout(replyJumpSettleTimeoutRef.current)
+        replyJumpSettleTimeoutRef.current = null
+      }
+    }
+  }, [conversationId, socket])
+
   const serverMessages = useMemo(() => {
     const flattenedMessages = (data?.pages.flat() as Message[] | undefined) ?? EMPTY_MESSAGES
     return mergeMessageCollectionByIdentity(flattenedMessages)
@@ -342,15 +343,6 @@ export default function ChatScreen() {
       ),
     [anchorData?.messages, serverMessages, timelineMode],
   )
-
-  const [transitionDone, setTransitionDone] = useState(false)
-
-  useEffect(() => {
-    const handle = InteractionManager.runAfterInteractions(() => {
-      setTransitionDone(true)
-    })
-    return () => handle.cancel()
-  }, [])
 
   const { orderedMessages, layoutById, messageById, indexById } = useMemo(
     () =>
@@ -440,6 +432,17 @@ export default function ChatScreen() {
     return frontierMessage?.id ?? null
   }, [orderedMessages])
   const prevNewestMessageId = useRef(newestMessageId)
+  const { transitionDone } = useConversationSessionRuntime({
+    conversation: currentConversation ?? null,
+    conversationId,
+    currentUser: user ?? null,
+    hasLoadedLatestMessagePages,
+    isConnected,
+    isNearBottom,
+    latestSeenFrontierMessageId,
+    socket,
+    timelineMode,
+  })
 
   useEffect(() => {
     isNearBottomRef.current = true
@@ -622,71 +625,6 @@ export default function ChatScreen() {
     handleContextMenuClose()
   }, [handleContextMenuClose])
 
-  const clearConversationUnread = useCallback(
-    (conversationId: string) => {
-      queryClient.setQueryData<Conversation[] | undefined>(
-        queryKeys.conversations.all,
-        (oldData) => {
-          if (!Array.isArray(oldData)) {
-            return oldData
-          }
-
-          let hasChanges = false
-          const nextConversations = oldData.map((conversation) => {
-            if (conversation.id !== conversationId || !conversation.unreadCount) {
-              return conversation
-            }
-
-            hasChanges = true
-            return { ...conversation, unreadCount: 0 }
-          })
-
-          return hasChanges ? nextConversations : oldData
-        },
-      )
-    },
-    [queryClient],
-  )
-
-  const emitMarkSeenToFrontier = useCallback(
-    (frontierMessageId: string, options?: { force?: boolean }) => {
-      if (!socket?.connected) {
-        return
-      }
-
-      const frontierKey = `${conversationId}:${frontierMessageId}`
-      if (!options?.force && lastSentSeenFrontierRef.current === frontierKey) {
-        return
-      }
-
-      socket.emit('mark_seen', {
-        conversationId,
-        upToMessageId: frontierMessageId,
-      })
-      lastSentSeenFrontierRef.current = frontierKey
-      clearConversationUnread(conversationId)
-    },
-    [clearConversationUnread, conversationId, socket],
-  )
-
-  useEffect(() => {
-    if (!transitionDone) return
-
-    const timer = setTimeout(() => {
-      if (socket?.connected) {
-        socket.emit('join_conversation', conversationId)
-      }
-    }, 100)
-
-    return () => clearTimeout(timer)
-  }, [conversationId, socket, socket?.connected, transitionDone])
-
-  useEffect(() => {
-    if (!isConnected) {
-      lastSentSeenFrontierRef.current = null
-    }
-  }, [isConnected])
-
   const registerPendingOwnMediaBatchScrollTransaction = useCallback(
     (batch: { batchId: string; clientMessageIds: string[] }) => {
       if (batch.clientMessageIds.length === 0) {
@@ -724,7 +662,6 @@ export default function ChatScreen() {
   }, [])
 
   useEffect(() => {
-    lastSentSeenFrontierRef.current = null
     pendingOwnSendBottomScrollRef.current = 'none'
     pendingOwnMediaBatchScrollTransactionsRef.current.clear()
     pendingOwnMediaBatchByClientMessageIdRef.current.clear()
@@ -911,82 +848,6 @@ export default function ChatScreen() {
     timelineMode,
     user?.id,
     clearPendingOwnMediaBatchScrollTransaction,
-  ])
-
-  useEffect(() => {
-    if (
-      !transitionDone ||
-      timelineMode !== 'latest' ||
-      !isConnected ||
-      !isNearBottom ||
-      !latestSeenFrontierMessageId
-    ) {
-      return
-    }
-
-    emitMarkSeenToFrontier(latestSeenFrontierMessageId)
-  }, [
-    emitMarkSeenToFrontier,
-    isConnected,
-    isNearBottom,
-    latestSeenFrontierMessageId,
-    timelineMode,
-    transitionDone,
-  ])
-
-  useEffect(() => {
-    const wasConnected = previousIsConnectedRef.current
-    previousIsConnectedRef.current = isConnected
-
-    if (
-      !transitionDone ||
-      timelineMode !== 'latest' ||
-      !hasLoadedLatestMessagePages ||
-      !isConnected ||
-      wasConnected
-    ) {
-      return
-    }
-
-    let cancelled = false
-
-    const syncConversationAfterReconnect = async () => {
-      try {
-        await syncLatestMessagesToLocalStore({
-          conversation: currentConversation ?? null,
-          conversationId,
-          currentUser: user ?? null,
-        })
-
-        if (cancelled) {
-          return
-        }
-
-        await refreshLatestMessagesPageFromLocalStore({
-          conversation: currentConversation ?? null,
-          conversationId,
-          currentUser: user ?? null,
-          queryClient,
-        })
-      } catch (error) {
-        console.warn('[Conversation] Failed to sync latest messages after reconnect', error)
-      }
-    }
-
-    void syncConversationAfterReconnect()
-
-    return () => {
-      cancelled = true
-    }
-  }, [
-    conversationId,
-    currentConversation,
-    hasLoadedLatestMessagePages,
-    isConnected,
-    queryClient,
-    timelineMode,
-    transitionDone,
-    user,
   ])
 
   const { primaryStatusByIdentityKey, readReceiptsByIdentityKey } = useConversationReceiptModel({
@@ -1409,19 +1270,6 @@ export default function ChatScreen() {
       })
     }
   }, [newestClientMessageId, orderedMessages, runReplyScroll, scrollToBottom, timelineMode])
-
-  useEffect(() => {
-    return () => {
-      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
-      if (socket?.connected) socket.emit('typing_stop', conversationId)
-      if (replyHighlightTimeoutRef.current) clearTimeout(replyHighlightTimeoutRef.current)
-      clearReplyJumpSettleTimeout()
-
-      const messagesQueryKey = queryKeys.conversations.messages(conversationId)
-      void queryClient.cancelQueries({ queryKey: messagesQueryKey, exact: true })
-      trimMessagesCache(queryClient, conversationId)
-    }
-  }, [clearReplyJumpSettleTimeout, conversationId, queryClient, socket])
 
   const currentOlderLoader =
     timelineMode === 'anchor' ? () => void loadAnchorOlder('edge') : loadOlderMessages
