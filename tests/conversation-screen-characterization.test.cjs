@@ -144,20 +144,25 @@ test('own-send scroll intent is armed before text and media optimistic commits',
     'const handleSendSuggestedQuery',
   )
   const mediaBlock = findBlock('const handleSendMedia = useCallback', 'const handleTyping')
-
-  assertOrdered(
-    textBlock,
-    ["pendingOwnSendBottomScrollRef.current = 'animated'", 'sendMessage({'],
-    'text send',
+  const prepareBlock = findBlock(
+    'const prepareOwnSendBottomFollow = useCallback',
+    'const cancelOwnSendBottomFollow',
   )
+
+  assertOrdered(textBlock, ['prepareOwnSendBottomFollow()', 'sendMessage({'], 'text send')
   assertOrdered(
     mediaBlock,
     [
-      "pendingOwnSendBottomScrollRef.current = 'animated'",
+      'prepareOwnSendBottomFollow()',
       'await enqueueMediaAssets(assets, {',
       'onWillCommitBatch: registerPendingOwnMediaBatchScrollTransaction',
     ],
     'media send',
+  )
+  assertOrdered(
+    prepareBlock,
+    ["pendingOwnSendBottomScrollRef.current = 'animated'", 'returnToLatestTimeline(false)'],
+    'own-send bottom-follow preparation',
   )
 })
 
@@ -195,10 +200,42 @@ test('media batches scroll once and suppress confirmation scrolls until the batc
   )
 })
 
+test('timeline controller exposes the screen contract without changing hook APIs', () => {
+  const timeline = sources().find(({ relativePath }) =>
+    relativePath.endsWith('useConversationTimelineController.ts'),
+  )?.source
+
+  assert.ok(timeline)
+  assert.match(timeline, /useMessages\(conversationId\)/)
+  assert.match(timeline, /useAnchoredMessages\(\{[\s\S]*conversation,[\s\S]*conversationId/)
+  assertOrdered(
+    timeline,
+    [
+      'const { orderedMessages, layoutById, messageById, indexById } = useMemo',
+      'layoutByIdRef.current = layoutById',
+      'indexByIdRef.current = indexById',
+    ],
+    'synchronous timeline map publication',
+  )
+  assert.match(timeline, /\}, \[conversationId, socket\]\)/)
+  assert.match(timeline, /cancelOwnSendBottomFollow/)
+  for (const field of [
+    'currentOlderLoader',
+    'handleScrollToMessage',
+    'hasLoadedLatestMessagePages',
+    'latestSeenFrontierMessageId',
+    'prepareOwnSendBottomFollow',
+    'registerPendingOwnMediaBatchScrollTransaction',
+    'timestampRevealGesture',
+  ]) {
+    assert.match(timeline, new RegExp(`\\b${field},`))
+  }
+})
+
 test('bottom follow preserves Android one-frame and reply/return two-frame scheduling', () => {
   const newestHelper = findBlock(
     'const scrollToBottomForNewestMessage = useCallback',
-    'const handleOpenGroupInfo',
+    'const loadOlderMessages',
   )
   const replyHelper = findBlock('const runReplyScroll = useCallback', 'const handleScrollToMessage')
   const returnEffect = findBlock(
@@ -313,8 +350,8 @@ test('typing emits and cleanup preserve the two-second debounce', () => {
     'const handleSendSuggestedQuery',
   )
   const cleanupBlock = findBlock(
-    'useEffect(() => {\n    return () => {',
-    'const currentOlderLoader',
+    'if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)',
+    'useConversationTimelineController({',
   )
 
   assertOrdered(
@@ -419,6 +456,10 @@ test('conversation change and unmount cleanup retain every owned resource action
   )
   const unmountBlock = findBlock(
     'if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)',
+    'useConversationTimelineController({',
+  )
+  const timelineUnmountBlock = findBlock(
+    'if (replyHighlightTimeoutRef.current) clearTimeout(replyHighlightTimeoutRef.current)',
     'const serverMessages = useMemo',
   )
   const sessionCleanupBlock = findBlock(
@@ -455,13 +496,16 @@ test('conversation change and unmount cleanup retain every owned resource action
   }
   assertOrdered(
     unmountBlock,
+    ['clearTimeout(typingTimeoutRef.current)', "socket.emit('typing_stop'"],
+    'composer unmount cleanup',
+  )
+  assertOrdered(
+    timelineUnmountBlock,
     [
-      'clearTimeout(typingTimeoutRef.current)',
-      "socket.emit('typing_stop'",
       'clearTimeout(replyHighlightTimeoutRef.current)',
       'clearTimeout(replyJumpSettleTimeoutRef.current)',
     ],
-    'composer and timeline unmount cleanup',
+    'timeline unmount cleanup',
   )
   assertOrdered(
     sessionCleanupBlock,
@@ -473,9 +517,14 @@ test('conversation change and unmount cleanup retain every owned resource action
     ({ relativePath }) => relativePath === 'app/conversation/[id].tsx',
   )?.source
   assert.ok(screen)
+  const composerCleanupRegistration = screen.indexOf(
+    'if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)',
+  )
+  const timelineRegistration = screen.indexOf('useConversationTimelineController({')
+  const sessionRegistration = screen.indexOf('useConversationSessionRuntime({')
   assert.ok(
-    screen.indexOf('if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)') <
-      screen.indexOf('useConversationSessionRuntime({'),
+    composerCleanupRegistration < timelineRegistration &&
+      timelineRegistration < sessionRegistration,
     'composer/timeline cleanup must register before session query cleanup',
   )
 })
