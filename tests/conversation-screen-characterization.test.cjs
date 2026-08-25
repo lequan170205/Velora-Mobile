@@ -198,7 +198,7 @@ test('media batches scroll once and suppress confirmation scrolls until the batc
 test('bottom follow preserves Android one-frame and reply/return two-frame scheduling', () => {
   const newestHelper = findBlock(
     'const scrollToBottomForNewestMessage = useCallback',
-    'const handleComposerFocusChange',
+    'const handleOpenGroupInfo',
   )
   const replyHelper = findBlock('const runReplyScroll = useCallback', 'const handleScrollToMessage')
   const returnEffect = findBlock(
@@ -215,7 +215,7 @@ test('bottom follow preserves Android one-frame and reply/return two-frame sched
 test('reply jumps prefer loaded messages and anchor only persisted remote targets', () => {
   const block = findBlock(
     'const handleScrollToMessage = useCallback',
-    'const handleMessageViewportLayout',
+    "useEffect(() => {\n    if (\n      timelineMode === 'anchor' &&",
   )
 
   assertOrdered(
@@ -334,24 +334,45 @@ test('typing emits and cleanup preserve the two-second debounce', () => {
 })
 
 test('keyboard and context-menu ordering preserves focus and layout space', () => {
-  const openBlock = findBlock(
-    'const prepareContextMenuKeyboardPreservation = useCallback',
-    'const groupTypingLabel = useMemo',
-  )
+  const keyboard = sources().find(({ relativePath }) =>
+    relativePath.endsWith('useConversationKeyboardRuntime.ts'),
+  )?.source
+  const contextMenu = sources().find(({ relativePath }) =>
+    relativePath.endsWith('useConversationContextMenuRuntime.ts'),
+  )?.source
+
+  assert.ok(keyboard)
+  assert.ok(contextMenu)
 
   assertOrdered(
-    openBlock,
+    contextMenu,
     [
-      'preservedKeyboardOffset.value = activeKeyboardHeight',
+      'prepareContextMenuKeyboardPreservation()',
       'setActiveContextMenu(payload)',
-      'requestAnimationFrame(() => {',
-      'messageInputRef.current?.blur()',
-      'KeyboardController.dismiss()',
+      'dismissKeyboardForContextMenu()',
     ],
     'open context menu',
   )
   assertOrdered(
-    openBlock,
+    keyboard,
+    [
+      'shouldRestoreComposerFocusRef.current = true',
+      'preservedKeyboardOffset.value = activeKeyboardHeight',
+    ],
+    'preserve keyboard space',
+  )
+  assertOrdered(
+    keyboard,
+    [
+      'const dismissKeyboardForContextMenu = useCallback',
+      'requestAnimationFrame(() => {',
+      'messageInputRef.current?.blur()',
+      'KeyboardController.dismiss()',
+    ],
+    'dismiss context-menu keyboard',
+  )
+  assertOrdered(
+    keyboard,
     [
       'messageInputRef.current?.focus()',
       'setTimeout(() => {',
@@ -361,11 +382,39 @@ test('keyboard and context-menu ordering preserves focus and layout space', () =
     ],
     'close context menu',
   )
+  assert.match(keyboard, /withTiming\(0, \{ duration: 120 \}\)/)
+  assert.match(keyboard, /withTiming\(0, \{ duration: 160 \}\)/)
+})
+
+test('context menu and media runtimes retain live message and bounded gallery behavior', () => {
+  const contextMenu = sources().find(({ relativePath }) =>
+    relativePath.endsWith('useConversationContextMenuRuntime.ts'),
+  )?.source
+  const media = sources().find(({ relativePath }) =>
+    relativePath.endsWith('useConversationMediaViewerRuntime.ts'),
+  )?.source
+
+  assert.ok(contextMenu)
+  assert.ok(media)
+  assert.match(
+    contextMenu,
+    /messageById\.get\(activeContextMenuMessageId\) \?\? activeContextMenuMessage/,
+  )
+  assert.match(contextMenu, /layoutById\.get\(currentMessage\.id\)/)
+  assert.match(contextMenu, /currentMessage\.senderId === currentUserId/)
+  assert.match(media, /buildConversationMediaGalleryItems\(orderedMessages\)/)
+  assert.match(media, /getConversationMediaViewerItems\(\{/)
+  assert.match(media, /if \(sourceIndex < 0\)/)
+  assert.match(media, /onSave: handleSaveMedia/)
 })
 
 test('conversation change and unmount cleanup retain every owned resource action', () => {
-  const changeBlock = findBlock(
-    'setActiveContextMenu(null)\n    closeMediaViewer()',
+  const mediaChangeBlock = findBlock(
+    'clearActiveContextMenu()\n    closeMediaViewer()',
+    'return {\n    closeMediaViewer',
+  )
+  const timelineChangeBlock = findBlock(
+    'resetConversationKeyboard()\n    timestampRevealOffset.value = 0',
     "if (timelineMode !== 'latest')",
   )
   const unmountBlock = findBlock(
@@ -377,7 +426,23 @@ test('conversation change and unmount cleanup retain every owned resource action
     'return { transitionDone }',
   )
 
+  for (const marker of ['clearConversationInlinePlayback(conversationId)']) {
+    assert.match(mediaChangeBlock, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+  assertOrdered(
+    mediaChangeBlock,
+    [
+      'clearActiveContextMenu()',
+      'closeMediaViewer()',
+      'clearConversationInlinePlayback(conversationId)',
+      'return () => {',
+      'closeMediaViewer()',
+      'clearConversationInlinePlayback(conversationId)',
+    ],
+    'media conversation cleanup',
+  )
   for (const marker of [
+    'resetConversationKeyboard()',
     'clearConversationInlinePlayback(conversationId)',
     'pendingAnchorScrollTargetIdRef.current = null',
     'pendingReturnToLatestRef.current = false',
@@ -385,7 +450,8 @@ test('conversation change and unmount cleanup retain every owned resource action
     'clearAnchor()',
     'resetConversationUi(conversationId)',
   ]) {
-    assert.match(changeBlock, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    if (marker === 'clearConversationInlinePlayback(conversationId)') continue
+    assert.match(timelineChangeBlock, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
   assertOrdered(
     unmountBlock,

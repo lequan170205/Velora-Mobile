@@ -23,7 +23,7 @@ test('newest-message bottom follow defers exactly one frame on Android and stays
   const helper = getBlock(
     source,
     'const scrollToBottomForNewestMessage = useCallback',
-    'const handleComposerFocusChange',
+    'const handleOpenGroupInfo',
   )
 
   assert.match(helper, /Platform\.OS === 'android'/)

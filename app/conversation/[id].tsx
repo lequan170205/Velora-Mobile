@@ -6,7 +6,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
-  Alert,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Platform,
@@ -15,13 +14,7 @@ import {
   View,
 } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-import {
-  KeyboardController,
-  useReanimatedKeyboardAnimation,
-} from 'react-native-keyboard-controller'
 import Animated, {
-  Extrapolation,
-  interpolate,
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
@@ -30,10 +23,6 @@ import Animated, {
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
-import {
-  type ChatMediaGalleryItem,
-  type ChatMediaViewerOpenPayload,
-} from '../../src/components/chat/ChatMediaViewer'
 import { ConversationHeader } from '../../src/components/chat/conversation/ConversationHeader'
 import {
   ConversationMessageListLoadingState,
@@ -41,7 +30,10 @@ import {
 } from '../../src/components/chat/conversation/ConversationLoadingState'
 import { ConversationMessageRow } from '../../src/components/chat/conversation/ConversationMessageRow'
 import { MessageContextMenu } from '../../src/components/chat/MessageContextMenu'
-import { MessageInput, type MessageInputHandle } from '../../src/components/chat/MessageInput'
+import { MessageInput } from '../../src/components/chat/MessageInput'
+import { useConversationContextMenuRuntime } from '../../src/hooks/conversation/useConversationContextMenuRuntime'
+import { useConversationKeyboardRuntime } from '../../src/hooks/conversation/useConversationKeyboardRuntime'
+import { useConversationMediaViewerRuntime } from '../../src/hooks/conversation/useConversationMediaViewerRuntime'
 import { useConversationMetadata } from '../../src/hooks/conversation/useConversationMetadata'
 import { useConversationPresence } from '../../src/hooks/conversation/useConversationPresence'
 import { useConversationReceiptModel } from '../../src/hooks/conversation/useConversationReceiptModel'
@@ -50,7 +42,6 @@ import { useAnchoredMessages } from '../../src/hooks/useAnchoredMessages'
 import { useChatMediaUploads } from '../../src/hooks/useChatMediaUploads'
 import { useRecallMessage } from '../../src/hooks/useMessageActions'
 import { useMessages, useSendMessage } from '../../src/hooks/useMessages'
-import { saveChatMediaToLibrary } from '../../src/lib/chatMediaSave'
 import {
   backfillReplyPreviewFromResolvedTarget,
   EMPTY_CONVERSATION_MESSAGES as EMPTY_MESSAGES,
@@ -62,9 +53,7 @@ import {
   isPersistedServerMessageId,
 } from '../../src/lib/conversation/conversationMessagePolicies'
 import {
-  buildConversationMediaGalleryItems,
   EMPTY_READ_RECEIPT_PARTICIPANTS,
-  getConversationMediaViewerItems,
   getGroupTypingLabel,
 } from '../../src/lib/conversation/conversationPresentationPolicies'
 import {
@@ -78,19 +67,14 @@ import {
   type MessageLayout,
 } from '../../src/lib/messageListState'
 import { useCall } from '../../src/providers/CallProvider'
-import { useChatMediaViewer } from '../../src/providers/ChatMediaViewerProvider'
 import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useChatStore } from '../../src/stores/chatStore'
-import { useChatVideoPlaybackStore } from '../../src/stores/chatVideoPlaybackStore'
 import { useMessageListUiStore } from '../../src/stores/messageListUiStore'
 
-import type { MessageBubbleContextMenuPayload } from '../../src/components/chat/MessageBubble'
 import type { OptimisticSortAnchor } from '../../src/stores/chatStore'
 import type { Message } from '../../src/types/conversation.types'
 import type { ImagePickerAsset } from 'expo-image-picker'
-
-type ActiveContextMenuState = MessageBubbleContextMenuPayload
 
 const EMPTY_TYPERS: string[] = []
 const EMPTY_OPTIMISTIC_SORT_ANCHORS: Record<string, OptimisticSortAnchor> = {}
@@ -177,17 +161,11 @@ export default function ChatScreen() {
   const { mutate: recallMessage } = useRecallMessage(conversationId)
   const bumpHighlightToken = useMessageListUiStore((state) => state.bumpHighlightToken)
   const resetConversationUi = useMessageListUiStore((state) => state.resetConversationUi)
-  const clearConversationInlinePlayback = useChatVideoPlaybackStore(
-    (state) => state.clearConversation,
-  )
-  const { closeViewer: closeMediaViewer, openViewer: openMediaViewer } = useChatMediaViewer()
-  const [activeContextMenu, setActiveContextMenu] = useState<ActiveContextMenuState | null>(null)
   const [timelineMode, setTimelineMode] = useState<TimelineMode>('latest')
 
   const listRef = useRef<FlashListRef<Message>>(null)
   const layoutByIdRef = useRef<Map<string, MessageLayout>>(new Map())
   const indexByIdRef = useRef<Map<string, number>>(new Map())
-  const messageInputRef = useRef<MessageInputHandle>(null)
   const pendingOwnSendBottomScrollRef = useRef<PendingOwnSendBottomScrollMode>('none')
   const pendingOwnMediaBatchScrollTransactionsRef = useRef<
     Map<string, PendingOwnMediaBatchScrollTransaction>
@@ -197,36 +175,22 @@ export default function ChatScreen() {
   const isNearBottomRef = useRef(true)
   const timestampRevealOffset = useSharedValue(0)
   const [isNearBottom, setIsNearBottom] = useState(true)
-  const [messageViewportHeight, setMessageViewportHeight] = useState(0)
-  const preservedKeyboardOffset = useSharedValue(0)
-
-  const { height: keyboardHeight } = useReanimatedKeyboardAnimation()
+  const {
+    dismissComposer,
+    dismissKeyboardForContextMenu,
+    getReplyScrollViewPosition,
+    handleComposerFocusChange,
+    handleMessageViewportLayout,
+    keyboardWrapperStyle,
+    listSpacerStyle,
+    messageInputRef,
+    prepareContextMenuKeyboardPreservation,
+    resetConversationKeyboard,
+    restoreComposerAfterContextMenu,
+  } = useConversationKeyboardRuntime({ bottomInset: insets.bottom })
   const timestampRevealProgress = useDerivedValue(() =>
     Math.min(Math.abs(timestampRevealOffset.value) / TIMESTAMP_REVEAL_MAX_OFFSET, 1),
   )
-
-  const keyboardWrapperStyle = useAnimatedStyle(() => {
-    const liveKeyboardOffset = Math.abs(keyboardHeight.value)
-    const frozenOffset = preservedKeyboardOffset.value
-
-    return {
-      transform: [{ translateY: -Math.max(liveKeyboardOffset, frozenOffset) }],
-    }
-  })
-
-  const listSpacerStyle = useAnimatedStyle(() => {
-    const ACTIVE_PADDING = 8
-    const bottomInset = Math.max(insets.bottom, 8)
-
-    const dynamicPadding = interpolate(
-      Math.abs(keyboardHeight.value),
-      [0, 40],
-      [bottomInset, ACTIVE_PADDING],
-      Extrapolation.CLAMP,
-    )
-
-    return { height: dynamicPadding + 50 }
-  })
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const offsetY = Math.max(0, event.nativeEvent.contentOffset.y)
@@ -314,8 +278,6 @@ export default function ChatScreen() {
   const typingTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const replyHighlightTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
   const replyJumpSettleTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
-  const isComposerFocusedRef = useRef(false)
-  const shouldRestoreComposerFocusRef = useRef(false)
   const pendingAnchorScrollTargetIdRef = useRef<string | null>(null)
   const pendingReturnToLatestRef = useRef(false)
   const anchorBottomLoadArmedRef = useRef(false)
@@ -384,10 +346,6 @@ export default function ChatScreen() {
     })
   }, [activeAnchorTargetId, anchorData?.messages, orderedMessages, serverMessages, timelineMode])
 
-  const mediaGalleryItems = useMemo<ChatMediaGalleryItem[]>(() => {
-    return buildConversationMediaGalleryItems(orderedMessages)
-  }, [orderedMessages])
-
   useEffect(() => {
     if (serverMessages.length === 0 || localOptimistic.length === 0) return
 
@@ -454,78 +412,20 @@ export default function ChatScreen() {
   const shouldShowTypingIndicator = isOtherUserTyping && isNearBottom
   const isInitialMessagesLoading =
     (timelineMode === 'latest' ? isLoading : isResolvingAnchor) && orderedMessages.length === 0
-  const getReplyScrollViewPosition = useCallback(() => {
-    const DEFAULT_VIEW_POSITION = 0.72
-    const state = KeyboardController.state()
-    const activeKeyboardHeight = Math.abs(state.height || 0)
-
-    if (!isComposerFocusedRef.current || activeKeyboardHeight <= 0 || messageViewportHeight <= 0) {
-      return DEFAULT_VIEW_POSITION
-    }
-
-    const visibleViewportRatio = Math.max(
-      0.58,
-      Math.min(1, (messageViewportHeight - activeKeyboardHeight) / messageViewportHeight),
-    )
-
-    return Math.max(0.42, DEFAULT_VIEW_POSITION * visibleViewportRatio)
-  }, [messageViewportHeight])
-
-  const prepareContextMenuKeyboardPreservation = useCallback(() => {
-    const state = KeyboardController.state()
-    const activeKeyboardHeight = Math.abs(state.height || 0)
-    const isVisible = KeyboardController.isVisible()
-
-    const shouldPreserveKeyboardSpace =
-      isComposerFocusedRef.current && (isVisible || activeKeyboardHeight > 0)
-
-    if (!shouldPreserveKeyboardSpace || activeKeyboardHeight <= 0) {
-      shouldRestoreComposerFocusRef.current = false
-      preservedKeyboardOffset.value = 0
-      return false
-    }
-
-    shouldRestoreComposerFocusRef.current = true
-    preservedKeyboardOffset.value = activeKeyboardHeight
-
-    return true
-  }, [preservedKeyboardOffset])
-
-  const releasePreservedKeyboardOffset = useCallback(() => {
-    preservedKeyboardOffset.value = withTiming(0, { duration: 160 })
-  }, [preservedKeyboardOffset])
-
-  const handleContextMenuClose = useCallback(() => {
-    if (!shouldRestoreComposerFocusRef.current) {
-      releasePreservedKeyboardOffset()
-      return
-    }
-
-    requestAnimationFrame(() => {
-      messageInputRef.current?.focus()
-
-      setTimeout(() => {
-        shouldRestoreComposerFocusRef.current = false
-        releasePreservedKeyboardOffset()
-      }, 280)
-    })
-  }, [releasePreservedKeyboardOffset])
-
-  const handleOpenContextMenu = useCallback(
-    (payload: MessageBubbleContextMenuPayload) => {
-      const shouldDismissKeyboard = prepareContextMenuKeyboardPreservation()
-
-      setActiveContextMenu(payload)
-
-      if (shouldDismissKeyboard) {
-        requestAnimationFrame(() => {
-          messageInputRef.current?.blur()
-          void KeyboardController.dismiss()
-        })
-      }
-    },
-    [prepareContextMenuKeyboardPreservation],
-  )
+  const {
+    activeContextMenuData,
+    activeContextMenuMessageId,
+    clearActiveContextMenu,
+    closeActiveContextMenu,
+    handleOpenContextMenu,
+  } = useConversationContextMenuRuntime({
+    currentUserId: user?.id ?? null,
+    dismissKeyboardForContextMenu,
+    layoutById,
+    messageById,
+    prepareContextMenuKeyboardPreservation,
+    restoreComposerAfterContextMenu,
+  })
 
   const groupTypingLabel = useMemo(() => {
     return getGroupTypingLabel({
@@ -572,58 +472,14 @@ export default function ChatScreen() {
     startVideoCall,
   ])
 
-  const handleSaveMedia = useCallback(async (item: ChatMediaGalleryItem) => {
-    if (!item.canSave) {
-      return
-    }
-
-    try {
-      await saveChatMediaToLibrary({
-        type: item.type,
-        uri: item.uri,
-        ...(item.message.media?.mimeType ? { mimeType: item.message.media.mimeType } : {}),
-      })
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-      Alert.alert('Saved', `${item.type === 'video' ? 'Video' : 'Photo'} saved to your library.`)
-    } catch (error) {
-      Alert.alert(
-        'Unable to save media',
-        error instanceof Error ? error.message : 'Please try again.',
-      )
-    }
-  }, [])
-
-  const handleOpenMedia = useCallback(
-    (payload: ChatMediaViewerOpenPayload) => {
-      setActiveContextMenu(null)
-
-      const sourceIndex = mediaGalleryItems.findIndex((item) => item.id === payload.messageId)
-      if (sourceIndex < 0) {
-        return
-      }
-
-      const viewerItems = getConversationMediaViewerItems({
-        items: mediaGalleryItems,
-        sourceIndex,
-        timelineMode,
-      })
-
-      openMediaViewer({
-        autoplayVideo: payload.autoplayVideo,
-        conversationTitle: displayName,
-        items: viewerItems,
-        messageId: payload.messageId,
-        onSave: handleSaveMedia,
-        ...(payload.sourceRef ? { sourceRef: payload.sourceRef } : {}),
-      })
-    },
-    [displayName, handleSaveMedia, mediaGalleryItems, openMediaViewer, timelineMode],
-  )
-
-  const closeActiveContextMenu = useCallback(() => {
-    setActiveContextMenu(null)
-    handleContextMenuClose()
-  }, [handleContextMenuClose])
+  const { closeMediaViewer, handleOpenMedia, handleSaveMedia, mediaGalleryItems } =
+    useConversationMediaViewerRuntime({
+      clearActiveContextMenu,
+      conversationId,
+      conversationTitle: displayName,
+      orderedMessages,
+      timelineMode,
+    })
 
   const registerPendingOwnMediaBatchScrollTransaction = useCallback(
     (batch: { batchId: string; clientMessageIds: string[] }) => {
@@ -682,31 +538,6 @@ export default function ChatScreen() {
     scrollToBottom()
   }, [scrollToBottom])
 
-  const handleComposerFocusChange = useCallback(
-    (focused: boolean) => {
-      isComposerFocusedRef.current = focused
-
-      if (focused) {
-        if (!shouldRestoreComposerFocusRef.current) {
-          preservedKeyboardOffset.value = 0
-        }
-        return
-      }
-
-      if (!shouldRestoreComposerFocusRef.current) {
-        preservedKeyboardOffset.value = withTiming(0, { duration: 120 })
-      }
-    },
-    [preservedKeyboardOffset],
-  )
-
-  const dismissComposer = useCallback(() => {
-    shouldRestoreComposerFocusRef.current = false
-    preservedKeyboardOffset.value = withTiming(0, { duration: 120 })
-    messageInputRef.current?.blur()
-    void KeyboardController.dismiss()
-  }, [preservedKeyboardOffset])
-
   const handleOpenGroupInfo = useCallback(() => {
     if (!currentConversation?.isGroup) return
 
@@ -749,11 +580,7 @@ export default function ChatScreen() {
   )
 
   useEffect(() => {
-    setActiveContextMenu(null)
-    closeMediaViewer()
-    clearConversationInlinePlayback(conversationId)
-    shouldRestoreComposerFocusRef.current = false
-    preservedKeyboardOffset.value = 0
+    resetConversationKeyboard()
     timestampRevealOffset.value = 0
     anchorBottomLoadArmedRef.current = false
     pendingAnchorScrollTargetIdRef.current = null
@@ -762,16 +589,12 @@ export default function ChatScreen() {
     void clearAnchor()
 
     return () => {
-      closeMediaViewer()
-      clearConversationInlinePlayback(conversationId)
       resetConversationUi(conversationId)
     }
   }, [
-    closeMediaViewer,
-    clearConversationInlinePlayback,
     conversationId,
     clearAnchor,
-    preservedKeyboardOffset,
+    resetConversationKeyboard,
     resetConversationUi,
     timestampRevealOffset,
   ])
@@ -936,7 +759,7 @@ export default function ChatScreen() {
         messageInputRef.current?.focus()
       })
     },
-    [setReplyToMessage, timestampRevealOffset],
+    [messageInputRef, setReplyToMessage, timestampRevealOffset],
   )
 
   const handleCancelReply = useCallback(() => {
@@ -1167,61 +990,6 @@ export default function ChatScreen() {
       timelineMode,
     ],
   )
-
-  const handleMessageViewportLayout = useCallback(
-    (event: { nativeEvent: { layout: { height: number } } }) => {
-      const nextHeight = event.nativeEvent.layout.height
-
-      setMessageViewportHeight((currentHeight) => {
-        return Math.abs(currentHeight - nextHeight) < 1 ? currentHeight : nextHeight
-      })
-    },
-    [],
-  )
-
-  const activeContextMenuMessageId = activeContextMenu?.message.id ?? null
-  const activeContextMenuMessage = activeContextMenu?.message ?? null
-  const activeContextMenuReplyTarget = activeContextMenu?.replyTarget ?? null
-  const activeContextMenuPreviewLayout = activeContextMenu?.previewLayout
-  const activeContextMenuAnchor = activeContextMenu?.anchor ?? null
-  const activeContextMenuConversationId = activeContextMenu?.conversationId
-  const activeContextMenuGestureState = activeContextMenu?.gestureState
-  const activeContextMenuFallbackGroupedTop = activeContextMenu?.isGroupedTop ?? false
-  const activeContextMenuFallbackGroupedBottom = activeContextMenu?.isGroupedBottom ?? false
-
-  const activeContextMenuData = useMemo(() => {
-    if (!activeContextMenuMessageId || !activeContextMenuMessage || !activeContextMenuAnchor) {
-      return null
-    }
-
-    const currentMessage = messageById.get(activeContextMenuMessageId) ?? activeContextMenuMessage
-    const currentLayout = layoutById.get(currentMessage.id)
-
-    return {
-      message: currentMessage,
-      replyTarget: activeContextMenuReplyTarget,
-      previewLayout: activeContextMenuPreviewLayout,
-      anchor: activeContextMenuAnchor,
-      conversationId: activeContextMenuConversationId,
-      gestureState: activeContextMenuGestureState,
-      isOwn: currentMessage.senderId === user?.id,
-      isGroupedTop: currentLayout?.isGroupedTop ?? activeContextMenuFallbackGroupedTop,
-      isGroupedBottom: currentLayout?.isGroupedBottom ?? activeContextMenuFallbackGroupedBottom,
-    }
-  }, [
-    activeContextMenuAnchor,
-    activeContextMenuConversationId,
-    activeContextMenuGestureState,
-    activeContextMenuFallbackGroupedBottom,
-    activeContextMenuFallbackGroupedTop,
-    activeContextMenuMessage,
-    activeContextMenuMessageId,
-    activeContextMenuPreviewLayout,
-    activeContextMenuReplyTarget,
-    layoutById,
-    messageById,
-    user?.id,
-  ])
 
   useEffect(() => {
     if (
