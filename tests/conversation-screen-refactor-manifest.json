@@ -1,0 +1,30 @@
+{
+  "requestAnimationFrameCalls": 12,
+  "socketEmits": {
+    "join_conversation": 1,
+    "mark_seen": 1,
+    "typing_start": 1,
+    "typing_stop": 4
+  },
+  "timeoutsMs": {
+    "100": 1,
+    "280": 1,
+    "320": 1,
+    "450": 1,
+    "500": 1,
+    "2000": 1
+  },
+  "storeMutations": {
+    "clearConversationInlinePlayback": 2,
+    "confirmMessage": 1,
+    "dequeueOfflineMessage": 1,
+    "resetConversationUi": 1,
+    "setReplyToMessage": 2
+  },
+  "queryOperations": {
+    "queryClient.cancelQueries": 1,
+    "refreshLatestMessagesPageFromLocalStore": 1,
+    "syncLatestMessagesToLocalStore": 1,
+    "trimMessagesCache": 1
+  }
+}

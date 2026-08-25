@@ -8,6 +8,10 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'u
 
 const conversationsScreen = read('app/(tabs)/index.tsx')
 const chatScreen = read('app/conversation/[id].tsx')
+const conversationHeader = read('src/components/chat/conversation/ConversationHeader.tsx')
+const conversationPresentationPolicies = read(
+  'src/lib/conversation/conversationPresentationPolicies.ts',
+)
 const newGroupScreen = read('app/conversation/new-group.tsx')
 const groupInfoScreen = read('app/conversation/[id]/info.tsx')
 const messageBubble = read('src/components/chat/MessageBubbleImpl.tsx')
@@ -23,33 +27,41 @@ test('Messages exposes a dedicated new-group route without changing friendship s
 
 test('group header resolves real typers and opens group info while calls stay direct-only', () => {
   assert.match(chatScreen, /const groupTypingLabel = useMemo/)
-  assert.match(chatScreen, /participant\?\.fullName/)
+  assert.match(conversationPresentationPolicies, /participant\?\.fullName/)
   assert.match(chatScreen, /pathname:\s*'\/conversation\/\[id\]\/info'/)
-  assert.match(chatScreen, /!currentConversation\?\.isGroup && otherUserId/)
-  assert.match(chatScreen, /currentConversation\.participantIds\.length/)
+  assert.match(
+    chatScreen,
+    /showCallActions=\{!currentConversation\?\.isGroup && Boolean\(otherUserId\)\}/,
+  )
+  assert.match(
+    chatScreen,
+    /participantCount=\{currentConversation\?\.participantIds\.length \?\? 0\}/,
+  )
+  assert.match(conversationHeader, /showCallActions \? \(/)
+  assert.match(conversationHeader, /participantCount === 1 \? '' : 's'/)
 })
 
 test('group receipt avatars follow each participant newest activity or read frontier', () => {
   assert.match(
-    chatScreen,
-    /const groupParticipants = \(currentConversation\.participants \?\? \[\]\)/,
+    conversationPresentationPolicies,
+    /const groupParticipants = \(conversation\.participants \?\? \[\]\)/,
   )
-  assert.match(chatScreen, /const newestReadMessage =/)
+  assert.match(conversationPresentationPolicies, /const newestReadMessage =/)
   assert.match(
-    chatScreen,
+    conversationPresentationPolicies,
     /Array\.isArray\(message\.readBy\)[\s\S]*message\.readBy\.some\(\(entry\) => entry\.userId === participant\.id\)/,
   )
   assert.doesNotMatch(
-    chatScreen,
+    conversationPresentationPolicies,
     /message\.senderId !== user\.id \|\| !Array\.isArray\(message\.readBy\)/,
   )
   assert.match(
-    chatScreen,
+    conversationPresentationPolicies,
     /orderedMessages\.find\(\(message\) => message\.senderId === participant\.id\)/,
   )
-  assert.match(chatScreen, /shouldAnchorToParticipantActivity/)
+  assert.match(conversationPresentationPolicies, /shouldAnchorToParticipantActivity/)
   assert.match(
-    chatScreen,
+    conversationPresentationPolicies,
     /readReceiptMap\.set\(receiptIdentityKey, \[\.\.\.existingParticipants, participant\]\)/,
   )
   assert.match(messageBubble, /visibleReceiptParticipants = readReceiptParticipants\.slice\(0, 3\)/)
@@ -106,10 +118,7 @@ test('group member roster falls back to conversation participants when v2 projec
   assert.match(conversationApi, /conversation\.participantIds\.map/)
   assert.match(conversationApi, /userId === conversation\.creatorId \? 'OWNER' : 'MEMBER'/)
   assert.match(conversationApi, /Group V2 member projection unavailable; using roster fallback/)
-  assert.match(
-    conversationApi,
-    /apiClient\.get<Conversation>\(`\/conversations\/\$\{id\}`\)/,
-  )
+  assert.match(conversationApi, /apiClient\.get<Conversation>\(`\/conversations\/\$\{id\}`\)/)
 })
 
 test('group ownership transfer uses the dedicated owner endpoint', () => {

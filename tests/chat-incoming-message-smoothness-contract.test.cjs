@@ -4,7 +4,10 @@ const path = require('node:path')
 const test = require('node:test')
 
 const socketProviderPath = path.resolve(__dirname, '../src/providers/SocketProvider.tsx')
-const chatScreenPath = path.resolve(__dirname, '../app/conversation/[id].tsx')
+const timelineControllerPath = path.resolve(
+  __dirname,
+  '../src/hooks/conversation/useConversationTimelineController.ts',
+)
 
 const readSource = (filename) => fs.readFileSync(filename, 'utf8')
 
@@ -41,10 +44,10 @@ test('new_message upserts the latest query once and only reconciles anchored cac
 })
 
 test('normal newest-message bottom follow does not wait two animation frames', () => {
-  const source = readSource(chatScreenPath)
+  const source = readSource(timelineControllerPath)
   const block = getBlock(
     source,
-    "if (newestMessageId && newestMessageId !== prevNewestMessageId.current)",
+    'if (newestMessageId && newestMessageId !== prevNewestMessageId.current)',
     'prevNewestMessageId.current = newestMessageId',
   )
 

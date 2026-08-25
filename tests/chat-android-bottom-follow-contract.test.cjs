@@ -4,9 +4,19 @@ const path = require('node:path')
 const test = require('node:test')
 
 const chatScreenPath = path.resolve(__dirname, '../app/conversation/[id].tsx')
+const timelineControllerPath = path.resolve(
+  __dirname,
+  '../src/hooks/conversation/useConversationTimelineController.ts',
+)
+const composerRuntimePath = path.resolve(
+  __dirname,
+  '../src/hooks/conversation/useConversationComposerRuntime.ts',
+)
 const messagesHookPath = path.resolve(__dirname, '../src/hooks/useMessages.ts')
 const socketProviderPath = path.resolve(__dirname, '../src/providers/SocketProvider.tsx')
 const readSource = () => fs.readFileSync(chatScreenPath, 'utf8')
+const readTimelineController = () => fs.readFileSync(timelineControllerPath, 'utf8')
+const readComposerRuntime = () => fs.readFileSync(composerRuntimePath, 'utf8')
 
 const getBlock = (source, startMarker, endMarker) => {
   const start = source.indexOf(startMarker)
@@ -19,11 +29,11 @@ const getBlock = (source, startMarker, endMarker) => {
 }
 
 test('newest-message bottom follow defers exactly one frame on Android and stays immediate on iOS', () => {
-  const source = readSource()
+  const source = readTimelineController()
   const helper = getBlock(
     source,
     'const scrollToBottomForNewestMessage = useCallback',
-    'const handleComposerFocusChange',
+    'const loadOlderMessages',
   )
 
   assert.match(helper, /Platform\.OS === 'android'/)
@@ -42,22 +52,28 @@ test('Android disables FlashList automatic visible-position retention so manual 
 })
 
 test('text send arms the own-message scroll transaction before optimistic mutation', () => {
-  const source = readSource()
+  const source = readComposerRuntime()
   const sendBlock = getBlock(
     source,
     'const handleSendText = useCallback',
     'const handleSendSuggestedQuery',
   )
-  const scrollIntentIndex = sendBlock.indexOf("pendingOwnSendBottomScrollRef.current = 'animated'")
+  const prepareBlock = getBlock(
+    readTimelineController(),
+    'const prepareOwnSendBottomFollow = useCallback',
+    'const cancelOwnSendBottomFollow',
+  )
+  const prepareIndex = sendBlock.indexOf('prepareOwnSendBottomFollow()')
   const sendMutationIndex = sendBlock.indexOf('sendMessage({')
 
-  assert.notEqual(scrollIntentIndex, -1)
+  assert.notEqual(prepareIndex, -1)
   assert.notEqual(sendMutationIndex, -1)
-  assert.ok(scrollIntentIndex < sendMutationIndex)
+  assert.ok(prepareIndex < sendMutationIndex)
+  assert.match(prepareBlock, /pendingOwnSendBottomScrollRef\.current = 'animated'/)
 })
 
 test('both optimistic outgoing and incoming newest-message paths use the platform-aware follow helper', () => {
-  const source = readSource()
+  const source = readTimelineController()
   const effect = getBlock(
     source,
     'if (newestMessageId && newestMessageId !== prevNewestMessageId.current)',
