@@ -70,11 +70,17 @@ test('active call screen renders RTC video and both conversion directions', () =
 })
 
 test('conversation video entry point remains direct-chat only', () => {
-  const source = read('app/conversation/[id].tsx')
-  assert.match(source, /const \{ startVideoCall, startVoiceCall \} = useCall\(\)/)
-  assert.match(source, /const handleStartVideoCall =/)
-  assert.match(source, /!currentConversation\?\.isGroup && otherUserId/)
-  assert.match(source, /name="videocam"/)
+  const screen = read('app/conversation/[id].tsx')
+  const header = read('src/components/chat/conversation/ConversationHeader.tsx')
+  assert.match(screen, /const \{ startVideoCall, startVoiceCall \} = useCall\(\)/)
+  assert.match(screen, /const handleStartVideoCall =/)
+  assert.match(
+    screen,
+    /showCallActions=\{!currentConversation\?\.isGroup && Boolean\(otherUserId\)\}/,
+  )
+  assert.match(header, /showCallActions \? \(/)
+  assert.match(header, /onPress=\{onStartVideoCall\}/)
+  assert.match(header, /name="videocam"/)
 })
 
 test('native call surfaces preserve and validate VIDEO callType', () => {

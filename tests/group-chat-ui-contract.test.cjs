@@ -8,6 +8,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'u
 
 const conversationsScreen = read('app/(tabs)/index.tsx')
 const chatScreen = read('app/conversation/[id].tsx')
+const conversationHeader = read('src/components/chat/conversation/ConversationHeader.tsx')
 const conversationPresentationPolicies = read(
   'src/lib/conversation/conversationPresentationPolicies.ts',
 )
@@ -28,8 +29,16 @@ test('group header resolves real typers and opens group info while calls stay di
   assert.match(chatScreen, /const groupTypingLabel = useMemo/)
   assert.match(conversationPresentationPolicies, /participant\?\.fullName/)
   assert.match(chatScreen, /pathname:\s*'\/conversation\/\[id\]\/info'/)
-  assert.match(chatScreen, /!currentConversation\?\.isGroup && otherUserId/)
-  assert.match(chatScreen, /currentConversation\.participantIds\.length/)
+  assert.match(
+    chatScreen,
+    /showCallActions=\{!currentConversation\?\.isGroup && Boolean\(otherUserId\)\}/,
+  )
+  assert.match(
+    chatScreen,
+    /participantCount=\{currentConversation\?\.participantIds\.length \?\? 0\}/,
+  )
+  assert.match(conversationHeader, /showCallActions \? \(/)
+  assert.match(conversationHeader, /participantCount === 1 \? '' : 's'/)
 })
 
 test('group receipt avatars follow each participant newest activity or read frontier', () => {

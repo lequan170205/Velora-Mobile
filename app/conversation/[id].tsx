@@ -4,16 +4,14 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
-  Image,
   InteractionManager,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Platform,
-  Text,
   TouchableOpacity,
   useColorScheme,
   View,
@@ -24,17 +22,11 @@ import {
   useReanimatedKeyboardAnimation,
 } from 'react-native-keyboard-controller'
 import Animated, {
-  FadeIn,
-  FadeOut,
-  type SharedValue,
   Extrapolation,
   interpolate,
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
-  withDelay,
-  withRepeat,
-  withSequence,
   withTiming,
   withSpring,
 } from 'react-native-reanimated'
@@ -44,10 +36,12 @@ import {
   type ChatMediaGalleryItem,
   type ChatMediaViewerOpenPayload,
 } from '../../src/components/chat/ChatMediaViewer'
+import { ConversationHeader } from '../../src/components/chat/conversation/ConversationHeader'
 import {
-  MessageBubble,
-  type MessageBubbleContextMenuPayload,
-} from '../../src/components/chat/MessageBubble'
+  ConversationMessageListLoadingState,
+  ConversationTypingIndicator,
+} from '../../src/components/chat/conversation/ConversationLoadingState'
+import { ConversationMessageRow } from '../../src/components/chat/conversation/ConversationMessageRow'
 import { MessageContextMenu } from '../../src/components/chat/MessageContextMenu'
 import { MessageInput, type MessageInputHandle } from '../../src/components/chat/MessageInput'
 import { queryKeys } from '../../src/constants/queryKeys'
@@ -99,6 +93,7 @@ import { useChatStore } from '../../src/stores/chatStore'
 import { useChatVideoPlaybackStore } from '../../src/stores/chatVideoPlaybackStore'
 import { useMessageListUiStore } from '../../src/stores/messageListUiStore'
 
+import type { MessageBubbleContextMenuPayload } from '../../src/components/chat/MessageBubble'
 import type { OptimisticSortAnchor } from '../../src/stores/chatStore'
 import type { ChatParticipant, Conversation, Message } from '../../src/types/conversation.types'
 import type { ImagePickerAsset } from 'expo-image-picker'
@@ -108,185 +103,6 @@ type ActiveContextMenuState = MessageBubbleContextMenuPayload
 const EMPTY_TYPERS: string[] = []
 const EMPTY_OPTIMISTIC_SORT_ANCHORS: Record<string, OptimisticSortAnchor> = {}
 const TIMESTAMP_REVEAL_MAX_OFFSET = 64
-
-const LoadingBubble = ({
-  align = 'left',
-  widthClassName,
-}: {
-  align?: 'left' | 'right'
-  widthClassName: string
-}) => {
-  const isRight = align === 'right'
-
-  return (
-    <View className={isRight ? 'items-end px-4 py-1.5' : 'flex-row items-end px-4 py-1.5'}>
-      {!isRight ? <View className="mr-2.5 h-8 w-8 rounded-full bg-surface-input" /> : null}
-
-      <View
-        className={`h-11 rounded-[18px] bg-surface-input ${widthClassName} ${isRight ? '' : ''}`}
-      />
-    </View>
-  )
-}
-
-const MessageListLoadingState = () => {
-  return (
-    <View className="pb-5 pt-4">
-      <LoadingBubble widthClassName="w-[58%]" />
-      <LoadingBubble align="right" widthClassName="w-[44%]" />
-      <LoadingBubble widthClassName="w-[66%]" />
-      <LoadingBubble align="right" widthClassName="w-[52%]" />
-    </View>
-  )
-}
-
-const Dot = ({ delay }: { delay: number }) => {
-  const translateY = useSharedValue(0)
-
-  useEffect(() => {
-    translateY.value = withDelay(
-      delay,
-      withRepeat(
-        withSequence(withTiming(-4, { duration: 300 }), withTiming(0, { duration: 300 })),
-        -1,
-        true,
-      ),
-    )
-  }, [delay, translateY])
-
-  const style = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
-  }))
-
-  return <Animated.View style={style} className="w-1 h-1 bg-text-muted rounded-full mx-[1px]" />
-}
-
-const TypingIndicator = ({ label }: { label: string }) => {
-  return (
-    <Animated.View
-      entering={FadeIn.duration(180)}
-      exiting={FadeOut.duration(120)}
-      className="mb-3 ml-4 mt-1 self-start"
-    >
-      <View className="flex-row items-end">
-        <Text className="mr-1 text-xs2 text-text-muted">{label}</Text>
-        <View className="flex-row items-end pb-[2px]">
-          <Dot delay={0} />
-          <Dot delay={150} />
-          <Dot delay={300} />
-        </View>
-      </View>
-    </Animated.View>
-  )
-}
-
-interface MessageRowProps {
-  message: Message
-  repliedMessage?: Message | null
-  layout: MessageLayout
-  isOwn: boolean
-  primaryStatusLabel: string | null
-  readReceiptParticipants: ChatParticipant[]
-  timestampRevealGesture?: ReturnType<typeof Gesture.Pan>
-  timestampRevealOffset: SharedValue<number>
-  timestampRevealProgress: SharedValue<number>
-  senderInfo?: ChatParticipant | Message['sender'] | null
-  conversationId: string
-  isContextMenuActive: boolean
-  onPressReplyPreview: (replyToId?: string) => void
-  onReply: (message: Message) => void
-  onSendSuggestedQuery: (query: string) => void
-  onOpenContextMenu: (payload: MessageBubbleContextMenuPayload) => void
-  onOpenMedia: (payload: ChatMediaViewerOpenPayload) => void
-}
-
-const MessageRow = memo(
-  function MessageRow({
-    message,
-    repliedMessage,
-    layout,
-    isOwn,
-    primaryStatusLabel,
-    readReceiptParticipants,
-    timestampRevealGesture,
-    timestampRevealOffset,
-    timestampRevealProgress,
-    senderInfo,
-    conversationId,
-    isContextMenuActive,
-    onPressReplyPreview,
-    onReply,
-    onSendSuggestedQuery,
-    onOpenContextMenu,
-    onOpenMedia,
-  }: MessageRowProps) {
-    const highlightToken = useMessageListUiStore(
-      useCallback(
-        (state) => state.conversations[conversationId]?.highlightTokens[message.id] ?? 0,
-        [conversationId, message.id],
-      ),
-    )
-
-    const handleReply = useCallback(() => {
-      onReply(message)
-    }, [message, onReply])
-
-    const handlePressReplyPreview = useCallback(() => {
-      onPressReplyPreview(message.replyToId ?? message.reply_to_id)
-    }, [message.replyToId, message.reply_to_id, onPressReplyPreview])
-
-    return (
-      <View>
-        {layout.showDateSeparator ? (
-          <View className="my-4 items-center">
-            <Text className="text-xs2 text-text-muted">{layout.separatorLabel}</Text>
-          </View>
-        ) : null}
-        <MessageBubble
-          message={message}
-          repliedMessage={repliedMessage ?? null}
-          timeLabel={layout.timeLabel}
-          primaryStatusLabel={primaryStatusLabel}
-          readReceiptParticipants={readReceiptParticipants}
-          timestampRevealGesture={timestampRevealGesture}
-          timestampRevealOffset={timestampRevealOffset}
-          timestampRevealProgress={timestampRevealProgress}
-          isOwn={isOwn}
-          showAvatar={layout.showAvatar}
-          senderInfo={senderInfo ?? null}
-          isGroupedTop={layout.isGroupedTop}
-          isGroupedBottom={layout.isGroupedBottom}
-          highlightToken={highlightToken}
-          isContextMenuActive={isContextMenuActive}
-          onPressReplyPreview={handlePressReplyPreview}
-          onReply={handleReply}
-          onSendSuggestedQuery={onSendSuggestedQuery}
-          onOpenContextMenu={onOpenContextMenu}
-          onOpenMedia={onOpenMedia}
-          conversationId={conversationId}
-        />
-      </View>
-    )
-  },
-  (prevProps, nextProps) =>
-    prevProps.message === nextProps.message &&
-    prevProps.repliedMessage === nextProps.repliedMessage &&
-    prevProps.layout === nextProps.layout &&
-    prevProps.isOwn === nextProps.isOwn &&
-    prevProps.primaryStatusLabel === nextProps.primaryStatusLabel &&
-    prevProps.readReceiptParticipants === nextProps.readReceiptParticipants &&
-    prevProps.timestampRevealGesture === nextProps.timestampRevealGesture &&
-    prevProps.timestampRevealOffset === nextProps.timestampRevealOffset &&
-    prevProps.timestampRevealProgress === nextProps.timestampRevealProgress &&
-    prevProps.senderInfo === nextProps.senderInfo &&
-    prevProps.conversationId === nextProps.conversationId &&
-    prevProps.isContextMenuActive === nextProps.isContextMenuActive &&
-    prevProps.onPressReplyPreview === nextProps.onPressReplyPreview &&
-    prevProps.onReply === nextProps.onReply &&
-    prevProps.onSendSuggestedQuery === nextProps.onSendSuggestedQuery &&
-    prevProps.onOpenContextMenu === nextProps.onOpenContextMenu &&
-    prevProps.onOpenMedia === nextProps.onOpenMedia,
-)
 
 type TimelineMode = 'latest' | 'anchor'
 type PendingOwnSendBottomScrollMode = 'none' | 'animated'
@@ -1683,7 +1499,7 @@ export default function ChatScreen() {
     return (
       <View>
         {shouldShowTypingIndicator ? (
-          <TypingIndicator label={groupTypingLabel ?? `${displayName} is typing`} />
+          <ConversationTypingIndicator label={groupTypingLabel ?? `${displayName} is typing`} />
         ) : null}
         <Animated.View style={listSpacerStyle} />
       </View>
@@ -1723,7 +1539,7 @@ export default function ChatScreen() {
         : EMPTY_READ_RECEIPT_PARTICIPANTS
 
       return (
-        <MessageRow
+        <ConversationMessageRow
           message={normalizedMessage}
           repliedMessage={repliedMessage}
           layout={layout}
@@ -1804,6 +1620,13 @@ export default function ChatScreen() {
     scrollToBottom()
   }, [returnToLatestTimeline, scrollToBottom, timelineMode])
 
+  const handleBack = useCallback(() => {
+    dismissComposer()
+    requestAnimationFrame(() => {
+      router.back()
+    })
+  }, [dismissComposer, router])
+
   if (isConversationRevoked) {
     return <View className="flex-1 bg-bg-primary" />
   }
@@ -1811,102 +1634,22 @@ export default function ChatScreen() {
   return (
     <View className="flex-1 bg-bg-primary" style={{ paddingTop: insets.top }}>
       <View className="flex-1 z-10">
-        <View className="border-b border-border-light bg-bg-primary px-4 pb-3 pt-2 z-10">
-          <View className="flex-row items-center">
-            <TouchableOpacity
-              onPress={() => {
-                dismissComposer()
-
-                requestAnimationFrame(() => {
-                  router.back()
-                })
-              }}
-              className="h-11 w-11 items-center justify-center"
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <MaterialIcons name="chevron-left" size={24} color="#161616" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              className="ml-1.5 flex-1 flex-row items-center"
-              disabled={!currentConversation?.isGroup}
-              onPress={handleOpenGroupInfo}
-              activeOpacity={currentConversation?.isGroup ? 0.72 : 1}
-              accessibilityRole={currentConversation?.isGroup ? 'button' : undefined}
-              accessibilityLabel={currentConversation?.isGroup ? 'Open group info' : undefined}
-            >
-              <View className="relative">
-                {avatarUrl ? (
-                  <Image source={{ uri: avatarUrl }} className="h-11 w-11 rounded-full" />
-                ) : (
-                  <View className="h-11 w-11 items-center justify-center rounded-full bg-surface-input">
-                    <Text className="text-sm2 font-medium text-text-primary">
-                      {displayName.charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
-                )}
-
-                {!currentConversation?.isGroup && isOnline ? (
-                  <View className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-bg-primary bg-status-online" />
-                ) : null}
-              </View>
-
-              <View className="ml-3 flex-1 pr-4">
-                <Text className="font-semibold text-md text-text-primary" numberOfLines={1}>
-                  {displayName}
-                </Text>
-                {!currentConversation?.isGroup ? (
-                  <Text className="mt-0.5 text-xs2 text-text-muted" numberOfLines={1}>
-                    {presenceLabel}
-                  </Text>
-                ) : (
-                  <Text className="mt-0.5 text-xs2 text-text-muted" numberOfLines={1}>
-                    {groupTypingLabel ??
-                      `${currentConversation.participantIds.length} member${
-                        currentConversation.participantIds.length === 1 ? '' : 's'
-                      }`}
-                  </Text>
-                )}
-              </View>
-            </TouchableOpacity>
-
-            {!currentConversation?.isGroup && otherUserId ? (
-              <View className="flex-row gap-2">
-                <TouchableOpacity
-                  onPress={handleStartVideoCall}
-                  className="h-11 w-11 items-center justify-center rounded-full bg-surface-input"
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Video call ${displayName}`}
-                >
-                  <MaterialIcons name="videocam" size={22} color="#161616" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={handleStartVoiceCall}
-                  className="h-11 w-11 items-center justify-center rounded-full bg-surface-input"
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Call ${displayName}`}
-                >
-                  <MaterialIcons name="call" size={22} color="#161616" />
-                </TouchableOpacity>
-              </View>
-            ) : null}
-          </View>
-
-          {!isConnected ? (
-            <View className="mt-3 rounded-[20px] border border-border-light bg-surface-accent px-4 py-3">
-              <Text className="text-xs2 uppercase tracking-[1.1px] text-brand">
-                Connection status
-              </Text>
-              <Text className="mt-1 text-sm2 leading-5 text-text-primary">
-                {queuedMessageCount > 0
-                  ? `${queuedMessageCount} message${queuedMessageCount > 1 ? 's are' : ' is'} waiting to send when chat reconnects.`
-                  : 'Chat is reconnecting. New messages will wait and send automatically.'}
-              </Text>
-            </View>
-          ) : null}
-        </View>
+        <ConversationHeader
+          {...(avatarUrl ? { avatarUrl } : {})}
+          displayName={displayName}
+          groupTypingLabel={groupTypingLabel}
+          isConnected={isConnected}
+          isGroup={currentConversation?.isGroup === true}
+          isOnline={isOnline}
+          participantCount={currentConversation?.participantIds.length ?? 0}
+          presenceLabel={presenceLabel}
+          queuedMessageCount={queuedMessageCount}
+          showCallActions={!currentConversation?.isGroup && Boolean(otherUserId)}
+          onBack={handleBack}
+          onOpenGroupInfo={handleOpenGroupInfo}
+          onStartVideoCall={handleStartVideoCall}
+          onStartVoiceCall={handleStartVoiceCall}
+        />
 
         <View
           style={{ flex: 1, overflow: 'hidden', backgroundColor: 'transparent' }}
@@ -1992,7 +1735,7 @@ export default function ChatScreen() {
                     keyboardShouldPersistTaps="handled"
                     ListHeaderComponent={renderListHeader}
                     ListEmptyComponent={
-                      isInitialMessagesLoading ? <MessageListLoadingState /> : null
+                      isInitialMessagesLoading ? <ConversationMessageListLoadingState /> : null
                     }
                     showsVerticalScrollIndicator={false}
                     removeClippedSubviews={false}
