@@ -8,10 +8,15 @@ const timelineControllerPath = path.resolve(
   __dirname,
   '../src/hooks/conversation/useConversationTimelineController.ts',
 )
+const composerRuntimePath = path.resolve(
+  __dirname,
+  '../src/hooks/conversation/useConversationComposerRuntime.ts',
+)
 const messagesHookPath = path.resolve(__dirname, '../src/hooks/useMessages.ts')
 const socketProviderPath = path.resolve(__dirname, '../src/providers/SocketProvider.tsx')
 const readSource = () => fs.readFileSync(chatScreenPath, 'utf8')
 const readTimelineController = () => fs.readFileSync(timelineControllerPath, 'utf8')
+const readComposerRuntime = () => fs.readFileSync(composerRuntimePath, 'utf8')
 
 const getBlock = (source, startMarker, endMarker) => {
   const start = source.indexOf(startMarker)
@@ -47,7 +52,7 @@ test('Android disables FlashList automatic visible-position retention so manual 
 })
 
 test('text send arms the own-message scroll transaction before optimistic mutation', () => {
-  const source = readSource()
+  const source = readComposerRuntime()
   const sendBlock = getBlock(
     source,
     'const handleSendText = useCallback',

@@ -199,6 +199,15 @@ export const useConversationTimelineController = ({
     [timestampRevealOffset],
   )
 
+  const resetTimestampRevealForReply = useCallback(() => {
+    timestampRevealOffset.value = withSpring(0, {
+      mass: 0.65,
+      damping: 27,
+      stiffness: 310,
+      overshootClamping: true,
+    })
+  }, [timestampRevealOffset])
+
   useEffect(() => {
     return () => {
       if (replyHighlightTimeoutRef.current) clearTimeout(replyHighlightTimeoutRef.current)
@@ -759,6 +768,7 @@ export const useConversationTimelineController = ({
     orderedMessages,
     prepareOwnSendBottomFollow,
     registerPendingOwnMediaBatchScrollTransaction,
+    resetTimestampRevealForReply,
     scrollButtonStyle,
     timelineMode,
     timestampRevealGesture,

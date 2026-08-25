@@ -351,7 +351,7 @@ test('typing emits and cleanup preserve the two-second debounce', () => {
   )
   const cleanupBlock = findBlock(
     'if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)',
-    'useConversationTimelineController({',
+    'const handleSendMedia = useCallback',
   )
 
   assertOrdered(
@@ -368,6 +368,35 @@ test('typing emits and cleanup preserve the two-second debounce', () => {
   )
   assert.match(sendBlock, /socket\?\.emit\('typing_stop'/)
   assert.match(cleanupBlock, /socket\.emit\('typing_stop'/)
+})
+
+test('composer publishes timeline actions synchronously without changing cleanup order', () => {
+  const screen = sources().find(
+    ({ relativePath }) => relativePath === 'app/conversation/[id].tsx',
+  )?.source
+
+  assert.ok(screen)
+  assertOrdered(
+    screen,
+    [
+      '} = useConversationComposerRuntime({',
+      '} = useConversationTimelineController({',
+      'composerTimelineActionsRef.current = {',
+      'cancelOwnSendBottomFollow,',
+      'prepareOwnSendBottomFollow,',
+      'registerPendingOwnMediaBatchScrollTransaction,',
+      'resetTimestampRevealForReply,',
+      'useConversationSessionRuntime({',
+    ],
+    'composer timeline bridge',
+  )
+
+  const composer = sources().find(({ relativePath }) =>
+    relativePath.endsWith('useConversationComposerRuntime.ts'),
+  )?.source
+  assert.ok(composer)
+  assert.match(composer, /const requireTimelineActions =/)
+  assert.doesNotMatch(composer, /if \(!timeline\) return/)
 })
 
 test('keyboard and context-menu ordering preserves focus and layout space', () => {
@@ -456,7 +485,7 @@ test('conversation change and unmount cleanup retain every owned resource action
   )
   const unmountBlock = findBlock(
     'if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)',
-    'useConversationTimelineController({',
+    'const handleSendMedia = useCallback',
   )
   const timelineUnmountBlock = findBlock(
     'if (replyHighlightTimeoutRef.current) clearTimeout(replyHighlightTimeoutRef.current)',
@@ -517,9 +546,7 @@ test('conversation change and unmount cleanup retain every owned resource action
     ({ relativePath }) => relativePath === 'app/conversation/[id].tsx',
   )?.source
   assert.ok(screen)
-  const composerCleanupRegistration = screen.indexOf(
-    'if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)',
-  )
+  const composerCleanupRegistration = screen.indexOf('} = useConversationComposerRuntime({')
   const timelineRegistration = screen.indexOf('useConversationTimelineController({')
   const sessionRegistration = screen.indexOf('useConversationSessionRuntime({')
   assert.ok(

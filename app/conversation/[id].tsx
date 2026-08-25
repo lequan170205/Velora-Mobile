@@ -1,7 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { FlashList, type ListRenderItemInfo } from '@shopify/flash-list'
 import { BlurView } from 'expo-blur'
-import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { ActivityIndicator, Platform, TouchableOpacity, useColorScheme, View } from 'react-native'
@@ -17,6 +16,10 @@ import {
 import { ConversationMessageRow } from '../../src/components/chat/conversation/ConversationMessageRow'
 import { MessageContextMenu } from '../../src/components/chat/MessageContextMenu'
 import { MessageInput } from '../../src/components/chat/MessageInput'
+import {
+  type ConversationComposerTimelineActions,
+  useConversationComposerRuntime,
+} from '../../src/hooks/conversation/useConversationComposerRuntime'
 import { useConversationContextMenuRuntime } from '../../src/hooks/conversation/useConversationContextMenuRuntime'
 import { useConversationKeyboardRuntime } from '../../src/hooks/conversation/useConversationKeyboardRuntime'
 import { useConversationMediaViewerRuntime } from '../../src/hooks/conversation/useConversationMediaViewerRuntime'
@@ -25,9 +28,6 @@ import { useConversationPresence } from '../../src/hooks/conversation/useConvers
 import { useConversationReceiptModel } from '../../src/hooks/conversation/useConversationReceiptModel'
 import { useConversationSessionRuntime } from '../../src/hooks/conversation/useConversationSessionRuntime'
 import { useConversationTimelineController } from '../../src/hooks/conversation/useConversationTimelineController'
-import { useChatMediaUploads } from '../../src/hooks/useChatMediaUploads'
-import { useRecallMessage } from '../../src/hooks/useMessageActions'
-import { useSendMessage } from '../../src/hooks/useMessages'
 import {
   backfillReplyPreviewFromResolvedTarget,
   getConversationMessageItemType,
@@ -45,7 +45,6 @@ import { useAuthStore } from '../../src/stores/authStore'
 import { useChatStore } from '../../src/stores/chatStore'
 
 import type { Message } from '../../src/types/conversation.types'
-import type { ImagePickerAsset } from 'expo-image-picker'
 
 const EMPTY_TYPERS: string[] = []
 
@@ -63,8 +62,6 @@ export default function ChatScreen() {
   const isConversationRevoked = useChatStore(
     useCallback((state) => state.revokedConversationIds.has(conversationId), [conversationId]),
   )
-  const replyToMessage = useChatStore((state) => state.replyToMessage)
-  const setReplyToMessage = useChatStore((state) => state.setReplyToMessage)
   const queuedMessageCount = useChatStore(
     useCallback(
       (state) =>
@@ -87,9 +84,6 @@ export default function ChatScreen() {
 
   const { socket, isConnected, requestPresence } = useSocket()
 
-  const { mutate: sendMessage } = useSendMessage(conversationId)
-  const { enqueueMediaAssets } = useChatMediaUploads(conversationId)
-  const { mutate: recallMessage } = useRecallMessage(conversationId)
   const {
     dismissComposer,
     dismissKeyboardForContextMenu,
@@ -103,14 +97,22 @@ export default function ChatScreen() {
     resetConversationKeyboard,
     restoreComposerAfterContextMenu,
   } = useConversationKeyboardRuntime({ bottomInset: insets.bottom })
-  const typingTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
-
-  useEffect(() => {
-    return () => {
-      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
-      if (socket?.connected) socket.emit('typing_stop', conversationId)
-    }
-  }, [conversationId, socket])
+  const composerTimelineActionsRef = useRef<ConversationComposerTimelineActions | null>(null)
+  const {
+    handleCancelReply,
+    handleRecall,
+    handleReply,
+    handleSendMedia,
+    handleSendSuggestedQuery,
+    handleSendText,
+    handleTyping,
+    replyToMessage,
+  } = useConversationComposerRuntime({
+    conversationId,
+    messageInputRef,
+    socket,
+    timelineActionsRef: composerTimelineActionsRef,
+  })
   const {
     cancelOwnSendBottomFollow,
     currentIsFetchingOlder,
@@ -132,6 +134,7 @@ export default function ChatScreen() {
     orderedMessages,
     prepareOwnSendBottomFollow,
     registerPendingOwnMediaBatchScrollTransaction,
+    resetTimestampRevealForReply,
     scrollButtonStyle,
     timelineMode,
     timestampRevealGesture,
@@ -145,6 +148,12 @@ export default function ChatScreen() {
     resetConversationKeyboard,
     socket,
   })
+  composerTimelineActionsRef.current = {
+    cancelOwnSendBottomFollow,
+    prepareOwnSendBottomFollow,
+    registerPendingOwnMediaBatchScrollTransaction,
+    resetTimestampRevealForReply,
+  }
   const { transitionDone } = useConversationSessionRuntime({
     conversation: currentConversation ?? null,
     conversationId,
@@ -265,107 +274,6 @@ export default function ChatScreen() {
     transitionDone,
   })
 
-  const handleSendMedia = useCallback(
-    async (assets: ImagePickerAsset[]) => {
-      prepareOwnSendBottomFollow()
-
-      const queuedMediaBatch = await enqueueMediaAssets(assets, {
-        onWillCommitBatch: registerPendingOwnMediaBatchScrollTransaction,
-      })
-
-      if (!queuedMediaBatch) {
-        cancelOwnSendBottomFollow()
-      }
-    },
-    [
-      cancelOwnSendBottomFollow,
-      enqueueMediaAssets,
-      prepareOwnSendBottomFollow,
-      registerPendingOwnMediaBatchScrollTransaction,
-    ],
-  )
-
-  const handleTyping = useCallback(
-    (text: string) => {
-      if (!socket?.connected) return
-
-      if (!text.trim()) {
-        if (typingTimeoutRef.current) {
-          clearTimeout(typingTimeoutRef.current)
-          typingTimeoutRef.current = null
-        }
-        socket.emit('typing_stop', conversationId)
-        return
-      }
-
-      socket.emit('typing_start', conversationId)
-
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current)
-      }
-
-      typingTimeoutRef.current = setTimeout(() => {
-        socket.emit('typing_stop', conversationId)
-        typingTimeoutRef.current = null
-      }, 2000)
-    },
-    [socket, conversationId],
-  )
-
-  const handleReply = useCallback(
-    (message: Message) => {
-      setReplyToMessage(message)
-      timestampRevealOffset.value = withSpring(0, {
-        mass: 0.65,
-        damping: 27,
-        stiffness: 310,
-        overshootClamping: true,
-      })
-
-      requestAnimationFrame(() => {
-        messageInputRef.current?.focus()
-      })
-    },
-    [messageInputRef, setReplyToMessage, timestampRevealOffset],
-  )
-
-  const handleCancelReply = useCallback(() => {
-    setReplyToMessage(null)
-  }, [setReplyToMessage])
-
-  const handleSendText = useCallback(
-    (text: string, replyTo?: Message | null) => {
-      prepareOwnSendBottomFollow()
-
-      sendMessage({
-        content: text,
-        ...(replyTo?.id ? { replyToId: replyTo.id } : {}),
-        ...(replyTo ? { replyToMessage: replyTo } : {}),
-      })
-
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current)
-        typingTimeoutRef.current = null
-      }
-      socket?.emit('typing_stop', conversationId)
-    },
-    [conversationId, prepareOwnSendBottomFollow, sendMessage, socket],
-  )
-
-  const handleSendSuggestedQuery = useCallback(
-    (query: string) => {
-      handleSendText(query)
-    },
-    [handleSendText],
-  )
-
-  const handleRecall = useCallback(
-    (messageId: string) => {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
-      recallMessage(messageId)
-    },
-    [recallMessage],
-  )
   const renderListHeader = useCallback(() => {
     return (
       <View>
