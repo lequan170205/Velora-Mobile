@@ -30,27 +30,33 @@ test('CallProvider starts video with preview and keeps same call session for typ
 })
 
 test('camera off/on is signaled without replacing the video producer', () => {
-  const source = read('src/providers/CallProvider.tsx')
-  assert.match(source, /const emitLocalVideoState = useCallback/)
-  assert.match(source, /socket\.emit\('set_video_enabled'/)
-  assert.match(source, /emitLocalVideoState\(false\)/)
-  assert.match(source, /emitLocalVideoState\(true\)/)
-  assert.match(source, /socket\.on\('video_state_changed', handleVideoStateChanged\)/)
-  assert.match(source, /remoteVideoEnabledByProducerRef/)
-  assert.match(source, /remoteVideoState: videoEnabled \? 'connected' : 'off'/)
+  const localMedia = read('src/lib/call/useCallLocalMediaRuntime.ts')
+  const mediaTransport = read('src/lib/call/useCallMediaTransportRuntime.ts')
+  const provider = read('src/providers/CallProvider.tsx')
+  assert.match(localMedia, /const emitLocalVideoState = useCallback/)
+  assert.match(localMedia, /socket\.emit\('set_video_enabled'/)
+  assert.match(localMedia, /emitLocalVideoState\(false\)/)
+  assert.match(localMedia, /emitLocalVideoState\(true\)/)
+  assert.match(provider, /socket\.on\('video_state_changed', handleVideoStateChanged\)/)
+  assert.match(provider, /remoteVideoEnabledByProducerRef/)
+  assert.match(mediaTransport, /remoteVideoState: videoEnabled \? 'connected' : 'off'/)
 })
 
 test('native VIDEO answer survives background recovery without silently downgrading', () => {
   const source = read('src/providers/CallProvider.tsx')
+  const mediaTransport = read('src/lib/call/useCallMediaTransportRuntime.ts')
   assert.doesNotMatch(
     source,
     /callState\.callType === 'VIDEO'[\s\S]{0,220}dismissIncomingCall\(action\.callId\)/,
   )
   assert.match(
-    source,
+    mediaTransport,
     /const shouldDeferLocalVideo =[\s\S]*callType === 'VIDEO' && AppState\.currentState !== 'active'/,
   )
-  assert.match(source, /cameraEnabled:[\s\S]*Boolean\(localVideoTrack\) \|\| shouldDeferLocalVideo/)
+  assert.match(
+    mediaTransport,
+    /cameraEnabled:[\s\S]*Boolean\(localVideoTrack\) \|\| shouldDeferLocalVideo/,
+  )
   assert.match(source, /activateLocalVideo\(\{ requestPermission: false \}\)/)
 })
 
@@ -108,14 +114,15 @@ test('native incoming VIDEO is accepted on both platforms', () => {
 
 test('VIDEO defaults to speaker without overriding external audio routes', () => {
   const source = read('src/providers/CallProvider.tsx')
-  assert.match(source, /const shouldDefaultVideoToSpeaker =/)
-  assert.match(source, /Bluetooth\|Headphones\|Headset\|AirPlay\|CarAudio\|USB\|LineOut\|Wired/)
+  const policies = read('src/lib/call/callPolicies.ts')
+  assert.match(policies, /const shouldDefaultVideoToSpeaker =/)
+  assert.match(policies, /Bluetooth\|Headphones\|Headset\|AirPlay\|CarAudio\|USB\|LineOut\|Wired/)
   assert.match(source, /enableDefaultVideoSpeaker\(audioSessionConfiguration\)/)
   assert.match(source, /enableDefaultVideoSpeaker\(nativeAudioSessionState\)/)
 })
 
 test('background VIDEO camera deferral is applied exactly once', () => {
-  const source = read('src/providers/CallProvider.tsx')
+  const source = read('src/lib/call/useCallMediaTransportRuntime.ts')
   const matches =
     source.match(
       /if \(shouldDeferLocalVideo\) \{\s*cameraPausedByBackgroundRef\.current = true\s*\}/g,
@@ -161,7 +168,7 @@ test('peer video upgrade never turns on the local camera automatically', () => {
 })
 
 test('camera flip prefers constraints with a legacy WebRTC fallback', () => {
-  const source = read('src/providers/CallProvider.tsx')
+  const source = read('src/lib/call/useCallLocalMediaRuntime.ts')
   assert.match(source, /track\.applyConstraints\(\{ facingMode: nextFacing \}\)/)
   assert.match(source, /track\._switchCamera\(\)/)
 })

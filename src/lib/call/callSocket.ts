@@ -4,8 +4,19 @@ import { authApi } from '../../api/auth.api'
 
 import type { CallClientEvents, CallServerEvents, CallSocket } from '../../types/call.types'
 
-type EventCleanup = () => void
+type EventCleanup = (error?: Error) => void
 export type CallWaitRegistry = Set<EventCleanup>
+
+export class CallWaitCancelledError extends Error {
+  constructor() {
+    super('Call socket wait was cancelled')
+    this.name = 'CallWaitCancelledError'
+  }
+}
+
+export const isCallWaitCancelledError = (error: unknown) =>
+  error instanceof CallWaitCancelledError ||
+  (error instanceof Error && error.name === 'CallWaitCancelledError')
 
 interface WaitForEventOptions<TPayload> {
   timeoutMs: number
@@ -51,7 +62,7 @@ export const authenticateCallSocket = async (socket: CallSocket) => {
 
 export const clearWaitRegistry = (registry: CallWaitRegistry) => {
   for (const cleanup of [...registry]) {
-    cleanup()
+    cleanup(new CallWaitCancelledError())
   }
 }
 
@@ -61,37 +72,57 @@ export const waitForEvent = <TEvent extends keyof CallServerEvents>(
   options: WaitForEventOptions<Parameters<CallServerEvents[TEvent]>[0]>,
 ) => {
   return new Promise<Parameters<CallServerEvents[TEvent]>[0]>((resolve, reject) => {
-    const listener = (payload: Parameters<CallServerEvents[TEvent]>[0]) => {
-      if (options.filter && !options.filter(payload)) {
-        return
-      }
-
-      cleanup()
-      resolve(payload)
-    }
-
-    const exceptionListener = (payload: Parameters<CallServerEvents['exception']>[0]) => {
-      cleanup()
-      reject(
-        new Error(payload.message || `Call socket exception while waiting for ${String(event)}`),
-      )
-    }
-
-    const timeoutId = setTimeout(() => {
-      cleanup()
-      reject(new Error(`Timed out waiting for ${String(event)}`))
-    }, options.timeoutMs)
-
-    const cleanup = () => {
+    let settled = false
+    const cleanupResources = () => {
       clearTimeout(timeoutId)
       socket.off(event, listener as never)
       if (options.rejectOnException) {
         socket.off('exception', exceptionListener as never)
       }
-      options.registry.delete(cleanup)
+      options.registry.delete(cancel)
+    }
+    const settle = (
+      result:
+        | { status: 'resolved'; payload: Parameters<CallServerEvents[TEvent]>[0] }
+        | { status: 'rejected'; error: Error },
+    ) => {
+      if (settled) return
+      settled = true
+      cleanupResources()
+      if (result.status === 'resolved') {
+        resolve(result.payload)
+      } else {
+        reject(result.error)
+      }
+    }
+    const cancel = (error = new CallWaitCancelledError()) => {
+      settle({ status: 'rejected', error })
+    }
+    const listener = (payload: Parameters<CallServerEvents[TEvent]>[0]) => {
+      if (options.filter && !options.filter(payload)) {
+        return
+      }
+
+      settle({ status: 'resolved', payload })
     }
 
-    options.registry.add(cleanup)
+    const exceptionListener = (payload: Parameters<CallServerEvents['exception']>[0]) => {
+      settle({
+        status: 'rejected',
+        error: new Error(
+          payload.message || `Call socket exception while waiting for ${String(event)}`,
+        ),
+      })
+    }
+
+    const timeoutId = setTimeout(() => {
+      settle({
+        status: 'rejected',
+        error: new Error(`Timed out waiting for ${String(event)}`),
+      })
+    }, options.timeoutMs)
+
+    options.registry.add(cancel)
     socket.on(event, listener as never)
     if (options.rejectOnException) {
       socket.on('exception', exceptionListener as never)
