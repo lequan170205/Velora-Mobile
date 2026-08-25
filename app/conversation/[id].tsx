@@ -61,13 +61,25 @@ import {
   useMessages,
   useSendMessage,
 } from '../../src/hooks/useMessages'
-import {
-  getMediaUploadStage,
-  getResolvedMediaPosterUri,
-  getResolvedMediaUri,
-  isRemoteMediaUri,
-} from '../../src/lib/chatMedia'
 import { saveChatMediaToLibrary } from '../../src/lib/chatMediaSave'
+import {
+  backfillReplyPreviewFromResolvedTarget,
+  EMPTY_CONVERSATION_MESSAGES as EMPTY_MESSAGES,
+  getClientMessageIdentity,
+  getConversationMessageItemType,
+  getConversationMessageKey,
+  getOrderDebugSample,
+  getRenderableOptimisticMessages,
+  isPersistedServerMessageId,
+} from '../../src/lib/conversation/conversationMessagePolicies'
+import {
+  buildConversationMediaGalleryItems,
+  buildConversationReceiptModel,
+  EMPTY_READ_RECEIPT_PARTICIPANTS,
+  getConversationHeaderIdentity,
+  getConversationMediaViewerItems,
+  getGroupTypingLabel,
+} from '../../src/lib/conversation/conversationPresentationPolicies'
 import {
   getMessageIdentityKey,
   mergeMessageCollectionByIdentity,
@@ -79,10 +91,6 @@ import {
   type MessageLayout,
 } from '../../src/lib/messageListState'
 import { formatLastSeenLabel } from '../../src/lib/presence'
-import {
-  buildReplyPreviewFromMessage,
-  normalizeReplyPreviewContent,
-} from '../../src/lib/replyPreview'
 import { useCall } from '../../src/providers/CallProvider'
 import { useChatMediaViewer } from '../../src/providers/ChatMediaViewerProvider'
 import { useSocket } from '../../src/providers/SocketProvider'
@@ -97,132 +105,9 @@ import type { ImagePickerAsset } from 'expo-image-picker'
 
 type ActiveContextMenuState = MessageBubbleContextMenuPayload
 
-const EMPTY_MESSAGES: Message[] = []
 const EMPTY_TYPERS: string[] = []
 const EMPTY_OPTIMISTIC_SORT_ANCHORS: Record<string, OptimisticSortAnchor> = {}
-const EMPTY_READ_RECEIPT_PARTICIPANTS: ChatParticipant[] = []
-const renderableOptimisticMessagesCache = new WeakMap<Message[], Message[]>()
-const ANCHOR_MEDIA_VIEWER_WINDOW_RADIUS = 4
 const TIMESTAMP_REVEAL_MAX_OFFSET = 64
-const GENERIC_REEL_REPLY_PREVIEW_CONTENT = new Set([
-  'Tin nhắn mới',
-  'Tin nhan moi',
-  'New message',
-  'new message',
-  '[Reel]',
-  'Reel',
-])
-const isPersistedServerMessageId = (messageId?: string | null) =>
-  Boolean(messageId && !messageId.startsWith('temp-'))
-const hasRecommendationMessageContent = (message: Message) =>
-  message.metadata?.kind === 'velora_ai_reel_recommendations' &&
-  ((message.metadata.recommendedReels?.length ?? 0) > 0 ||
-    (message.metadata.suggestedQueries?.length ?? 0) > 0)
-const getClientMessageIdentity = (message?: Message | null) => {
-  if (!message) {
-    return null
-  }
-
-  if (message.clientMessageId) {
-    return message.clientMessageId
-  }
-
-  if (message.id?.startsWith('temp-')) {
-    return message.id
-  }
-
-  if (message._id?.startsWith('temp-')) {
-    return message._id
-  }
-
-  return null
-}
-const getOrderDebugSample = (messages: Message[], replyTargetId?: string | null) => {
-  return messages.slice(0, 5).map((message, index) => ({
-    index,
-    id: message.id,
-    createdAt: message.createdAt,
-    clientMessageId: message.clientMessageId ?? null,
-    isReplyTarget: (replyTargetId ? message.id === replyTargetId : false) || false,
-  }))
-}
-
-const getRenderableOptimisticMessages = (messages?: Message[]) => {
-  if (!messages?.length) {
-    return EMPTY_MESSAGES
-  }
-
-  const cachedMessages = renderableOptimisticMessagesCache.get(messages)
-  if (cachedMessages) {
-    return cachedMessages
-  }
-
-  const hasConfirmedMessages = messages.some(
-    (message) => message.status !== 'FAILED' && !message.id.startsWith('temp-'),
-  )
-  const nextMessages = hasConfirmedMessages
-    ? messages.filter((message) => message.status === 'FAILED' || message.id.startsWith('temp-'))
-    : messages
-
-  renderableOptimisticMessagesCache.set(messages, nextMessages)
-  return nextMessages
-}
-
-const backfillReplyPreviewFromResolvedTarget = ({
-  conversation,
-  currentUserId,
-  message,
-  replyTo,
-}: {
-  conversation?: Conversation | null
-  currentUserId?: string | null
-  message: Message
-  replyTo?: Message | null
-}) => {
-  if (!replyTo) {
-    return message
-  }
-
-  const localReplyPreview = buildReplyPreviewFromMessage({
-    conversation: conversation ?? null,
-    currentUserId: currentUserId ?? null,
-    message: replyTo,
-  })
-
-  const shouldReplaceWithLocalReelPreview =
-    replyTo.type === 'reel' &&
-    localReplyPreview &&
-    (!message.replyPreview ||
-      typeof message.replyPreview === 'string' ||
-      message.replyPreview.type !== 'reel' ||
-      GENERIC_REEL_REPLY_PREVIEW_CONTENT.has(
-        normalizeReplyPreviewContent(message.replyPreview.content),
-      ))
-
-  if (shouldReplaceWithLocalReelPreview) {
-    return {
-      ...message,
-      replyPreview: localReplyPreview,
-    }
-  }
-
-  if (
-    !message.replyPreview ||
-    typeof message.replyPreview === 'string' ||
-    message.replyPreview.senderId ||
-    !replyTo.senderId
-  ) {
-    return message
-  }
-
-  return {
-    ...message,
-    replyPreview: {
-      ...message.replyPreview,
-      senderId: replyTo.senderId,
-    },
-  }
-}
 
 const LoadingBubble = ({
   align = 'left',
@@ -410,31 +295,6 @@ type PendingOwnMediaBatchScrollTransaction = {
   clientMessageIds: Set<string>
   pendingConfirmSuppressClientMessageIds: Set<string>
   initialScrollConsumed: boolean
-}
-
-const getPrimaryStatusLabel = ({
-  hasReadActivityAtOrBeyondMessage,
-  message,
-}: {
-  hasReadActivityAtOrBeyondMessage: boolean
-  message: Message
-}) => {
-  const normalizedStatus = String(message.status ?? '').toUpperCase()
-
-  if (normalizedStatus === 'FAILED') return 'Failed'
-
-  if (hasReadActivityAtOrBeyondMessage) return null
-
-  const isTempOptimistic =
-    normalizedStatus !== 'FAILED' &&
-    (Boolean(message.id?.startsWith('temp-')) || Boolean(message._id?.startsWith('temp-')))
-
-  if (normalizedStatus === 'PENDING' || isTempOptimistic) return 'Sending...'
-  if (normalizedStatus === 'READ') return null
-  if (normalizedStatus === 'SENT') return 'Sent'
-  if (normalizedStatus === 'DELIVERED') return 'Sent'
-
-  return 'Sent'
 }
 
 export default function ChatScreen() {
@@ -726,36 +586,7 @@ export default function ChatScreen() {
   }, [activeAnchorTargetId, anchorData?.messages, orderedMessages, serverMessages, timelineMode])
 
   const mediaGalleryItems = useMemo<ChatMediaGalleryItem[]>(() => {
-    return [...orderedMessages].reverse().flatMap((message) => {
-      if (
-        (message.type !== 'image' && message.type !== 'video') ||
-        message.isRecalled === true ||
-        message.is_recalled === true
-      ) {
-        return []
-      }
-
-      const uri = getResolvedMediaUri(message.media)
-      if (!uri) {
-        return []
-      }
-
-      const mediaStage = getMediaUploadStage(message.media)
-      const posterUri = getResolvedMediaPosterUri(message.media)
-      return [
-        {
-          id: getMessageIdentityKey(message) ?? message.id,
-          canSave:
-            (mediaStage === null || mediaStage === 'ready') &&
-            message.status !== 'PENDING' &&
-            isRemoteMediaUri(uri),
-          message,
-          type: message.type,
-          uri,
-          ...(posterUri ? { posterUri } : {}),
-        },
-      ]
-    })
+    return buildConversationMediaGalleryItems(orderedMessages)
   }, [orderedMessages])
 
   useEffect(() => {
@@ -886,51 +717,22 @@ export default function ChatScreen() {
     [prepareContextMenuKeyboardPreservation],
   )
 
-  let displayName = 'Unknown'
-  let avatarUrl: string | undefined = undefined
-  let otherUserId: string | undefined = undefined
-
-  if (currentConversation) {
-    if (!currentConversation.isGroup) {
-      const otherUser = currentConversation.participants?.find(
-        (p: ChatParticipant) => p.id !== user?.id,
-      )
-      if (otherUser) {
-        displayName = otherUser.name || otherUser.fullName || otherUser.email || 'Unknown'
-        avatarUrl = otherUser.picture
-        otherUserId = otherUser.id
-      }
-    } else {
-      displayName = currentConversation.name || 'Group Chat'
-      avatarUrl = currentConversation.picture ?? undefined
-    }
-  }
+  const { displayName, avatarUrl, otherUserId } = useMemo(
+    () =>
+      getConversationHeaderIdentity({
+        conversation: currentConversation ?? null,
+        currentUserId: user?.id ?? null,
+      }),
+    [currentConversation, user?.id],
+  )
 
   const groupTypingLabel = useMemo(() => {
-    if (!currentConversation?.isGroup || !user?.id) {
-      return null
-    }
-
-    const participantById = new Map(
-      (currentConversation.participants ?? []).map((participant) => [participant.id, participant]),
-    )
-    const names = activeTypers
-      .filter((typerId) => typerId !== user.id)
-      .map((typerId) => {
-        const participant = participantById.get(typerId)
-        return (
-          participant?.name ||
-          participant?.fullName ||
-          participant?.email?.split('@')[0] ||
-          'Someone'
-        )
-      })
-
-    if (names.length === 0) return null
-    if (names.length === 1) return `${names[0]} is typing`
-    if (names.length === 2) return `${names[0]} and ${names[1]} are typing`
-    return `${names.length} people are typing`
-  }, [activeTypers, currentConversation?.isGroup, currentConversation?.participants, user?.id])
+    return getGroupTypingLabel({
+      activeTypers,
+      conversation: currentConversation ?? null,
+      currentUserId: user?.id ?? null,
+    })
+  }, [activeTypers, currentConversation, user?.id])
 
   const handleStartVoiceCall = useCallback(() => {
     if (!otherUserId || currentConversation?.isGroup) {
@@ -999,16 +801,11 @@ export default function ChatScreen() {
         return
       }
 
-      const viewerItems =
-        timelineMode === 'anchor'
-          ? mediaGalleryItems.slice(
-              Math.max(0, sourceIndex - ANCHOR_MEDIA_VIEWER_WINDOW_RADIUS),
-              Math.min(
-                mediaGalleryItems.length,
-                sourceIndex + ANCHOR_MEDIA_VIEWER_WINDOW_RADIUS + 1,
-              ),
-            )
-          : mediaGalleryItems
+      const viewerItems = getConversationMediaViewerItems({
+        items: mediaGalleryItems,
+        sourceIndex,
+        timelineMode,
+      })
 
       openMediaViewer({
         autoplayVideo: payload.autoplayVideo,
@@ -1414,139 +1211,16 @@ export default function ChatScreen() {
     latestOutgoingIdentityKey: _latestOutgoingIdentityKey,
     primaryStatusByIdentityKey,
     readReceiptsByIdentityKey,
-  } = useMemo(() => {
-    const primaryStatusMap = new Map<string, string>()
-    const readReceiptMap = new Map<string, ChatParticipant[]>()
-
-    if (!user?.id) {
-      return {
-        latestOutgoingIdentityKey: null,
-        primaryStatusByIdentityKey: primaryStatusMap,
-        readReceiptsByIdentityKey: readReceiptMap,
-      }
-    }
-
-    const latestOutgoingMessage =
-      orderedMessages.find((message) => message.senderId === user.id) ?? null
-    const nextLatestOutgoingIdentityKey = getMessageIdentityKey(latestOutgoingMessage)
-
-    let newestReadReceiptAnchorIndex = -1
-    if (currentConversation?.isGroup) {
-      const groupParticipants = (currentConversation.participants ?? []).filter(
-        (participant) => participant.id !== user.id,
-      )
-
-      groupParticipants.forEach((participant) => {
-        const newestReadMessage =
-          orderedMessages.find(
-            (message) =>
-              Array.isArray(message.readBy) &&
-              message.readBy.some((entry) => entry.userId === participant.id),
-          ) ?? null
-        const newestParticipantMessage =
-          orderedMessages.find((message) => message.senderId === participant.id) ?? null
-        const newestReadMessageIndex = newestReadMessage
-          ? orderedMessages.indexOf(newestReadMessage)
-          : -1
-        const newestParticipantMessageIndex = newestParticipantMessage
-          ? orderedMessages.indexOf(newestParticipantMessage)
-          : -1
-        const shouldAnchorToParticipantActivity =
-          newestParticipantMessageIndex >= 0 &&
-          (newestReadMessageIndex === -1 || newestParticipantMessageIndex < newestReadMessageIndex)
-        const receiptAnchorMessage = shouldAnchorToParticipantActivity
-          ? newestParticipantMessage
-          : newestReadMessage
-        const receiptIdentityKey = getMessageIdentityKey(receiptAnchorMessage)
-
-        if (!receiptAnchorMessage || !receiptIdentityKey) {
-          return
-        }
-
-        const receiptIndex = orderedMessages.indexOf(receiptAnchorMessage)
-        const existingParticipants = readReceiptMap.get(receiptIdentityKey) ?? []
-        readReceiptMap.set(receiptIdentityKey, [...existingParticipants, participant])
-        newestReadReceiptAnchorIndex =
-          newestReadReceiptAnchorIndex === -1
-            ? receiptIndex
-            : Math.min(newestReadReceiptAnchorIndex, receiptIndex)
-      })
-    } else if (otherParticipant) {
-      // Preserve the direct-chat receipt/activity behavior.
-      const newestReadOutgoingMessage =
-        orderedMessages.find((message) => {
-          if (message.senderId !== user.id) {
-            return false
-          }
-
-          const messageIdentityKey = getMessageIdentityKey(message)
-          if (!messageIdentityKey || !Array.isArray(message.readBy)) {
-            return false
-          }
-
-          return message.readBy.some((entry) => entry.userId === otherParticipant.id)
-        }) ?? null
-      const newestOtherParticipantMessage =
-        orderedMessages.find((message) => message.senderId === otherParticipant.id) ?? null
-      const newestReadOutgoingIndex = newestReadOutgoingMessage
-        ? orderedMessages.indexOf(newestReadOutgoingMessage)
-        : -1
-      const newestOtherParticipantIndex = newestOtherParticipantMessage
-        ? orderedMessages.indexOf(newestOtherParticipantMessage)
-        : -1
-      const shouldAnchorToOtherParticipantActivity =
-        newestOtherParticipantIndex >= 0 &&
-        (newestReadOutgoingIndex === -1 || newestOtherParticipantIndex < newestReadOutgoingIndex)
-      const receiptAnchorMessage = shouldAnchorToOtherParticipantActivity
-        ? newestOtherParticipantMessage
-        : newestReadOutgoingMessage
-      const readReceiptIdentityKey = getMessageIdentityKey(receiptAnchorMessage)
-
-      newestReadReceiptAnchorIndex = receiptAnchorMessage
-        ? orderedMessages.indexOf(receiptAnchorMessage)
-        : -1
-      if (readReceiptIdentityKey) {
-        readReceiptMap.set(readReceiptIdentityKey, [otherParticipant])
-      }
-    }
-
-    const latestOutgoingIndex = latestOutgoingMessage
-      ? orderedMessages.indexOf(latestOutgoingMessage)
-      : -1
-    const hasReadActivityAtOrBeyondLatestOutgoing =
-      newestReadReceiptAnchorIndex >= 0 &&
-      latestOutgoingIndex >= 0 &&
-      newestReadReceiptAnchorIndex <= latestOutgoingIndex
-
-    // Once the other participant's read/activity marker has reached this
-    // message or anything newer, suppress the trailing "Sent" label to avoid
-    // showing two contradictory delivery signals at once.
-    if (
-      latestOutgoingMessage &&
-      nextLatestOutgoingIdentityKey &&
-      !hasReadActivityAtOrBeyondLatestOutgoing
-    ) {
-      const primaryStatusLabel = getPrimaryStatusLabel({
-        hasReadActivityAtOrBeyondMessage: hasReadActivityAtOrBeyondLatestOutgoing,
-        message: latestOutgoingMessage,
-      })
-      if (primaryStatusLabel) {
-        primaryStatusMap.set(nextLatestOutgoingIdentityKey, primaryStatusLabel)
-      }
-    }
-
-    return {
-      latestOutgoingIdentityKey: nextLatestOutgoingIdentityKey,
-      primaryStatusByIdentityKey: primaryStatusMap,
-      readReceiptsByIdentityKey: readReceiptMap,
-    }
-  }, [
-    currentConversation?.isGroup,
-    currentConversation?.participants,
-    orderedMessages,
-    otherParticipant,
-    user?.id,
-  ])
+  } = useMemo(
+    () =>
+      buildConversationReceiptModel({
+        conversation: currentConversation ?? null,
+        currentUserId: user?.id ?? null,
+        orderedMessages,
+        otherParticipant,
+      }),
+    [currentConversation, orderedMessages, otherParticipant, user?.id],
+  )
 
   const isOnline = otherUserId ? onlineUsers.has(otherUserId) : false
   const lastSeenAt = otherUserId ? (lastSeenByUserId[otherUserId] ?? null) : null
@@ -2090,31 +1764,11 @@ export default function ChatScreen() {
     ],
   )
 
-  const getItemType = useCallback((item: Message) => {
-    if (item.isRecalled === true || item.is_recalled === true) {
-      return 'recalled'
-    }
-
-    if (hasRecommendationMessageContent(item)) {
-      return `${item.type || 'text'}:velora_ai_reel_recommendations`
-    }
-
-    return item.type || 'text'
-  }, [])
-  const keyExtractor = useCallback((item: Message, index: number) => {
-    const baseKey = getMessageIdentityKey(item) ?? item.id ?? item._id ?? `fallback-${index}`
-
-    if (!hasRecommendationMessageContent(item)) {
-      return baseKey
-    }
-
-    return [
-      baseKey,
-      item.metadata?.kind ?? 'metadata',
-      item.metadata?.recommendedReels?.length ?? 0,
-      item.metadata?.suggestedQueries?.length ?? 0,
-    ].join(':')
-  }, [])
+  const getItemType = useCallback((item: Message) => getConversationMessageItemType(item), [])
+  const keyExtractor = useCallback(
+    (item: Message, index: number) => getConversationMessageKey(item, index),
+    [],
+  )
 
   const colorScheme = useColorScheme()
   const isDark = colorScheme === 'dark'

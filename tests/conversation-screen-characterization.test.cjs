@@ -310,7 +310,7 @@ test('typing emits and cleanup preserve the two-second debounce', () => {
 test('keyboard and context-menu ordering preserves focus and layout space', () => {
   const openBlock = findBlock(
     'const prepareContextMenuKeyboardPreservation = useCallback',
-    'let displayName',
+    'const { displayName, avatarUrl, otherUserId }',
   )
 
   assertOrdered(
@@ -373,9 +373,9 @@ test('conversation change and unmount cleanup retain every owned resource action
 
 test('group receipts and direct-only call entry points remain distinct', () => {
   const bundle = readBundle()
-  const receiptBlock = findBlock('const latestOutgoingMessage =', 'const isOnline = otherUserId')
+  const receiptBlock = findBlock('const latestOutgoingMessage =', 'const latestOutgoingIndex =')
 
-  assert.match(receiptBlock, /currentConversation\?\.isGroup/)
+  assert.match(receiptBlock, /conversation\?\.isGroup/)
   assert.match(receiptBlock, /newestParticipantMessage/)
   assert.match(receiptBlock, /newestReadOutgoingMessage/)
   assert.match(receiptBlock, /readReceiptMap\.set/)
