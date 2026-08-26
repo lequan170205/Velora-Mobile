@@ -370,7 +370,7 @@ test('typing emits and cleanup preserve the two-second debounce', () => {
   assert.match(cleanupBlock, /socket\.emit\('typing_stop'/)
 })
 
-test('composer publishes timeline actions synchronously without changing cleanup order', () => {
+test('composer publishes committed timeline actions without changing cleanup order', () => {
   const screen = sources().find(
     ({ relativePath }) => relativePath === 'app/conversation/[id].tsx',
   )?.source
@@ -381,15 +381,27 @@ test('composer publishes timeline actions synchronously without changing cleanup
     [
       '} = useConversationComposerRuntime({',
       '} = useConversationTimelineController({',
-      'composerTimelineActionsRef.current = {',
+      'useLayoutEffect(() => {',
+      'const timelineActions:',
       'cancelOwnSendBottomFollow,',
       'prepareOwnSendBottomFollow,',
       'registerPendingOwnMediaBatchScrollTransaction,',
       'resetTimestampRevealForReply,',
+      'composerTimelineActionsRef.current = timelineActions',
+      'if (composerTimelineActionsRef.current === timelineActions)',
+      'composerTimelineActionsRef.current = null',
       'useConversationSessionRuntime({',
     ],
     'composer timeline bridge',
   )
+
+  const timelineCallEnd = screen.indexOf(
+    '})',
+    screen.indexOf('useConversationTimelineController({'),
+  )
+  const bridgeEffectStart = screen.indexOf('useLayoutEffect(() => {', timelineCallEnd)
+  assert.ok(timelineCallEnd >= 0 && bridgeEffectStart > timelineCallEnd)
+  assert.doesNotMatch(screen.slice(timelineCallEnd, bridgeEffectStart), /\.current\s*=/)
 
   const composer = sources().find(({ relativePath }) =>
     relativePath.endsWith('useConversationComposerRuntime.ts'),

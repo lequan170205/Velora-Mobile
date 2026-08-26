@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons'
 import { FlashList, type ListRenderItemInfo } from '@shopify/flash-list'
 import { BlurView } from 'expo-blur'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { ActivityIndicator, Platform, TouchableOpacity, useColorScheme, View } from 'react-native'
 import { GestureDetector } from 'react-native-gesture-handler'
 import Animated, { useAnimatedStyle, withTiming, withSpring } from 'react-native-reanimated'
@@ -148,12 +148,26 @@ export default function ChatScreen() {
     resetConversationKeyboard,
     socket,
   })
-  composerTimelineActionsRef.current = {
+  useLayoutEffect(() => {
+    const timelineActions: ConversationComposerTimelineActions = {
+      cancelOwnSendBottomFollow,
+      prepareOwnSendBottomFollow,
+      registerPendingOwnMediaBatchScrollTransaction,
+      resetTimestampRevealForReply,
+    }
+    composerTimelineActionsRef.current = timelineActions
+
+    return () => {
+      if (composerTimelineActionsRef.current === timelineActions) {
+        composerTimelineActionsRef.current = null
+      }
+    }
+  }, [
     cancelOwnSendBottomFollow,
     prepareOwnSendBottomFollow,
     registerPendingOwnMediaBatchScrollTransaction,
     resetTimestampRevealForReply,
-  }
+  ])
   const { transitionDone } = useConversationSessionRuntime({
     conversation: currentConversation ?? null,
     conversationId,
