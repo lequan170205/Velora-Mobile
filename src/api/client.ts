@@ -2,8 +2,24 @@ import axios from 'axios'
 
 export const apiClient = axios.create({
   baseURL: process.env.EXPO_PUBLIC_API_URL || '',
+  timeout: 10_000,
   withCredentials: true,
 })
+
+let refreshPromise: Promise<void> | null = null
+
+const refreshAccessToken = () => {
+  if (!refreshPromise) {
+    refreshPromise = apiClient
+      .post('/auth/refresh')
+      .then(() => undefined)
+      .finally(() => {
+        refreshPromise = null
+      })
+  }
+
+  return refreshPromise
+}
 
 apiClient.interceptors.response.use(
   (response) => response,
@@ -19,7 +35,7 @@ apiClient.interceptors.response.use(
       originalRequest._retry = true
 
       try {
-        await apiClient.post('/auth/refresh')
+        await refreshAccessToken()
         return apiClient(originalRequest)
       } catch (refreshError) {
         return Promise.reject(refreshError)
