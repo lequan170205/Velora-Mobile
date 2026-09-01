@@ -1,19 +1,37 @@
 import { useRootNavigationState, useRouter, useSegments } from 'expo-router'
-import { useEffect } from 'react'
-import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native'
+import { useEffect, useState } from 'react'
+import { ActivityIndicator, Image, Text, TouchableOpacity, View } from 'react-native'
 
 import { reelEventQueue } from '../services/reelEventQueue'
 import { useAuthStore } from '../stores/authStore'
 
 import { useNetworkStatus } from './NetworkProvider'
 
-function AuthLoadingScreen() {
+export const AUTH_LOADING_FALLBACK_DELAY_MS = 400
+
+function AuthLoadingScreen({ showProgress }: { showProgress: boolean }) {
   return (
     <View className="flex-1 items-center justify-center bg-bg-primary px-6">
-      <ActivityIndicator color="#FF6B2C" size="large" />
-      <Text className="mt-4 text-center text-base2 text-text-secondary">
-        Checking your sign-in...
-      </Text>
+      <Image
+        source={require('../../assets/images/splash-icon.png')}
+        className="h-40 w-40"
+        resizeMode="contain"
+        accessible={false}
+      />
+      {showProgress ? (
+        <View
+          className="mt-8 items-center"
+          accessible
+          accessibilityRole="progressbar"
+          accessibilityLabel="Checking your sign-in"
+          accessibilityState={{ busy: true }}
+        >
+          <ActivityIndicator color="#FF6B2C" size="large" />
+          <Text className="mt-4 text-center text-base2 text-text-secondary">
+            Checking your sign-in...
+          </Text>
+        </View>
+      ) : null}
     </View>
   )
 }
@@ -46,6 +64,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const segments = useSegments()
   const router = useRouter()
   const rootNavigationState = useRootNavigationState()
+  const isAuthPending = isLoading || !rootNavigationState?.key
+  const [hasAuthLoadingDelayElapsed, setHasAuthLoadingDelayElapsed] = useState(false)
+
+  useEffect(() => {
+    if (!isAuthPending) {
+      setHasAuthLoadingDelayElapsed(false)
+      return undefined
+    }
+
+    const timeoutId = setTimeout(
+      () => setHasAuthLoadingDelayElapsed(true),
+      AUTH_LOADING_FALLBACK_DELAY_MS,
+    )
+
+    return () => clearTimeout(timeoutId)
+  }, [isAuthPending])
 
   useEffect(() => {
     const userId = isAuthenticated ? (user?.id ?? null) : null
@@ -89,8 +123,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user?.username,
   ])
 
-  if (isLoading || !rootNavigationState?.key) {
-    return <AuthLoadingScreen />
+  if (isAuthPending) {
+    return <AuthLoadingScreen showProgress={hasAuthLoadingDelayElapsed} />
   }
 
   if (!isAuthenticated && authHydrationError === 'network') {

@@ -25,7 +25,7 @@ import {
   runReelOfflineStartupMaintenance,
 } from '../src/lib/reelOfflineMaintenance'
 import { initializeReelPlaybackVideoCache } from '../src/lib/reelPlaybackVideoCache'
-import { AuthProvider } from '../src/providers/AuthProvider'
+import { AUTH_LOADING_FALLBACK_DELAY_MS, AuthProvider } from '../src/providers/AuthProvider'
 import { CallProvider, useCall } from '../src/providers/CallProvider'
 import { ChatMediaUploadProvider } from '../src/providers/ChatMediaUploadProvider'
 import { ChatMediaViewerProvider } from '../src/providers/ChatMediaViewerProvider'
@@ -131,12 +131,28 @@ export default function RootLayout() {
   const [isReelPlaybackVideoCacheReady, setIsReelPlaybackVideoCacheReady] = useState(
     Platform.OS !== 'ios',
   )
+  const hydrateAuth = useAuthStore((state) => state.hydrateAuth)
+  const isAuthLoading = useAuthStore((state) => state.isLoading)
+  const [hasAuthStartupDelayElapsed, setHasAuthStartupDelayElapsed] = useState(false)
 
   useEffect(() => {
-    if ((loaded || error) && isReelPlaybackVideoCacheReady) {
+    const timeoutId = setTimeout(
+      () => setHasAuthStartupDelayElapsed(true),
+      AUTH_LOADING_FALLBACK_DELAY_MS,
+    )
+
+    return () => clearTimeout(timeoutId)
+  }, [])
+
+  useEffect(() => {
+    if (
+      (loaded || error) &&
+      isReelPlaybackVideoCacheReady &&
+      (!isAuthLoading || hasAuthStartupDelayElapsed)
+    ) {
       SplashScreen.hideAsync()
     }
-  }, [error, isReelPlaybackVideoCacheReady, loaded])
+  }, [error, hasAuthStartupDelayElapsed, isAuthLoading, isReelPlaybackVideoCacheReady, loaded])
 
   useEffect(() => {
     if (Platform.OS !== 'ios') return undefined
@@ -152,8 +168,6 @@ export default function RootLayout() {
       isMounted = false
     }
   }, [])
-
-  const hydrateAuth = useAuthStore((state) => state.hydrateAuth)
 
   useEffect(() => {
     hydrateAuth()
