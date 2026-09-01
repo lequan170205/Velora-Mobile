@@ -1,4 +1,4 @@
-import { apiClient } from './client'
+import { apiClient, beginLogout, endLogout } from './client'
 
 import type {
   AuthIdentityResponse,
@@ -61,17 +61,16 @@ export const authApi = {
     return response.data
   },
   logout: async (data?: { pushToken?: string; pushTokens?: LogoutPushToken[] }) => {
-    if (data?.pushToken || data?.pushTokens?.length) {
-      // Refresh an expired access cookie before the gateway resolves the user
-      // for notification cleanup. The refresh session remains valid until the
-      // token deactivation has completed successfully.
-      await authApi.me()
-    }
+    await beginLogout()
 
-    const response = await apiClient.post<MessageResponse>('/auth/logout', data, {
-      timeout: 5000,
-    })
-    return response.data
+    try {
+      const response = await apiClient.post<MessageResponse>('/auth/logout', data, {
+        timeout: 5000,
+      })
+      return response.data
+    } finally {
+      endLogout()
+    }
   },
   refresh: async () => {
     const response = await apiClient.post<LoginResponse>('/auth/refresh')

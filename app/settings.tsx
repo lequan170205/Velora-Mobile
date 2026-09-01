@@ -209,6 +209,7 @@ export default function SettingsScreen() {
 
       pendingActionRef.current = action
       setPendingAction(action)
+      let shouldClearAuth = false
 
       try {
         if (action === 'clear-cache') {
@@ -235,8 +236,11 @@ export default function SettingsScreen() {
         const logoutResult = await performLogoutPushTokenCleanup()
 
         if (!logoutResult.ok) {
-          console.error('[Settings] Logout cleanup will retry when possible')
+          setFeedbackMessage("Couldn't sign out. Try again.")
+          return
         }
+
+        shouldClearAuth = true
 
         await clearCache()
         await resetLocalDatabase()
@@ -266,7 +270,7 @@ export default function SettingsScreen() {
       } finally {
         pendingActionRef.current = null
 
-        if (action === 'sign-out') {
+        if (action === 'sign-out' && shouldClearAuth) {
           clearAuth()
         } else if (isMountedRef.current) {
           setPendingAction(null)

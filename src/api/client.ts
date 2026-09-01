@@ -7,6 +7,21 @@ export const apiClient = axios.create({
 })
 
 let refreshPromise: Promise<void> | null = null
+let isLogoutInProgress = false
+
+export const beginLogout = async () => {
+  isLogoutInProgress = true
+
+  try {
+    await refreshPromise
+  } catch {
+    // A failed refresh cannot restore the session and must not block logout.
+  }
+}
+
+export const endLogout = () => {
+  isLogoutInProgress = false
+}
 
 const refreshAccessToken = () => {
   if (!refreshPromise) {
@@ -29,6 +44,7 @@ apiClient.interceptors.response.use(
     if (
       error.response?.status === 401 &&
       !originalRequest._retry &&
+      !isLogoutInProgress &&
       originalRequest.url !== '/auth/refresh' &&
       originalRequest.url !== '/auth/logout'
     ) {

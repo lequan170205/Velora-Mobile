@@ -161,11 +161,24 @@ export default function CompleteProfileScreen() {
   }
 
   const handleSignOut = async () => {
+    let shouldClearAuth = false
+
     try {
-      await performLogoutPushTokenCleanup()
+      const logoutResult = await performLogoutPushTokenCleanup()
+
+      if (!logoutResult.ok) {
+        setError('Unable to sign out. Check your connection and try again.')
+        return
+      }
+
+      shouldClearAuth = true
       await resetLocalDatabase()
+    } catch {
+      setError('Unable to sign out. Check your connection and try again.')
     } finally {
-      clearAuth()
+      if (shouldClearAuth) {
+        clearAuth()
+      }
     }
   }
 

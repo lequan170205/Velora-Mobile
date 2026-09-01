@@ -46,7 +46,7 @@ const loadApiClient = ({ post }) => {
     loadedModule.exports,
   )
 
-  return { clientRequests, createConfig, responseErrorHandler }
+  return { apiClientModule: loadedModule.exports, clientRequests, createConfig, responseErrorHandler }
 }
 
 test('concurrent 401 responses share one refresh request before retrying', async () => {
@@ -75,6 +75,46 @@ test('concurrent 401 responses share one refresh request before retrying', async
   await Promise.all([firstRequest, secondRequest])
 
   assert.equal(clientRequests.length, 2)
+})
+
+test('logout waits for an active refresh and blocks later refresh attempts', async () => {
+  let refreshCalls = 0
+  let resolveRefresh
+  const refreshPromise = new Promise((resolve) => {
+    resolveRefresh = resolve
+  })
+  const { apiClientModule, responseErrorHandler } = loadApiClient({
+    post: () => {
+      refreshCalls += 1
+      return refreshPromise
+    },
+  })
+  const unauthorizedRequest = () => ({
+    config: { url: '/conversations' },
+    response: { status: 401 },
+  })
+
+  const requestAlreadyRefreshing = responseErrorHandler(unauthorizedRequest())
+  const waitForRefreshBeforeLogout = apiClientModule.beginLogout()
+  const requestDuringLogout = unauthorizedRequest()
+
+  await assert.rejects(responseErrorHandler(requestDuringLogout), (error) => error === requestDuringLogout)
+  assert.equal(refreshCalls, 1)
+
+  resolveRefresh({ data: {} })
+  await Promise.all([requestAlreadyRefreshing, waitForRefreshBeforeLogout])
+  apiClientModule.endLogout()
+})
+
+test('logout does not preflight /auth/me, which can re-create the access session', () => {
+  const authApiSource = fs.readFileSync(path.join(root, 'src', 'api', 'auth.api.ts'), 'utf8')
+  const logoutStart = authApiSource.indexOf('logout: async')
+  const refreshStart = authApiSource.indexOf('refresh: async', logoutStart)
+  const logoutSource = authApiSource.slice(logoutStart, refreshStart)
+
+  assert.match(logoutSource, /await beginLogout\(\)/)
+  assert.match(logoutSource, /finally \{\s*endLogout\(\)/)
+  assert.doesNotMatch(logoutSource, /authApi\.me\(\)/)
 })
 
 test('API requests time out and session restoration always renders a visible state', () => {
