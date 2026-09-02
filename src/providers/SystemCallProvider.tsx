@@ -14,6 +14,8 @@ import { useAuthStore } from '../stores/authStore'
 import { useNetworkStatus } from './NetworkProvider'
 
 const getAppVersion = () => Constants.nativeAppVersion ?? Constants.expoConfig?.version ?? undefined
+const VOIP_REGISTRATION_RETRY_INITIAL_DELAY_MS = 5_000
+const VOIP_REGISTRATION_RETRY_MAX_DELAY_MS = 60_000
 
 export function SystemCallProvider({ children }: { children: ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
@@ -24,6 +26,7 @@ export function SystemCallProvider({ children }: { children: ReactNode }) {
   const lastRegisteredVoipTokenRef = useRef<string | null>(null)
   const pendingInvalidatedVoipTokenRef = useRef<string | null>(null)
   const registrationRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const registrationRetryAttemptsRef = useRef(0)
   const [registrationRetryVersion, setRegistrationRetryVersion] = useState(0)
 
   useEffect(() => {
@@ -50,13 +53,20 @@ export function SystemCallProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     const scheduleRegistrationRetry = () => {
       if (cancelled || registrationRetryTimeoutRef.current) {
-        return
+        return null
       }
 
+      const retryDelayMs = Math.min(
+        VOIP_REGISTRATION_RETRY_INITIAL_DELAY_MS * 2 ** registrationRetryAttemptsRef.current,
+        VOIP_REGISTRATION_RETRY_MAX_DELAY_MS,
+      )
+      registrationRetryAttemptsRef.current += 1
       registrationRetryTimeoutRef.current = setTimeout(() => {
         registrationRetryTimeoutRef.current = null
         setRegistrationRetryVersion((version) => version + 1)
-      }, 5000)
+      }, retryDelayMs)
+
+      return retryDelayMs
     }
 
     const deactivatePendingInvalidatedVoipToken = async () => {
@@ -77,11 +87,15 @@ export function SystemCallProvider({ children }: { children: ReactNode }) {
         if (lastRegisteredVoipTokenRef.current === tokenToDeactivate) {
           lastRegisteredVoipTokenRef.current = null
         }
+        registrationRetryAttemptsRef.current = 0
         return true
       } catch (error) {
         // Keep the pending invalidation so a later retry can deactivate the stale token.
-        console.warn('[SystemCall] Failed to deactivate VoIP push token; retrying', error)
-        scheduleRegistrationRetry()
+        const retryDelayMs = scheduleRegistrationRetry()
+        console.warn('[SystemCall] Failed to deactivate VoIP push token; retrying', {
+          error,
+          retryDelayMs,
+        })
         return false
       }
     }
@@ -137,11 +151,15 @@ export function SystemCallProvider({ children }: { children: ReactNode }) {
           }
 
           lastRegisteredVoipTokenRef.current = state.token
+          registrationRetryAttemptsRef.current = 0
         } catch (error) {
           if (!cancelled && registeredVoipTokenRef.current === registrationKey) {
             registeredVoipTokenRef.current = null
-            console.warn('[SystemCall] Failed to register VoIP push token; retrying', error)
-            scheduleRegistrationRetry()
+            const retryDelayMs = scheduleRegistrationRetry()
+            console.warn('[SystemCall] Failed to register VoIP push token; retrying', {
+              error,
+              retryDelayMs,
+            })
           }
         }
         return
