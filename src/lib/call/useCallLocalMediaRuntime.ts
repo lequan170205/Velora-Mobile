@@ -1,5 +1,6 @@
 import { Camera } from 'expo-camera'
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
+import { AppState } from 'react-native'
 import { MediaStream, mediaDevices } from 'react-native-webrtc'
 
 import { useCallStore } from '../../stores/callStore'
@@ -24,6 +25,8 @@ type LocalMediaRuntimeOptions = {
   consumerMapRef: MutableRef<Map<string, MediasoupTypes.Consumer<Record<string, unknown>>>>
   handledRemoteProducerIdsRef: MutableRef<Set<string>>
   cameraPausedByBackgroundRef: MutableRef<boolean>
+  callSetupGenerationRef: MutableRef<number>
+  isCallSetupCurrent: (setupToken: number, callId: string) => boolean
   presentError: (message: string) => void
 }
 
@@ -38,8 +41,17 @@ export const useCallLocalMediaRuntime = ({
   consumerMapRef,
   handledRemoteProducerIdsRef,
   cameraPausedByBackgroundRef,
+  callSetupGenerationRef,
+  isCallSetupCurrent,
   presentError,
 }: LocalMediaRuntimeOptions) => {
+  const videoActivationGenerationRef = useRef(0)
+  const videoActivationRef = useRef<{
+    callId: string
+    setupToken: number
+    generation: number
+    promise: Promise<boolean>
+  } | null>(null)
   const ensureMicPermission = useCallback(async () => {
     if (typeof Camera.requestMicrophonePermissionsAsync !== 'function') {
       throw new Error('Microphone permission API is unavailable in this build')
@@ -100,6 +112,7 @@ export const useCallLocalMediaRuntime = ({
   )
 
   const deactivateLocalVideo = useCallback(() => {
+    videoActivationGenerationRef.current += 1
     try {
       videoProducerRef.current?.close()
     } catch {
@@ -132,57 +145,135 @@ export const useCallLocalMediaRuntime = ({
     async (options?: { requestPermission?: boolean }) => {
       const state = useCallStore.getState()
       if (state.phase !== 'active' || state.callType !== 'VIDEO' || !state.callId) return false
+      const callId = state.callId
+      const setupToken = callSetupGenerationRef.current
+      const activationGeneration = videoActivationGenerationRef.current
+      const existingActivation = videoActivationRef.current
+      if (
+        existingActivation?.callId === callId &&
+        existingActivation.setupToken === setupToken &&
+        existingActivation.generation === activationGeneration
+      ) {
+        return existingActivation.promise
+      }
 
-      if (options?.requestPermission !== false && state.hasCameraPermission !== true) {
-        const granted = await ensureCameraPermission()
-        if (!granted) {
-          presentError('Velora needs camera access for video calls')
+      const activationPromise = (async () => {
+        const isActivationCurrent = () => {
+          const currentState = useCallStore.getState()
+          return (
+            activationGeneration === videoActivationGenerationRef.current &&
+            isCallSetupCurrent(setupToken, callId) &&
+            currentState.phase === 'active' &&
+            currentState.callId === callId &&
+            currentState.callType === 'VIDEO' &&
+            AppState.currentState === 'active'
+          )
+        }
+
+        if (options?.requestPermission !== false && state.hasCameraPermission !== true) {
+          const granted = await ensureCameraPermission()
+          if (!isActivationCurrent()) return false
+          if (!granted) {
+            presentError('Velora needs camera access for video calls')
+            return false
+          }
+        }
+
+        const existingTrack = localStreamRef.current?.getVideoTracks()[0]
+        if (existingTrack && existingTrack.readyState === 'live') {
+          if (!isActivationCurrent()) return false
+          existingTrack.enabled = true
+          emitLocalVideoState(true)
+          useCallStore.getState().patch({
+            cameraEnabled: true,
+            localStreamUrl: localStreamRef.current?.toURL() ?? null,
+          })
+          return true
+        }
+
+        const sendTransport = sendTransportRef.current
+        const device = deviceRef.current
+        if (!sendTransport || !device?.loaded || !device.canProduce('video')) {
+          presentError('Video is unavailable on this call')
           return false
         }
-      }
 
-      const existingTrack = localStreamRef.current?.getVideoTracks()[0]
-      if (existingTrack && existingTrack.readyState === 'live') {
-        existingTrack.enabled = true
-        emitLocalVideoState(true)
-        useCallStore.getState().patch({
-          cameraEnabled: true,
-          localStreamUrl: localStreamRef.current?.toURL() ?? null,
-        })
-        return true
-      }
+        let stream: MediaStream
+        try {
+          stream = await mediaDevices.getUserMedia({
+            audio: false,
+            video: cameraConstraints(state.cameraFacing),
+          })
+        } catch (error) {
+          if (!isActivationCurrent()) return false
+          throw error
+        }
+        const track = stream.getVideoTracks()[0]
+        if (!track) {
+          stream.getTracks().forEach((candidate) => candidate.stop())
+          throw new Error('No local video track available')
+        }
+        if (!isActivationCurrent() || sendTransportRef.current !== sendTransport) {
+          stream.getTracks().forEach((candidate) => candidate.stop())
+          return false
+        }
 
-      const sendTransport = sendTransportRef.current
-      const device = deviceRef.current
-      if (!sendTransport || !device?.loaded || !device.canProduce('video')) {
-        presentError('Video is unavailable on this call')
-        return false
-      }
+        if (!localStreamRef.current) localStreamRef.current = new MediaStream()
+        const targetStream = localStreamRef.current
+        targetStream.addTrack(track as unknown as MediaStreamTrack)
 
-      const stream = await mediaDevices.getUserMedia({
-        audio: false,
-        video: cameraConstraints(state.cameraFacing),
-      })
-      const track = stream.getVideoTracks()[0]
-      if (!track) {
-        stream.getTracks().forEach((candidate) => candidate.stop())
-        throw new Error('No local video track available')
-      }
+        try {
+          const producer = await sendTransport.produce({ track: track as never, stopTracks: false })
+          if (
+            !isActivationCurrent() ||
+            sendTransportRef.current !== sendTransport ||
+            localStreamRef.current !== targetStream
+          ) {
+            producer.close()
+            targetStream.removeTrack(track as unknown as MediaStreamTrack)
+            track.stop()
+            return false
+          }
 
-      if (!localStreamRef.current) localStreamRef.current = new MediaStream()
-      localStreamRef.current.addTrack(track as unknown as MediaStreamTrack)
-      const producer = await sendTransport.produce({ track: track as never, stopTracks: false })
-      videoProducerRef.current = producer
-      useCallStore.getState().patch({
-        cameraEnabled: true,
-        localStreamUrl: localStreamRef.current.toURL(),
-      })
-      return true
+          videoProducerRef.current = producer
+          useCallStore.getState().patch({
+            cameraEnabled: true,
+            localStreamUrl: targetStream.toURL(),
+          })
+          return true
+        } catch (error) {
+          try {
+            targetStream.removeTrack(track as unknown as MediaStreamTrack)
+          } catch {
+            // The call teardown may already have removed the track.
+          }
+          track.stop()
+          if (!isActivationCurrent()) return false
+          throw error
+        }
+      })()
+
+      const activation = {
+        callId,
+        setupToken,
+        generation: activationGeneration,
+        promise: activationPromise,
+      }
+      videoActivationRef.current = activation
+      try {
+        return await activationPromise
+      } finally {
+        if (videoActivationRef.current === activation) {
+          videoActivationRef.current = null
+        }
+      }
     },
     [
+      callSetupGenerationRef,
       deviceRef,
       emitLocalVideoState,
       ensureCameraPermission,
+      isCallSetupCurrent,
       localStreamRef,
       presentError,
       sendTransportRef,
@@ -228,18 +319,37 @@ export const useCallLocalMediaRuntime = ({
     const state = useCallStore.getState()
     if (state.phase !== 'active' || state.callType !== 'VIDEO') return
     if (!state.cameraEnabled) {
-      await activateLocalVideo()
+      try {
+        await activateLocalVideo()
+      } catch {
+        const currentState = useCallStore.getState()
+        if (
+          currentState.phase === 'active' &&
+          currentState.callId === state.callId &&
+          currentState.callType === 'VIDEO'
+        ) {
+          presentError('Unable to enable video')
+        }
+      }
       return
     }
     const track = localStreamRef.current?.getVideoTracks()[0]
     if (track) track.enabled = false
     emitLocalVideoState(false)
     useCallStore.getState().patch({ cameraEnabled: false })
-  }, [activateLocalVideo, emitLocalVideoState, localStreamRef])
+  }, [activateLocalVideo, emitLocalVideoState, localStreamRef, presentError])
 
   const switchCamera = useCallback(async () => {
     const state = useCallStore.getState()
-    if (state.phase !== 'active' || state.callType !== 'VIDEO' || !state.cameraEnabled) return
+    if (
+      state.phase !== 'active' ||
+      state.callType !== 'VIDEO' ||
+      !state.callId ||
+      !state.cameraEnabled
+    )
+      return
+    const callId = state.callId
+    const setupToken = callSetupGenerationRef.current
     const nextFacing: CameraFacing = state.cameraFacing === 'user' ? 'environment' : 'user'
     const track = localStreamRef.current?.getVideoTracks()[0] as
       | (MediaStreamTrack & {
@@ -248,10 +358,21 @@ export const useCallLocalMediaRuntime = ({
         })
       | undefined
     if (!track) return
+    const isCameraSwitchCurrent = () => {
+      const currentState = useCallStore.getState()
+      return (
+        isCallSetupCurrent(setupToken, callId) &&
+        currentState.phase === 'active' &&
+        currentState.callId === callId &&
+        currentState.callType === 'VIDEO' &&
+        localStreamRef.current?.getVideoTracks()[0] === track
+      )
+    }
 
     if (track.applyConstraints) {
       try {
         await track.applyConstraints({ facingMode: nextFacing })
+        if (!isCameraSwitchCurrent()) return
         useCallStore.getState().patch({ cameraFacing: nextFacing })
         return
       } catch {
@@ -259,10 +380,15 @@ export const useCallLocalMediaRuntime = ({
       }
     }
 
+    if (!isCameraSwitchCurrent()) return
     if (!track._switchCamera) return
-    track._switchCamera()
-    useCallStore.getState().patch({ cameraFacing: nextFacing })
-  }, [localStreamRef])
+    try {
+      track._switchCamera()
+      useCallStore.getState().patch({ cameraFacing: nextFacing })
+    } catch {
+      if (isCameraSwitchCurrent()) presentError('Unable to switch camera')
+    }
+  }, [callSetupGenerationRef, isCallSetupCurrent, localStreamRef, presentError])
 
   return {
     ensureMicPermission,

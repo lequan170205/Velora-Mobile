@@ -348,6 +348,7 @@ export const useCallMediaTransportRuntime = ({
       }
 
       consumingProducerIdsRef.current.add(payload.producerId)
+      let pendingConsumer: MediasoupTypes.Consumer<Record<string, unknown>> | null = null
       try {
         const consumerCreated = await emitAndWaitForEvent<'consume', 'consumer_created'>(
           socket,
@@ -374,8 +375,8 @@ export const useCallMediaTransportRuntime = ({
           kind: consumerCreated.kind,
           rtpParameters: consumerCreated.rtpParameters as never,
         })
+        pendingConsumer = consumer
         if (!isCallSetupCurrent(setupToken, callId)) {
-          consumer.close()
           throw new Error(CALL_SETUP_CANCELLED_ERROR)
         }
 
@@ -415,6 +416,7 @@ export const useCallMediaTransportRuntime = ({
           useCallStore.getState().patch({
             remoteVideoState: videoEnabled ? 'connected' : 'off',
           })
+          pendingConsumer = null
           return
         }
 
@@ -437,7 +439,29 @@ export const useCallMediaTransportRuntime = ({
           confirmAudioFlow()
         }
         if (wasWaitingForPeerAudio) startTimer(useCallStore.getState().durationSec)
+        pendingConsumer = null
       } catch (error) {
+        if (pendingConsumer) {
+          const consumer = pendingConsumer
+          const remoteStream = remoteStreamRef.current
+          try {
+            remoteStream?.removeTrack(consumer.track as unknown as MediaStreamTrack)
+          } catch {
+            // The call teardown may already have removed the track.
+          }
+          try {
+            consumer.close()
+          } catch {
+            // The native consumer may already be closed.
+          }
+          if (consumerMapRef.current.get(consumer.id) === consumer) {
+            consumerMapRef.current.delete(consumer.id)
+          }
+          if (isCallSetupCurrent(setupToken, callId)) {
+            useCallStore.getState().patch({ remoteStreamUrl: remoteStream?.toURL() ?? null })
+          }
+        }
+
         if (!isCallSetupCurrent(setupToken, callId)) {
           if (options?.propagateFailure) throw new Error(CALL_SETUP_CANCELLED_ERROR)
           return
@@ -508,7 +532,7 @@ export const useCallMediaTransportRuntime = ({
 
       for (const payload of queuedProducers) {
         await consumeRemoteProducer(payload, {
-          propagateFailure: true,
+          propagateFailure: payload.kind === 'audio',
           setupToken: options.setupToken,
         })
       }
@@ -617,6 +641,10 @@ export const useCallMediaTransportRuntime = ({
           track: localVideoTrack as never,
           stopTracks: false,
         })
+        if (!isCallSetupCurrent(options.setupToken, callId)) {
+          videoProducer.close()
+          throw new Error(CALL_SETUP_CANCELLED_ERROR)
+        }
         videoProducerRef.current = videoProducer
         telemetry?.record('video_producer_ready', { outcome: 'succeeded' })
       }

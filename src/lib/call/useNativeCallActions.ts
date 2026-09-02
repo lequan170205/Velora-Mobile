@@ -19,6 +19,7 @@ type NativeCallActionsOptions = {
   processingNativeActionIdsRef: MutableRef<Set<string>>
   completedNativeActionIdsRef: MutableRef<Set<string>>
   acceptingIncomingCallIdRef: MutableRef<string | null>
+  outgoingStartInFlightRef: MutableRef<boolean>
   nativeActionRetryTimeoutRef: MutableRef<ReturnType<typeof setTimeout> | null>
   clearNativeActionRetryTimeout: () => void
   isCurrentCall: (callId: string) => boolean
@@ -42,6 +43,7 @@ export const useNativeCallActions = ({
   processingNativeActionIdsRef,
   completedNativeActionIdsRef,
   acceptingIncomingCallIdRef,
+  outgoingStartInFlightRef,
   nativeActionRetryTimeoutRef,
   clearNativeActionRetryTimeout,
   isCurrentCall,
@@ -123,6 +125,19 @@ export const useNativeCallActions = ({
           return
         }
 
+        const hasConflictingCall = () => {
+          const activeState = useCallStore.getState()
+          return (
+            (outgoingStartInFlightRef.current || isBusyPhase(activeState.phase)) &&
+            activeState.callId !== action.callId
+          )
+        }
+        if (hasConflictingCall()) {
+          veloraSystemCalls.dismissIncomingCall(action.callId)
+          completeNativeCallAction(action.actionId)
+          return
+        }
+
         if (action.action === 'answer') {
           if (callState.status !== 'initiated' && callState.status !== 'ringing') {
             veloraSystemCalls.dismissIncomingCall(action.callId)
@@ -146,6 +161,11 @@ export const useNativeCallActions = ({
             await endCall('ended')
           } else if (callState.status === 'active') {
             const socket = await ensureCallSocketConnected(action.callId)
+            if (hasConflictingCall()) {
+              veloraSystemCalls.dismissIncomingCall(action.callId)
+              completeNativeCallAction(action.actionId)
+              return
+            }
             socket.emit('leave_call', { callId: action.callId, reason: 'ended' })
             await teardownOnce('native_end_call')
           } else {
@@ -189,6 +209,7 @@ export const useNativeCallActions = ({
       isCurrentCall,
       isLoading,
       nativeActionRetryTimeoutRef,
+      outgoingStartInFlightRef,
       prepareIncomingCallFromState,
       processingNativeActionIdsRef,
       rejectIncomingCall,

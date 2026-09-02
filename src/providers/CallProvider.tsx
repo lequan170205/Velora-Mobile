@@ -148,6 +148,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const audioFlowingRef = useRef(false)
   const audioFlowConfirmationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const callSetupGenerationRef = useRef(0)
+  const outgoingStartInFlightRef = useRef(false)
   const teardownInProgressRef = useRef(false)
   const callAnsweredRef = useRef(false)
   const routerRtpCapabilitiesRef = useRef<Record<string, unknown> | null>(null)
@@ -613,6 +614,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     consumerMapRef,
     handledRemoteProducerIdsRef,
     cameraPausedByBackgroundRef,
+    callSetupGenerationRef,
+    isCallSetupCurrent,
     presentError,
   })
 
@@ -746,27 +749,29 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const rejectIncomingCall = useCallback(async () => {
     const state = useCallStore.getState()
+    const callId = state.callId
     let socket = socketRef.current
 
-    if (!socket?.connected && state.callId) {
+    if (!socket?.connected && callId) {
       try {
-        socket = await ensureCallSocketConnected(state.callId)
+        socket = await ensureCallSocketConnected(callId)
       } catch {
         socket = null
       }
     }
 
-    if (socket?.connected && state.callId) {
+    if (socket?.connected && callId) {
       socket.emit('reject_call', {
-        callId: state.callId,
+        callId,
       })
     }
 
-    if (state.callId) {
-      veloraSystemCalls.dismissIncomingCall(state.callId)
+    if (callId) {
+      veloraSystemCalls.dismissIncomingCall(callId)
     }
+    if (!callId || !isCurrentCall(callId)) return
     await teardownOnce('reject_incoming_call')
-  }, [ensureCallSocketConnected, teardownOnce])
+  }, [ensureCallSocketConnected, isCurrentCall, teardownOnce])
 
   const endCall = useCallback(
     async (reason?: string) => {
@@ -803,7 +808,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
-      if (isBusyPhase(currentState.phase)) {
+      if (outgoingStartInFlightRef.current || isBusyPhase(currentState.phase)) {
         socketRef.current?.emit('reject_call', {
           callId: payload.callId,
           reason: 'busy',
@@ -907,6 +912,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         return
       }
       acceptingIncomingCallIdRef.current = callId
+      const setupToken = beginCallSetup()
 
       const telemetry = new CallTelemetrySession('incoming')
       telemetrySessionRef.current = telemetry
@@ -932,10 +938,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         telemetry.record('audio_snapshot_loaded', { outcome: 'failed', error })
       }
 
+      if (!isCallSetupCurrent(setupToken, callId)) return
+
       try {
         socket = await ensureCallSocketConnected(callId)
+        assertCallSetupCurrent(setupToken, callId)
         telemetry.record('socket_connected', { outcome: 'succeeded' })
       } catch (error) {
+        if (!isCallSetupCurrent(setupToken, callId)) return
         const errorCode = getAcceptIncomingCallFailureCode(error)
         telemetry.record('socket_connected', { outcome: 'failed', error })
         telemetry.record('accept_call_failed', { outcome: 'failed', error, errorCode })
@@ -951,7 +961,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       let hasPermission: boolean
       try {
         hasPermission = await ensureMicPermission()
+        assertCallSetupCurrent(setupToken, callId)
       } catch (error) {
+        if (!isCallSetupCurrent(setupToken, callId)) return
         const errorCode = getAcceptIncomingCallFailureCode(error)
         telemetry.record('microphone_permission', { outcome: 'failed', error })
         telemetry.record('accept_call_failed', { outcome: 'failed', error, errorCode })
@@ -989,7 +1001,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         let cameraGranted = false
         try {
           cameraGranted = await ensureCameraPermission()
+          assertCallSetupCurrent(setupToken, callId)
         } catch (error) {
+          if (!isCallSetupCurrent(setupToken, callId)) return
           telemetry.record('camera_permission', { outcome: 'failed', error })
         }
         if (!cameraGranted) {
@@ -1038,7 +1052,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         telemetry.record('accept_call_succeeded', { outcome: 'succeeded' })
         debugCall('[Call] accept_call_succeeded', JSON.stringify({ callId, source }))
 
-        const setupToken = beginCallSetup()
         useCallStore.getState().patch({
           phase: 'connecting',
           remoteAudioState: 'idle',
@@ -1114,12 +1127,30 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       router,
       teardownOnce,
       waitForConfiguredAudioSession,
+      isCallSetupCurrent,
     ],
   )
 
   const startCall = useCallback(
     async (input: StartCallInput, callType: CallType) => {
-      if (!currentUserId || isBusyPhase(useCallStore.getState().phase)) return
+      if (
+        !currentUserId ||
+        outgoingStartInFlightRef.current ||
+        isBusyPhase(useCallStore.getState().phase)
+      ) {
+        return
+      }
+      outgoingStartInFlightRef.current = true
+      const setupToken = beginCallSetup()
+      const assertOutgoingAttemptCurrent = () => {
+        if (
+          setupToken !== callSetupGenerationRef.current ||
+          !outgoingStartInFlightRef.current ||
+          useCallStore.getState().phase !== 'idle'
+        ) {
+          throw new Error(CALL_SETUP_CANCELLED_ERROR)
+        }
+      }
 
       const telemetry = new CallTelemetrySession('outgoing')
       telemetrySessionRef.current = telemetry
@@ -1127,11 +1158,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       try {
         const micGranted = await ensureMicPermission()
+        assertOutgoingAttemptCurrent()
         if (!micGranted) throw new Error('microphone permission denied')
         telemetry.record('microphone_permission', { outcome: 'succeeded' })
 
         if (callType === 'VIDEO') {
           const cameraGranted = await ensureCameraPermission()
+          assertOutgoingAttemptCurrent()
           if (!cameraGranted) throw new Error('camera permission denied')
           telemetry.record('camera_permission', { outcome: 'succeeded' })
 
@@ -1139,6 +1172,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             audio: false,
             video: cameraConstraints('user'),
           })
+          try {
+            assertOutgoingAttemptCurrent()
+          } catch (error) {
+            preview.getTracks().forEach((track) => track.stop())
+            throw error
+          }
           const previewTrack = preview.getVideoTracks()[0]
           if (!previewTrack) {
             preview.getTracks().forEach((track) => track.stop())
@@ -1154,6 +1193,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
 
         const socket = await ensureSocketConnected()
+        assertOutgoingAttemptCurrent()
         telemetry.record('socket_connected', { outcome: 'succeeded' })
         const joined = await emitAndWaitForEvent<'initiate_call', 'call_joined'>(
           socket,
@@ -1163,9 +1203,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             event: 'call_joined',
             timeoutMs: CALL_JOINED_TIMEOUT_MS,
             registry: waitRegistryRef.current,
-            filter: (payload) => payload.session.conversationId === input.conversationId,
+            filter: (payload) =>
+              payload.role === 'host' &&
+              payload.session.conversationId === input.conversationId &&
+              payload.session.initiatorId === currentUserId &&
+              payload.session.targetUserId === input.peerUserId &&
+              payload.session.callType === callType,
           },
         )
+        assertOutgoingAttemptCurrent()
 
         activeCallIdRef.current = joined.callId
         telemetry.attachCall(joined.telemetryToken)
@@ -1200,6 +1246,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         router.push(`/call/${joined.callId}` as never)
 
         const answerWaitRegistry: CallWaitRegistry = new Set()
+        const cancelAnswerWaits = () => clearWaitRegistry(answerWaitRegistry)
+        waitRegistryRef.current.add(cancelAnswerWaits)
         const answerWaitTimeoutMs = getOutgoingRingWaitTimeoutMs(joined.noAnswerTimeoutMs)
         let answerOutcome: 'answered' | 'ended' | 'rejected'
         try {
@@ -1221,12 +1269,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             }).then(() => 'rejected' as const),
           ])
         } finally {
+          waitRegistryRef.current.delete(cancelAnswerWaits)
           clearWaitRegistry(answerWaitRegistry)
         }
         if (answerOutcome !== 'answered') return
 
         callAnsweredRef.current = true
-        const setupToken = beginCallSetup()
         useCallStore.getState().patch({ phase: 'connecting', reconnectDeadlineMs: null })
         stopRingingPreview()
 
@@ -1257,7 +1305,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
         telemetry.record('control_plane_active', { outcome: 'succeeded' })
       } catch (error) {
-        if (isCallSetupCancelledError(error)) return
+        if (isCallSetupCancelledError(error)) {
+          stopRingingPreview()
+          return
+        }
         stopRingingPreview()
         const activeCallId = activeCallIdRef.current
         if (socketRef.current?.connected && activeCallId) {
@@ -1276,6 +1327,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           return
         }
         await teardownOnce('start_call_failed', { errorMessage: 'Unable to set up the call' })
+      } finally {
+        outgoingStartInFlightRef.current = false
       }
     },
     [
@@ -1312,6 +1365,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     processingNativeActionIdsRef,
     completedNativeActionIdsRef,
     acceptingIncomingCallIdRef,
+    outgoingStartInFlightRef,
     nativeActionRetryTimeoutRef,
     clearNativeActionRetryTimeout,
     isCurrentCall,
@@ -1329,9 +1383,28 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const socket = socketRef.current
       if (state.phase !== 'active' || !state.callId || !socket?.connected) return
       if (state.callType === nextCallType) return
+      const callId = state.callId
+      const setupToken = callSetupGenerationRef.current
+      const isCallTypeSwitchCurrent = () => {
+        const currentState = useCallStore.getState()
+        return (
+          isCallSetupCurrent(setupToken, callId) &&
+          currentState.phase === 'active' &&
+          currentState.callId === callId
+        )
+      }
 
       if (nextCallType === 'VIDEO') {
-        const granted = await ensureCameraPermission()
+        let granted = false
+        try {
+          granted = await ensureCameraPermission()
+        } catch {
+          if (isCallTypeSwitchCurrent()) {
+            presentError('Velora needs camera access for video calls')
+          }
+          return
+        }
+        if (!isCallTypeSwitchCurrent()) return
         if (!granted) {
           presentError('Velora needs camera access for video calls')
           return
@@ -1352,19 +1425,28 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           },
         )
       } catch (error) {
-        if (isCallWaitCancelledError(error)) return
-        throw error
+        if (isCallWaitCancelledError(error) || !isCallTypeSwitchCurrent()) return
+        presentError('Unable to change call type')
+        return
       }
 
+      if (!isCallTypeSwitchCurrent()) return
       useCallStore.getState().patch({
         callType: nextCallType,
         remoteVideoState: nextCallType === 'VIDEO' ? 'waiting' : 'idle',
       })
       if (nextCallType === 'VIDEO') {
-        await activateLocalVideo({ requestPermission: false })
+        try {
+          await activateLocalVideo({ requestPermission: false })
+        } catch {
+          if (isCallTypeSwitchCurrent()) presentError('Unable to enable video')
+          return
+        }
+        if (!isCallTypeSwitchCurrent()) return
         const nativeAudioSessionState = await veloraSystemCalls
           .getNativeAudioSessionState()
           .catch(() => undefined)
+        if (!isCallTypeSwitchCurrent()) return
         enableDefaultVideoSpeaker(nativeAudioSessionState)
       } else {
         deactivateLocalVideo()
@@ -1377,6 +1459,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       deactivateLocalVideo,
       enableDefaultVideoSpeaker,
       ensureCameraPermission,
+      isCallSetupCurrent,
       presentError,
     ],
   )
@@ -1475,9 +1558,20 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           emitLocalVideoState(true)
           cameraPausedByBackgroundRef.current = false
         } else {
-          void activateLocalVideo({ requestPermission: false }).then((activated) => {
-            if (activated) cameraPausedByBackgroundRef.current = false
-          })
+          void activateLocalVideo({ requestPermission: false })
+            .then((activated) => {
+              if (activated) cameraPausedByBackgroundRef.current = false
+            })
+            .catch(() => {
+              const currentState = useCallStore.getState()
+              if (
+                currentState.phase === 'active' &&
+                currentState.callType === 'VIDEO' &&
+                currentState.cameraEnabled
+              ) {
+                presentError('Unable to restore video')
+              }
+            })
         }
       }
 
@@ -1506,7 +1600,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     return () => {
       subscription.remove()
     }
-  }, [activateLocalVideo, emitLocalVideoState, processPendingNativeCallAction])
+  }, [activateLocalVideo, emitLocalVideoState, presentError, processPendingNativeCallAction])
 
   useEffect(() => {
     void flushCallTelemetry()
@@ -1650,6 +1744,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       void ensureCallSocketConnected(disconnectedCallId)
         .then(async (connectedSocket) => {
           await restorePreActiveCallMembership(connectedSocket, disconnectedCallId)
+          const restoredState = useCallStore.getState()
+          if (restoredState.callId !== disconnectedCallId || !isBusyPhase(restoredState.phase)) {
+            return
+          }
           clearSocketDisconnectGraceTimeout()
           telemetrySessionRef.current?.record('socket_reconnect_succeeded', {
             outcome: 'succeeded',
@@ -1663,6 +1761,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           }
         })
         .catch((error) => {
+          if (!isCurrentCall(disconnectedCallId)) return
           telemetrySessionRef.current?.record('socket_reconnect_failed', {
             outcome: 'failed',
             error,
@@ -1826,6 +1925,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const callSocketPromises = callSocketPromisesRef.current
 
     return () => {
+      invalidateCallSetup()
+      outgoingStartInFlightRef.current = false
       socketRef.current?.removeAllListeners()
       socketRef.current?.disconnect()
       socketRef.current = null
@@ -1848,6 +1949,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     clearPeerLeftFallback,
     clearRemoteAudioFallback,
     clearSocketDisconnectGraceTimeout,
+    invalidateCallSetup,
     stopTimer,
   ])
 

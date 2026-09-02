@@ -69,6 +69,27 @@ test('active call screen renders RTC video and both conversion directions', () =
   assert.match(source, /toggleCamera/)
 })
 
+test('call screen overlays meet at the video boundary without a brightness seam', () => {
+  const source = read('app/call/[id].tsx')
+  const firstGradientStart = source.indexOf('<LinearGradient')
+  const firstGradientEnd = source.indexOf('/>', firstGradientStart)
+  const secondGradientStart = source.indexOf('<LinearGradient', firstGradientEnd + 2)
+  const secondGradientEnd = source.indexOf('/>', secondGradientStart)
+
+  assert.notEqual(firstGradientStart, -1)
+  assert.notEqual(firstGradientEnd, -1)
+  assert.notEqual(secondGradientStart, -1)
+  assert.notEqual(secondGradientEnd, -1)
+  const firstGradientSource = source.slice(firstGradientStart, firstGradientEnd)
+  assert.match(firstGradientSource, /height: '48%'/)
+  assert.match(
+    firstGradientSource,
+    /colors=\{\['rgba\(8,10,15,0\.88\)', 'rgba\(8,10,15,0\.10\)', 'rgba\(8,10,15,0\)'\]\}/,
+    'top overlay must fade to transparent before the lower overlay begins',
+  )
+  assert.match(source.slice(secondGradientStart, secondGradientEnd), /height: '52%'/)
+})
+
 test('conversation video entry point remains direct-chat only', () => {
   const screen = read('app/conversation/[id].tsx')
   const header = read('src/components/chat/conversation/ConversationHeader.tsx')

@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import { LinearGradient } from 'expo-linear-gradient'
 import { useKeepAwake } from 'expo-keep-awake'
+import { LinearGradient } from 'expo-linear-gradient'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { type ComponentProps, useEffect, useMemo, useState } from 'react'
@@ -253,9 +253,9 @@ export default function ActiveCallScreen() {
 
       <LinearGradient
         pointerEvents="none"
-        colors={['rgba(8,10,15,0.88)', 'rgba(8,10,15,0.10)', 'rgba(8,10,15,0.08)']}
+        colors={['rgba(8,10,15,0.88)', 'rgba(8,10,15,0.10)', 'rgba(8,10,15,0)']}
         locations={[0, 0.2, 0.46]}
-        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '42%' }}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '48%' }}
       />
       <LinearGradient
         pointerEvents="none"
@@ -296,9 +296,11 @@ export default function ActiveCallScreen() {
 
         <View className="relative flex-1">
           {!showVideoCanvas ? (
-            <View className="flex-1 items-center justify-center pb-16">{identity}</View>
+            <View key="identity" className="flex-1 items-center justify-center pb-16">
+              {identity}
+            </View>
           ) : (
-            <View className="flex-1">
+            <View key="video-canvas" className="flex-1">
               <View className="mt-6 items-center" pointerEvents="none">
                 <View
                   className="max-w-[82%] items-center rounded-[20px] px-4 py-2.5"
@@ -325,7 +327,12 @@ export default function ActiveCallScreen() {
                     elevation: 12,
                   }}
                 >
-                  <RTCView streamURL={localStreamUrl} objectFit="cover" mirror style={{ flex: 1 }} />
+                  <RTCView
+                    streamURL={localStreamUrl}
+                    objectFit="cover"
+                    mirror
+                    style={{ flex: 1 }}
+                  />
                 </View>
               ) : null}
             </View>
@@ -410,12 +417,7 @@ export default function ActiveCallScreen() {
                       onPress={() => void switchCamera()}
                     />
                   ) : (
-                    <CallControl
-                      icon="call"
-                      disabled
-                      label="Voice"
-                      onPress={() => undefined}
-                    />
+                    <CallControl icon="call" disabled label="Voice" onPress={() => undefined} />
                   )}
                 </View>
 
@@ -434,7 +436,9 @@ export default function ActiveCallScreen() {
                       accessibilityLabel="Switch to voice call"
                     >
                       <MaterialIcons name="call" size={16} color="rgba(255,255,255,0.78)" />
-                      <Text className="ml-2 text-xs font-semibold text-white/75">Switch to voice</Text>
+                      <Text className="ml-2 text-xs font-semibold text-white/75">
+                        Switch to voice
+                      </Text>
                     </TouchableOpacity>
                   </View>
                 ) : null}

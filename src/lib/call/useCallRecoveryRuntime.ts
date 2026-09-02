@@ -49,7 +49,10 @@ type RecoveryRuntimeOptions = {
   activateLocalVideo: (options?: { requestPermission?: boolean }) => Promise<boolean>
   deactivateLocalVideo: () => void
   clearRemoteVideoRuntime: (state?: 'idle' | 'off') => void
-  consumeRemoteProducer: (payload: NewProducerPayload) => Promise<void>
+  consumeRemoteProducer: (
+    payload: NewProducerPayload,
+    options?: { propagateFailure?: boolean; setupToken?: number },
+  ) => Promise<void>
   invalidateCallSetup: () => void
   disposeMediaRuntime: (options?: { preserveActiveCall?: boolean }) => void
   beginCallSetup: () => number
@@ -151,6 +154,7 @@ export const useCallRecoveryRuntime = ({
     }
 
     reconnectRecoveryInFlightRef.current = true
+    const restartSetupToken = beginCallSetup()
     try {
       const rejoined = await emitAndWaitForEvent<'rejoin_call', 'call_rejoined'>(
         socket,
@@ -163,6 +167,7 @@ export const useCallRecoveryRuntime = ({
           filter: (payload) => payload.callId === state.callId,
         },
       )
+      assertCallSetupCurrent(restartSetupToken, rejoined.callId)
 
       activeCallIdRef.current = rejoined.callId
       callAnsweredRef.current = true
@@ -178,32 +183,43 @@ export const useCallRecoveryRuntime = ({
       }
       try {
         await restartConnectedTransports(socket, rejoined.callId)
+        assertCallSetupCurrent(restartSetupToken, rejoined.callId)
         reconnectModeRef.current = null
-        clearReconnectTimeout()
-        useCallStore.getState().patch({ phase: 'active', reconnectDeadlineMs: null })
-        startTimer(useCallStore.getState().durationSec)
         for (const producer of rejoined.activeProducers ?? []) {
-          await consumeRemoteProducer({
-            callId: rejoined.callId,
-            userId: producer.userId,
-            producerId: producer.producerId,
-            kind: producer.kind,
-            ...(producer.paused !== undefined ? { paused: producer.paused } : {}),
-          })
+          await consumeRemoteProducer(
+            {
+              callId: rejoined.callId,
+              userId: producer.userId,
+              producerId: producer.producerId,
+              kind: producer.kind,
+              ...(producer.paused !== undefined ? { paused: producer.paused } : {}),
+            },
+            {
+              propagateFailure: producer.kind === 'audio',
+              setupToken: restartSetupToken,
+            },
+          )
+          assertCallSetupCurrent(restartSetupToken, rejoined.callId)
         }
+        useCallStore.getState().patch({ phase: 'active' })
         if (
           recoveredCallType === 'VIDEO' &&
           useCallStore.getState().hasCameraPermission === true &&
           !videoProducerRef.current
         ) {
           await activateLocalVideo({ requestPermission: false })
+          assertCallSetupCurrent(restartSetupToken, rejoined.callId)
         }
+        clearReconnectTimeout()
+        useCallStore.getState().patch({ reconnectDeadlineMs: null })
+        startTimer(useCallStore.getState().durationSec)
         telemetrySessionRef.current?.record('reconnect_transport_connected', {
           outcome: 'succeeded',
         })
         telemetrySessionRef.current?.record('reconnect', { outcome: 'succeeded' })
         return
       } catch (error) {
+        assertCallSetupCurrent(restartSetupToken, rejoined.callId)
         console.warn(
           '[Call] ICE restart failed; rebuilding media runtime',
           JSON.stringify({
@@ -215,13 +231,19 @@ export const useCallRecoveryRuntime = ({
 
       invalidateCallSetup()
       disposeMediaRuntime({ preserveActiveCall: true })
+      useCallStore.getState().patch({
+        phase: 'reconnecting',
+        reconnectDeadlineMs: Date.now() + RECONNECT_RECOVERY_TIMEOUT_MS,
+      })
+      armReconnectTimeout('recover_rebuild_timeout')
       const setupToken = beginCallSetup()
       await postAnswerSetup(rejoined, {
         resumeDurationSec: useCallStore.getState().durationSec,
         setupToken,
       })
-      telemetrySessionRef.current?.record('reconnect', { outcome: 'succeeded' })
       assertCallSetupCurrent(setupToken, rejoined.callId)
+      clearReconnectTimeout()
+      telemetrySessionRef.current?.record('reconnect', { outcome: 'succeeded' })
 
       if (useCallStore.getState().remoteAudioState !== 'connected') {
         useCallStore.getState().patch({
