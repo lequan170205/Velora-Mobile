@@ -101,7 +101,12 @@ export function ReactionDetailsSheet({
 
   const renderBackdrop = useCallback(
     (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} pressBehavior="close" />
+      <BottomSheetBackdrop
+        {...props}
+        appearsOnIndex={0}
+        disappearsOnIndex={-1}
+        pressBehavior="close"
+      />
     ),
     [],
   )
@@ -121,7 +126,9 @@ export function ReactionDetailsSheet({
       onDismiss={onDismiss}
     >
       <View style={{ flex: 1, paddingHorizontal: 16 }}>
-        <Text className="mb-3 text-center text-[17px] font-semibold text-text-primary">Reactions</Text>
+        <Text className="mb-3 text-center text-[17px] font-semibold text-text-primary">
+          Reactions
+        </Text>
 
         <ScrollView
           horizontal
@@ -166,11 +173,25 @@ export function ReactionDetailsSheet({
         </ScrollView>
 
         {isLoading ? (
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: bottomPadding }}>
+          <View
+            style={{
+              flex: 1,
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingBottom: bottomPadding,
+            }}
+          >
             <ActivityIndicator color="#FF6B2C" />
           </View>
         ) : isError ? (
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: bottomPadding }}>
+          <View
+            style={{
+              flex: 1,
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingBottom: bottomPadding,
+            }}
+          >
             <Text className="mb-3 text-sm text-text-muted">Không thể tải danh sách reactions.</Text>
             <TouchableOpacity
               onPress={() => void refetch()}
@@ -180,7 +201,14 @@ export function ReactionDetailsSheet({
             </TouchableOpacity>
           </View>
         ) : visibleReactions.length === 0 ? (
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: bottomPadding }}>
+          <View
+            style={{
+              flex: 1,
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingBottom: bottomPadding,
+            }}
+          >
             <Text className="text-sm text-text-muted">Chưa có reaction nào.</Text>
           </View>
         ) : (
@@ -196,7 +224,10 @@ export function ReactionDetailsSheet({
               return (
                 <View key={reaction.userId} className="flex-row items-center py-2.5">
                   {picture ? (
-                    <Image source={{ uri: picture }} className="h-11 w-11 rounded-full bg-surface-input" />
+                    <Image
+                      source={{ uri: picture }}
+                      className="h-11 w-11 rounded-full bg-surface-input"
+                    />
                   ) : (
                     <View className="h-11 w-11 items-center justify-center rounded-full bg-surface-input">
                       <Text className="text-base font-semibold text-text-primary">

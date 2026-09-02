@@ -320,7 +320,7 @@ export const getMessagesInfiniteQueryOptions = ({
   currentUser,
   isOnline = true,
   isNetworkResolved = true,
-  latestSyncRange,
+  latestSyncRange: _latestSyncRange,
   onLatestSyncCompleted,
   onLatestSyncRangeUpdated,
   queryClient,

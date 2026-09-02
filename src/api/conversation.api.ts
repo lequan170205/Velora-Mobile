@@ -52,9 +52,7 @@ const normalizeMessage = (message: Message): Message => {
 
 const normalizeMessages = (messages: Message[]) => messages.map(normalizeMessage)
 
-const fallbackGroupMembersFromConversation = (
-  conversation: Conversation,
-): ConversationMember[] => {
+const fallbackGroupMembersFromConversation = (conversation: Conversation): ConversationMember[] => {
   const participantById = new Map(
     (conversation.participants ?? []).map((participant) => [participant.id, participant]),
   )
@@ -247,7 +245,10 @@ export const conversationApi = {
         return response.data
       }
     } catch (error) {
-      console.warn('[ConversationApi] Group V2 member projection unavailable; using roster fallback', error)
+      console.warn(
+        '[ConversationApi] Group V2 member projection unavailable; using roster fallback',
+        error,
+      )
     }
 
     const conversationResponse = await apiClient.get<Conversation>(`/conversations/${id}`)

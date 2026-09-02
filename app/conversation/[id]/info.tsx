@@ -634,7 +634,10 @@ export default function GroupInfoScreen() {
                   return (
                     <View key={item.user.id} className="flex-row items-center py-2.5">
                       {item.user.picture ? (
-                        <Image source={{ uri: item.user.picture }} className="h-10 w-10 rounded-full" />
+                        <Image
+                          source={{ uri: item.user.picture }}
+                          className="h-10 w-10 rounded-full"
+                        />
                       ) : (
                         <View className="h-10 w-10 items-center justify-center rounded-full bg-surface-input">
                           <AppText className="text-xs2 font-medium text-text-primary">
@@ -646,9 +649,11 @@ export default function GroupInfoScreen() {
                         <AppText className="font-medium text-text-primary" numberOfLines={1}>
                           {name}
                         </AppText>
-                        <AppText className="mt-0.5 text-xs2 text-text-muted" numberOfLines={1}>
-                          {item.user.email}
-                        </AppText>
+                        {item.user.username ? (
+                          <AppText className="mt-0.5 text-xs2 text-text-muted" numberOfLines={1}>
+                            @{item.user.username}
+                          </AppText>
+                        ) : null}
                       </View>
                       <AppPressable
                         className="ml-3 rounded-full bg-brand px-3 py-2"
@@ -810,9 +815,7 @@ export default function GroupInfoScreen() {
                 <SafeTouchableOpacity
                   className="flex-row items-center py-3.5"
                   disabled={transferOwnership.isPending}
-                  onPress={() =>
-                    closeMemberActionsAndRun(selectedMember, confirmTransferOwnership)
-                  }
+                  onPress={() => closeMemberActionsAndRun(selectedMember, confirmTransferOwnership)}
                 >
                   <View className="h-10 w-10 items-center justify-center rounded-full bg-surface-input">
                     <MaterialIcons name="swap-horiz" size={21} color="#161616" />
@@ -832,9 +835,7 @@ export default function GroupInfoScreen() {
                   <View className="h-10 w-10 items-center justify-center rounded-full bg-[#FFF0EC]">
                     <MaterialIcons name="person-remove" size={20} color="#D84A3A" />
                   </View>
-                  <AppText className="ml-3 font-medium text-[#D84A3A]">
-                    Remove from group
-                  </AppText>
+                  <AppText className="ml-3 font-medium text-[#D84A3A]">Remove from group</AppText>
                 </SafeTouchableOpacity>
               ) : null}
 

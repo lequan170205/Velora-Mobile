@@ -1,6 +1,7 @@
-import type { BottomSheetModal } from '@gorhom/bottom-sheet'
 import React, { useCallback, useMemo, useRef, useState } from 'react'
 import { Text, View } from 'react-native'
+
+import type { BottomSheetModal } from '@gorhom/bottom-sheet'
 
 import { getMessageBubbleRecyclingKey } from '../../lib/messageBubbleRecycling'
 
@@ -25,7 +26,9 @@ const getParticipantDisplayName = (participant: MessageBubbleProps['senderInfo']
     ('fullName' in participant &&
       typeof participant.fullName === 'string' &&
       participant.fullName.trim()) ||
-    ('email' in participant && typeof participant.email === 'string' && participant.email.split('@')[0]) ||
+    ('email' in participant &&
+      typeof participant.email === 'string' &&
+      participant.email.split('@')[0]) ||
     null
   )
 }
@@ -34,7 +37,8 @@ const getGroupActivityLabel = (props: MessageBubbleProps) => {
   const activity = props.message.metadata?.groupActivity
   if (!activity) return props.message.content
 
-  const actor = activity.actorName?.trim() || getParticipantDisplayName(props.senderInfo) || 'A member'
+  const actor =
+    activity.actorName?.trim() || getParticipantDisplayName(props.senderInfo) || 'A member'
   const target = activity.targetName?.trim() || 'a member'
 
   switch (activity.type) {
@@ -66,8 +70,8 @@ const getGroupActivityLabel = (props: MessageBubbleProps) => {
 }
 
 const getReactionDisplayMessage = (message: MessageBubbleProps['message']) => {
-  const reactionEntries = Object.entries(message.reactions ?? {}).filter(
-    ([, reaction]) => Boolean(reaction?.emoji),
+  const reactionEntries = Object.entries(message.reactions ?? {}).filter(([, reaction]) =>
+    Boolean(reaction?.emoji),
   )
 
   if (reactionEntries.length === 0) return message
@@ -113,27 +117,25 @@ const getReactionDisplayMessage = (message: MessageBubbleProps['message']) => {
 }
 
 export function MessageBubble(props: MessageBubbleProps) {
+  const { message, onOpenContextMenu, onReactionPress } = props
   const reactionDetailsSheetRef = useRef<BottomSheetModal>(null)
   const [isReactionDetailsOpen, setIsReactionDetailsOpen] = useState(false)
   const reactionSignature = useMemo(
     () =>
-      Object.entries(props.message.reactions ?? {})
+      Object.entries(message.reactions ?? {})
         .sort(([leftUserId], [rightUserId]) => leftUserId.localeCompare(rightUserId))
         .map(([userId, reaction]) => `${userId}:${reaction.emoji}:${reaction.createdAt}`)
         .join('|'),
-    [props.message.reactions],
+    [message.reactions],
   )
-  const reactionDisplayMessage = useMemo(
-    () => getReactionDisplayMessage(props.message),
-    [props.message],
-  )
+  const reactionDisplayMessage = useMemo(() => getReactionDisplayMessage(message), [message])
 
   const handleReactionPress = useCallback(
     (emoji: string) => {
-      props.onReactionPress?.(emoji)
+      onReactionPress?.(emoji)
       setIsReactionDetailsOpen(true)
     },
-    [props.onReactionPress],
+    [onReactionPress],
   )
 
   const handleOpenContextMenu = useCallback(
@@ -143,14 +145,14 @@ export function MessageBubble(props: MessageBubbleProps) {
         message: props.message,
       })
     },
-    [props.message, props.onOpenContextMenu],
+    [props],
   )
 
   const handleReactionDetailsDismiss = useCallback(() => {
     setIsReactionDetailsOpen(false)
   }, [])
 
-  if (props.message.metadata?.kind === 'group_system_activity') {
+  if (message.metadata?.kind === 'group_system_activity') {
     return (
       <View className="items-center px-8 py-2.5">
         <View className="max-w-[88%] rounded-full bg-surface-input px-3.5 py-2">
@@ -165,16 +167,16 @@ export function MessageBubble(props: MessageBubbleProps) {
   return (
     <>
       <MemoizedMessageBubble
-        key={getMessageBubbleRecyclingKey(props.message.metadata?.citations)}
+        key={getMessageBubbleRecyclingKey(message.metadata?.citations)}
         {...props}
         message={reactionDisplayMessage}
         onReactionPress={handleReactionPress}
-        onOpenContextMenu={props.onOpenContextMenu ? handleOpenContextMenu : undefined}
+        {...(onOpenContextMenu ? { onOpenContextMenu: handleOpenContextMenu } : {})}
       />
       {isReactionDetailsOpen ? (
         <ReactionDetailsSheet
           sheetRef={reactionDetailsSheetRef}
-          messageId={props.message.id}
+          messageId={message.id}
           reactionSignature={reactionSignature}
           onDismiss={handleReactionDetailsDismiss}
         />
