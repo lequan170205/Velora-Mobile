@@ -11,8 +11,8 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const inputClassName = (isFocused: boolean) =>
   cn(
-    'rounded-[22px] border bg-white px-4 py-3.5',
-    isFocused ? 'border-brand bg-[#FFF7F1]' : 'border-[#F1E3D7]',
+    'h-14 flex-row items-center rounded-[20px] border bg-[#FFFBF8] px-4',
+    isFocused ? 'border-brand bg-[#FFF7F2]' : 'border-[#F2DED0]',
   )
 
 const getEmailError = (email: string) => {
@@ -64,13 +64,13 @@ export default function ForgotPasswordScreen() {
       footer={
         <View>
           {error ? (
-            <View className="mb-4 rounded-[18px] bg-[#FFE8E8] px-4 py-3">
+            <View className="mb-4 rounded-[16px] bg-[#FFF0EF] px-4 py-3">
               <Text className="text-center text-base2 font-medium text-status-error">{error}</Text>
             </View>
           ) : null}
 
           <TouchableOpacity
-            className="h-[52px] flex-row items-center justify-center rounded-full bg-brand"
+            className="h-14 flex-row items-center justify-center rounded-[20px] bg-brand"
             onPress={handleReset}
             disabled={isLoading}
             activeOpacity={0.85}
@@ -91,7 +91,7 @@ export default function ForgotPasswordScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            className="mt-5 items-center justify-center rounded-full py-3"
+            className="mt-4 items-center justify-center rounded-[18px] py-3"
             onPress={() => router.replace('/(auth)/login')}
             activeOpacity={0.7}
           >
@@ -100,30 +100,14 @@ export default function ForgotPasswordScreen() {
         </View>
       }
     >
-      <View className="rounded-[28px] border border-[#F3E6DA] bg-white px-5 py-5">
-        <View className="flex-row items-center justify-between">
-          <View>
-            <Text className="text-xs2 uppercase tracking-[1.2px] text-text-muted">Recovery</Text>
-            <Text className="mt-2 font-heading text-[22px] leading-[28px] text-text-primary">
-              Email reset
-            </Text>
-          </View>
-          <View className="h-11 w-11 items-center justify-center rounded-full bg-[#FFF2E8]">
-            <MaterialIcons name="mail-outline" size={20} color="#D85A21" />
-          </View>
-        </View>
-        <Text className="mt-3 text-base2 leading-6 text-text-secondary">
-          Use the same email you used when creating your account.
-        </Text>
-      </View>
-
-      <View className="mt-4">
+      <View>
+        <Text className="mb-2 text-sm2 font-semibold text-text-primary">Email address</Text>
         <View className={inputClassName(isFocused)}>
-          <Text className="mb-1.5 text-xs2 uppercase tracking-[1.1px] text-text-muted">Email</Text>
+          <MaterialIcons name="mail-outline" size={20} color="#FF8A5B" />
           <TextInput
-            className="py-1 text-[16px] font-medium text-text-primary"
-            placeholder="name@email.com"
-            placeholderTextColor="#AEAEB2"
+            className="ml-3 flex-1 text-md font-sans text-text-primary"
+            placeholder="Enter your email"
+            placeholderTextColor="#9A9694"
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
@@ -135,6 +119,9 @@ export default function ForgotPasswordScreen() {
             onSubmitEditing={handleReset}
           />
         </View>
+        <Text className="mt-3 text-base2 leading-5 text-text-secondary">
+          Use the same email you used when creating your account.
+        </Text>
       </View>
     </AuthFlowLayout>
   )

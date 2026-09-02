@@ -1,16 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  ActivityIndicator,
-  findNodeHandle,
-  Keyboard,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-  type ScrollView,
-} from 'react-native'
+import { useMemo, useRef, useState } from 'react'
+import { ActivityIndicator, Text, TextInput, TouchableOpacity, View } from 'react-native'
 
 import { authApi } from '../../src/api/auth.api'
 import { AuthFlowLayout } from '../../src/components/auth/AuthFlowLayout'
@@ -19,17 +10,14 @@ import { cn } from '../../src/lib/cn'
 
 const inputClassName = (isFocused: boolean) =>
   cn(
-    'rounded-[22px] border bg-white px-4 py-3.5',
-    isFocused ? 'border-brand bg-[#FFF7F1]' : 'border-[#F1E3D7]',
+    'rounded-[20px] border bg-[#FFFBF8] px-4 py-3.5',
+    isFocused ? 'border-brand bg-[#FFF7F2]' : 'border-[#F2DED0]',
   )
 
 export default function ResetPasswordScreen() {
   const router = useRouter()
-  const scrollViewRef = useRef<ScrollView>(null)
   const otpInputRef = useRef<TextInput>(null)
   const newPasswordInputRef = useRef<TextInput>(null)
-  const focusedFieldRef = useRef<'token' | 'newPassword' | null>(null)
-  const focusedInputRef = useRef<TextInput | null>(null)
   const params = useLocalSearchParams<{ email?: string; sent?: string }>()
   const email = useMemo(() => {
     if (Array.isArray(params.email)) return params.email[0] ?? ''
@@ -42,65 +30,10 @@ export default function ResetPasswordScreen() {
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [focusedInput, setFocusedInput] = useState<'newPassword' | null>(null)
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false)
-  const [keyboardHeight, setKeyboardHeight] = useState(0)
   const [error, setError] = useState('')
   const [isCompleted, setIsCompleted] = useState(false)
 
   const notice = sent === '1' ? `Reset code sent to ${email}.` : ''
-  const shouldExpandBottomSpace = !isCompleted && isKeyboardVisible
-
-  const scrollFieldIntoView = useCallback(
-    (field: 'token' | 'newPassword', input: TextInput | null) => {
-      const nodeHandle = input ? findNodeHandle(input) : null
-      if (!nodeHandle) return
-
-      const additionalOffset = field === 'token' ? 92 : 116
-      scrollViewRef.current?.scrollResponderScrollNativeHandleToKeyboard(
-        nodeHandle,
-        additionalOffset,
-        true,
-      )
-    },
-    [],
-  )
-
-  const handleFieldFocus = (field: 'token' | 'newPassword', input: TextInput | null) => {
-    if (field === 'newPassword') {
-      setFocusedInput('newPassword')
-    }
-
-    focusedFieldRef.current = field
-    focusedInputRef.current = input
-
-    const scrollToField = () => {
-      scrollFieldIntoView(field, input)
-    }
-
-    requestAnimationFrame(scrollToField)
-    setTimeout(scrollToField, 48)
-    setTimeout(scrollToField, 180)
-  }
-
-  useEffect(() => {
-    const showSubscription = Keyboard.addListener('keyboardDidShow', (event) => {
-      setIsKeyboardVisible(true)
-      setKeyboardHeight(event.endCoordinates.height)
-
-      if (focusedFieldRef.current && focusedInputRef.current) {
-        scrollFieldIntoView(focusedFieldRef.current, focusedInputRef.current)
-      }
-    })
-    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
-      setIsKeyboardVisible(false)
-      setKeyboardHeight(0)
-    })
-
-    return () => {
-      showSubscription.remove()
-      hideSubscription.remove()
-    }
-  }, [scrollFieldIntoView])
 
   const handleReset = async () => {
     if (token.trim().length < 6) {
@@ -137,7 +70,6 @@ export default function ResetPasswordScreen() {
 
   return (
     <AuthFlowLayout
-      scrollViewRef={scrollViewRef}
       title={isCompleted ? 'Password updated' : 'Create a new password'}
       subtitle={
         isCompleted ? (
@@ -153,17 +85,10 @@ export default function ResetPasswordScreen() {
       onBack={() => router.back()}
       progressActive={2}
       progressTotal={2}
-      scrollViewProps={{
-        contentContainerStyle: shouldExpandBottomSpace
-          ? {
-              paddingBottom: Math.max(keyboardHeight + 120, 220),
-            }
-          : undefined,
-      }}
       footer={
         isCompleted ? (
           <TouchableOpacity
-            className="h-[52px] flex-row items-center justify-center rounded-full bg-brand"
+            className="h-14 flex-row items-center justify-center rounded-[20px] bg-brand"
             onPress={() => router.replace(`/(auth)/login?email=${encodeURIComponent(email)}`)}
             activeOpacity={0.85}
           >
@@ -172,7 +97,7 @@ export default function ResetPasswordScreen() {
         ) : (
           <View>
             {error ? (
-              <View className="mb-4 rounded-[18px] bg-[#FFE8E8] px-4 py-3">
+              <View className="mb-4 rounded-[16px] bg-[#FFF0EF] px-4 py-3">
                 <Text className="text-center text-base2 font-medium text-status-error">
                   {error}
                 </Text>
@@ -180,7 +105,7 @@ export default function ResetPasswordScreen() {
             ) : null}
 
             <TouchableOpacity
-              className="h-[52px] flex-row items-center justify-center rounded-full bg-brand"
+              className="h-14 flex-row items-center justify-center rounded-[20px] bg-brand"
               onPress={handleReset}
               disabled={isLoading}
               activeOpacity={0.85}
@@ -200,49 +125,23 @@ export default function ResetPasswordScreen() {
     >
       {!isCompleted ? (
         <>
-          <View className="rounded-[28px] border border-[#F3E6DA] bg-white px-5 py-5">
-            <View className="flex-row items-center justify-between">
-              <View>
-                <Text className="text-xs2 uppercase tracking-[1.2px] text-text-muted">
-                  Security
-                </Text>
-                <Text className="mt-2 font-heading text-[22px] leading-[28px] text-text-primary">
-                  Reset access
-                </Text>
-              </View>
-              <View className="h-11 w-11 items-center justify-center rounded-full bg-[#FFF2E8]">
-                <MaterialIcons name="lock-reset" size={20} color="#D85A21" />
-              </View>
-            </View>
-            <Text className="mt-3 text-base2 leading-6 text-text-secondary">
-              Use the code from your inbox, then save a stronger password for this account.
-            </Text>
-          </View>
-
           {notice ? (
-            <View className="mt-4 rounded-[18px] bg-[#FFF3E8] px-4 py-3">
+            <View className="mb-4 rounded-[16px] bg-[#FFF4EC] px-4 py-3">
               <Text className="text-center text-base2 font-medium text-[#A6501B]">{notice}</Text>
             </View>
           ) : null}
 
-          <View className="mt-4 gap-4">
+          <View className="gap-4">
             <OtpCodeInput
               value={token}
               onChangeText={setToken}
               label="Reset code"
               inputRef={otpInputRef}
-              onFocus={() => handleFieldFocus('token', otpInputRef.current)}
-              onBlur={() => {
-                focusedFieldRef.current = null
-                focusedInputRef.current = null
-              }}
               onSubmitEditing={() => newPasswordInputRef.current?.focus()}
             />
 
             <View className={inputClassName(focusedInput === 'newPassword')}>
-              <Text className="mb-1.5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
-                New password
-              </Text>
+              <Text className="mb-1.5 text-sm2 font-semibold text-text-primary">New password</Text>
               <View className="flex-row items-center">
                 <TextInput
                   ref={newPasswordInputRef}
@@ -253,11 +152,9 @@ export default function ResetPasswordScreen() {
                   onChangeText={setNewPassword}
                   secureTextEntry={!showPassword}
                   autoCorrect={false}
-                  onFocus={() => handleFieldFocus('newPassword', newPasswordInputRef.current)}
+                  onFocus={() => setFocusedInput('newPassword')}
                   onBlur={() => {
                     setFocusedInput(null)
-                    focusedFieldRef.current = null
-                    focusedInputRef.current = null
                   }}
                   returnKeyType="done"
                   onSubmitEditing={handleReset}
@@ -278,8 +175,8 @@ export default function ResetPasswordScreen() {
           </View>
         </>
       ) : (
-        <View className="rounded-[28px] border border-[#F3E6DA] bg-white px-5 py-6">
-          <View className="h-12 w-12 items-center justify-center rounded-full bg-[#FFF2E8]">
+        <View className="rounded-[22px] border border-[#F2DED0] bg-[#FFFBF8] px-5 py-6">
+          <View className="h-12 w-12 items-center justify-center rounded-[16px] bg-[#FFF2E8]">
             <MaterialIcons name="check-circle-outline" size={24} color="#D85A21" />
           </View>
           <Text className="mt-4 font-heading text-[24px] leading-[30px] text-text-primary">
