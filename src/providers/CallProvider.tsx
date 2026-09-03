@@ -847,13 +847,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         error: null,
         durationSec: 0,
       })
-      if (veloraSystemCalls.isIosSimulator) {
-        router.push(`/call/${payload.callId}` as never)
-      } else {
-        veloraSystemCalls.presentIncomingCall(nativePayload)
-      }
+      void veloraSystemCalls.presentIncomingCall(nativePayload)
     },
-    [currentUserId, queryClient, router],
+    [currentUserId, queryClient],
   )
 
   const prepareIncomingCallFromState = useCallback(
@@ -1831,11 +1827,17 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (!isCurrentCall(payload.callId) || payload.userId === currentUserId) return
 
       remoteVideoEnabledByProducerRef.current.set(payload.producerId, payload.enabled)
-      const hasVideoConsumer = [...consumerMapRef.current.values()].some(
+      const videoConsumer = [...consumerMapRef.current.values()].find(
         (consumer) => consumer.producerId === payload.producerId && consumer.kind === 'video',
       )
+
+      if (videoConsumer && !videoConsumer.closed) {
+        if (payload.enabled) videoConsumer.resume()
+        else videoConsumer.pause()
+      }
+
       useCallStore.getState().patch({
-        remoteVideoState: payload.enabled ? (hasVideoConsumer ? 'connected' : 'waiting') : 'off',
+        remoteVideoState: payload.enabled ? (videoConsumer ? 'connected' : 'waiting') : 'off',
       })
     }
 

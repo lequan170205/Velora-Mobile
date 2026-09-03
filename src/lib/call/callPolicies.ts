@@ -154,7 +154,7 @@ export const getCallEndedMessage = (
     return state.direction === 'outgoing' ? 'No one answered' : null
   }
 
-  if (payload.reason === 'cancelled') return 'The caller canceled the call'
+  if (payload.reason === 'cancelled') return null
   if (payload.reason === 'disconnected') return 'The call was interrupted'
   if (payload.reason === 'remote_audio_not_ready') {
     return 'The other person could not activate call audio'

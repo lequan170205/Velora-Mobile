@@ -8,13 +8,15 @@ import { Stack, usePathname, useRouter } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
 import { useEffect, useState } from 'react'
-import { AppState, Platform, Text, TouchableOpacity, View } from 'react-native'
+import { AppState, Platform, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { PaperProvider } from 'react-native-paper'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 
-import { CallErrorModal } from '../src/components/call/CallErrorModal'
+import { AppPressable } from '../src/components/base/AppPressable'
+import { AppText } from '../src/components/base/AppText'
+import { CallFeedbackNotice } from '../src/components/call/CallErrorModal'
 import { paperTheme } from '../src/constants/paperTheme'
 import { colors } from '../src/constants/theme'
 import { useReelSavingMode } from '../src/hooks/useReelSavingMode'
@@ -41,7 +43,7 @@ import { useCallStore } from '../src/stores/callStore'
 SplashScreen.preventAutoHideAsync()
 
 function ActiveCallBanner() {
-  const { phase, durationSec, callId, reconnectDeadlineMs, callType } = useCallStore()
+  const { phase, durationSec, callId, reconnectDeadlineMs, callType, peerName } = useCallStore()
   const pathname = usePathname()
   const router = useRouter()
   const insets = useSafeAreaInsets()
@@ -74,37 +76,58 @@ function ActiveCallBanner() {
       : null
 
   return (
-    <TouchableOpacity
+    <AppPressable
       style={{
         bottom:
           Platform.OS === 'ios' ? insets.bottom + 64 : insets.bottom > 0 ? insets.bottom + 84 : 90,
+        backgroundColor: colors.call.surface,
+        borderColor: colors.call.controlBorder,
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.18,
+        shadowRadius: 16,
+        elevation: 10,
       }}
-      className="absolute left-5 right-5 z-[9999] flex-row items-center justify-between rounded-xl border border-call-green bg-surface-card px-4 py-3"
-      activeOpacity={0.9}
+      className="absolute left-4 right-4 z-[9999] flex-row items-center rounded-[22px] border px-4 py-3.5"
+      activeOpacity={0.84}
       onPress={() => router.push(`/call/${callId}` as never)}
+      accessibilityRole="button"
+      accessibilityLabel={`Return to ${callType === 'VIDEO' ? 'video' : 'voice'} call${peerName ? ` with ${peerName}` : ''}`}
     >
-      <View className="flex-row items-center gap-3">
-        <View className="h-7 w-7 items-center justify-center rounded-full bg-call-green">
+      <View className="min-w-0 flex-1 flex-row items-center gap-3">
+        <View
+          className="h-9 w-9 items-center justify-center rounded-full"
+          style={{ backgroundColor: colors.status.success }}
+        >
           <MaterialIcons
-            name={callType === 'VIDEO' ? 'videocam' : 'call'}
-            size={16}
+            name={phase === 'reconnecting' ? 'sync' : callType === 'VIDEO' ? 'videocam' : 'call'}
+            size={18}
             color="#ffffff"
           />
         </View>
-        <Text className="text-md font-medium text-text-primary">
-          {phase === 'reconnecting'
-            ? 'Reconnecting...'
-            : callType === 'VIDEO'
-              ? 'Video call in progress...'
-              : 'Call in progress...'}
-        </Text>
+        <View className="min-w-0 flex-1">
+          <AppText className="text-sm font-semibold" style={{ color: colors.call.textPrimary }}>
+            {phase === 'reconnecting'
+              ? 'Reconnecting'
+              : callType === 'VIDEO'
+                ? 'Video call'
+                : 'Voice call'}
+          </AppText>
+          <AppText
+            className="mt-0.5 text-xs"
+            style={{ color: colors.call.textSecondary }}
+            numberOfLines={1}
+          >
+            {peerName || 'Tap to return to the call'}
+          </AppText>
+        </View>
       </View>
-      <Text className="text-md font-semibold text-call-green">
+      <AppText className="ml-3 text-sm font-semibold" style={{ color: colors.call.textPrimary }}>
         {phase === 'reconnecting' && reconnectSecondsLeft !== null
           ? `${reconnectSecondsLeft}s`
           : formatDuration(durationSec)}
-      </Text>
-    </TouchableOpacity>
+      </AppText>
+    </AppPressable>
   )
 }
 
@@ -114,7 +137,7 @@ function CallUiOverlays() {
 
   return (
     <>
-      <CallErrorModal visible={Boolean(error)} message={error} onDismiss={dismissCallError} />
+      <CallFeedbackNotice visible={Boolean(error)} message={error} onDismiss={dismissCallError} />
       <ActiveCallBanner />
     </>
   )

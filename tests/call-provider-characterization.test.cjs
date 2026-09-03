@@ -680,20 +680,24 @@ test('socket effect removes only provider-owned handlers and preserves event wai
 })
 
 test('video call canvas branches have isolated Fabric identities', () => {
-  const videoCanvasSource = sliceBetween(
+  assert.match(
     callScreenSource,
-    '<View className="relative flex-1">',
-    '<View className="z-20 px-3 pb-2">',
-  )
-
-  assert.match(
-    videoCanvasSource,
-    /<View key="identity" className="flex-1 items-center justify-center pb-16">/,
-    'identity branch must have a stable reconciliation key',
+    /<RTCView\s+key="remote-video"/,
+    'remote RTC branch must have a stable reconciliation key',
   )
   assert.match(
-    videoCanvasSource,
-    /<View key="video-canvas" className="flex-1">/,
-    'video branch must have a distinct reconciliation key',
+    callScreenSource,
+    /<CameraOffSurface\s+key="remote-camera-off"/,
+    'remote camera-off branch must have a distinct reconciliation key',
+  )
+  assert.match(
+    callScreenSource,
+    /<RTCView\s+key="local-video"/,
+    'local RTC branch must have a stable reconciliation key',
+  )
+  assert.match(
+    callScreenSource,
+    /<CameraOffSurface key="local-camera-off"/,
+    'local camera-off branch must have a distinct reconciliation key',
   )
 })

@@ -39,21 +39,6 @@ interface AppPressableProps extends PressableProps {
 
 type NativePressableRef = React.ElementRef<typeof Pressable>
 
-function resolvePressableStyle(
-  style: PressableProps['style'],
-  state: PressableStateCallbackType,
-  activeOpacity: number,
-  shouldUseOpacityFeedback: boolean,
-  disabled?: PressableProps['disabled'],
-): StyleProp<ViewStyle> {
-  const resolvedStyle = typeof style === 'function' ? style(state) : style
-
-  return [
-    shouldUseOpacityFeedback && state.pressed && !disabled ? { opacity: activeOpacity } : undefined,
-    resolvedStyle,
-  ]
-}
-
 export const AppPressable = React.forwardRef<NativePressableRef, AppPressableProps>(
   (
     {
@@ -64,10 +49,16 @@ export const AppPressable = React.forwardRef<NativePressableRef, AppPressablePro
       pressRetentionOffset = DEFAULT_PRESS_RETENTION_OFFSET,
       android_ripple,
       disabled,
+      onHoverIn,
+      onHoverOut,
+      onPressIn,
+      onPressOut,
       ...props
     },
     ref,
   ) => {
+    const [isHovered, setIsHovered] = React.useState(false)
+    const [isPressed, setIsPressed] = React.useState(false)
     const resolvedRipple =
       Platform.OS === 'android' && !disabled
         ? android_ripple === undefined
@@ -76,6 +67,15 @@ export const AppPressable = React.forwardRef<NativePressableRef, AppPressablePro
         : undefined
 
     const shouldUseOpacityFeedback = Platform.OS === 'ios' || resolvedRipple === null
+    const pressableState: PressableStateCallbackType = {
+      pressed: isPressed,
+      hovered: isHovered,
+    }
+    const resolvedStyle = typeof style === 'function' ? style(pressableState) : style
+    const composedStyle: StyleProp<ViewStyle> = [
+      shouldUseOpacityFeedback && isPressed && !disabled ? { opacity: activeOpacity } : undefined,
+      resolvedStyle,
+    ]
 
     return (
       <Pressable
@@ -85,9 +85,23 @@ export const AppPressable = React.forwardRef<NativePressableRef, AppPressablePro
         hitSlop={hitSlop}
         pressRetentionOffset={pressRetentionOffset}
         android_ripple={resolvedRipple}
-        style={(state) =>
-          resolvePressableStyle(style, state, activeOpacity, shouldUseOpacityFeedback, disabled)
-        }
+        style={composedStyle}
+        onHoverIn={(event) => {
+          setIsHovered(true)
+          onHoverIn?.(event)
+        }}
+        onHoverOut={(event) => {
+          setIsHovered(false)
+          onHoverOut?.(event)
+        }}
+        onPressIn={(event) => {
+          setIsPressed(true)
+          onPressIn?.(event)
+        }}
+        onPressOut={(event) => {
+          setIsPressed(false)
+          onPressOut?.(event)
+        }}
         {...props}
       />
     )

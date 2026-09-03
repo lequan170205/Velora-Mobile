@@ -1,135 +1,122 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import React from 'react'
-import { Modal, TouchableOpacity, View } from 'react-native'
+import { usePathname } from 'expo-router'
+import React, { useEffect } from 'react'
+import { View } from 'react-native'
+import Animated, { FadeInDown, FadeOutDown, ReduceMotion } from 'react-native-reanimated'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
-import { colors, shadows } from '../../constants/theme'
-import { Typography } from '../ui/Typography'
+import { colors } from '../../constants/theme'
+import { AppPressable } from '../base/AppPressable'
+import { AppText } from '../base/AppText'
 
-interface CallErrorModalProps {
+interface CallFeedbackNoticeProps {
   visible: boolean
   message: string | null
   onDismiss: () => void
 }
 
-const getCallErrorPresentation = (message: string) => {
+const TRANSIENT_OUTCOMES = new Set([
+  'No one answered',
+  'The other person is on another call',
+  'The call was rejected',
+])
+
+const getCallFeedbackPresentation = (message: string) => {
   if (message === 'No one answered') {
     return {
-      title: 'No answer',
-      iconName: 'call-end' as const,
+      iconName: 'phone-missed' as const,
       iconColor: colors.brand.primary,
-      iconBackgroundColor: '#FFF4EC',
+      iconBackgroundColor: colors.surface.accent,
     }
   }
 
-  if (message === 'The other person is on another call') {
+  if (message === 'The other person is on another call' || message === 'The call was rejected') {
     return {
-      title: 'Call declined',
       iconName: 'call-end' as const,
       iconColor: colors.status.error,
-      iconBackgroundColor: '#FFF1F0',
+      iconBackgroundColor: colors.surface.error,
     }
   }
 
-  if (message === 'The other person needs microphone access to answer') {
+  if (message.includes('microphone') || message.includes('camera') || message.includes('video')) {
     return {
-      title: 'Unable to answer',
-      iconName: 'mic-off' as const,
-      iconColor: colors.status.error,
-      iconBackgroundColor: '#FFF1F0',
-    }
-  }
-
-  if (message === 'Video calls are not supported yet') {
-    return {
-      title: 'Video unavailable',
-      iconName: 'videocam-off' as const,
+      iconName: message.includes('microphone') ? ('mic-off' as const) : ('videocam-off' as const),
       iconColor: colors.brand.primary,
-      iconBackgroundColor: '#FFF4EC',
-    }
-  }
-
-  if (message === 'The call was interrupted') {
-    return {
-      title: 'Call interrupted',
-      iconName: 'error-outline' as const,
-      iconColor: colors.status.error,
-      iconBackgroundColor: '#FFF1F0',
-    }
-  }
-
-  if (message === 'The call was rejected') {
-    return {
-      title: 'Call declined',
-      iconName: 'call-end' as const,
-      iconColor: colors.status.error,
-      iconBackgroundColor: '#FFF1F0',
+      iconBackgroundColor: colors.surface.accent,
     }
   }
 
   return {
-    title: 'Call update',
     iconName: 'error-outline' as const,
-    iconColor: colors.brand.primary,
-    iconBackgroundColor: '#FFF4EC',
+    iconColor: colors.status.error,
+    iconBackgroundColor: colors.surface.error,
   }
 }
 
-export function CallErrorModal({ visible, message, onDismiss }: CallErrorModalProps) {
-  if (!message) {
-    return null
-  }
+export function CallFeedbackNotice({ visible, message, onDismiss }: CallFeedbackNoticeProps) {
+  const pathname = usePathname()
+  const insets = useSafeAreaInsets()
+  const isTransientOutcome = Boolean(message && TRANSIENT_OUTCOMES.has(message))
 
-  const presentation = getCallErrorPresentation(message)
+  useEffect(() => {
+    if (!visible || !isTransientOutcome) return undefined
+
+    const timeoutId = setTimeout(onDismiss, 4000)
+    return () => clearTimeout(timeoutId)
+  }, [isTransientOutcome, message, onDismiss, visible])
+
+  if (!visible || !message) return null
+
+  const presentation = getCallFeedbackPresentation(message)
+  const bottomClearance = pathname.startsWith('/call/') ? 112 : 82
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss}>
-      <View
-        className="flex-1 items-center justify-center px-6"
-        style={{ backgroundColor: '#00000066' }}
+    <View pointerEvents="box-none" className="absolute inset-0 z-[10000] justify-end px-4">
+      <Animated.View
+        entering={FadeInDown.duration(180).reduceMotion(ReduceMotion.System)}
+        exiting={FadeOutDown.duration(140).reduceMotion(ReduceMotion.System)}
+        className="mx-auto w-full max-w-[420px] flex-row items-center rounded-[20px] border px-3 py-3"
+        style={{
+          marginBottom: Math.max(insets.bottom, 12) + bottomClearance,
+          backgroundColor: colors.surface.modal,
+          borderColor: colors.border.light,
+          shadowColor: '#161616',
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.14,
+          shadowRadius: 20,
+          elevation: 10,
+        }}
       >
         <View
-          className="w-full max-w-[340px] rounded-[28px] border px-6 py-6"
-          style={{
-            backgroundColor: colors.surface.modal,
-            borderColor: colors.border.light,
-            ...shadows.md,
-          }}
+          className="h-10 w-10 shrink-0 items-center justify-center rounded-full"
+          style={{ backgroundColor: presentation.iconBackgroundColor }}
+          importantForAccessibility="no"
+          accessibilityElementsHidden
         >
-          <View className="items-center">
-            <View
-              className="h-16 w-16 items-center justify-center rounded-full"
-              style={{ backgroundColor: presentation.iconBackgroundColor }}
-            >
-              <MaterialIcons
-                name={presentation.iconName}
-                size={30}
-                color={presentation.iconColor}
-              />
-            </View>
-
-            <Typography variant="h2" align="center" className="mt-4">
-              {presentation.title}
-            </Typography>
-            <Typography variant="body" align="center" className="mt-2 leading-6">
-              {message}
-            </Typography>
-          </View>
-
-          <TouchableOpacity
-            className="mt-6 rounded-[22px] px-4 py-4"
-            style={{
-              backgroundColor: colors.brand.primary,
-              ...shadows.glow,
-            }}
-            activeOpacity={0.84}
-            onPress={onDismiss}
-          >
-            <Typography variant="button" align="center" color={colors.text.inverse}>
-              OK
-            </Typography>
-          </TouchableOpacity>
+          <MaterialIcons name={presentation.iconName} size={21} color={presentation.iconColor} />
         </View>
-      </View>
-    </Modal>
+
+        <AppText
+          className="ml-3 min-w-0 flex-1 text-[15px] font-medium leading-5"
+          style={{ color: colors.text.primary }}
+          accessible
+          accessibilityRole="alert"
+          accessibilityLiveRegion="polite"
+          accessibilityLabel={message}
+        >
+          {message}
+        </AppText>
+
+        <AppPressable
+          className="ml-2 h-11 w-11 shrink-0 items-center justify-center rounded-full"
+          activeOpacity={0.6}
+          onPress={onDismiss}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss call notification"
+        >
+          <MaterialIcons name="close" size={21} color={colors.text.secondary} />
+        </AppPressable>
+      </Animated.View>
+    </View>
   )
 }

@@ -39,6 +39,8 @@ test('camera off/on is signaled without replacing the video producer', () => {
   assert.match(localMedia, /emitLocalVideoState\(true\)/)
   assert.match(provider, /socket\.on\('video_state_changed', handleVideoStateChanged\)/)
   assert.match(provider, /remoteVideoEnabledByProducerRef/)
+  assert.match(provider, /if \(payload\.enabled\) videoConsumer\.resume\(\)/)
+  assert.match(provider, /else videoConsumer\.pause\(\)/)
   assert.match(mediaTransport, /remoteVideoState: videoEnabled \? 'connected' : 'off'/)
 })
 
@@ -63,13 +65,77 @@ test('native VIDEO answer survives background recovery without silently downgrad
 test('active call screen renders RTC video and both conversion directions', () => {
   const source = read('app/call/[id].tsx')
   assert.match(source, /RTCView/)
+  assert.match(source, /zOrder=\{0\}/)
+  assert.doesNotMatch(source, /relative flex-1 overflow-hidden rounded-\[18px\]/)
   assert.match(source, /switchCallType\('VIDEO'\)/)
   assert.match(source, /switchCallType\('VOICE'\)/)
   assert.match(source, /switchCamera/)
   assert.match(source, /toggleCamera/)
 })
 
-test('call screen overlays meet at the video boundary without a brightness seam', () => {
+test('video call chrome stays below the device status area', () => {
+  const source = read('app/call/[id].tsx')
+  assert.match(source, /const systemTopInset =/)
+  assert.match(source, /const callTopInset = systemTopInset/)
+  assert.match(source, /style=\{\{ paddingTop: callTopInset \}\}/)
+  assert.match(source, /edges=\{\['right', 'bottom', 'left'\]\}/)
+})
+
+test('call feedback stays non-blocking and transient outcomes dismiss automatically', () => {
+  const source = read('src/components/call/CallErrorModal.tsx')
+  const policies = read('src/lib/call/callPolicies.ts')
+  assert.match(policies, /if \(payload\.reason === 'cancelled'\) return null/)
+  assert.doesNotMatch(source, /The caller canceled the call/)
+  assert.match(source, /const TRANSIENT_OUTCOMES = new Set/)
+  assert.match(source, /setTimeout\(onDismiss, 4000\)/)
+  assert.match(source, /pointerEvents="box-none"/)
+  assert.match(source, /accessibilityRole="alert"/)
+  assert.match(source, /ReduceMotion\.System/)
+  assert.doesNotMatch(source, /<Modal/)
+  assert.doesNotMatch(source, /Call ended/)
+  assert.doesNotMatch(source, />\s*OK\s*</)
+})
+
+test('tapping the call canvas toggles chrome without blocking its controls', () => {
+  const source = read('app/call/[id].tsx')
+  assert.match(source, /const \[chromeVisible, setChromeVisible\] = useState\(true\)/)
+  assert.match(source, /const toggleCallChrome = useCallback/)
+  assert.match(source, /onPress=\{toggleCallChrome\}/)
+  assert.match(source, /pointerEvents=\{isSheetOpen \? 'none' : 'auto'\}/)
+  assert.match(source, /pointerEvents=\{chromeVisible && !isSheetOpen \? 'auto' : 'none'\}/)
+  assert.ok(source.split('pointerEvents="none"').length - 1 >= 3)
+  assert.match(source, /reduceMotion: ReduceMotion\.System/)
+})
+
+test('participant control opens a tall in-call people bottom sheet', () => {
+  const source = read('app/call/[id].tsx')
+  assert.match(source, /const handleOpenParticipants = useCallback/)
+  assert.match(source, /const participantsButton =/)
+  assert.match(source, /participantsSheetRef\.current\?\.snapToIndex\(0\)/)
+  assert.equal(source.split('onPress={handleOpenParticipants}').length - 1, 1)
+  assert.ok(source.split('{participantsButton}').length - 1 >= 2)
+  assert.ok(source.split('{participantsSheet}').length - 1 >= 2)
+  assert.match(source, /<BottomSheet[\s\S]*index=\{-1\}/)
+  assert.match(source, /containerStyle=\{\{ zIndex: 100 \}\}/)
+  assert.match(source, /snapPoints=\{\['74%'\]\}/)
+})
+
+test('AppPressable preserves inline styles through NativeWind interop', () => {
+  const source = read('src/components/base/AppPressable.tsx')
+  assert.match(source, /const composedStyle: StyleProp<ViewStyle> =/)
+  assert.match(source, /style=\{composedStyle\}/)
+  assert.doesNotMatch(source, /style=\{\(state\) =>/)
+})
+
+test('enabled call controls use the outgoing message bubble color', () => {
+  const source = read('app/call/[id].tsx')
+  assert.match(source, /selected\s*\? colors\.bubble\.outgoing/)
+  assert.match(source, /selected=\{cameraEnabled\}/)
+  assert.match(source, /selected=\{!muted\}/)
+  assert.match(source, /selected=\{speakerEnabled\}/)
+})
+
+test('call screen gives both participant tiles dedicated readable overlays', () => {
   const source = read('app/call/[id].tsx')
   const firstGradientStart = source.indexOf('<LinearGradient')
   const firstGradientEnd = source.indexOf('/>', firstGradientStart)
@@ -81,13 +147,16 @@ test('call screen overlays meet at the video boundary without a brightness seam'
   assert.notEqual(secondGradientStart, -1)
   assert.notEqual(secondGradientEnd, -1)
   const firstGradientSource = source.slice(firstGradientStart, firstGradientEnd)
-  assert.match(firstGradientSource, /height: '48%'/)
   assert.match(
     firstGradientSource,
     /colors=\{\['rgba\(8,10,15,0\.88\)', 'rgba\(8,10,15,0\.10\)', 'rgba\(8,10,15,0\)'\]\}/,
-    'top overlay must fade to transparent before the lower overlay begins',
+    'remote tile overlay must fade to transparent',
   )
-  assert.match(source.slice(secondGradientStart, secondGradientEnd), /height: '52%'/)
+  assert.match(
+    source.slice(secondGradientStart, secondGradientEnd),
+    /colors=\{\['rgba\(8,10,15,0\)', 'rgba\(8,10,15,0\.42\)', 'rgba\(8,10,15,0\.98\)'\]\}/,
+    'local tile overlay must protect the bottom control dock',
+  )
 })
 
 test('conversation video entry point remains direct-chat only', () => {
@@ -200,7 +269,7 @@ test('camera flip prefers constraints with a legacy WebRTC fallback', () => {
   assert.match(source, /track\._switchCamera\(\)/)
 })
 
-test('iOS Simulator uses in-app ringing and isolates CallKit lifecycle', () => {
+test('incoming calls stay on native call surfaces and isolate simulator audio lifecycle', () => {
   const systemCalls = fs.readFileSync('src/lib/systemCalls/veloraSystemCalls.ts', 'utf8')
   const provider = fs.readFileSync('src/providers/CallProvider.tsx', 'utf8')
   const callScreen = fs.readFileSync('app/call/[id].tsx', 'utf8')
@@ -208,14 +277,17 @@ test('iOS Simulator uses in-app ringing and isolates CallKit lifecycle', () => {
     'modules/velora-system-calls/ios/VeloraSystemCallsModule.swift',
     'utf8',
   )
+  const incomingHandler = provider.slice(
+    provider.indexOf('const handleIncomingCall ='),
+    provider.indexOf('const prepareIncomingCallFromState ='),
+  )
   assert.ok(systemCalls.includes("Platform.OS === 'ios' && !Device.isDevice"))
   assert.ok(systemCalls.includes('if (isIosSimulator || !nativeModule?.addListener)'))
-  assert.ok(provider.includes('router.push(`/call/${payload.callId}` as never)'))
+  assert.ok(incomingHandler.includes('void veloraSystemCalls.presentIncomingCall(nativePayload)'))
+  assert.doesNotMatch(incomingHandler, /router\.(push|replace)/)
+  assert.doesNotMatch(callScreen, /incoming_ringing|acceptIncomingCall|rejectIncomingCall/)
   assert.ok(provider.includes('activateSimulatorAudioSession(callId)'))
   assert.ok(provider.includes('activateSimulatorAudioSession(joined.callId)'))
-  assert.ok(callScreen.includes("phase === 'incoming_ringing'"))
-  assert.ok(callScreen.includes('acceptIncomingCall()'))
-  assert.ok(callScreen.includes('rejectIncomingCall()'))
   assert.ok(swift.includes('#if targetEnvironment(simulator)'))
   assert.ok(swift.includes('simulator_audio_session_activated'))
   assert.ok(swift.includes('deactivateSimulatorAudioSession'))

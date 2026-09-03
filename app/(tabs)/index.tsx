@@ -33,6 +33,26 @@ interface MatchSummary {
   picture?: string
 }
 
+function ConversationsHeader({ onCreateGroup }: { onCreateGroup: () => void }) {
+  return (
+    <Animated.View
+      entering={SECTION_ENTERING}
+      className="flex-row items-center justify-between bg-bg-primary px-5 pb-2 pt-2"
+    >
+      <AppText className="text-[20px] font-bold tracking-[-0.6px] text-brand-dark">VELORA</AppText>
+      <SafeTouchableOpacity
+        className="h-11 w-11 items-center justify-center rounded-full bg-surface-input"
+        onPress={onCreateGroup}
+        activeOpacity={0.75}
+        accessibilityRole="button"
+        accessibilityLabel="Create group chat"
+      >
+        <MaterialIcons name="group-add" size={21} color="#161616" />
+      </SafeTouchableOpacity>
+    </Animated.View>
+  )
+}
+
 function useMatches(conversations: Conversation[] | undefined): MatchSummary[] {
   const { user } = useAuthStore()
   if (!conversations) return []
@@ -218,17 +238,25 @@ export default function ConversationsScreen() {
     [relativeTimeTick],
   )
 
+  const openNewGroup = useCallback(() => {
+    router.push('/conversation/new-group')
+  }, [router])
+
   if (isLoading) {
     return (
-      <View className="flex-1 items-center justify-center bg-bg-primary">
-        <ActivityIndicator color="#FF6B2C" size="large" />
-      </View>
+      <SafeAreaView className="flex-1 bg-bg-primary">
+        <ConversationsHeader onCreateGroup={openNewGroup} />
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator color="#FF6B2C" size="large" />
+        </View>
+      </SafeAreaView>
     )
   }
 
   if (isError) {
     return (
       <SafeAreaView className="flex-1 bg-bg-primary">
+        <ConversationsHeader onCreateGroup={openNewGroup} />
         <View className="flex-1 items-center justify-center px-6">
           <AppText className="text-center text-base2 text-text-secondary">
             We couldn&apos;t load your conversations.
@@ -249,6 +277,7 @@ export default function ConversationsScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-bg-primary">
+      <ConversationsHeader onCreateGroup={openNewGroup} />
       <FlatList
         data={filteredConversations}
         extraData={relativeTimeTick}
@@ -260,24 +289,6 @@ export default function ConversationsScreen() {
         contentContainerStyle={{ paddingBottom: 120 }}
         ListHeaderComponent={
           <View className="pb-2">
-            <Animated.View
-              entering={SECTION_ENTERING}
-              className="flex-row items-center justify-between px-5 pt-2"
-            >
-              <AppText className="text-[20px] font-bold tracking-[-0.6px] text-brand-dark">
-                VELORA
-              </AppText>
-              <SafeTouchableOpacity
-                className="h-10 w-10 items-center justify-center rounded-full bg-surface-input"
-                onPress={() => router.push('/conversation/new-group')}
-                activeOpacity={0.75}
-                accessibilityRole="button"
-                accessibilityLabel="Create group chat"
-              >
-                <MaterialIcons name="group-add" size={21} color="#161616" />
-              </SafeTouchableOpacity>
-            </Animated.View>
-
             {matches.length > 0 ? (
               <Animated.View entering={SECTION_ENTERING.delay(40)} className="pt-3">
                 <ScrollView
