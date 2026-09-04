@@ -39,10 +39,11 @@ import { DeleteReelModal } from './DeleteReelModal'
 import { ReelActionsMenu } from './ReelActionsMenu'
 import { ReelLoadingRail } from './ReelLoadingRail'
 import { ReelShareSheet } from './ReelShareSheet'
+import { ReelTranscriptSheet } from './ReelTranscriptSheet'
 import { ReelVideo } from './ReelVideo'
 
 import type { ReelVideoHandle, ReelVideoProgress } from './ReelVideo'
-import type { Reel } from '../../types/reel.types'
+import type { Reel, ReelTranscriptSegment } from '../../types/reel.types'
 
 interface ReelFeedItemProps {
   description?: string | undefined
@@ -146,6 +147,49 @@ const getCreatedAtLabel = (value: string) => {
   }
 }
 
+const getTranscriptSegmentAtTime = (
+  segments: readonly ReelTranscriptSegment[],
+  currentTime: number,
+) => {
+  if (segments.length === 0 || !Number.isFinite(currentTime)) {
+    return null
+  }
+
+  let low = 0
+  let high = segments.length - 1
+  let candidateIndex = -1
+
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2)
+    const segment = segments[middle]
+
+    if (!segment || segment.start > currentTime) {
+      high = middle - 1
+      continue
+    }
+
+    candidateIndex = middle
+    low = middle + 1
+  }
+
+  if (candidateIndex < 0) {
+    return null
+  }
+
+  const segment = segments[candidateIndex]
+  if (!segment) {
+    return null
+  }
+
+  const nextSegment = segments[candidateIndex + 1]
+  const segmentEnd =
+    Number.isFinite(segment.end) && segment.end > segment.start
+      ? segment.end
+      : nextSegment?.start ?? Number.POSITIVE_INFINITY
+
+  return currentTime < segmentEnd ? segment : null
+}
+
 const ReelFeedItemComponent = function ReelFeedItem({
   description,
   reel,
@@ -171,6 +215,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const lastBufferedPositionRef = useRef(0)
   const lastPlaybackPositionRef = useRef(0)
   const isPausedByUserRef = useRef(false)
+  const resumeAfterTranscriptSheetRef = useRef(false)
   const [isReady, setIsReady] = useState(false)
   const [bufferedPosition, setBufferedPosition] = useState(0)
   const [durationSeconds, setDurationSeconds] = useState(0)
@@ -184,16 +229,26 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const [showActionsMenu, setShowActionsMenu] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showShareSheet, setShowShareSheet] = useState(false)
+  const [showTranscriptSheet, setShowTranscriptSheet] = useState(false)
   const { data: processingStatus } = useReelProcessingStatus(reel, {
     enabled: enableStatusPolling,
   })
+  const activeMediaStatus = processingStatus?.mediaStatus ?? reel.mediaStatus
+  const shouldFetchLiveTranscript =
+    isActive && (activeMediaStatus === 'COMPLETED' || reel.status === 'COMPLETED')
   const shouldFetchReelDetail =
     !reel.id.startsWith(CHAT_SHARED_REEL_FALLBACK_ID_PREFIX) &&
-    (!reel.author?.username ||
+    (shouldFetchLiveTranscript ||
+      showTranscriptSheet ||
+      !reel.author?.username ||
       !reel.author?.avatarUrl ||
       reel.tags.length === 0 ||
       !reel.description?.trim())
-  const { data: reelDetail } = useReelDetail(reel.id, {
+  const {
+    data: reelDetail,
+    isPending: isReelDetailPending,
+    isError: isReelDetailError,
+  } = useReelDetail(reel.id, {
     enabled: shouldFetchReelDetail,
   })
   const deleteReel = useDeleteReel()
@@ -293,6 +348,18 @@ const ReelFeedItemComponent = function ReelFeedItem({
       ? `@${authorHandle}`
       : null
   const canOpenAuthorProfile = Boolean(authorHandle) || displayReel.userId === user?.id
+  const canOpenTranscript =
+    !displayReel.id.startsWith(CHAT_SHARED_REEL_FALLBACK_ID_PREFIX) &&
+    Boolean(
+      reelDetail?.transcriptSegments?.length ||
+        reelDetail?.transcript?.trim() ||
+        reelDetail?.sections?.length,
+    )
+  const activeTranscriptSegment = useMemo(
+    () => getTranscriptSegmentAtTime(reelDetail?.transcriptSegments ?? [], playbackPosition),
+    [playbackPosition, reelDetail?.transcriptSegments],
+  )
+  const liveTranscriptText = activeTranscriptSegment?.text.trim() ?? ''
   const captionText = hideCaption ? '' : descriptionText || titleText || 'Shared a new reel.'
   const hashtagLine = hideCaption
     ? ''
@@ -315,6 +382,12 @@ const ReelFeedItemComponent = function ReelFeedItem({
     playbackState.isPlayable &&
     !hasPlaybackError
   const shouldRenderVideo = playbackState.isPlayable && shouldWarmVideo
+  const shouldShowLiveTranscript =
+    isActive &&
+    playbackState.isPlayable &&
+    Boolean(liveTranscriptText) &&
+    !isScrubbing &&
+    !showTranscriptSheet
   const effectivePosition = isScrubbing ? scrubPosition : playbackPosition
   const timelinePosition = pendingSeekPosition ?? effectivePosition
   const bufferedRatio = durationSeconds > 0 ? clamp(bufferedPosition / durationSeconds, 0, 1) : 0
@@ -351,6 +424,42 @@ const ReelFeedItemComponent = function ReelFeedItem({
       router.push(`/users/${authorHandle}`)
     }
   }, [authorHandle, displayReel.userId, router, user?.id])
+
+  const closeTranscriptSheet = useCallback(() => {
+    setShowTranscriptSheet(false)
+
+    if (resumeAfterTranscriptSheetRef.current && isActive) {
+      setIsPausedByUser(false)
+    }
+
+    resumeAfterTranscriptSheetRef.current = false
+  }, [isActive, setIsPausedByUser])
+
+  const openTranscriptSheet = useCallback(() => {
+    resumeAfterTranscriptSheetRef.current = !isPausedByUserRef.current
+    setIsPausedByUser(true)
+    setShowTranscriptSheet(true)
+    void Haptics.selectionAsync().catch(() => undefined)
+  }, [setIsPausedByUser])
+
+  const handleTranscriptSeek = useCallback(
+    (seconds: number) => {
+      const safeDuration = durationSeconds > 0 ? durationSeconds : Number.POSITIVE_INFINITY
+      const nextPosition = Math.max(0, Math.min(safeDuration, seconds))
+
+      videoRef.current?.seekTo(nextPosition)
+      lastPlaybackPositionRef.current = nextPosition
+      setPlaybackPosition(nextPosition)
+      setScrubPosition(nextPosition)
+
+      if (durationSeconds > 0) {
+        timelinePreviewRatio.value = clamp(nextPosition / durationSeconds, 0, 1)
+      }
+
+      closeTranscriptSheet()
+    },
+    [closeTranscriptSheet, durationSeconds, timelinePreviewRatio],
+  )
 
   const handleProgress = ({
     bufferedPosition: nextBufferedPosition,
@@ -616,6 +725,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
       timelineInteractionProgress.value = 0
       lastBufferedPositionRef.current = 0
       lastPlaybackPositionRef.current = 0
+      resumeAfterTranscriptSheetRef.current = false
       setBufferedPosition(0)
       if (includeDuration) {
         setDurationSeconds(0)
@@ -629,6 +739,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
       setPendingSeekRatio(null)
       setPlaybackPosition(0)
       setScrubPosition(0)
+      setShowTranscriptSheet(false)
     },
     [
       lastScrubRatio,
@@ -935,6 +1046,27 @@ const ReelFeedItemComponent = function ReelFeedItem({
           style={{ bottom: metadataBottom }}
         >
           <View className="px-4">
+            {shouldShowLiveTranscript ? (
+              <View className="mb-4 items-center px-8" pointerEvents="box-none">
+                <TouchableOpacity
+                  accessibilityLabel={`Transcript. ${liveTranscriptText}`}
+                  accessibilityHint="Opens the full transcript"
+                  accessibilityRole="button"
+                  activeOpacity={0.88}
+                  onPress={openTranscriptSheet}
+                  className="rounded-[18px] border border-white/10 px-4 py-2.5"
+                  style={{ backgroundColor: 'rgba(8, 8, 10, 0.62)', maxWidth: 340 }}
+                >
+                  <Text
+                    className="text-center text-[15px] font-medium leading-6 text-white"
+                    numberOfLines={2}
+                  >
+                    {liveTranscriptText}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
             <View className="flex-row items-start">
               <View className="max-w-[78%] flex-1 flex-row items-start">
                 <TouchableOpacity
@@ -994,7 +1126,21 @@ const ReelFeedItemComponent = function ReelFeedItem({
               </View>
 
               <View className="ml-auto items-center gap-3">
+                {canOpenTranscript ? (
+                  <TouchableOpacity
+                    accessibilityLabel="Open transcript"
+                    accessibilityRole="button"
+                    className="h-10 w-10 items-center justify-center rounded-full bg-white/14"
+                    activeOpacity={0.84}
+                    onPress={openTranscriptSheet}
+                  >
+                    <MaterialIcons name="subtitles" size={20} color="#FFFFFF" />
+                  </TouchableOpacity>
+                ) : null}
+
                 <TouchableOpacity
+                  accessibilityLabel="Share reel"
+                  accessibilityRole="button"
                   className="h-10 w-10 items-center justify-center rounded-full bg-white/14"
                   activeOpacity={0.84}
                   onPress={() => {
@@ -1006,6 +1152,8 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
                 {canManageReel ? (
                   <TouchableOpacity
+                    accessibilityLabel="More reel actions"
+                    accessibilityRole="button"
                     className="h-10 w-10 items-center justify-center rounded-full bg-white/14"
                     activeOpacity={0.84}
                     onPress={() => {
@@ -1019,6 +1167,19 @@ const ReelFeedItemComponent = function ReelFeedItem({
             </View>
           </View>
         </View>
+
+        <ReelTranscriptSheet
+          visible={showTranscriptSheet}
+          reelTitle={displayReel.title}
+          currentTime={playbackPosition}
+          transcript={reelDetail?.transcript}
+          transcriptSegments={reelDetail?.transcriptSegments}
+          sections={reelDetail?.sections}
+          isLoading={showTranscriptSheet && isReelDetailPending}
+          hasError={isReelDetailError}
+          onSeek={handleTranscriptSeek}
+          onClose={closeTranscriptSheet}
+        />
 
         <ReelShareSheet
           visible={showShareSheet}
