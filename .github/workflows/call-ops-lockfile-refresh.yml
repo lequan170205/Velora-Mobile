@@ -1,0 +1,35 @@
+name: Call Ops Lockfile Refresh
+
+on:
+  push:
+    branches:
+      - feat/prometheus-grafana-monitoring
+    paths:
+      - 'apps/call-ops-dashboard/package.json'
+      - '.github/workflows/call-ops-lockfile-refresh.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  refresh-lockfile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/call-ops-dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Generate lockfile
+        run: pnpm --ignore-workspace install --lockfile-only --no-frozen-lockfile
+      - name: Print generated lockfile
+        run: |
+          echo 'LOCKFILE_BEGIN'
+          cat pnpm-lock.yaml
+          echo 'LOCKFILE_END'
