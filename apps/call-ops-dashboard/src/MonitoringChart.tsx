@@ -52,6 +52,7 @@ export function MonitoringChart({
   const current = values.at(-1)
   const min = values.length ? Math.min(...values) : undefined
   const max = values.length ? Math.max(...values) : undefined
+  const areaFill = fill === 'transparent' ? fill : `${accent}24`
 
   return (
     <article className="monitoring-chart-card">
@@ -119,7 +120,7 @@ export function MonitoringChart({
                   type="monotone"
                   dataKey="value"
                   stroke={accent}
-                  fill={fill}
+                  fill={areaFill}
                   strokeWidth={2.25}
                   dot={false}
                   activeDot={{ r: 4, strokeWidth: 0 }}
