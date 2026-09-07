@@ -9,7 +9,8 @@ import {
   type MonitoringPoint,
 } from './monitoring'
 
-const REFRESH_INTERVAL_MS = 15_000
+const OVERVIEW_REFRESH_INTERVAL_MS = 15_000
+const HISTORY_REFRESH_INTERVAL_MS = 60_000
 
 const RANGE_OPTIONS = [
   { label: '1h', accessibleLabel: 'Last hour', hours: 1, stepSeconds: 60 },
@@ -117,6 +118,8 @@ const SERIES: Array<{
   },
 ]
 
+type RefreshMode = 'overview' | 'all'
+
 export function ServerSection() {
   const [overview, setOverview] = useState<MonitoringOverview | null>(null)
   const [history, setHistory] = useState<Partial<Record<MonitoringMetric, MonitoringPoint[]>>>({})
@@ -129,43 +132,66 @@ export function ServerSection() {
     [rangeHours],
   )
 
-  const loadServer = useCallback(async () => {
-    setError(null)
-    try {
-      const to = new Date()
-      const from = new Date(to.getTime() - selectedRange.hours * 60 * 60 * 1000)
-      const [nextOverview, ...series] = await Promise.all([
-        fetchMonitoringOverview(),
-        ...SERIES.map(({ metric }) =>
-          fetchMonitoringTimeseries({
-            metric,
-            from: from.toISOString(),
-            to: to.toISOString(),
-            stepSeconds: selectedRange.stepSeconds,
-          }),
-        ),
-      ])
+  const refreshServer = useCallback(async (mode: RefreshMode, showLoading = false) => {
+    if (showLoading) setLoading(true)
 
-      const nextHistory: Partial<Record<MonitoringMetric, MonitoringPoint[]>> = {}
-      for (const item of series) nextHistory[item.metric] = item.points
-      setOverview(nextOverview)
-      setHistory(nextHistory)
+    try {
+      if (mode === 'overview') {
+        setOverview(await fetchMonitoringOverview())
+      } else {
+        const to = new Date()
+        const from = new Date(to.getTime() - selectedRange.hours * 60 * 60 * 1000)
+        const [nextOverview, ...series] = await Promise.all([
+          fetchMonitoringOverview(),
+          ...SERIES.map(({ metric }) =>
+            fetchMonitoringTimeseries({
+              metric,
+              from: from.toISOString(),
+              to: to.toISOString(),
+              stepSeconds: selectedRange.stepSeconds,
+            }),
+          ),
+        ])
+
+        const nextHistory: Partial<Record<MonitoringMetric, MonitoringPoint[]>> = {}
+        for (const item of series) nextHistory[item.metric] = item.points
+        setOverview(nextOverview)
+        setHistory(nextHistory)
+      }
+
+      setError(null)
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Unable to load server metrics')
     } finally {
-      setLoading(false)
+      if (showLoading) setLoading(false)
     }
   }, [selectedRange])
 
   useEffect(() => {
-    setLoading(true)
-    void loadServer()
-    const interval = window.setInterval(() => void loadServer(), REFRESH_INTERVAL_MS)
-    return () => window.clearInterval(interval)
-  }, [loadServer])
+    void refreshServer('all', true)
+
+    const overviewInterval = window.setInterval(() => {
+      if (!document.hidden) void refreshServer('overview')
+    }, OVERVIEW_REFRESH_INTERVAL_MS)
+
+    const historyInterval = window.setInterval(() => {
+      if (!document.hidden) void refreshServer('all')
+    }, HISTORY_REFRESH_INTERVAL_MS)
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) void refreshServer('all')
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      window.clearInterval(overviewInterval)
+      window.clearInterval(historyInterval)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [refreshServer])
 
   const host = overview?.host
-  const serverHealthy = Boolean(host?.up)
+  const serverHealthy = host?.up === true
   const memoryTone = toneForRatio(host?.memoryUsageRatio ?? Number.NaN, 0.75, 0.9)
   const diskTone = toneForRatio(host?.diskUsageRatio ?? Number.NaN, 0.8, 0.92)
   const cpuTone = toneForRatio(host?.cpuUsageRatio ?? Number.NaN, 0.7, 0.9)
@@ -240,7 +266,7 @@ export function ServerSection() {
               </button>
             ))}
           </div>
-          <button className="secondary-button" type="button" onClick={() => void loadServer()}>
+          <button className="secondary-button" type="button" onClick={() => void refreshServer('all', true)}>
             Refresh now
           </button>
         </div>
