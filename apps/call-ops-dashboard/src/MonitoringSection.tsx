@@ -75,7 +75,7 @@ const getHealthSummary = (overview: MonitoringOverview | null) => {
   if (!overview) {
     return {
       tone: 'neutral' as Tone,
-      title: 'Waiting for the first system check',
+      title: 'Waiting for the first service check',
       detail: 'Prometheus is collecting the information needed for a simple health summary.',
     }
   }
@@ -120,8 +120,8 @@ const getHealthSummary = (overview: MonitoringOverview | null) => {
     tone: 'good' as Tone,
     title: 'Everything looks healthy',
     detail: hasTraffic
-      ? 'The service is online, requests are succeeding, and the runtime is responsive.'
-      : 'The service is online and responsive. There is no internal monitoring traffic right now.',
+      ? 'The monitoring service is online, requests are succeeding, and its runtime is responsive.'
+      : 'The monitoring service is online and responsive. There is no internal monitoring traffic right now.',
   }
 }
 
@@ -139,27 +139,27 @@ const SERIES: Array<{
 }> = [
   {
     metric: 'memory',
-    title: 'Memory use',
-    question: 'Is memory growing over time?',
-    description: 'Total RAM used by the monitoring service. A steady climb is more important than a single spike.',
+    title: 'Monitoring service memory',
+    question: 'Is this service using more memory over time?',
+    description: 'RAM used by the monitoring-service process only, not the whole Ubuntu server. A steady climb matters more than a single spike.',
     formatter: formatBytes,
     axisFormatter: formatBytesAxis,
     accent: '#7c3aed',
     fill: '#ede9fe',
     emptyTitle: 'No memory history yet',
-    emptyDescription: 'Prometheus will fill this chart after it has collected a few samples.',
+    emptyDescription: 'Prometheus will fill this chart after it has collected a few samples from monitoring-service.',
   },
   {
     metric: 'cpu',
-    title: 'CPU load',
-    question: 'How busy is the monitoring service?',
-    description: 'Shows how much processor time the monitoring process is using. Lower means more spare capacity.',
+    title: 'Monitoring service CPU',
+    question: 'How busy is this service?',
+    description: 'Processor time used by the monitoring-service process only. This is not the total CPU usage of the Ubuntu server.',
     formatter: formatCpu,
     axisFormatter: formatCpu,
     accent: '#2563eb',
     fill: '#dbeafe',
     emptyTitle: 'No CPU history yet',
-    emptyDescription: 'CPU samples will appear after Prometheus has observed the service for a short time.',
+    emptyDescription: 'CPU samples will appear after Prometheus has observed monitoring-service for a short time.',
   },
   {
     metric: 'rpc_rate',
@@ -222,7 +222,7 @@ export function MonitoringSection() {
       setOverview(nextOverview)
       setHistory(nextHistory)
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : 'Unable to load system monitoring')
+      setError(nextError instanceof Error ? nextError.message : 'Unable to load monitoring-service data')
     } finally {
       setLoading(false)
     }
@@ -246,21 +246,21 @@ export function MonitoringSection() {
     {
       label: 'Service status',
       value: overview ? (overview.service.up ? 'Online' : 'Offline') : '—',
-      helper: 'Can Prometheus reach the monitoring service?',
+      helper: 'Can Prometheus reach monitoring-service?',
       badge: overview ? (overview.service.up ? 'Reachable' : 'Unreachable') : 'Waiting',
       tone: overview ? (overview.service.up ? 'good' : 'bad') : 'neutral',
     },
     {
-      label: 'Memory used',
+      label: 'Monitoring service memory',
       value: formatBytes(overview?.process.residentMemoryBytes ?? Number.NaN),
-      helper: 'Total RAM used by the monitoring process right now.',
-      badge: 'Current',
+      helper: 'RAM used by this service process only — not total server memory.',
+      badge: 'Service only',
       tone: 'neutral',
     },
     {
-      label: 'CPU load',
+      label: 'Monitoring service CPU',
       value: formatCpu(overview?.process.cpuSecondsPerSecond ?? Number.NaN),
-      helper: 'How busy the monitoring process is.',
+      helper: 'CPU used by this service process only — not the whole server.',
       badge: cpuState.label,
       tone: cpuState.tone,
     },
@@ -279,9 +279,9 @@ export function MonitoringSection() {
       tone: successState.tone,
     },
     {
-      label: 'App responsiveness',
+      label: 'Service responsiveness',
       value: formatSeconds(overview?.process.eventLoopP99Seconds ?? Number.NaN),
-      helper: 'Delay before Node.js can react to incoming work. Lower is better.',
+      helper: 'Delay before this Node.js service can react to incoming work. Lower is better.',
       badge: responsivenessState.label,
       tone: responsivenessState.tone,
     },
@@ -291,10 +291,10 @@ export function MonitoringSection() {
     <section className="system-observability" aria-labelledby="system-observability-title">
       <div className="system-toolbar">
         <div>
-          <p className="eyebrow">Live system health</p>
-          <h2 id="system-observability-title">Is Velora monitoring healthy?</h2>
+          <p className="eyebrow">Monitoring service · live</p>
+          <h2 id="system-observability-title">How is Velora monitoring doing?</h2>
           <p className="section-description">
-            A plain-language view of the monitoring service. Updates automatically every 15 seconds.
+            These numbers describe the monitoring-service process only. Total Ubuntu server RAM and CPU are not shown here yet.
           </p>
         </div>
         <div className="monitoring-actions">
@@ -320,7 +320,7 @@ export function MonitoringSection() {
 
       {error && (
         <div className="monitoring-warning" role="status">
-          <strong>System data is temporarily unavailable.</strong>
+          <strong>Monitoring-service data is temporarily unavailable.</strong>
           <span>{error}</span>
         </div>
       )}
@@ -340,6 +340,17 @@ export function MonitoringSection() {
         </div>
       </div>
 
+      <div className="monitoring-scope-note" role="note">
+        <div className="monitoring-scope-mark" aria-hidden="true">1</div>
+        <div>
+          <strong>You are looking at one Velora service, not the whole server.</strong>
+          <p>
+            Memory and CPU below belong to <b>monitoring-service</b> only. If memory says 109 MB, that means this service is using about 109 MB — your Ubuntu machine can still be using several GB overall.
+          </p>
+        </div>
+        <span className="monitoring-scope-badge">Server totals coming next</span>
+      </div>
+
       <div className="friendly-metric-grid" aria-busy={loading}>
         {cards.map((card) => (
           <article className="friendly-metric-card" key={card.label}>
@@ -356,8 +367,8 @@ export function MonitoringSection() {
       <div className="monitoring-explainer">
         <strong>How to read these charts</strong>
         <p>
-          Look for sudden jumps or a trend that keeps rising. Hover over a line to see the exact value and time.
-          Empty traffic charts are normal when no monitoring requests are being made.
+          Every chart here is scoped to monitoring-service. Look for sudden jumps or a trend that keeps rising.
+          Hover over a line to see the exact value and time. Empty traffic charts are normal when no monitoring requests are being made.
         </p>
       </div>
 
@@ -381,7 +392,7 @@ export function MonitoringSection() {
       </div>
 
       <details className="technical-details">
-        <summary>Technical details</summary>
+        <summary>Technical details for monitoring-service</summary>
         <div>
           <span>JavaScript heap</span>
           <strong>{formatBytes(overview?.process.heapUsedBytes ?? Number.NaN)}</strong>
@@ -399,7 +410,7 @@ export function MonitoringSection() {
           <strong>{formatPercent(overview?.rpc.errorRate ?? Number.NaN)}</strong>
         </div>
         <p>
-          The quick health summary uses service availability, request errors, response time, and runtime responsiveness.
+          These technical values also belong to monitoring-service. Whole-server CPU, RAM, swap, and disk are not part of this API yet.
         </p>
       </details>
     </section>
