@@ -46,7 +46,7 @@ jobs:
           cache-dependency-path: apps/call-ops-dashboard/pnpm-lock.yaml
 
       - name: Install dashboard dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm --ignore-workspace install --frozen-lockfile
 
       - name: Build dashboard
-        run: pnpm build
+        run: pnpm --ignore-workspace build
