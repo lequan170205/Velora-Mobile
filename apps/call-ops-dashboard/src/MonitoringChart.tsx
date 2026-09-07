@@ -63,7 +63,7 @@ export function MonitoringChart({
         </div>
         {current !== undefined && (
           <div className="chart-current-value">
-            <span>Now</span>
+            <span>Current</span>
             <strong>{valueFormatter(current)}</strong>
           </div>
         )}
@@ -80,7 +80,7 @@ export function MonitoringChart({
           <div className="metric-chart-canvas" role="img" aria-label={`${title} history`}>
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data} margin={{ top: 12, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid stroke="#e7edf5" strokeDasharray="3 5" vertical={false} />
+                <CartesianGrid stroke="#202a38" strokeDasharray="3 5" vertical={false} />
                 <XAxis
                   dataKey="timestamp"
                   type="number"
@@ -89,24 +89,29 @@ export function MonitoringChart({
                   axisLine={false}
                   tickLine={false}
                   minTickGap={32}
-                  tick={{ fill: '#7b8aa3', fontSize: 12 }}
+                  tick={{ fill: '#738197', fontSize: 11 }}
                   tickFormatter={(value) => formatTime(Number(value))}
                 />
                 <YAxis
                   width={70}
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fill: '#7b8aa3', fontSize: 12 }}
+                  tick={{ fill: '#738197', fontSize: 11 }}
                   tickFormatter={(value) => axisFormatter(Number(value))}
                 />
                 <Tooltip
                   isAnimationActive={false}
-                  cursor={{ stroke: '#94a3b8', strokeDasharray: '4 4' }}
+                  cursor={{ stroke: '#526176', strokeDasharray: '4 4' }}
                   contentStyle={{
-                    border: '1px solid #dbe4ef',
-                    borderRadius: 12,
-                    boxShadow: '0 10px 30px rgba(15, 23, 42, 0.12)',
+                    border: '1px solid #2a3545',
+                    borderRadius: 10,
+                    background: '#111823',
+                    color: '#f4f7fb',
+                    boxShadow: '0 14px 34px rgba(0, 0, 0, 0.32)',
+                    fontSize: 12,
                   }}
+                  labelStyle={{ color: '#8d9aaf', marginBottom: 4 }}
+                  itemStyle={{ color: '#f4f7fb' }}
                   labelFormatter={(label) => new Date(Number(label)).toLocaleString()}
                   formatter={(value) => [valueFormatter(Number(value)), title]}
                 />
@@ -115,18 +120,18 @@ export function MonitoringChart({
                   dataKey="value"
                   stroke={accent}
                   fill={fill}
-                  strokeWidth={2.5}
+                  strokeWidth={2.25}
                   dot={false}
-                  activeDot={{ r: 4 }}
+                  activeDot={{ r: 4, strokeWidth: 0 }}
                   isAnimationActive={false}
                 />
               </AreaChart>
             </ResponsiveContainer>
           </div>
           <div className="chart-range-summary" aria-label={`${title} range summary`}>
-            <span><small>Lowest</small>{min === undefined ? '—' : valueFormatter(min)}</span>
+            <span><small>Low</small>{min === undefined ? '—' : valueFormatter(min)}</span>
             <span><small>Current</small>{current === undefined ? '—' : valueFormatter(current)}</span>
-            <span><small>Highest</small>{max === undefined ? '—' : valueFormatter(max)}</span>
+            <span><small>High</small>{max === undefined ? '—' : valueFormatter(max)}</span>
           </div>
         </>
       )}
