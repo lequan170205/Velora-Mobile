@@ -178,6 +178,7 @@ export function ReelsViewer({
   const playbackCoordinatorRef = useRef(new ReelPlaybackCoordinator())
   const handledRequestedReelIdRef = useRef<string | null>(null)
   const currentPageIndexRef = useRef(0)
+  const pagerCurrentIndexRef = useRef<number | null>(null)
   const pagerScrollStateRef =
     useRef<PageScrollStateChangedNativeEventData['pageScrollState']>('idle')
   const pagerScrollPositionRef = useRef<{ offset: number; position: number } | null>(null)
@@ -216,6 +217,21 @@ export function ReelsViewer({
   })
 
   const scrollToReelIndex = useCallback((index: number) => {
+    const nextIndex = Math.max(0, index)
+    const pager = pagerRef.current
+
+    if (!pager) {
+      return
+    }
+
+    if (
+      pagerCurrentIndexRef.current === nextIndex &&
+      pagerScrollStateRef.current === 'idle' &&
+      selectedPageIndexRef.current === null
+    ) {
+      return
+    }
+
     pagerScrollPositionRef.current = null
     selectedPageIndexRef.current = null
 
@@ -224,7 +240,8 @@ export function ReelsViewer({
       pageCommitFrameRef.current = null
     }
 
-    pagerRef.current?.setPageWithoutAnimation(Math.max(0, index))
+    pagerCurrentIndexRef.current = nextIndex
+    pager.setPageWithoutAnimation(nextIndex)
   }, [])
   const pauseAllReelPlayers = useCallback(() => {
     playbackCoordinatorRef.current.pauseAll()
@@ -954,7 +971,7 @@ export function ReelsViewer({
   )
 
   const handleFeedTabChange = useCallback(
-    async (nextFeedTab: FeedTab) => {
+    (nextFeedTab: FeedTab) => {
       if (
         nextFeedTab === selectedFeedTab ||
         isManualRefreshing ||
@@ -970,16 +987,14 @@ export function ReelsViewer({
         activeIndex: Math.max(0, activeIndex),
         scrollOffset: Math.max(0, activeIndex) * viewportHeight,
       }
-      try {
-        pauseAllReelPlayers()
-        setIsActiveReelPausedByUser(false)
-        await endCurrentReelSession('tab_switch')
-        activeReelIdRef.current = null
-        setActiveReelId(null)
-        setSelectedFeedTab(nextFeedTab)
-      } finally {
-        setIsSwitchingFeedTab(false)
-      }
+
+      pauseAllReelPlayers()
+      setIsActiveReelPausedByUser(false)
+      void endCurrentReelSession('tab_switch')
+      activeReelIdRef.current = null
+      setActiveReelId(null)
+      setSelectedFeedTab(nextFeedTab)
+      setIsSwitchingFeedTab(false)
     },
     [
       activeIndex,
@@ -1021,6 +1036,12 @@ export function ReelsViewer({
       scrollToReelIndex(safeIndex)
     })
   }, [reels, scrollToReelIndex, selectedFeedTab, shouldLoadPublicFeed])
+
+  useEffect(() => {
+    if (reels.length === 0) {
+      pagerCurrentIndexRef.current = null
+    }
+  }, [reels.length])
 
   useEffect(() => {
     if (!shouldUseReelContext || !reelId || handledRequestedReelIdRef.current === reelId) {
@@ -1236,7 +1257,9 @@ export function ReelsViewer({
   )
   const handlePageSelected = useCallback(
     (event: PagerViewOnPageSelectedEvent) => {
-      selectedPageIndexRef.current = event.nativeEvent.position
+      const nextIndex = event.nativeEvent.position
+      pagerCurrentIndexRef.current = nextIndex
+      selectedPageIndexRef.current = nextIndex
 
       if (pagerScrollStateRef.current === 'idle') {
         scheduleSettledPageCommit()

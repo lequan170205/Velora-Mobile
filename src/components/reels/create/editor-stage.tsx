@@ -1,27 +1,36 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import { Image } from 'expo-image'
 import React from 'react'
 import { ScrollView, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
 import Animated, { FadeIn } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { getCreatorPreviewContentFit } from '../../../lib/reel-creator'
+import { getTrimDurationMs, formatTrimDurationLabel } from '../../../lib/reel-trim-geometry'
 import { formatDurationLabel } from '../../../lib/reels'
-import { ReelVideo } from '../ReelVideo'
 
+import { CropEditor } from './crop-editor'
+import { CommittedCropPreview, CropThumbnail } from './crop-preview'
+import { EditorToolbar } from './editor-toolbar'
 import { GlassIconButton } from './shared-ui'
+import { TrimEditor } from './trim-editor'
+import { TrimmedReelVideo } from './trimmed-reel-video'
 
 import type { ReelCreatorController } from '../../../hooks/useReelCreator'
+import type { CropGeometry } from '../../../lib/reel-crop-geometry'
+import type { ReelEditState } from '../../../types/reel-creator'
 
 export function EditorStage({ controller }: { controller: ReelCreatorController }) {
   const insets = useSafeAreaInsets()
   const { width: windowWidth, height: windowHeight } = useWindowDimensions()
+  const { commitEditState, pulseHaptic } = controller
   const [isPreviewPaused, setIsPreviewPaused] = React.useState(false)
+  const [isCropEditing, setIsCropEditing] = React.useState(false)
+  const [isTrimEditing, setIsTrimEditing] = React.useState(false)
   const [videoDuration, setVideoDuration] = React.useState(0)
   const horizontalPadding = windowWidth < 380 ? 16 : 20
   const safeContentHeight = Math.max(0, windowHeight - insets.top - insets.bottom - 24)
   const headerHeight = 52
-  const timelineHeight = windowHeight < 720 ? 124 : 136
+  const timelineHeight = windowHeight < 720 ? 220 : 228
   const previewAvailableHeight = Math.max(
     220,
     safeContentHeight - headerHeight - timelineHeight - 20,
@@ -31,24 +40,100 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
   const previewWidth = Math.min(maxPreviewWidth, Math.max(264, portraitWidthForAvailableHeight))
   const previewHeight = Math.min(previewAvailableHeight, previewWidth * (16 / 9))
   const previewContentFit = getCreatorPreviewContentFit(controller.selectedAsset)
-  const durationLabel =
-    formatDurationLabel(
-      controller.videoDurationSeconds > 0
-        ? controller.videoDurationSeconds * 1000
-        : videoDuration > 0
-          ? videoDuration * 1000
-          : controller.selectedAsset?.duration,
-    ) || '0:00'
-  const positionLabel =
-    formatDurationLabel(Math.max(controller.videoPlaybackPosition, 0) * 1000) || '0:00'
+  const sourceWidth =
+    controller.selectedAsset?.width && controller.selectedAsset.width > 0
+      ? controller.selectedAsset.width
+      : 1080
+  const sourceHeight =
+    controller.selectedAsset?.height && controller.selectedAsset.height > 0
+      ? controller.selectedAsset.height
+      : 1920
+  const sourceDurationMs =
+    controller.videoDurationSeconds > 0
+      ? controller.videoDurationSeconds * 1000
+      : videoDuration > 0
+        ? videoDuration * 1000
+        : (controller.selectedAsset?.duration ?? 0)
+  const displayedDurationMs = getTrimDurationMs(controller.editState.trim, sourceDurationMs)
+  const displayedPositionMs = controller.editState.trim
+    ? Math.min(
+        displayedDurationMs,
+        Math.max(0, controller.videoPlaybackPosition * 1000 - controller.editState.trim.startMs),
+      )
+    : Math.max(controller.videoPlaybackPosition, 0) * 1000
+  const durationLabel = formatDurationLabel(displayedDurationMs) || '0:00'
+  const positionLabel = formatDurationLabel(displayedPositionMs) || '0:00'
 
   React.useEffect(() => {
     setIsPreviewPaused(false)
+    setIsCropEditing(false)
+    setIsTrimEditing(false)
     setVideoDuration(0)
   }, [controller.selectedAsset?.uri])
 
+  const handleOpenCropEditor = React.useCallback(() => {
+    pulseHaptic()
+    setIsCropEditing(true)
+  }, [pulseHaptic])
+
+  const handleCancelCropEditor = React.useCallback(() => {
+    setIsCropEditing(false)
+  }, [])
+
+  const handleOpenTrimEditor = React.useCallback(() => {
+    pulseHaptic()
+    setIsTrimEditing(true)
+  }, [pulseHaptic])
+
+  const handleCancelTrimEditor = React.useCallback(() => {
+    setIsTrimEditing(false)
+  }, [])
+
+  const handleDoneCropEditor = React.useCallback(
+    (nextEditState: ReelEditState) => {
+      commitEditState(nextEditState)
+      setIsCropEditing(false)
+    },
+    [commitEditState],
+  )
+
+  const handleDoneTrimEditor = React.useCallback(
+    (nextEditState: ReelEditState) => {
+      commitEditState(nextEditState)
+      setIsTrimEditing(false)
+    },
+    [commitEditState],
+  )
+
   if (!controller.selectedAsset) {
     return null
+  }
+
+  if (isCropEditing) {
+    return (
+      <CropEditor
+        controller={controller}
+        onCancel={handleCancelCropEditor}
+        onDone={handleDoneCropEditor}
+      />
+    )
+  }
+
+  if (isTrimEditing) {
+    return (
+      <TrimEditor
+        controller={controller}
+        onCancel={handleCancelTrimEditor}
+        onDone={handleDoneTrimEditor}
+      />
+    )
+  }
+
+  const previewGeometry: CropGeometry = {
+    sourceWidth,
+    sourceHeight,
+    viewportWidth: previewWidth,
+    viewportHeight: previewHeight,
   }
 
   return (
@@ -104,21 +189,44 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
             elevation: 6,
           }}
         >
-          <ReelVideo
-            uri={controller.selectedAsset.uri}
-            {...(controller.thumbnailUri ? { posterUri: controller.thumbnailUri } : {})}
-            shouldPlay={!isPreviewPaused}
-            loop
-            muted={controller.isPreviewMuted}
-            contentFit={previewContentFit}
-            onProgress={(progress) => {
-              if (progress.duration > 0 && videoDuration === 0) {
-                setVideoDuration(progress.duration)
-              }
-              controller.handleEditorProgress(progress)
-            }}
-            style={{ width: '100%', height: '100%', backgroundColor: '#17120F' }}
-          />
+          {controller.editState.framing === 'crop' && controller.editState.crop ? (
+            <CommittedCropPreview
+              crop={controller.editState.crop}
+              geometry={previewGeometry}
+              {...(controller.previewThumbnailUri
+                ? { posterUri: controller.previewThumbnailUri }
+                : {})}
+              playbackRange={controller.editState.trim}
+              shouldPlay={!isPreviewPaused}
+              muted={controller.isPreviewMuted}
+              uri={controller.selectedAsset.uri}
+              onProgress={(progress) => {
+                if (progress.duration > 0 && videoDuration === 0) {
+                  setVideoDuration(progress.duration)
+                }
+                controller.handleEditorProgress(progress)
+              }}
+            />
+          ) : (
+            <TrimmedReelVideo
+              uri={controller.selectedAsset.uri}
+              {...(controller.previewThumbnailUri
+                ? { posterUri: controller.previewThumbnailUri }
+                : {})}
+              shouldPlay={!isPreviewPaused}
+              loop
+              muted={controller.isPreviewMuted}
+              contentFit={previewContentFit}
+              playbackRange={controller.editState.trim}
+              onProgress={(progress) => {
+                if (progress.duration > 0 && videoDuration === 0) {
+                  setVideoDuration(progress.duration)
+                }
+                controller.handleEditorProgress(progress)
+              }}
+              style={{ width: '100%', height: '100%', backgroundColor: '#17120F' }}
+            />
+          )}
 
           <View className="absolute inset-x-0 bottom-0 px-3 pb-3">
             <View className="flex-row items-center justify-between rounded-full bg-white/92 px-3 py-2">
@@ -174,14 +282,30 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
             </Text>
           </View>
 
-          <View className="rounded-full bg-[#FFF0E8] px-3 py-2">
-            <Text style={{ color: '#D85A21', fontWeight: '700' }}>
-              {controller.selectedAssetType
-                ? controller.selectedAssetType.replace('video/', '').toUpperCase()
-                : 'VIDEO'}
-            </Text>
+          <View className="flex-row items-center gap-2">
+            {controller.editState.trim ? (
+              <View className="rounded-full bg-[#FFF0E8] px-2.5 py-2">
+                <Text style={{ color: '#D85A21', fontSize: 11, fontWeight: '800' }}>
+                  Trimmed • {formatTrimDurationLabel(displayedDurationMs)}
+                </Text>
+              </View>
+            ) : null}
+            <View className="rounded-full bg-[#FFF0E8] px-3 py-2">
+              <Text style={{ color: '#D85A21', fontWeight: '700' }}>
+                {controller.selectedAssetType
+                  ? controller.selectedAssetType.replace('video/', '').toUpperCase()
+                  : 'VIDEO'}
+              </Text>
+            </View>
           </View>
         </View>
+
+        <EditorToolbar
+          isCropActive={controller.editState.framing === 'crop'}
+          isTrimActive={Boolean(controller.editState.trim)}
+          onCrop={handleOpenCropEditor}
+          onTrim={handleOpenTrimEditor}
+        />
 
         <ScrollView
           horizontal
@@ -197,14 +321,15 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
               key={`${frame.uri}-${frame.timeMs}-${index}`}
               className="overflow-hidden rounded-[16px] border border-[#E9DED5] bg-[#F7F2EC]"
             >
-              <Image
-                source={{ uri: frame.uri }}
+              <CropThumbnail
+                uri={frame.uri}
+                crop={controller.editState.crop}
+                framing={controller.editState.framing}
+                sourceWidth={sourceWidth}
+                sourceHeight={sourceHeight}
                 contentFit={previewContentFit}
-                style={{
-                  width: windowHeight < 720 ? 48 : 54,
-                  height: windowHeight < 720 ? 58 : 66,
-                  backgroundColor: '#17120F',
-                }}
+                width={windowHeight < 720 ? 48 : 54}
+                height={windowHeight < 720 ? 58 : 66}
               />
             </View>
           ))}

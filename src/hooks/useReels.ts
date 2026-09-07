@@ -32,6 +32,7 @@ import type { CacheableFeedParams } from '../database/reels/reelCacheMappers'
 import type { Conversation, Message } from '../types/conversation.types'
 import type {
   AllowedVideoType,
+  CreateReelPayload,
   ListReelsParams,
   ListReelsResponse,
   PaginatedFriendsReels,
@@ -95,6 +96,8 @@ interface CreateReelVariables {
   description: string
   tags: string[]
   visibility: ReelVisibility
+  clientObservedDurationMs: number
+  edit: NonNullable<CreateReelPayload['edit']>
   localThumbnailUri?: string
 }
 
@@ -757,6 +760,8 @@ export function useCreateReel() {
       description,
       tags,
       visibility,
+      clientObservedDurationMs,
+      edit,
       localThumbnailUri,
     }: CreateReelVariables) => {
       setStep('uploading')
@@ -778,6 +783,9 @@ export function useCreateReel() {
         title,
         description,
         tags,
+        visibility,
+        clientObservedDurationMs,
+        edit,
       })
 
       const visibleReel =

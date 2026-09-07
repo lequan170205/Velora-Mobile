@@ -1,0 +1,118 @@
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
+const test = require('node:test')
+
+const root = path.resolve(__dirname, '..')
+const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8')
+
+const creatorTypes = read('src/types/reel-creator.ts')
+const reelTypes = read('src/types/reel.types.ts')
+const creatorHook = read('src/hooks/useReelCreator.ts')
+const creatorLib = read('src/lib/reel-creator.ts')
+const reelsHook = read('src/hooks/useReels.ts')
+const cropEditor = read('src/components/reels/create/crop-editor.tsx')
+const editorStage = read('src/components/reels/create/editor-stage.tsx')
+const editorToolbar = read('src/components/reels/create/editor-toolbar.tsx')
+const trimEditor = read('src/components/reels/create/trim-editor.tsx')
+const trimGeometry = read('src/lib/reel-trim-geometry.ts')
+const trimmedReelVideo = read('src/components/reels/create/trimmed-reel-video.tsx')
+const publishStage = read('src/components/reels/create/publish-stage.tsx')
+const reelVideo = read('src/components/reels/ReelVideo.tsx')
+
+test('creator and API types expose the normalized crop contract', () => {
+  assert.match(creatorTypes, /export type ReelFramingMode = 'fit' \| 'crop'/)
+  assert.match(creatorTypes, /export type ReelTrim =/)
+  assert.match(creatorTypes, /trim: ReelTrim \| null/)
+  assert.match(creatorTypes, /version: 1/)
+  assert.match(creatorTypes, /aspectRatio: '9:16'/)
+  assert.match(creatorTypes, /editState: ReelEditState/)
+  assert.match(reelTypes, /visibility\?: 'public' \| 'friends' \| 'private'/)
+  assert.match(reelTypes, /clientObservedDurationMs\?: number/)
+  assert.match(reelTypes, /export type ReelEditPayload =/)
+  assert.match(reelTypes, /framing: 'fit'/)
+  assert.match(reelTypes, /crop\?: never/)
+  assert.match(reelTypes, /framing: 'crop'/)
+  assert.match(reelTypes, /crop: ReelCrop/)
+  assert.match(reelTypes, /trim\?: ReelTrim/)
+  assert.match(reelTypes, /edit\?: ReelEditPayload/)
+})
+
+test('draft hydration and asset replacement sanitize and reset edit state', () => {
+  assert.match(creatorHook, /editState: sanitizeReelEditState\(/)
+  assert.match(creatorHook, /draft\.editState/)
+  assert.match(creatorHook, /restoredEditState \?\? DEFAULT_REEL_EDIT_STATE/)
+  assert.match(creatorHook, /setEditState\(DEFAULT_REEL_EDIT_STATE\)/)
+  assert.match(creatorHook, /editState,\n\s+savedAt/)
+  assert.match(creatorHook, /availableDraft && !selectedAsset/)
+})
+
+test('publish builds fit and crop payloads with visibility and observed duration', () => {
+  assert.match(creatorHook, /const edit = buildReelEditPayload\(editState\)/)
+  assert.match(creatorHook, /getClientObservedDurationMs\(/)
+  assert.match(creatorLib, /export const buildReelEditPayload/)
+  assert.match(creatorHook, /visibility,\n\s+clientObservedDurationMs/)
+  assert.match(creatorHook, /previewThumbnailUri \? \{ localThumbnailUri: previewThumbnailUri \}/)
+  assert.match(reelsHook, /visibility,\n\s+clientObservedDurationMs,\n\s+edit,/)
+  assert.match(
+    reelsHook,
+    /reelsApi\.create\(\{[\s\S]*visibility,[\s\S]*clientObservedDurationMs,[\s\S]*edit,/,
+  )
+})
+
+test('trim editor uses bounded shared-value gestures and preserves crop state', () => {
+  assert.match(trimEditor, /Gesture\.Pan\(\)/)
+  assert.match(trimEditor, /MIN_TRIM_DURATION_MS/)
+  assert.match(trimEditor, /scheduleOnRN\(handleDragStart\)/)
+  assert.match(trimEditor, /scheduleOnRN\(handleDragEnd, 'start'/)
+  assert.match(trimEditor, /scheduleOnRN\(handleDragEnd, 'end'/)
+  assert.doesNotMatch(trimEditor, /\.onUpdate\([\s\S]{0,1000}set[A-Z]\w*\(/)
+  assert.match(trimEditor, /trim,\n\s+\}\)/)
+  assert.match(trimEditor, /accessibilityLabel="Reset trim"/)
+  assert.match(trimEditor, /accessibilityLabel="Cancel trim changes"/)
+  assert.match(trimEditor, /accessibilityLabel="Done with trim changes"/)
+  assert.match(trimEditor, /TIMELINE_HORIZONTAL_MARGIN = 24/)
+  assert.match(trimGeometry, /export const sanitizeTrim/)
+  assert.match(trimGeometry, /export const getTrimPlaybackSeekTarget/)
+  assert.match(trimmedReelVideo, /videoRef\.current\?\.seekTo\(loopTarget\)/)
+})
+
+test('normal and publish stages surface committed trim without replacing the crop toolbar', () => {
+  assert.match(editorStage, /<TrimEditor/)
+  assert.match(editorStage, /isTrimActive=\{Boolean\(controller\.editState\.trim\)\}/)
+  assert.match(editorStage, /playbackRange=\{controller\.editState\.trim\}/)
+  assert.match(editorStage, /Trimmed • \{formatTrimDurationLabel\(/)
+  assert.match(publishStage, /formatTrimDurationLabel/)
+  assert.match(publishStage, /editSummary \|\| controller\.orientationMessage/)
+  assert.match(publishStage, /uri=\{controller\.previewThumbnailUri\}/)
+})
+
+test('crop editor keeps gesture work on shared values and provides reversible actions', () => {
+  assert.match(cropEditor, /Gesture\.Simultaneous\(panGesture, pinchGesture\)/)
+  assert.match(cropEditor, /\.maxPointers\(1\)/)
+  assert.match(cropEditor, /REEL_CROP_MAX_SCALE/)
+  assert.match(cropEditor, /accessibilityLabel="Cancel crop changes"/)
+  assert.match(cropEditor, /accessibilityLabel="Done with crop changes"/)
+  assert.match(cropEditor, /accessibilityLabel="Reset crop to fit"/)
+  assert.doesNotMatch(cropEditor, /Use fit framing|temporaryFraming|handleFit/)
+  assert.match(cropEditor, /isResetToFit/)
+  assert.match(cropEditor, /framing: 'fit', crop: null, trim: editState\.trim/)
+  assert.match(
+    cropEditor,
+    /framing: 'crop',\n\s+trim: editState\.trim,\n\s+crop: getCropRectFromTransform/,
+  )
+  assert.match(cropEditor, /minWidth: 160/)
+  assert.match(cropEditor, /getCropRectFromTransform\(/)
+  assert.doesNotMatch(cropEditor, /\.onUpdate\([\s\S]{0,700}set[A-Z]\w*\(/)
+})
+
+test('normal editor and publish preview retain crop indication without changing ReelVideo globally', () => {
+  assert.match(editorStage, /EditorToolbar/)
+  assert.match(editorStage, /CommittedCropPreview/)
+  assert.match(editorStage, /onPress=\{controller\.togglePreviewMuted\}/)
+  assert.doesNotMatch(editorToolbar, /label="Fit"|label="Mute"|onFit|onMute/)
+  assert.match(publishStage, /9:16 crop applied/)
+  assert.match(publishStage, /CropThumbnail/)
+  assert.match(reelVideo, /disableOrientationAwareContentFit\?: boolean/)
+  assert.match(reelVideo, /!props\.disableOrientationAwareContentFit/)
+})

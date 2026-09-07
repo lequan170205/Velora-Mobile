@@ -1,5 +1,4 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import { Image } from 'expo-image'
 import React from 'react'
 import {
   KeyboardAvoidingView,
@@ -15,7 +14,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { MAX_CAPTION_LENGTH } from '../../../constants/reel-creator'
 import { getCreatorPreviewContentFit } from '../../../lib/reel-creator'
+import { formatTrimDurationLabel, getTrimDurationMs } from '../../../lib/reel-trim-geometry'
 
+import { CropThumbnail } from './crop-preview'
 import { GlassIconButton } from './shared-ui'
 
 import type { ReelCreatorController } from '../../../hooks/useReelCreator'
@@ -33,6 +34,27 @@ const visibilityOptions: {
 export function PublishStage({ controller }: { controller: ReelCreatorController }) {
   const insets = useSafeAreaInsets()
   const previewContentFit = getCreatorPreviewContentFit(controller.selectedAsset)
+  const isCropActive = controller.editState.framing === 'crop' && controller.editState.crop
+  const sourceWidth =
+    controller.selectedAsset?.width && controller.selectedAsset.width > 0
+      ? controller.selectedAsset.width
+      : 1080
+  const sourceHeight =
+    controller.selectedAsset?.height && controller.selectedAsset.height > 0
+      ? controller.selectedAsset.height
+      : 1920
+  const sourceDurationMs =
+    controller.videoDurationSeconds > 0
+      ? controller.videoDurationSeconds * 1000
+      : (controller.selectedAsset?.duration ?? 0)
+  const editSummary = [
+    controller.editState.trim
+      ? `${formatTrimDurationLabel(getTrimDurationMs(controller.editState.trim, sourceDurationMs))} • Trimmed`
+      : null,
+    isCropActive ? '9:16 crop applied' : null,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(' • ')
   const draftButtonLabel =
     controller.draftSaveStatus === 'saving'
       ? 'Saving...'
@@ -110,11 +132,16 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
         <View className="mt-3 rounded-[28px] bg-white p-3">
           <View className="flex-row items-center">
             <View className="overflow-hidden rounded-[18px] border border-[#E9DED5] bg-[#17120F]">
-              {controller.thumbnailUri ? (
-                <Image
-                  source={{ uri: controller.thumbnailUri }}
+              {controller.previewThumbnailUri ? (
+                <CropThumbnail
+                  uri={controller.previewThumbnailUri}
+                  crop={controller.editState.crop}
+                  framing={controller.editState.framing}
+                  sourceWidth={sourceWidth}
+                  sourceHeight={sourceHeight}
                   contentFit={previewContentFit}
-                  style={{ width: 58, height: 82, backgroundColor: '#17120F' }}
+                  width={58}
+                  height={82}
                 />
               ) : (
                 <View className="h-[82px] w-[58px] items-center justify-center bg-[#F7F2EC]">
@@ -132,8 +159,13 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
                 style={{ color: 'rgba(46,36,30,0.62)' }}
                 numberOfLines={2}
               >
-                {controller.orientationMessage}
+                {editSummary || controller.orientationMessage}
               </Text>
+              {isCropActive ? (
+                <View className="mt-2 self-start rounded-full bg-[#FFF0E8] px-2.5 py-1.5">
+                  <Text style={{ color: '#D85A21', fontSize: 11, fontWeight: '800' }}>Crop ✓</Text>
+                </View>
+              ) : null}
               <View className="mt-2 flex-row gap-2">
                 <TouchableOpacity
                   className="rounded-full bg-[#F7F2EC] px-3 py-2"

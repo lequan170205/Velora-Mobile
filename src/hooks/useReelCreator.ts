@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert } from 'react-native'
 
 import {
+  DEFAULT_REEL_EDIT_STATE,
   MAX_CAPTION_LENGTH,
   REEL_CREATOR_DRAFT_KEY,
   bannedHashtags,
@@ -15,12 +16,18 @@ import {
 } from '../constants/reel-creator'
 import { allowedVideoTypes } from '../constants/reels'
 import {
+  buildReelEditPayload,
   buildDerivedTitle,
   buildTimelineFrames,
   getComposerToken,
+  getClientObservedDurationMs,
+  getTrimmedThumbnailFrame,
   getOrientationMessage,
+  getVideoDurationMs,
   replaceComposerToken,
 } from '../lib/reel-creator'
+import { sanitizeReelEditState } from '../lib/reel-crop-geometry'
+import { sanitizeTrim } from '../lib/reel-trim-geometry'
 import { extractHashtags, resolveAllowedVideoType, stripHashtagsFromCaption } from '../lib/reels'
 
 import { useCreateReel } from './useReels'
@@ -30,6 +37,7 @@ import type {
   CreateStage,
   DraftState,
   ImportState,
+  ReelEditState,
   StoredAsset,
   TimelineFrame,
 } from '../types/reel-creator'
@@ -49,6 +57,7 @@ export function useReelCreator() {
   const [title, setTitle] = useState('')
   const [caption, setCaption] = useState('')
   const [visibility, setVisibility] = useState<ReelVisibility>('public')
+  const [editState, setEditState] = useState<ReelEditState>(DEFAULT_REEL_EDIT_STATE)
   const [videoDurationSeconds, setVideoDurationSeconds] = useState(0)
   const [videoPlaybackPosition, setVideoPlaybackPosition] = useState(0)
   const [importState, setImportState] = useState<ImportState>({
@@ -80,6 +89,17 @@ export function useReelCreator() {
       : 'Publishing...'
     : 'Publish reel'
   const orientationMessage = useMemo(() => getOrientationMessage(selectedAsset), [selectedAsset])
+  const observedSourceDurationMs = useMemo(
+    () => getVideoDurationMs(selectedAsset, videoDurationSeconds),
+    [selectedAsset, videoDurationSeconds],
+  )
+  const previewThumbnailUri = useMemo(() => {
+    if (!editState.trim) {
+      return thumbnailUri
+    }
+
+    return getTrimmedThumbnailFrame(timelineFrames, editState.trim)?.uri ?? null
+  }, [editState.trim, thumbnailUri, timelineFrames])
   const filteredComposerSuggestions = useMemo(() => {
     if (!captionToken) {
       return hashtagSuggestions.slice(0, 4).map((tag) => `#${tag}`)
@@ -121,6 +141,7 @@ export function useReelCreator() {
     setTitle('')
     setCaption('')
     setVisibility('public')
+    setEditState(DEFAULT_REEL_EDIT_STATE)
     setVideoDurationSeconds(0)
     setVideoPlaybackPosition(0)
     setImportState({
@@ -158,10 +179,11 @@ export function useReelCreator() {
             caption,
             visibility,
             durationOption: selectedDuration,
+            editState,
             savedAt,
           }
         : null,
-    [caption, selectedAsset, selectedDuration, stage, title, visibility],
+    [caption, editState, selectedAsset, selectedDuration, stage, title, visibility],
   )
 
   const applySelectedAsset = useCallback(
@@ -172,11 +194,13 @@ export function useReelCreator() {
         stageAfterImport = 'edit',
         showOverlay = true,
         captureMessage = 'Clip attached. Review it and continue when ready.',
+        editState: restoredEditState,
       }: {
         label: string
         stageAfterImport?: CreateStage
         showOverlay?: boolean
         captureMessage?: string
+        editState?: ReelEditState
       },
     ) => {
       const resolvedType = resolveAllowedVideoType(asset.mimeType, asset.fileName ?? asset.uri)
@@ -213,6 +237,14 @@ export function useReelCreator() {
       }
       setSelectedAsset(storedAsset)
       setStage(stageAfterImport)
+      setEditState(
+        sanitizeReelEditState(
+          restoredEditState ?? DEFAULT_REEL_EDIT_STATE,
+          storedAsset.width ?? undefined,
+          storedAsset.height ?? undefined,
+          storedAsset.duration ?? undefined,
+        ),
+      )
       setVideoPlaybackPosition(0)
       setVideoDurationSeconds(0)
       setIsPreviewMuted(false)
@@ -343,6 +375,12 @@ export function useReelCreator() {
       stageAfterImport: availableDraft.stage === 'publish' ? 'publish' : 'edit',
       showOverlay: false,
       captureMessage: 'Saved draft loaded. Review this clip or continue posting.',
+      editState: sanitizeReelEditState(
+        availableDraft.editState,
+        availableDraft.asset.width ?? undefined,
+        availableDraft.asset.height ?? undefined,
+        availableDraft.asset.duration ?? undefined,
+      ),
     })
   }, [applySelectedAsset, availableDraft])
 
@@ -401,6 +439,12 @@ export function useReelCreator() {
       return
     }
 
+    const edit = buildReelEditPayload(editState)
+    const clientObservedDurationMs = getClientObservedDurationMs(
+      editState.trim,
+      observedSourceDurationMs,
+    )
+
     const payload = {
       fileUri: selectedAsset.uri,
       fileType: selectedAssetType,
@@ -408,7 +452,9 @@ export function useReelCreator() {
       description: sanitizedDescription,
       tags: extractedTags,
       visibility,
-      ...(thumbnailUri ? { localThumbnailUri: thumbnailUri } : {}),
+      clientObservedDurationMs,
+      edit,
+      ...(previewThumbnailUri ? { localThumbnailUri: previewThumbnailUri } : {}),
     }
 
     let lastError: Error | null = null
@@ -445,7 +491,9 @@ export function useReelCreator() {
   }, [
     caption,
     createReelAsync,
+    editState,
     extractedTags,
+    observedSourceDurationMs,
     pulseHaptic,
     resetCreatorState,
     router,
@@ -453,15 +501,30 @@ export function useReelCreator() {
     saveDraftSnapshot,
     selectedAsset,
     selectedAssetType,
-    thumbnailUri,
+    previewThumbnailUri,
     title,
     visibility,
   ])
 
   const handleEditorProgress = useCallback(
     ({ currentTime, duration }: ReelVideoProgress) => {
-      if (duration > 0 && duration !== videoDurationSeconds) {
-        setVideoDurationSeconds(duration)
+      if (duration > 0) {
+        if (duration !== videoDurationSeconds) {
+          setVideoDurationSeconds(duration)
+        }
+
+        const observedDurationMs = Math.round(duration * 1000)
+        setEditState((current) => {
+          if (!current.trim) {
+            return current
+          }
+
+          const nextTrim = sanitizeTrim(current.trim, observedDurationMs)
+          const trimDidNotChange =
+            nextTrim?.startMs === current.trim.startMs && nextTrim?.endMs === current.trim.endMs
+
+          return trimDidNotChange ? current : { ...current, trim: nextTrim }
+        })
       }
 
       setVideoPlaybackPosition(currentTime)
@@ -494,6 +557,12 @@ export function useReelCreator() {
           caption: draft.caption ?? '',
           visibility: draft.visibility ?? 'public',
           durationOption: draft.durationOption ?? DEFAULT_DURATION,
+          editState: sanitizeReelEditState(
+            draft.editState,
+            draft.asset.width ?? undefined,
+            draft.asset.height ?? undefined,
+            draft.asset.duration ?? undefined,
+          ),
           savedAt: draft.savedAt ?? Date.now(),
         })
         setDraftSavedAt(draft.savedAt ?? Date.now())
@@ -512,7 +581,7 @@ export function useReelCreator() {
   }, [applySelectedAsset])
 
   useEffect(() => {
-    if (!hydrateCompletedRef.current) {
+    if (!hydrateCompletedRef.current || (availableDraft && !selectedAsset)) {
       return
     }
 
@@ -523,7 +592,7 @@ export function useReelCreator() {
     return () => {
       clearTimeout(timer)
     }
-  }, [buildDraftSnapshot, saveDraftSnapshot])
+  }, [availableDraft, buildDraftSnapshot, saveDraftSnapshot, selectedAsset])
 
   useEffect(() => {
     if (!selectedAsset && stage !== 'capture') {
@@ -570,6 +639,21 @@ export function useReelCreator() {
     setIsPreviewMuted((current) => !current)
   }, [pulseHaptic])
 
+  const commitEditState = useCallback(
+    (nextEditState: ReelEditState) => {
+      setEditState(
+        sanitizeReelEditState(
+          nextEditState,
+          selectedAsset?.width ?? undefined,
+          selectedAsset?.height ?? undefined,
+          observedSourceDurationMs,
+        ),
+      )
+      pulseHaptic(Haptics.ImpactFeedbackStyle.Medium)
+    },
+    [observedSourceDurationMs, pulseHaptic, selectedAsset],
+  )
+
   const toggleEditorPlaying = useCallback(() => {
     pulseHaptic()
     setVideoPlaybackPosition((current) => current)
@@ -577,6 +661,7 @@ export function useReelCreator() {
 
   return {
     caption,
+    commitEditState,
     captureHint,
     didRestoreDraft,
     draftSavedAt,
@@ -596,10 +681,12 @@ export function useReelCreator() {
     handlePublish,
     handleSaveDraftManually,
     importState,
+    editState,
     isPending,
     isPreviewMuted,
     orientationMessage,
     publishProgressLabel,
+    previewThumbnailUri,
     selectedAsset,
     selectedAssetType,
     selectedDuration,
@@ -613,6 +700,7 @@ export function useReelCreator() {
     title,
     toggleEditorPlaying,
     togglePreviewMuted,
+    pulseHaptic,
     availableDraft,
     videoDurationSeconds,
     videoPlaybackPosition,

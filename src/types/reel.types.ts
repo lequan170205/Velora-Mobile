@@ -1,4 +1,5 @@
 import type { RecommendationMetadata } from './recommendation.types'
+import type { ReelCrop, ReelTrim } from './reel-creator'
 
 export type ReelVisibility = 'public' | 'private'
 
@@ -9,6 +10,7 @@ export type ReelIndexStatus =
   'NOT_REQUESTED' | 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'DEGRADED' | 'FAILED'
 export type ReelSourceOrientation = 'PORTRAIT' | 'LANDSCAPE' | 'SQUARE'
 export type ReelSourceLengthClass = 'SHORT' | 'LONG'
+export type ReelPlaybackPresentation = 'PORTRAIT_COVER' | 'FIT_WITH_LETTERBOX'
 
 export interface ReelMediaState {
   mediaStatus: ReelMediaStatus
@@ -75,6 +77,8 @@ export interface Reel extends Partial<ReelMediaState> {
   createdAt: string
   author?: ReelAuthor | null
   recommendation?: RecommendationMetadata
+  edit?: ReelEditPayload
+  playbackPresentation?: ReelPlaybackPresentation
 }
 
 export type ReelFeedListItem = Reel
@@ -146,11 +150,26 @@ export interface ReelContextResponse {
   nextCursor?: string | null
 }
 
+export type ReelEditPayload =
+  | {
+      framing: 'fit'
+      crop?: never
+      trim?: ReelTrim
+    }
+  | {
+      framing: 'crop'
+      crop: ReelCrop
+      trim?: ReelTrim
+    }
+
 export interface CreateReelPayload {
   mediaKey: string
-  title: string
-  description: string
-  tags: string[]
+  title?: string
+  description?: string
+  tags?: string[]
+  visibility?: 'public' | 'friends' | 'private'
+  clientObservedDurationMs?: number
+  edit?: ReelEditPayload
 }
 
 export interface UpdateReelPayload {

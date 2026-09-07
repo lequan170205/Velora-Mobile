@@ -3,12 +3,18 @@ import type {
   AudienceOption,
   CaptureMode,
   DurationOption,
+  ReelEditState,
   UploadQualityOption,
 } from '../types/reel-creator'
 
 export const REEL_CREATOR_DRAFT_KEY = 'velora.reels.create-draft'
 export const MAX_CAPTION_LENGTH = 2200
 export const MIN_TRIM_GAP_RATIO = 0.08
+export const DEFAULT_REEL_EDIT_STATE: ReelEditState = {
+  framing: 'fit',
+  crop: null,
+  trim: null,
+}
 
 export const railActions: ActionConfig[] = [
   { icon: 'music-note', label: 'Music' },

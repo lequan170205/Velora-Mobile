@@ -9,6 +9,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'u
 const creatorHelpers = read('src/lib/reel-creator.ts')
 const editorStage = read('src/components/reels/create/editor-stage.tsx')
 const publishStage = read('src/components/reels/create/publish-stage.tsx')
+const reelFeedItem = read('src/components/reels/ReelFeedItem.tsx')
 const reelVideo = read('src/components/reels/ReelVideo.tsx')
 
 test('creator classifies portrait, landscape and square sources without forcing 9:16 crop', () => {
@@ -35,4 +36,21 @@ test('shared reel video playback detects non-portrait posters and switches to co
   assert.match(reelVideo, /ReactNativeImage\.getSize/)
   assert.match(reelVideo, /aspectRatio >= 0\.9 \? 'contain' : 'cover'/)
   assert.match(reelVideo, /useOrientationAwareContentFit/)
+})
+
+test('orientation detection is cached so returning to a reel does not restart at cover', () => {
+  assert.match(reelVideo, /orientationContentFitCache/)
+  assert.match(reelVideo, /getCachedOrientationContentFit/)
+  assert.match(reelVideo, /cacheOrientationContentFit\(posterUri, nextContentFit\)/)
+})
+
+test('feed fit follows explicit edit framing before legacy poster detection', () => {
+  assert.match(reelFeedItem, /reel\.edit\?\.framing === 'crop'/)
+  assert.match(reelFeedItem, /reel\.edit\?\.framing !== 'fit'/)
+  assert.match(reelFeedItem, /contentFit=\{playbackContentFit\}/g)
+  assert.match(
+    reelFeedItem,
+    /disableOrientationAwareContentFit=\{stablePlaybackContentFit !== null\}/,
+  )
+  assert.doesNotMatch(reelFeedItem, /playbackPresentation === 'PORTRAIT_COVER'/)
 })

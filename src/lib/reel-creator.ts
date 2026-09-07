@@ -1,8 +1,10 @@
 import * as VideoThumbnails from 'expo-video-thumbnails'
 
+import { getTrimDurationMs } from './reel-trim-geometry'
 import { stripHashtagsFromCaption } from './reels'
 
-import type { StoredAsset, TimelineFrame } from '../types/reel-creator'
+import type { ReelEditState, ReelTrim, StoredAsset, TimelineFrame } from '../types/reel-creator'
+import type { ReelEditPayload } from '../types/reel.types'
 
 export type CreatorVideoOrientation = 'PORTRAIT' | 'LANDSCAPE' | 'SQUARE'
 export type ReelContentFit = 'cover' | 'contain'
@@ -45,11 +47,13 @@ export const replaceComposerToken = (value: string, nextToken: string) => {
 }
 
 export const getVideoDurationMs = (asset: StoredAsset | null, fallbackSeconds: number) => {
-  if (asset?.duration && asset.duration > 0) {
-    return asset.duration
+  if (Number.isFinite(fallbackSeconds) && fallbackSeconds > 0) {
+    return Math.round(fallbackSeconds * 1000)
   }
 
-  return fallbackSeconds > 0 ? Math.round(fallbackSeconds * 1000) : 0
+  return asset?.duration && Number.isFinite(asset.duration) && asset.duration > 0
+    ? Math.round(asset.duration)
+    : 0
 }
 
 export const getCreatorVideoOrientation = (
@@ -107,6 +111,36 @@ export const getNearestFrame = (frames: TimelineFrame[], timeMs: number) => {
   )
 }
 
+export const getTrimmedThumbnailFrame = (
+  frames: TimelineFrame[],
+  trim: { startMs: number; endMs: number } | null | undefined,
+) => {
+  if (!trim) {
+    return frames[0] ?? null
+  }
+
+  const framesInsideTrim = frames.filter(
+    (frame) => frame.timeMs >= trim.startMs && frame.timeMs < trim.endMs,
+  )
+
+  return framesInsideTrim.length > 0 ? getNearestFrame(framesInsideTrim, trim.startMs) : null
+}
+
+export const buildReelEditPayload = (editState: ReelEditState): ReelEditPayload => {
+  const trimPayload = editState.trim ? { trim: editState.trim } : {}
+
+  if (editState.framing === 'crop' && editState.crop) {
+    return { framing: 'crop', crop: editState.crop, ...trimPayload }
+  }
+
+  return { framing: 'fit', ...trimPayload }
+}
+
+export const getClientObservedDurationMs = (
+  trim: ReelTrim | null | undefined,
+  sourceDurationMs: number,
+) => (trim ? getTrimDurationMs(trim, sourceDurationMs) : sourceDurationMs)
+
 export const snapRatio = (ratio: number) => {
   const snapPoints = [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1]
   const nearestPoint = snapPoints.reduce((closest, point) =>
@@ -117,10 +151,20 @@ export const snapRatio = (ratio: number) => {
 }
 
 export async function buildTimelineFrames(asset: StoredAsset): Promise<TimelineFrame[]> {
-  const durationMs = Math.max(asset.duration ?? 0, 0)
+  const durationMs =
+    asset.duration && Number.isFinite(asset.duration) && asset.duration > 0
+      ? Math.round(asset.duration)
+      : 0
+  const frameCount = durationMs > 0 ? Math.min(12, Math.max(8, Math.ceil(durationMs / 4000))) : 1
   const thumbnailTimes =
     durationMs > 0
-      ? Array.from(new Set([0, 0.25, 0.5, 0.75].map((ratio) => Math.floor(durationMs * ratio))))
+      ? Array.from(
+          new Set(
+            Array.from({ length: frameCount }, (_, index) =>
+              Math.round((durationMs * index) / Math.max(1, frameCount - 1)),
+            ),
+          ),
+        )
       : [0]
 
   const results = await Promise.allSettled(

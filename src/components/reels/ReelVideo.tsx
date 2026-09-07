@@ -35,6 +35,7 @@ interface ReelVideoProps {
   muted?: boolean | undefined
   nativeControls?: boolean | undefined
   contentFit?: ContentFit | undefined
+  disableOrientationAwareContentFit?: boolean | undefined
   style?: StyleProp<ViewStyle> | undefined
   resetOnPause?: boolean | undefined
   externallyManagedPlayback?: boolean | undefined
@@ -213,18 +214,54 @@ const posterStyle = StyleSheet.create({
   },
 })
 
+const ORIENTATION_CONTENT_FIT_CACHE_LIMIT = 128
+const orientationContentFitCache = new Map<string, ContentFit>()
+
+const getCachedOrientationContentFit = (posterUri: string | undefined, enabled: boolean) => {
+  if (!enabled || !posterUri) {
+    return undefined
+  }
+
+  return orientationContentFitCache.get(posterUri)
+}
+
+const cacheOrientationContentFit = (posterUri: string, contentFit: ContentFit) => {
+  orientationContentFitCache.delete(posterUri)
+  orientationContentFitCache.set(posterUri, contentFit)
+
+  while (orientationContentFitCache.size > ORIENTATION_CONTENT_FIT_CACHE_LIMIT) {
+    const oldestPosterUri = orientationContentFitCache.keys().next().value
+    if (typeof oldestPosterUri !== 'string') {
+      break
+    }
+
+    orientationContentFitCache.delete(oldestPosterUri)
+  }
+}
+
 const useOrientationAwareContentFit = (
   requestedContentFit: ContentFit,
   posterUri?: string,
+  enabled = true,
 ): ContentFit => {
-  const [resolvedContentFit, setResolvedContentFit] = useState<ContentFit>(requestedContentFit)
+  const cachedContentFit = getCachedOrientationContentFit(posterUri, enabled)
+  const [resolvedContentFit, setResolvedContentFit] = useState<ContentFit>(
+    cachedContentFit ?? requestedContentFit,
+  )
 
   useEffect(() => {
-    setResolvedContentFit(requestedContentFit)
-
-    if (requestedContentFit === 'contain' || !posterUri) {
+    if (!enabled || requestedContentFit === 'contain' || !posterUri) {
+      setResolvedContentFit(requestedContentFit)
       return
     }
+
+    const cachedFit = getCachedOrientationContentFit(posterUri, enabled)
+    if (cachedFit) {
+      setResolvedContentFit(cachedFit)
+      return
+    }
+
+    setResolvedContentFit(requestedContentFit)
 
     let active = true
 
@@ -236,7 +273,9 @@ const useOrientationAwareContentFit = (
         }
 
         const aspectRatio = width / height
-        setResolvedContentFit(aspectRatio >= 0.9 ? 'contain' : 'cover')
+        const nextContentFit = aspectRatio >= 0.9 ? 'contain' : 'cover'
+        cacheOrientationContentFit(posterUri, nextContentFit)
+        setResolvedContentFit(nextContentFit)
       },
       () => undefined,
     )
@@ -244,9 +283,9 @@ const useOrientationAwareContentFit = (
     return () => {
       active = false
     }
-  }, [posterUri, requestedContentFit])
+  }, [enabled, posterUri, requestedContentFit])
 
-  return resolvedContentFit
+  return cachedContentFit ?? resolvedContentFit
 }
 
 const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoVideoPlayer(
@@ -573,7 +612,11 @@ const ExpoAvPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoAv
 export const ReelVideo = forwardRef<ReelVideoHandle, ReelVideoProps>(
   function ReelVideo(props, ref) {
     const requestedContentFit = props.contentFit ?? 'cover'
-    const contentFit = useOrientationAwareContentFit(requestedContentFit, props.posterUri)
+    const contentFit = useOrientationAwareContentFit(
+      requestedContentFit,
+      props.posterUri,
+      !props.disableOrientationAwareContentFit,
+    )
     const resolvedProps = { ...props, contentFit }
 
     if (expoVideoModule) {
