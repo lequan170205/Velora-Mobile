@@ -1,39 +1,41 @@
 import { fetchApi } from './api'
 
+type NullableMetric = number | null
+
 export type MonitoringOverview = {
   generatedAt: string
   source: 'prometheus'
   host: {
-    up: boolean
-    cpuUsageRatio: number
-    memoryTotalBytes: number
-    memoryAvailableBytes: number
-    memoryUsedBytes: number
-    memoryUsageRatio: number
-    swapTotalBytes: number
-    swapFreeBytes: number
-    swapUsedBytes: number
-    swapUsageRatio: number
-    diskTotalBytes: number
-    diskAvailableBytes: number
-    diskUsedBytes: number
-    diskUsageRatio: number
-    load1: number
-    uptimeSeconds: number
+    up: boolean | null
+    cpuUsageRatio: NullableMetric
+    memoryTotalBytes: NullableMetric
+    memoryAvailableBytes: NullableMetric
+    memoryUsedBytes: NullableMetric
+    memoryUsageRatio: NullableMetric
+    swapTotalBytes: NullableMetric
+    swapFreeBytes: NullableMetric
+    swapUsedBytes: NullableMetric
+    swapUsageRatio: NullableMetric
+    diskTotalBytes: NullableMetric
+    diskAvailableBytes: NullableMetric
+    diskUsedBytes: NullableMetric
+    diskUsageRatio: NullableMetric
+    load1: NullableMetric
+    uptimeSeconds: NullableMetric
   }
   service: {
-    up: boolean
+    up: boolean | null
   }
   process: {
-    residentMemoryBytes: number
-    heapUsedBytes: number
-    cpuSecondsPerSecond: number
-    eventLoopP99Seconds: number
+    residentMemoryBytes: NullableMetric
+    heapUsedBytes: NullableMetric
+    cpuSecondsPerSecond: NullableMetric
+    eventLoopP99Seconds: NullableMetric
   }
   rpc: {
-    requestsPerSecond: number
-    errorRate: number
-    p95LatencySeconds: number
+    requestsPerSecond: NullableMetric
+    errorRate: NullableMetric
+    p95LatencySeconds: NullableMetric
   }
 }
 
