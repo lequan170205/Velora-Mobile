@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { FormEvent } from 'react'
 
+import { MonitoringSection } from './MonitoringSection'
+import { fetchApi } from './api'
+
 type Summary = {
   attempts: number
   controlPlaneSuccessRate: number | null
@@ -47,10 +50,6 @@ type RecentCallLeg = {
   mediaReady: boolean
   failure: { stage: string; errorCode: string | null } | null
 }
-
-const apiBaseUrl = import.meta.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '') ?? ''
-const fetchApi = (path: string, options?: RequestInit) =>
-  fetch(`${apiBaseUrl}${path}`, { credentials: 'include', ...options })
 
 const isoDate = (date: Date) => date.toISOString().slice(0, 10)
 const percent = (value: number | null) => (value === null ? '—' : `${(value * 100).toFixed(1)}%`)
@@ -248,9 +247,22 @@ export function App() {
       <header>
         <div>
           <p className="eyebrow">Velora internal</p>
-          <h1>Call quality</h1>
+          <h1>Call operations</h1>
         </div>
       </header>
+
+      <MonitoringSection />
+
+      <section className="section-heading call-quality-heading">
+        <div>
+          <p className="eyebrow">Application telemetry</p>
+          <h2>Call quality</h2>
+          <p className="section-description">
+            QoE, setup performance and failure telemetry reported by Velora clients.
+          </p>
+        </div>
+      </section>
+
       <section className="filters">
         <label>
           From
