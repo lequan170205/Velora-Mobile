@@ -1,0 +1,52 @@
+name: Call Ops Monitoring CI
+
+on:
+  push:
+    branches:
+      - feat/prometheus-grafana-monitoring
+    paths:
+      - 'apps/call-ops-dashboard/**'
+      - '.github/workflows/call-ops-monitoring-ci.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'apps/call-ops-dashboard/**'
+      - '.github/workflows/call-ops-monitoring-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: call-ops-monitoring-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/call-ops-dashboard
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: apps/call-ops-dashboard/pnpm-lock.yaml
+
+      - name: Install dashboard dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build dashboard
+        run: pnpm build
