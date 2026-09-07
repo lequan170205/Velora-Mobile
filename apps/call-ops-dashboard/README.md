@@ -2,10 +2,18 @@
 
 The dashboard reads `EXPO_PUBLIC_API_URL` from the root Velora-Mobile `.env` or `.env.local`, matching the mobile app's API gateway URL.
 
+The repository root is a pnpm workspace that currently includes only the mobile package, while this dashboard keeps its own lockfile. Run dashboard package commands with `--ignore-workspace` so pnpm uses `apps/call-ops-dashboard/package.json` and its local lockfile instead of installing the mobile workspace.
+
 ```bash
 cd apps/call-ops-dashboard
-pnpm install --frozen-lockfile
-pnpm dev
+pnpm --ignore-workspace install --frozen-lockfile
+pnpm --ignore-workspace dev
+```
+
+Production build:
+
+```bash
+pnpm --ignore-workspace build
 ```
 
 The authenticated ADMIN dashboard now has two observability layers:
