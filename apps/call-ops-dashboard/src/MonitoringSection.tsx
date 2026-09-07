@@ -9,7 +9,8 @@ import {
   type MonitoringPoint,
 } from './monitoring'
 
-const REFRESH_INTERVAL_MS = 15_000
+const OVERVIEW_REFRESH_INTERVAL_MS = 15_000
+const HISTORY_REFRESH_INTERVAL_MS = 60_000
 
 const RANGE_OPTIONS = [
   { label: '1h', accessibleLabel: 'Last hour', hours: 1, stepSeconds: 60 },
@@ -18,6 +19,7 @@ const RANGE_OPTIONS = [
 ] as const
 
 type Tone = 'good' | 'warn' | 'bad' | 'neutral'
+type RefreshMode = 'overview' | 'all'
 
 const formatBytes = (value: number) => {
   if (!Number.isFinite(value)) return '—'
@@ -215,41 +217,63 @@ export function MonitoringSection() {
     [rangeHours],
   )
 
-  const loadMonitoring = useCallback(async () => {
-    setError(null)
+  const refreshMonitoring = useCallback(async (mode: RefreshMode, showLoading = false) => {
+    if (showLoading) setLoading(true)
+
     try {
-      const to = new Date()
-      const from = new Date(to.getTime() - selectedRange.hours * 60 * 60 * 1000)
-      const [nextOverview, ...series] = await Promise.all([
-        fetchMonitoringOverview(),
-        ...SERIES.map(({ metric }) =>
-          fetchMonitoringTimeseries({
-            metric,
-            from: from.toISOString(),
-            to: to.toISOString(),
-            stepSeconds: selectedRange.stepSeconds,
-          }),
-        ),
-      ])
+      if (mode === 'overview') {
+        setOverview(await fetchMonitoringOverview())
+      } else {
+        const to = new Date()
+        const from = new Date(to.getTime() - selectedRange.hours * 60 * 60 * 1000)
+        const [nextOverview, ...series] = await Promise.all([
+          fetchMonitoringOverview(),
+          ...SERIES.map(({ metric }) =>
+            fetchMonitoringTimeseries({
+              metric,
+              from: from.toISOString(),
+              to: to.toISOString(),
+              stepSeconds: selectedRange.stepSeconds,
+            }),
+          ),
+        ])
 
-      const nextHistory: Partial<Record<MonitoringMetric, MonitoringPoint[]>> = {}
-      for (const item of series) nextHistory[item.metric] = item.points
+        const nextHistory: Partial<Record<MonitoringMetric, MonitoringPoint[]>> = {}
+        for (const item of series) nextHistory[item.metric] = item.points
+        setOverview(nextOverview)
+        setHistory(nextHistory)
+      }
 
-      setOverview(nextOverview)
-      setHistory(nextHistory)
+      setError(null)
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Unable to load monitoring-service data')
     } finally {
-      setLoading(false)
+      if (showLoading) setLoading(false)
     }
   }, [selectedRange])
 
   useEffect(() => {
-    setLoading(true)
-    void loadMonitoring()
-    const interval = window.setInterval(() => void loadMonitoring(), REFRESH_INTERVAL_MS)
-    return () => window.clearInterval(interval)
-  }, [loadMonitoring])
+    void refreshMonitoring('all', true)
+
+    const overviewInterval = window.setInterval(() => {
+      if (!document.hidden) void refreshMonitoring('overview')
+    }, OVERVIEW_REFRESH_INTERVAL_MS)
+
+    const historyInterval = window.setInterval(() => {
+      if (!document.hidden) void refreshMonitoring('all')
+    }, HISTORY_REFRESH_INTERVAL_MS)
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) void refreshMonitoring('all')
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      window.clearInterval(overviewInterval)
+      window.clearInterval(historyInterval)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [refreshMonitoring])
 
   const health = getHealthSummary(overview)
   const cpuState = cpuBadge(overview?.process.cpuSecondsPerSecond ?? Number.NaN)
@@ -330,7 +354,7 @@ export function MonitoringSection() {
               </button>
             ))}
           </div>
-          <button className="secondary-button" type="button" onClick={() => void loadMonitoring()}>
+          <button className="secondary-button" type="button" onClick={() => void refreshMonitoring('all', true)}>
             Refresh now
           </button>
         </div>
