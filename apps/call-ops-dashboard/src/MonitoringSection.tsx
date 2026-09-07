@@ -80,20 +80,36 @@ const getHealthSummary = (overview: MonitoringOverview | null) => {
     }
   }
 
+  if (overview.service.up === null) {
+    return {
+      tone: 'neutral' as Tone,
+      title: 'Service status is unavailable',
+      detail: 'Prometheus returned no monitoring-service target sample, so the dashboard will not guess a healthy value.',
+    }
+  }
+
   if (!overview.service.up) {
     return {
       tone: 'bad' as Tone,
       title: 'Monitoring service is offline',
-      detail: 'Prometheus cannot reach the monitoring service right now.',
+      detail: 'Prometheus can see the target, but cannot currently scrape monitoring-service.',
     }
   }
 
-  const eventLoopMs = overview.process.eventLoopP99Seconds * 1000
-  const latencyMs = overview.rpc.p95LatencySeconds * 1000
-  const hasTraffic = overview.rpc.requestsPerSecond > 0.001
+  const eventLoopMs =
+    overview.process.eventLoopP99Seconds === null
+      ? Number.NaN
+      : overview.process.eventLoopP99Seconds * 1000
+  const latencyMs =
+    overview.rpc.p95LatencySeconds === null
+      ? Number.NaN
+      : overview.rpc.p95LatencySeconds * 1000
+  const requestRate = overview.rpc.requestsPerSecond
+  const errorRate = overview.rpc.errorRate ?? Number.NaN
+  const hasTraffic = requestRate !== null && requestRate > 0.001
 
   if (
-    overview.rpc.errorRate >= 0.05 ||
+    errorRate >= 0.05 ||
     eventLoopMs >= 250 ||
     (hasTraffic && latencyMs >= 1000)
   ) {
@@ -105,7 +121,7 @@ const getHealthSummary = (overview: MonitoringOverview | null) => {
   }
 
   if (
-    overview.rpc.errorRate >= 0.01 ||
+    errorRate >= 0.01 ||
     eventLoopMs >= 100 ||
     (hasTraffic && latencyMs >= 500)
   ) {
@@ -241,14 +257,16 @@ export function MonitoringSection() {
   const responsivenessState = responsivenessBadge(
     overview?.process.eventLoopP99Seconds ?? Number.NaN,
   )
+  const serviceUp = overview?.service.up ?? null
+  const requestRate = overview?.rpc.requestsPerSecond ?? null
 
   const cards = [
     {
       label: 'Service status',
-      value: overview ? (overview.service.up ? 'Online' : 'Offline') : '—',
+      value: serviceUp === true ? 'Online' : serviceUp === false ? 'Offline' : '—',
       helper: 'Can Prometheus reach monitoring-service?',
-      badge: overview ? (overview.service.up ? 'Reachable' : 'Unreachable') : 'Waiting',
-      tone: overview ? (overview.service.up ? 'good' : 'bad') : 'neutral',
+      badge: serviceUp === true ? 'Reachable' : serviceUp === false ? 'Unreachable' : 'Waiting',
+      tone: serviceUp === true ? 'good' : serviceUp === false ? 'bad' : 'neutral',
     },
     {
       label: 'Monitoring service memory',
@@ -268,7 +286,7 @@ export function MonitoringSection() {
       label: 'Internal traffic',
       value: formatRate(overview?.rpc.requestsPerSecond ?? Number.NaN),
       helper: 'Monitoring requests handled each second.',
-      badge: overview && overview.rpc.requestsPerSecond <= 0.001 ? 'Idle' : 'Active',
+      badge: requestRate === null ? 'Waiting' : requestRate <= 0.001 ? 'Idle' : 'Active',
       tone: 'neutral',
     },
     {
@@ -294,7 +312,7 @@ export function MonitoringSection() {
           <p className="eyebrow">Monitoring service · live</p>
           <h2 id="system-observability-title">How is Velora monitoring doing?</h2>
           <p className="section-description">
-            These numbers describe the monitoring-service process only. Total Ubuntu server RAM and CPU are not shown here yet.
+            These numbers describe the monitoring-service process only. Use the Server view for total Ubuntu host resources.
           </p>
         </div>
         <div className="monitoring-actions">
@@ -348,7 +366,7 @@ export function MonitoringSection() {
             Memory and CPU below belong to <b>monitoring-service</b> only. If memory says 109 MB, that means this service is using about 109 MB — your Ubuntu machine can still be using several GB overall.
           </p>
         </div>
-        <span className="monitoring-scope-badge">Server totals coming next</span>
+        <span className="monitoring-scope-badge">See Server view for host totals</span>
       </div>
 
       <div className="friendly-metric-grid" aria-busy={loading}>
@@ -400,9 +418,11 @@ export function MonitoringSection() {
         <div>
           <span>RPC p95 latency</span>
           <strong>
-            {overview && overview.rpc.requestsPerSecond <= 0.001
-              ? 'No traffic'
-              : formatSeconds(overview?.rpc.p95LatencySeconds ?? Number.NaN)}
+            {requestRate === null
+              ? '—'
+              : requestRate <= 0.001
+                ? 'No traffic'
+                : formatSeconds(overview?.rpc.p95LatencySeconds ?? Number.NaN)}
           </strong>
         </div>
         <div>
@@ -410,7 +430,7 @@ export function MonitoringSection() {
           <strong>{formatPercent(overview?.rpc.errorRate ?? Number.NaN)}</strong>
         </div>
         <p>
-          These technical values also belong to monitoring-service. Whole-server CPU, RAM, swap, and disk are not part of this API yet.
+          These technical values belong to monitoring-service. Whole-server CPU, RAM, swap, and disk are available in the separate Server view.
         </p>
       </details>
     </section>
