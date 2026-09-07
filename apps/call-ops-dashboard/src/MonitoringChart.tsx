@@ -30,6 +30,14 @@ const normalizeTimestamp = (timestamp: number) =>
 const formatTime = (timestamp: number) =>
   new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
+const darkAccent = (accent: string) =>
+  ({
+    '#7c3aed': '#9b8cff',
+    '#2563eb': '#6f91ff',
+    '#0f766e': '#45c9b8',
+    '#c2410c': '#f59a62',
+  })[accent] ?? accent
+
 export function MonitoringChart({
   points,
   title,
@@ -52,7 +60,8 @@ export function MonitoringChart({
   const current = values.at(-1)
   const min = values.length ? Math.min(...values) : undefined
   const max = values.length ? Math.max(...values) : undefined
-  const areaFill = fill === 'transparent' ? fill : `${accent}24`
+  const chartAccent = darkAccent(accent)
+  const areaFill = fill === 'transparent' ? fill : `${chartAccent}24`
 
   return (
     <article className="monitoring-chart-card">
@@ -119,11 +128,11 @@ export function MonitoringChart({
                 <Area
                   type="monotone"
                   dataKey="value"
-                  stroke={accent}
+                  stroke={chartAccent}
                   fill={areaFill}
                   strokeWidth={2.25}
                   dot={false}
-                  activeDot={{ r: 4, strokeWidth: 0 }}
+                  activeDot={{ r: 4, strokeWidth: 0, fill: chartAccent }}
                   isAnimationActive={false}
                 />
               </AreaChart>
