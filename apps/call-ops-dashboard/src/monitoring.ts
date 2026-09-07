@@ -3,6 +3,24 @@ import { fetchApi } from './api'
 export type MonitoringOverview = {
   generatedAt: string
   source: 'prometheus'
+  host: {
+    up: boolean
+    cpuUsageRatio: number
+    memoryTotalBytes: number
+    memoryAvailableBytes: number
+    memoryUsedBytes: number
+    memoryUsageRatio: number
+    swapTotalBytes: number
+    swapFreeBytes: number
+    swapUsedBytes: number
+    swapUsageRatio: number
+    diskTotalBytes: number
+    diskAvailableBytes: number
+    diskUsedBytes: number
+    diskUsageRatio: number
+    load1: number
+    uptimeSeconds: number
+  }
   service: {
     up: boolean
   }
@@ -27,6 +45,11 @@ export type MonitoringMetric =
   | 'error_rate'
   | 'p95_rpc_latency'
   | 'event_loop_p99'
+  | 'host_cpu'
+  | 'host_memory'
+  | 'host_swap'
+  | 'host_disk'
+  | 'host_load1'
 
 export type MonitoringPoint = {
   timestamp: number
