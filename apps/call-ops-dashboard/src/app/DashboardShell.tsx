@@ -1,6 +1,6 @@
 import type { FormEvent, ReactNode } from 'react'
 
-export type ViewId = 'server' | 'service' | 'conversation' | 'call-quality' | 'recent-calls' | 'timeline'
+export type ViewId = 'server' | 'service' | 'conversation' | 'call-service' | 'call-quality' | 'recent-calls' | 'timeline'
 
 export const VIEWS: Array<{
   id: ViewId
@@ -12,6 +12,7 @@ export const VIEWS: Array<{
   { id: 'server', group: 'Infrastructure', label: 'Server', title: 'Server resources', kicker: 'Infrastructure / Host' },
   { id: 'service', group: 'Infrastructure', label: 'Monitoring service', title: 'Monitoring service', kicker: 'Infrastructure / Service' },
   { id: 'conversation', group: 'Infrastructure', label: 'Conversation service', title: 'Conversation service', kicker: 'Infrastructure / Realtime chat' },
+  { id: 'call-service', group: 'Infrastructure', label: 'Call service', title: 'Call service', kicker: 'Infrastructure / Call signaling' },
   { id: 'call-quality', group: 'Calls', label: 'Call quality', title: 'Call quality', kicker: 'Calls / Quality' },
   { id: 'recent-calls', group: 'Calls', label: 'Recent calls', title: 'Recent calls', kicker: 'Calls / Explorer' },
   { id: 'timeline', group: 'Calls', label: 'Call timeline', title: 'Call timeline', kicker: 'Calls / Timeline' },
