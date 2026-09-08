@@ -42,6 +42,57 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Initial Prometheus fetches take a moment after changing dashboard tabs.
+   Mask the uninitialized cards so "Unavailable" / placeholder values never
+   flash before the first real overview arrives. Refreshes after data exists do
+   not trigger this state because the section only marks itself busy on initial load. */
+.server-observability[aria-busy="true"],
+.system-observability[aria-busy="true"] {
+  position: relative;
+  min-height: 520px;
+}
+.server-observability[aria-busy="true"] > *,
+.system-observability[aria-busy="true"] > * {
+  opacity: 0;
+  pointer-events: none;
+}
+.server-observability[aria-busy="true"]::before,
+.system-observability[aria-busy="true"]::before {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  top: 84px;
+  left: 50%;
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  border: 3px solid #263246;
+  border-top-color: #7f8dff;
+  border-radius: 50%;
+  animation: metricsLoadingSpin .72s linear infinite;
+}
+.server-observability[aria-busy="true"]::after,
+.system-observability[aria-busy="true"]::after {
+  content: 'Loading live metrics…';
+  position: absolute;
+  z-index: 2;
+  top: 126px;
+  left: 0;
+  right: 0;
+  color: #8f9bad;
+  text-align: center;
+  font-size: .82rem;
+  font-weight: 650;
+  letter-spacing: .01em;
+}
+@keyframes metricsLoadingSpin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .server-observability[aria-busy="true"]::before,
+  .system-observability[aria-busy="true"]::before { animation: none; }
+}
+
 .view-heading { margin-bottom: 18px; }
 .view-heading h2 { font-size: 1.35rem; }
 .compact-filter-panel { margin-bottom: 18px; }
