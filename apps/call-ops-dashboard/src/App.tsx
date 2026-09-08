@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { FormEvent } from 'react'
 
+import { ConversationSection } from './ConversationSection'
 import { MonitoringSection } from './MonitoringSection'
 import { ServerSection } from './ServerSection'
 import { fetchApi } from './api'
@@ -53,7 +54,7 @@ type RecentCallLeg = {
   failure: { stage: string; errorCode: string | null } | null
 }
 
-type ViewId = 'server' | 'service' | 'call-quality' | 'recent-calls' | 'timeline'
+type ViewId = 'server' | 'service' | 'conversation' | 'call-quality' | 'recent-calls' | 'timeline'
 
 const VIEWS: Array<{
   id: ViewId
@@ -64,6 +65,7 @@ const VIEWS: Array<{
 }> = [
   { id: 'server', group: 'Infrastructure', label: 'Server', title: 'Server resources', kicker: 'Infrastructure / Host' },
   { id: 'service', group: 'Infrastructure', label: 'Monitoring service', title: 'Monitoring service', kicker: 'Infrastructure / Service' },
+  { id: 'conversation', group: 'Infrastructure', label: 'Conversation service', title: 'Conversation service', kicker: 'Infrastructure / Realtime chat' },
   { id: 'call-quality', group: 'Calls', label: 'Call quality', title: 'Call quality', kicker: 'Calls / Quality' },
   { id: 'recent-calls', group: 'Calls', label: 'Recent calls', title: 'Recent calls', kicker: 'Calls / Explorer' },
   { id: 'timeline', group: 'Calls', label: 'Call timeline', title: 'Call timeline', kicker: 'Calls / Timeline' },
@@ -393,6 +395,7 @@ export function App() {
         <main className="dashboard-content tabbed-dashboard-content">
           {activeView === 'server' && <ServerSection />}
           {activeView === 'service' && <MonitoringSection />}
+          {activeView === 'conversation' && <ConversationSection />}
 
           {activeView === 'call-quality' && (
             <section className="dashboard-view">
