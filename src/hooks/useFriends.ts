@@ -100,14 +100,17 @@ export function useOutgoingFriendRequests() {
   return useInfiniteQuery(getOutgoingFriendRequestsInfiniteQueryOptions(viewerId))
 }
 
-export function useBlockedUsersInfiniteQuery() {
+export function useBlockedUsersInfiniteQuery(options: { enabled?: boolean } = {}) {
   const viewerId = useAuthStore((state) => state.user?.id) ?? ''
-  return useInfiniteQuery(getBlockedUsersInfiniteQueryOptions(viewerId))
+  return useInfiniteQuery({
+    ...getBlockedUsersInfiniteQueryOptions(viewerId),
+    enabled: Boolean(viewerId) && (options.enabled ?? true),
+  })
 }
 
-export function useBlockedUserIds() {
+export function useBlockedUserIds(options: { enabled?: boolean } = {}) {
   const viewerId = useAuthStore((state) => state.user?.id) ?? ''
-  const query = useBlockedUsersInfiniteQuery()
+  const query = useBlockedUsersInfiniteQuery(options)
   const blockedUserIds = useMemo(
     () =>
       new Set(query.data?.pages.flatMap((page) => page.items.map((item) => item.user.id)) ?? []),

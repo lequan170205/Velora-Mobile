@@ -13,7 +13,7 @@ import type {
 } from '../types/friend.types'
 import type { Reel, ReelContextResponse } from '../types/reel.types'
 import type { GlobalSearchResponse } from '../types/search.types'
-import type { PublicUserProfile } from '../types/user.types'
+import type { PublicUserProfile, RecommendedPublicUserProfile } from '../types/user.types'
 
 type FriendRequestPages = InfiniteData<
   PaginatedFriendResults<FriendRequestSummary>,
@@ -135,10 +135,14 @@ export const removeFriendMutationsForViewer = (queryClient: QueryClient, viewerI
 }
 
 export const removeUserFromRecommendedUsersCaches = (queryClient: QueryClient, userId: string) => {
-  queryClient.setQueriesData<PublicUserProfile[]>({ queryKey: ['users', 'recommended'] }, (users) =>
-    users?.filter((user) => user.id !== userId),
+  queryClient.setQueriesData<RecommendedPublicUserProfile[]>(
+    { queryKey: ['users', 'recommended'] },
+    (users) => users?.filter((user) => user.id !== userId),
   )
 }
+
+export const invalidateRecommendedUsersQueries = (queryClient: QueryClient) =>
+  queryClient.invalidateQueries({ queryKey: ['users', 'recommended'] })
 
 export const removeUserFromDiscoveryCaches = (queryClient: QueryClient, userId: string) => {
   queryClient.setQueriesData<PublicUserProfile[]>({ queryKey: ['users', 'discover'] }, (users) =>
@@ -245,7 +249,7 @@ export const invalidateRelationshipCaches = (
     queryClient.invalidateQueries({ queryKey: queryKeys.friends.list(viewerId, viewerId) }),
     queryClient.invalidateQueries({ queryKey: queryKeys.friends.incoming(viewerId) }),
     queryClient.invalidateQueries({ queryKey: queryKeys.friends.outgoing(viewerId) }),
-    queryClient.invalidateQueries({ queryKey: ['users', 'recommended'] }),
+    invalidateRecommendedUsersQueries(queryClient),
     queryClient.invalidateQueries({ queryKey: ['users', 'discover'] }),
     invalidateFriendshipStatus(queryClient, viewerId, targetUserId),
   ])
