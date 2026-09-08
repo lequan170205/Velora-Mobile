@@ -1,2 +1,5 @@
-@import './dashboard.css';
+@import './foundation.css';
+@import './monitoring.css';
+@import './calls.css';
+@import './responsive.css';
 @import './navigation.css';
