@@ -14,10 +14,9 @@ import {
   MonitoringCharts,
   MonitoringError,
   MonitoringToolbar,
-  useMonitoringView,
-  type MetricCardDefinition,
-  type MonitoringSeriesDefinition,
-} from '../components/MonitoringView'
+} from '../components'
+import { useMonitoringView } from '../hooks/useMonitoringView'
+import type { MetricCardDefinition, MonitoringSeriesDefinition } from '../model'
 
 const formatSuccessRate = (errorRate: number) =>
   Number.isFinite(errorRate) ? `${((1 - errorRate) * 100).toFixed(2)}%` : '—'
