@@ -1,52 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-
-import { MonitoringChart } from './MonitoringChart'
+import type { MonitoringOverview } from './monitoring'
 import {
-  fetchMonitoringOverview,
-  fetchMonitoringTimeseries,
-  type MonitoringMetric,
-  type MonitoringOverview,
-  type MonitoringPoint,
-} from './monitoring'
-
-const OVERVIEW_REFRESH_INTERVAL_MS = 15_000
-const HISTORY_REFRESH_INTERVAL_MS = 60_000
-
-const RANGE_OPTIONS = [
-  { label: '1h', accessibleLabel: 'Last hour', hours: 1, stepSeconds: 60 },
-  { label: '6h', accessibleLabel: 'Last 6 hours', hours: 6, stepSeconds: 180 },
-  { label: '24h', accessibleLabel: 'Last 24 hours', hours: 24, stepSeconds: 300 },
-] as const
-
-type Tone = 'good' | 'warn' | 'bad' | 'neutral'
-type RefreshMode = 'overview' | 'all'
-
-const formatBytes = (value: number) => {
-  if (!Number.isFinite(value)) return '—'
-  const mib = value / (1024 * 1024)
-  if (mib < 1024) return `${mib.toFixed(mib >= 100 ? 0 : 1)} MB`
-  return `${(mib / 1024).toFixed(2)} GB`
-}
-
-const formatBytesAxis = (value: number) => {
-  if (!Number.isFinite(value)) return '—'
-  const mib = value / (1024 * 1024)
-  return mib >= 1024 ? `${(mib / 1024).toFixed(1)} GB` : `${mib.toFixed(0)} MB`
-}
-
-const formatCpu = (value: number) =>
-  Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : '—'
-
-const formatRate = (value: number) =>
-  Number.isFinite(value) ? `${value.toFixed(value >= 10 ? 1 : 2)}/s` : '—'
-
-const formatSeconds = (value: number) =>
-  Number.isFinite(value)
-    ? `${(value * 1000).toFixed(value >= 1 ? 0 : 1)} ms`
-    : '—'
-
-const formatPercent = (value: number) =>
-  Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : '—'
+  formatBytes,
+  formatBytesAxis,
+  formatCpu,
+  formatPercent,
+  formatRate,
+  formatSeconds,
+  type Tone,
+} from './monitoring-formatters'
+import {
+  HealthSummary,
+  MetricCardGrid,
+  MonitoringCharts,
+  MonitoringError,
+  MonitoringToolbar,
+  useMonitoringView,
+  type MetricCardDefinition,
+  type MonitoringSeriesDefinition,
+} from './monitoring-view'
 
 const formatSuccessRate = (errorRate: number) =>
   Number.isFinite(errorRate) ? `${((1 - errorRate) * 100).toFixed(2)}%` : '—'
@@ -74,15 +45,7 @@ const successBadge = (errorRate: number) => {
 }
 
 const getHealthSummary = (overview: MonitoringOverview | null) => {
-  if (!overview) {
-    return {
-      tone: 'neutral' as Tone,
-      title: 'Waiting for the first service check',
-      detail: 'Prometheus is collecting the information needed for a simple health summary.',
-    }
-  }
-
-  if (overview.service.up === null) {
+  if (!overview || overview.service.up === null) {
     return {
       tone: 'neutral' as Tone,
       title: 'Service status is unavailable',
@@ -110,11 +73,7 @@ const getHealthSummary = (overview: MonitoringOverview | null) => {
   const errorRate = overview.rpc.errorRate ?? Number.NaN
   const hasTraffic = requestRate !== null && requestRate > 0.001
 
-  if (
-    errorRate >= 0.05 ||
-    eventLoopMs >= 250 ||
-    (hasTraffic && latencyMs >= 1000)
-  ) {
+  if (errorRate >= 0.05 || eventLoopMs >= 250 || (hasTraffic && latencyMs >= 1000)) {
     return {
       tone: 'bad' as Tone,
       title: 'The service needs attention',
@@ -122,11 +81,7 @@ const getHealthSummary = (overview: MonitoringOverview | null) => {
     }
   }
 
-  if (
-    errorRate >= 0.01 ||
-    eventLoopMs >= 100 ||
-    (hasTraffic && latencyMs >= 500)
-  ) {
+  if (errorRate >= 0.01 || eventLoopMs >= 100 || (hasTraffic && latencyMs >= 500)) {
     return {
       tone: 'warn' as Tone,
       title: 'The service is online, but worth watching',
@@ -143,18 +98,7 @@ const getHealthSummary = (overview: MonitoringOverview | null) => {
   }
 }
 
-const SERIES: Array<{
-  metric: MonitoringMetric
-  title: string
-  question: string
-  description: string
-  formatter: (value: number) => string
-  axisFormatter: (value: number) => string
-  accent: string
-  fill: string
-  emptyTitle: string
-  emptyDescription: string
-}> = [
+const SERIES: readonly MonitoringSeriesDefinition[] = [
   {
     metric: 'memory',
     title: 'Monitoring service memory',
@@ -206,76 +150,21 @@ const SERIES: Array<{
 ]
 
 export function MonitoringSection() {
-  const [overview, setOverview] = useState<MonitoringOverview | null>(null)
-  const [history, setHistory] = useState<Partial<Record<MonitoringMetric, MonitoringPoint[]>>>({})
-  const [rangeHours, setRangeHours] = useState<(typeof RANGE_OPTIONS)[number]['hours']>(1)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const {
+    overview,
+    history,
+    rangeHours,
+    setRangeHours,
+    error,
+    initialLoading,
+    refreshing,
+    hasData,
+    refreshNow,
+  } = useMonitoringView({
+    series: SERIES,
+    errorMessage: 'Unable to load monitoring-service data',
+  })
 
-  const selectedRange = useMemo(
-    () => RANGE_OPTIONS.find((option) => option.hours === rangeHours) ?? RANGE_OPTIONS[0],
-    [rangeHours],
-  )
-
-  const refreshMonitoring = useCallback(async (mode: RefreshMode, showLoading = false) => {
-    if (showLoading) setLoading(true)
-
-    try {
-      if (mode === 'overview') {
-        setOverview(await fetchMonitoringOverview())
-      } else {
-        const to = new Date()
-        const from = new Date(to.getTime() - selectedRange.hours * 60 * 60 * 1000)
-        const [nextOverview, ...series] = await Promise.all([
-          fetchMonitoringOverview(),
-          ...SERIES.map(({ metric }) =>
-            fetchMonitoringTimeseries({
-              metric,
-              from: from.toISOString(),
-              to: to.toISOString(),
-              stepSeconds: selectedRange.stepSeconds,
-            }),
-          ),
-        ])
-
-        const nextHistory: Partial<Record<MonitoringMetric, MonitoringPoint[]>> = {}
-        for (const item of series) nextHistory[item.metric] = item.points
-        setOverview(nextOverview)
-        setHistory(nextHistory)
-      }
-
-      setError(null)
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : 'Unable to load monitoring-service data')
-    } finally {
-      if (showLoading) setLoading(false)
-    }
-  }, [selectedRange])
-
-  useEffect(() => {
-    void refreshMonitoring('all', true)
-
-    const overviewInterval = window.setInterval(() => {
-      if (!document.hidden) void refreshMonitoring('overview')
-    }, OVERVIEW_REFRESH_INTERVAL_MS)
-
-    const historyInterval = window.setInterval(() => {
-      if (!document.hidden) void refreshMonitoring('all')
-    }, HISTORY_REFRESH_INTERVAL_MS)
-
-    const handleVisibilityChange = () => {
-      if (!document.hidden) void refreshMonitoring('all')
-    }
-
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    return () => {
-      window.clearInterval(overviewInterval)
-      window.clearInterval(historyInterval)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
-  }, [refreshMonitoring])
-
-  const initialLoading = loading && overview === null && error === null
   const health = getHealthSummary(overview)
   const cpuState = cpuBadge(overview?.process.cpuSecondsPerSecond ?? Number.NaN)
   const successState = successBadge(overview?.rpc.errorRate ?? Number.NaN)
@@ -285,50 +174,50 @@ export function MonitoringSection() {
   const serviceUp = overview?.service.up ?? null
   const requestRate = overview?.rpc.requestsPerSecond ?? null
 
-  const cards = [
+  const cards: readonly MetricCardDefinition[] = [
     {
       label: 'Service status',
-      value: initialLoading ? 'Loading…' : serviceUp === true ? 'Online' : serviceUp === false ? 'Offline' : '—',
+      value: serviceUp === true ? 'Online' : serviceUp === false ? 'Offline' : '—',
       helper: 'Can Prometheus reach monitoring-service?',
-      badge: initialLoading ? 'Waiting' : serviceUp === true ? 'Reachable' : serviceUp === false ? 'Unreachable' : 'Waiting',
+      badge: serviceUp === true ? 'Reachable' : serviceUp === false ? 'Unreachable' : 'Waiting',
       tone: serviceUp === true ? 'good' : serviceUp === false ? 'bad' : 'neutral',
     },
     {
       label: 'Monitoring service memory',
-      value: initialLoading ? 'Loading…' : formatBytes(overview?.process.residentMemoryBytes ?? Number.NaN),
+      value: formatBytes(overview?.process.residentMemoryBytes ?? Number.NaN),
       helper: 'RAM used by this service process only — not total server memory.',
-      badge: initialLoading ? 'Waiting' : 'Service only',
+      badge: hasData ? 'Service only' : 'Waiting',
       tone: 'neutral',
     },
     {
       label: 'Monitoring service CPU',
-      value: initialLoading ? 'Loading…' : formatCpu(overview?.process.cpuSecondsPerSecond ?? Number.NaN),
+      value: formatCpu(overview?.process.cpuSecondsPerSecond ?? Number.NaN),
       helper: 'CPU used by this service process only — not the whole server.',
-      badge: initialLoading ? 'Waiting' : cpuState.label,
-      tone: initialLoading ? 'neutral' : cpuState.tone,
+      badge: cpuState.label,
+      tone: cpuState.tone,
     },
     {
       label: 'Internal traffic',
-      value: initialLoading ? 'Loading…' : formatRate(overview?.rpc.requestsPerSecond ?? Number.NaN),
+      value: formatRate(overview?.rpc.requestsPerSecond ?? Number.NaN),
       helper: 'Monitoring requests handled each second.',
-      badge: initialLoading ? 'Waiting' : requestRate === null ? 'Waiting' : requestRate <= 0.001 ? 'Idle' : 'Active',
+      badge: requestRate === null ? 'Waiting' : requestRate <= 0.001 ? 'Idle' : 'Active',
       tone: 'neutral',
     },
     {
       label: 'Successful requests',
-      value: initialLoading ? 'Loading…' : formatSuccessRate(overview?.rpc.errorRate ?? Number.NaN),
-      helper: `Request success rate. Errors: ${initialLoading ? 'loading' : formatPercent(overview?.rpc.errorRate ?? Number.NaN)}.`,
-      badge: initialLoading ? 'Waiting' : successState.label,
-      tone: initialLoading ? 'neutral' : successState.tone,
+      value: formatSuccessRate(overview?.rpc.errorRate ?? Number.NaN),
+      helper: `Request success rate. Errors: ${formatPercent(overview?.rpc.errorRate ?? Number.NaN, 2)}.`,
+      badge: successState.label,
+      tone: successState.tone,
     },
     {
       label: 'Service responsiveness',
-      value: initialLoading ? 'Loading…' : formatSeconds(overview?.process.eventLoopP99Seconds ?? Number.NaN),
+      value: formatSeconds(overview?.process.eventLoopP99Seconds ?? Number.NaN),
       helper: 'Delay before this Node.js service can react to incoming work. Lower is better.',
-      badge: initialLoading ? 'Waiting' : responsivenessState.label,
-      tone: initialLoading ? 'neutral' : responsivenessState.tone,
+      badge: responsivenessState.label,
+      tone: responsivenessState.tone,
     },
-  ] as const
+  ]
 
   return (
     <section
@@ -336,56 +225,32 @@ export function MonitoringSection() {
       aria-labelledby="system-observability-title"
       aria-busy={initialLoading}
     >
-      <div className="system-toolbar">
-        <div>
-          <p className="eyebrow">Monitoring service · live</p>
-          <h2 id="system-observability-title">How is Velora monitoring doing?</h2>
-          <p className="section-description">
-            These numbers describe the monitoring-service process only. Use the Server view for total Ubuntu host resources.
-          </p>
-        </div>
-        <div className="monitoring-actions">
-          <div className="range-switcher" aria-label="Monitoring history range">
-            {RANGE_OPTIONS.map((option) => (
-              <button
-                className={option.hours === rangeHours ? 'range-button active' : 'range-button'}
-                key={option.label}
-                type="button"
-                aria-label={option.accessibleLabel}
-                title={option.accessibleLabel}
-                onClick={() => setRangeHours(option.hours)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <button className="secondary-button" type="button" onClick={() => void refreshMonitoring('all', true)}>
-            Refresh now
-          </button>
-        </div>
-      </div>
+      <MonitoringToolbar
+        eyebrow="Monitoring service · live"
+        title="How is Velora monitoring doing?"
+        titleId="system-observability-title"
+        description="These numbers describe the monitoring-service process only. Use the Server view for total Ubuntu host resources."
+        rangeLabel="Monitoring history range"
+        rangeHours={rangeHours}
+        onRangeChange={setRangeHours}
+        refreshing={refreshing}
+        onRefresh={() => void refreshNow()}
+      />
 
-      {error && (
-        <div className="monitoring-warning" role="status">
-          <strong>Monitoring-service data is temporarily unavailable.</strong>
-          <span>{error}</span>
-        </div>
-      )}
+      <MonitoringError
+        error={error}
+        title="Monitoring-service data is temporarily unavailable."
+        hasData={hasData}
+      />
 
-      <div className={`health-summary ${initialLoading ? 'neutral' : health.tone}`}>
-        <div className="health-summary-icon" aria-hidden="true">
-          {initialLoading ? '…' : health.tone === 'good' ? '✓' : health.tone === 'bad' ? '!' : health.tone === 'warn' ? '!' : '…'}
-        </div>
-        <div className="health-summary-copy">
-          <span>Quick read</span>
-          <strong>{initialLoading ? 'Loading monitoring-service metrics…' : health.title}</strong>
-          <p>{initialLoading ? 'Fetching the latest Prometheus overview and chart history. This normally takes only a moment.' : health.detail}</p>
-        </div>
-        <div className="health-summary-time">
-          <span>Last checked</span>
-          <strong>{overview ? new Date(overview.generatedAt).toLocaleTimeString() : initialLoading ? 'Loading…' : 'Waiting'}</strong>
-        </div>
-      </div>
+      <HealthSummary
+        tone={health.tone}
+        label="Quick read"
+        title={health.title}
+        detail={health.detail}
+        generatedAt={overview?.generatedAt}
+        refreshing={refreshing}
+      />
 
       <div className="monitoring-scope-note" role="note">
         <div className="monitoring-scope-mark" aria-hidden="true">1</div>
@@ -398,18 +263,7 @@ export function MonitoringSection() {
         <span className="monitoring-scope-badge">See Server view for host totals</span>
       </div>
 
-      <div className="friendly-metric-grid" aria-busy={loading}>
-        {cards.map((card) => (
-          <article className="friendly-metric-card" key={card.label}>
-            <div className="friendly-metric-topline">
-              <span>{card.label}</span>
-              <i className={`metric-badge ${card.tone}`}>{card.badge}</i>
-            </div>
-            <strong>{card.value}</strong>
-            <p>{card.helper}</p>
-          </article>
-        ))}
-      </div>
+      <MetricCardGrid cards={cards} refreshing={refreshing} />
 
       <div className="monitoring-explainer">
         <strong>How to read these charts</strong>
@@ -419,46 +273,27 @@ export function MonitoringSection() {
         </p>
       </div>
 
-      <div className="monitoring-grid">
-        {SERIES.map((series) => (
-          <MonitoringChart
-            key={series.metric}
-            points={history[series.metric] ?? []}
-            title={series.title}
-            question={series.question}
-            description={series.description}
-            valueFormatter={series.formatter}
-            axisFormatter={series.axisFormatter}
-            accent={series.accent}
-            fill={series.fill}
-            emptyTitle={series.emptyTitle}
-            emptyDescription={series.emptyDescription}
-            loading={loading}
-          />
-        ))}
-      </div>
+      <MonitoringCharts series={SERIES} history={history} initialLoading={initialLoading} />
 
       <details className="technical-details">
         <summary>Technical details for monitoring-service</summary>
         <div>
           <span>JavaScript heap</span>
-          <strong>{initialLoading ? 'Loading…' : formatBytes(overview?.process.heapUsedBytes ?? Number.NaN)}</strong>
+          <strong>{formatBytes(overview?.process.heapUsedBytes ?? Number.NaN)}</strong>
         </div>
         <div>
           <span>RPC p95 latency</span>
           <strong>
-            {initialLoading
-              ? 'Loading…'
-              : requestRate === null
-                ? '—'
-                : requestRate <= 0.001
-                  ? 'No traffic'
-                  : formatSeconds(overview?.rpc.p95LatencySeconds ?? Number.NaN)}
+            {requestRate === null
+              ? '—'
+              : requestRate <= 0.001
+                ? 'No traffic'
+                : formatSeconds(overview?.rpc.p95LatencySeconds ?? Number.NaN)}
           </strong>
         </div>
         <div>
           <span>RPC error rate</span>
-          <strong>{initialLoading ? 'Loading…' : formatPercent(overview?.rpc.errorRate ?? Number.NaN)}</strong>
+          <strong>{formatPercent(overview?.rpc.errorRate ?? Number.NaN, 2)}</strong>
         </div>
         <p>
           These technical values belong to monitoring-service. Whole-server CPU, RAM, swap, and disk are available in the separate Server view.
