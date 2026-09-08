@@ -48,6 +48,13 @@ export type MonitoringOverview = {
     errorRate: NullableMetric
     p95SendLatencySeconds: NullableMetric
   }
+  call: {
+    up: boolean | null
+    residentMemoryBytes: NullableMetric
+    cpuSecondsPerSecond: NullableMetric
+    eventLoopP99Seconds: NullableMetric
+    socketConnections: NullableMetric
+  }
 }
 
 export type MonitoringMetric =
@@ -73,6 +80,10 @@ export type MonitoringMetric =
   | 'conversation_reject_rate'
   | 'conversation_error_rate'
   | 'conversation_p95_send_latency'
+  | 'call_cpu'
+  | 'call_memory'
+  | 'call_event_loop_p99'
+  | 'call_sockets'
 
 export type MonitoringPoint = { timestamp: number; value: number }
 
