@@ -185,12 +185,14 @@ export function ConversationSection() {
   }, [refreshConversation])
 
   const conversation = overview?.conversation
+  const initialLoading = loading && overview === null && error === null
   const serviceUp = conversation?.up ?? null
   const successRate = conversation?.successRate ?? null
   const rejectRate = conversation?.rejectRate ?? null
   const errorRate = conversation?.errorRate ?? null
   const p95Latency = conversation?.p95SendLatencySeconds ?? null
-  const hasTraffic = (conversation?.sendRequestsPerSecond ?? 0) > 0.001
+  const sendRequestsPerSecond = conversation?.sendRequestsPerSecond ?? null
+  const hasTraffic = sendRequestsPerSecond !== null && sendRequestsPerSecond > 0.001
 
   const reliabilityTone: Tone = serviceUp !== true
     ? serviceUp === false ? 'bad' : 'neutral'
@@ -201,64 +203,68 @@ export function ConversationSection() {
   const cards = [
     {
       label: 'Service status',
-      value: serviceUp === true ? 'Online' : serviceUp === false ? 'Offline' : '—',
+      value: initialLoading ? 'Loading…' : serviceUp === true ? 'Online' : serviceUp === false ? 'Offline' : '—',
       helper: 'Can Prometheus scrape conversation-service?',
-      badge: serviceUp === true ? 'Reachable' : serviceUp === false ? 'Unreachable' : 'Waiting',
+      badge: initialLoading ? 'Waiting' : serviceUp === true ? 'Reachable' : serviceUp === false ? 'Unreachable' : 'Waiting',
       tone: serviceUp === true ? 'good' : serviceUp === false ? 'bad' : 'neutral',
     },
     {
       label: 'Active sockets',
-      value: formatCount(conversation?.socketConnections ?? Number.NaN),
+      value: initialLoading ? 'Loading…' : formatCount(conversation?.socketConnections ?? Number.NaN),
       helper: 'Realtime Socket.IO clients currently connected.',
-      badge: 'Live',
+      badge: initialLoading ? 'Waiting' : 'Live',
       tone: 'neutral',
     },
     {
       label: 'New messages',
-      value: formatRate(conversation?.messagesPerSecond ?? Number.NaN),
+      value: initialLoading ? 'Loading…' : formatRate(conversation?.messagesPerSecond ?? Number.NaN),
       helper: 'Persisted user messages, excluding idempotent retries.',
-      badge: hasTraffic ? 'Active' : 'Idle',
+      badge: initialLoading ? 'Waiting' : hasTraffic ? 'Active' : 'Idle',
       tone: 'neutral',
     },
     {
       label: 'Send requests',
-      value: formatRate(conversation?.sendRequestsPerSecond ?? Number.NaN),
+      value: initialLoading ? 'Loading…' : formatRate(sendRequestsPerSecond ?? Number.NaN),
       helper: 'All incoming send_message attempts.',
-      badge: hasTraffic ? 'Active' : 'Idle',
+      badge: initialLoading ? 'Waiting' : hasTraffic ? 'Active' : 'Idle',
       tone: 'neutral',
     },
     {
       label: 'Successful sends',
-      value: hasTraffic ? formatPercent(successRate ?? Number.NaN) : 'No traffic',
+      value: initialLoading ? 'Loading…' : hasTraffic ? formatPercent(successRate ?? Number.NaN) : 'No traffic',
       helper: 'Share of send_message requests handled successfully.',
-      badge: !hasTraffic ? 'Idle' : (successRate ?? 0) >= 0.99 ? 'Healthy' : 'Watch',
-      tone: !hasTraffic ? 'neutral' : (successRate ?? 0) >= 0.99 ? 'good' : 'warn',
+      badge: initialLoading ? 'Waiting' : !hasTraffic ? 'Idle' : (successRate ?? 0) >= 0.99 ? 'Healthy' : 'Watch',
+      tone: initialLoading || !hasTraffic ? 'neutral' : (successRate ?? 0) >= 0.99 ? 'good' : 'warn',
     },
     {
       label: 'Rejected sends',
-      value: hasTraffic ? formatPercent(rejectRate ?? Number.NaN) : 'No traffic',
+      value: initialLoading ? 'Loading…' : hasTraffic ? formatPercent(rejectRate ?? Number.NaN) : 'No traffic',
       helper: 'Invalid/auth/member checks rejected before message creation.',
-      badge: !hasTraffic ? 'Idle' : (rejectRate ?? 0) < 0.01 ? 'Low' : 'Watch',
-      tone: !hasTraffic ? 'neutral' : statusTone(rejectRate, 0.01, 0.05),
+      badge: initialLoading ? 'Waiting' : !hasTraffic ? 'Idle' : (rejectRate ?? 0) < 0.01 ? 'Low' : 'Watch',
+      tone: initialLoading || !hasTraffic ? 'neutral' : statusTone(rejectRate, 0.01, 0.05),
     },
     {
       label: 'Send errors',
-      value: hasTraffic ? formatPercent(errorRate ?? Number.NaN) : 'No traffic',
+      value: initialLoading ? 'Loading…' : hasTraffic ? formatPercent(errorRate ?? Number.NaN) : 'No traffic',
       helper: 'Unexpected send_message failures after validation.',
-      badge: !hasTraffic ? 'Idle' : (errorRate ?? 0) < 0.01 ? 'Low' : 'Watch',
-      tone: !hasTraffic ? 'neutral' : statusTone(errorRate, 0.01, 0.05),
+      badge: initialLoading ? 'Waiting' : !hasTraffic ? 'Idle' : (errorRate ?? 0) < 0.01 ? 'Low' : 'Watch',
+      tone: initialLoading || !hasTraffic ? 'neutral' : statusTone(errorRate, 0.01, 0.05),
     },
     {
       label: 'p95 send latency',
-      value: hasTraffic ? formatSeconds(p95Latency ?? Number.NaN) : 'No traffic',
+      value: initialLoading ? 'Loading…' : hasTraffic ? formatSeconds(p95Latency ?? Number.NaN) : 'No traffic',
       helper: 'Synchronous handling time for successful send_message requests.',
-      badge: !hasTraffic ? 'Idle' : (p95Latency ?? 0) < 0.25 ? 'Fast' : 'Watch',
-      tone: !hasTraffic ? 'neutral' : statusTone(p95Latency, 0.25, 0.75),
+      badge: initialLoading ? 'Waiting' : !hasTraffic ? 'Idle' : (p95Latency ?? 0) < 0.25 ? 'Fast' : 'Watch',
+      tone: initialLoading || !hasTraffic ? 'neutral' : statusTone(p95Latency, 0.25, 0.75),
     },
   ] as const
 
   return (
-    <section className="system-observability" aria-labelledby="conversation-observability-title">
+    <section
+      className="system-observability"
+      aria-labelledby="conversation-observability-title"
+      aria-busy={initialLoading}
+    >
       <div className="system-toolbar">
         <div>
           <p className="eyebrow">Conversation service · realtime</p>
@@ -296,30 +302,34 @@ export function ConversationSection() {
 
       <div className={`health-summary ${reliabilityTone}`}>
         <div className="health-summary-icon" aria-hidden="true">
-          {reliabilityTone === 'good' ? '✓' : reliabilityTone === 'neutral' ? '…' : '!'}
+          {serviceUp === null ? '…' : reliabilityTone === 'good' ? '✓' : reliabilityTone === 'neutral' ? '…' : '!'}
         </div>
         <div className="health-summary-copy">
           <span>Quick read</span>
           <strong>
-            {serviceUp === false
-              ? 'Conversation service is offline'
-              : serviceUp === null
-                ? 'Waiting for conversation-service metrics'
-                : !hasTraffic
-                  ? 'Conversation service is online and idle'
-                  : reliabilityTone === 'good'
-                    ? 'Chat traffic is healthy'
-                    : 'Chat traffic needs attention'}
+            {initialLoading
+              ? 'Loading conversation-service metrics…'
+              : serviceUp === false
+                ? 'Conversation service is offline'
+                : serviceUp === null
+                  ? 'Conversation-service status is unavailable'
+                  : !hasTraffic
+                    ? 'Conversation service is online and idle'
+                    : reliabilityTone === 'good'
+                      ? 'Chat traffic is healthy'
+                      : 'Chat traffic needs attention'}
           </strong>
           <p>
-            {serviceUp === true
-              ? 'Use message rate and p95 latency together when comparing one, two, and three replicas during load tests.'
-              : 'Prometheus must be able to scrape conversation-service before throughput and latency can be trusted.'}
+            {initialLoading
+              ? 'Fetching the latest Prometheus overview and chart history. This normally takes only a moment.'
+              : serviceUp === true
+                ? 'Use message rate and p95 latency together when comparing one, two, and three replicas during load tests.'
+                : 'Prometheus must be able to scrape conversation-service before throughput and latency can be trusted.'}
           </p>
         </div>
         <div className="health-summary-time">
           <span>Last checked</span>
-          <strong>{overview ? new Date(overview.generatedAt).toLocaleTimeString() : 'Waiting'}</strong>
+          <strong>{overview ? new Date(overview.generatedAt).toLocaleTimeString() : initialLoading ? 'Loading…' : 'Waiting'}</strong>
         </div>
       </div>
 
@@ -359,15 +369,15 @@ export function ConversationSection() {
         <summary>Conversation-service runtime details</summary>
         <div>
           <span>Process memory</span>
-          <strong>{formatBytes(conversation?.residentMemoryBytes ?? Number.NaN)}</strong>
+          <strong>{initialLoading ? 'Loading…' : formatBytes(conversation?.residentMemoryBytes ?? Number.NaN)}</strong>
         </div>
         <div>
           <span>Process CPU</span>
-          <strong>{formatCpu(conversation?.cpuSecondsPerSecond ?? Number.NaN)}</strong>
+          <strong>{initialLoading ? 'Loading…' : formatCpu(conversation?.cpuSecondsPerSecond ?? Number.NaN)}</strong>
         </div>
         <div>
           <span>Event-loop p99</span>
-          <strong>{formatSeconds(conversation?.eventLoopP99Seconds ?? Number.NaN)}</strong>
+          <strong>{initialLoading ? 'Loading…' : formatSeconds(conversation?.eventLoopP99Seconds ?? Number.NaN)}</strong>
         </div>
         <p>
           These runtime values are aggregated across the currently scraped conversation-service instances. They become especially useful once k3s starts scaling replicas.
