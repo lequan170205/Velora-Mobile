@@ -191,7 +191,10 @@ export function ServerSection() {
   }, [refreshServer])
 
   const host = overview?.host
-  const serverHealthy = host?.up === true
+  const hostUp = host?.up ?? null
+  const serverHealthy = hostUp === true
+  const initialLoading = loading && overview === null && error === null
+  const hostTone = hostUp === null ? 'neutral' : serverHealthy ? 'good' : 'bad'
   const memoryTone = toneForRatio(host?.memoryUsageRatio ?? Number.NaN, 0.75, 0.9)
   const diskTone = toneForRatio(host?.diskUsageRatio ?? Number.NaN, 0.8, 0.92)
   const cpuTone = toneForRatio(host?.cpuUsageRatio ?? Number.NaN, 0.7, 0.9)
@@ -237,13 +240,17 @@ export function ServerSection() {
       label: 'Server uptime',
       value: formatUptime(host?.uptimeSeconds ?? Number.NaN),
       helper: 'Time since the Ubuntu host last booted.',
-      badge: serverHealthy ? 'Online' : 'Unavailable',
-      tone: serverHealthy ? 'good' : 'bad',
+      badge: hostUp === null ? 'Waiting' : serverHealthy ? 'Online' : 'Unavailable',
+      tone: hostUp === null ? 'neutral' : serverHealthy ? 'good' : 'bad',
     },
   ] as const
 
   return (
-    <section className="server-observability" aria-labelledby="server-observability-title">
+    <section
+      className="server-observability"
+      aria-labelledby="server-observability-title"
+      aria-busy={initialLoading}
+    >
       <div className="system-toolbar">
         <div>
           <p className="eyebrow">Ubuntu host · live</p>
@@ -279,20 +286,34 @@ export function ServerSection() {
         </div>
       )}
 
-      <div className={`health-summary ${serverHealthy ? 'good' : 'bad'}`}>
-        <div className="health-summary-icon" aria-hidden="true">{serverHealthy ? '✓' : '!'}</div>
+      <div className={`health-summary ${hostTone}`}>
+        <div className="health-summary-icon" aria-hidden="true">
+          {hostUp === null ? '…' : serverHealthy ? '✓' : '!'}
+        </div>
         <div className="health-summary-copy">
           <span>Host status</span>
-          <strong>{serverHealthy ? 'Homelab server is reporting normally' : 'Host metrics are unavailable'}</strong>
+          <strong>
+            {hostUp === null
+              ? initialLoading
+                ? 'Loading host metrics…'
+                : 'Host status is unavailable'
+              : serverHealthy
+                ? 'Homelab server is reporting normally'
+                : 'Host metrics are unavailable'}
+          </strong>
           <p>
-            {serverHealthy
-              ? 'These values describe the whole Ubuntu machine, not a single container or Node.js process.'
-              : 'Prometheus cannot currently read node-exporter. Check the exporter target and deployment.'}
+            {hostUp === null
+              ? initialLoading
+                ? 'Fetching the latest node-exporter sample from Prometheus. This normally takes only a moment.'
+                : 'Prometheus returned no host status sample, so the dashboard will not guess that the server is offline.'
+              : serverHealthy
+                ? 'These values describe the whole Ubuntu machine, not a single container or Node.js process.'
+                : 'Prometheus can see node-exporter but cannot currently scrape it. Check the exporter target and deployment.'}
           </p>
         </div>
         <div className="health-summary-time">
           <span>Last checked</span>
-          <strong>{overview ? new Date(overview.generatedAt).toLocaleTimeString() : 'Waiting'}</strong>
+          <strong>{overview ? new Date(overview.generatedAt).toLocaleTimeString() : initialLoading ? 'Loading…' : 'Waiting'}</strong>
         </div>
       </div>
 
