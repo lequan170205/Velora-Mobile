@@ -1,73 +1,24 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-
-import { MonitoringChart } from './MonitoringChart'
 import {
-  fetchMonitoringOverview,
-  fetchMonitoringTimeseries,
-  type MonitoringMetric,
-  type MonitoringOverview,
-  type MonitoringPoint,
-} from './monitoring'
+  badgeForThreshold,
+  formatBytes,
+  formatLoad,
+  formatPercent,
+  formatUptime,
+  toneForThreshold,
+  type Tone,
+} from './monitoring-formatters'
+import {
+  HealthSummary,
+  MetricCardGrid,
+  MonitoringCharts,
+  MonitoringError,
+  MonitoringToolbar,
+  useMonitoringView,
+  type MetricCardDefinition,
+  type MonitoringSeriesDefinition,
+} from './monitoring-view'
 
-const OVERVIEW_REFRESH_INTERVAL_MS = 15_000
-const HISTORY_REFRESH_INTERVAL_MS = 60_000
-
-const RANGE_OPTIONS = [
-  { label: '1h', accessibleLabel: 'Last hour', hours: 1, stepSeconds: 60 },
-  { label: '6h', accessibleLabel: 'Last 6 hours', hours: 6, stepSeconds: 180 },
-  { label: '24h', accessibleLabel: 'Last 24 hours', hours: 24, stepSeconds: 300 },
-] as const
-
-const formatBytes = (value: number) => {
-  if (!Number.isFinite(value)) return '—'
-  const gib = value / (1024 ** 3)
-  if (gib >= 1) return `${gib.toFixed(gib >= 10 ? 1 : 2)} GB`
-  return `${(value / (1024 ** 2)).toFixed(0)} MB`
-}
-
-const formatPercent = (value: number) =>
-  Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : '—'
-
-const formatLoad = (value: number) =>
-  Number.isFinite(value) ? value.toFixed(2) : '—'
-
-const formatUptime = (seconds: number) => {
-  if (!Number.isFinite(seconds) || seconds < 0) return '—'
-  const days = Math.floor(seconds / 86400)
-  const hours = Math.floor((seconds % 86400) / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  if (days > 0) return `${days}d ${hours}h`
-  if (hours > 0) return `${hours}h ${minutes}m`
-  return `${minutes}m`
-}
-
-const toneForRatio = (value: number, warn: number, bad: number) => {
-  if (!Number.isFinite(value)) return 'neutral'
-  if (value >= bad) return 'bad'
-  if (value >= warn) return 'warn'
-  return 'good'
-}
-
-const badgeForRatio = (value: number, warn: number, bad: number) => {
-  const tone = toneForRatio(value, warn, bad)
-  if (tone === 'bad') return 'High'
-  if (tone === 'warn') return 'Watch'
-  if (tone === 'good') return 'Healthy'
-  return 'Waiting'
-}
-
-const SERIES: Array<{
-  metric: MonitoringMetric
-  title: string
-  question: string
-  description: string
-  formatter: (value: number) => string
-  axisFormatter: (value: number) => string
-  accent: string
-  fill: string
-  emptyTitle: string
-  emptyDescription: string
-}> = [
+const SERIES: readonly MonitoringSeriesDefinition[] = [
   {
     metric: 'host_cpu',
     title: 'Server CPU usage',
@@ -118,116 +69,55 @@ const SERIES: Array<{
   },
 ]
 
-type RefreshMode = 'overview' | 'all'
-
 export function ServerSection() {
-  const [overview, setOverview] = useState<MonitoringOverview | null>(null)
-  const [history, setHistory] = useState<Partial<Record<MonitoringMetric, MonitoringPoint[]>>>({})
-  const [rangeHours, setRangeHours] = useState<(typeof RANGE_OPTIONS)[number]['hours']>(1)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  const selectedRange = useMemo(
-    () => RANGE_OPTIONS.find((option) => option.hours === rangeHours) ?? RANGE_OPTIONS[0],
-    [rangeHours],
-  )
-
-  const refreshServer = useCallback(async (mode: RefreshMode, showLoading = false) => {
-    if (showLoading) setLoading(true)
-
-    try {
-      if (mode === 'overview') {
-        setOverview(await fetchMonitoringOverview())
-      } else {
-        const to = new Date()
-        const from = new Date(to.getTime() - selectedRange.hours * 60 * 60 * 1000)
-        const [nextOverview, ...series] = await Promise.all([
-          fetchMonitoringOverview(),
-          ...SERIES.map(({ metric }) =>
-            fetchMonitoringTimeseries({
-              metric,
-              from: from.toISOString(),
-              to: to.toISOString(),
-              stepSeconds: selectedRange.stepSeconds,
-            }),
-          ),
-        ])
-
-        const nextHistory: Partial<Record<MonitoringMetric, MonitoringPoint[]>> = {}
-        for (const item of series) nextHistory[item.metric] = item.points
-        setOverview(nextOverview)
-        setHistory(nextHistory)
-      }
-
-      setError(null)
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : 'Unable to load server metrics')
-    } finally {
-      if (showLoading) setLoading(false)
-    }
-  }, [selectedRange])
-
-  useEffect(() => {
-    void refreshServer('all', true)
-
-    const overviewInterval = window.setInterval(() => {
-      if (!document.hidden) void refreshServer('overview')
-    }, OVERVIEW_REFRESH_INTERVAL_MS)
-
-    const historyInterval = window.setInterval(() => {
-      if (!document.hidden) void refreshServer('all')
-    }, HISTORY_REFRESH_INTERVAL_MS)
-
-    const handleVisibilityChange = () => {
-      if (!document.hidden) void refreshServer('all')
-    }
-
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    return () => {
-      window.clearInterval(overviewInterval)
-      window.clearInterval(historyInterval)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
-  }, [refreshServer])
+  const {
+    overview,
+    history,
+    rangeHours,
+    setRangeHours,
+    error,
+    initialLoading,
+    refreshing,
+    hasData,
+    refreshNow,
+  } = useMonitoringView({
+    series: SERIES,
+    errorMessage: 'Unable to load server metrics',
+  })
 
   const host = overview?.host
   const hostUp = host?.up ?? null
   const serverHealthy = hostUp === true
-  const initialLoading = loading && overview === null && error === null
-  const hostTone = hostUp === null ? 'neutral' : serverHealthy ? 'good' : 'bad'
-  const memoryTone = toneForRatio(host?.memoryUsageRatio ?? Number.NaN, 0.75, 0.9)
-  const diskTone = toneForRatio(host?.diskUsageRatio ?? Number.NaN, 0.8, 0.92)
-  const cpuTone = toneForRatio(host?.cpuUsageRatio ?? Number.NaN, 0.7, 0.9)
-  const swapTone = toneForRatio(host?.swapUsageRatio ?? Number.NaN, 0.25, 0.5)
+  const hostTone: Tone = hostUp === null ? 'neutral' : serverHealthy ? 'good' : 'bad'
 
-  const cards = [
+  const cards: readonly MetricCardDefinition[] = [
     {
       label: 'CPU usage',
       value: formatPercent(host?.cpuUsageRatio ?? Number.NaN),
       helper: 'Real CPU usage across the Ubuntu host.',
-      badge: badgeForRatio(host?.cpuUsageRatio ?? Number.NaN, 0.7, 0.9),
-      tone: cpuTone,
+      badge: badgeForThreshold(host?.cpuUsageRatio ?? null, 0.7, 0.9),
+      tone: toneForThreshold(host?.cpuUsageRatio ?? null, 0.7, 0.9),
     },
     {
       label: 'RAM used',
       value: `${formatBytes(host?.memoryUsedBytes ?? Number.NaN)} / ${formatBytes(host?.memoryTotalBytes ?? Number.NaN)}`,
       helper: `${formatBytes(host?.memoryAvailableBytes ?? Number.NaN)} available · comparable to free -h.`,
-      badge: badgeForRatio(host?.memoryUsageRatio ?? Number.NaN, 0.75, 0.9),
-      tone: memoryTone,
+      badge: badgeForThreshold(host?.memoryUsageRatio ?? null, 0.75, 0.9),
+      tone: toneForThreshold(host?.memoryUsageRatio ?? null, 0.75, 0.9),
     },
     {
       label: 'Swap used',
       value: `${formatBytes(host?.swapUsedBytes ?? Number.NaN)} / ${formatBytes(host?.swapTotalBytes ?? Number.NaN)}`,
       helper: `${formatBytes(host?.swapFreeBytes ?? Number.NaN)} swap still free.`,
-      badge: badgeForRatio(host?.swapUsageRatio ?? Number.NaN, 0.25, 0.5),
-      tone: swapTone,
+      badge: badgeForThreshold(host?.swapUsageRatio ?? null, 0.25, 0.5),
+      tone: toneForThreshold(host?.swapUsageRatio ?? null, 0.25, 0.5),
     },
     {
       label: 'Root disk',
       value: `${formatBytes(host?.diskUsedBytes ?? Number.NaN)} / ${formatBytes(host?.diskTotalBytes ?? Number.NaN)}`,
       helper: `${formatBytes(host?.diskAvailableBytes ?? Number.NaN)} available on /.`,
-      badge: badgeForRatio(host?.diskUsageRatio ?? Number.NaN, 0.8, 0.92),
-      tone: diskTone,
+      badge: badgeForThreshold(host?.diskUsageRatio ?? null, 0.8, 0.92),
+      tone: toneForThreshold(host?.diskUsageRatio ?? null, 0.8, 0.92),
     },
     {
       label: 'Load average',
@@ -243,7 +133,19 @@ export function ServerSection() {
       badge: hostUp === null ? 'Waiting' : serverHealthy ? 'Online' : 'Unavailable',
       tone: hostUp === null ? 'neutral' : serverHealthy ? 'good' : 'bad',
     },
-  ] as const
+  ]
+
+  const healthTitle = hostUp === null
+    ? 'Host status is unavailable'
+    : serverHealthy
+      ? 'Homelab server is reporting normally'
+      : 'Host metrics are unavailable'
+
+  const healthDetail = hostUp === null
+    ? 'Prometheus returned no host status sample, so the dashboard will not guess that the server is offline.'
+    : serverHealthy
+      ? 'These values describe the whole Ubuntu machine, not a single container or Node.js process.'
+      : 'Prometheus can see node-exporter but cannot currently scrape it. Check the exporter target and deployment.'
 
   return (
     <section
@@ -251,103 +153,40 @@ export function ServerSection() {
       aria-labelledby="server-observability-title"
       aria-busy={initialLoading}
     >
-      <div className="system-toolbar">
-        <div>
-          <p className="eyebrow">Ubuntu host · live</p>
-          <h2 id="server-observability-title">Server resources</h2>
-          <p className="section-description">
-            Real CPU, RAM, swap, disk, load, and uptime from the homelab host via Prometheus node exporter.
-          </p>
-        </div>
-        <div className="monitoring-actions">
-          <div className="range-switcher" aria-label="Server history range">
-            {RANGE_OPTIONS.map((option) => (
-              <button
-                className={option.hours === rangeHours ? 'range-button active' : 'range-button'}
-                key={option.label}
-                type="button"
-                aria-label={option.accessibleLabel}
-                onClick={() => setRangeHours(option.hours)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <button className="secondary-button" type="button" onClick={() => void refreshServer('all', true)}>
-            Refresh now
-          </button>
-        </div>
-      </div>
+      <MonitoringToolbar
+        eyebrow="Ubuntu host · live"
+        title="Server resources"
+        titleId="server-observability-title"
+        description="Real CPU, RAM, swap, disk, load, and uptime from the homelab host via Prometheus node exporter."
+        rangeLabel="Server history range"
+        rangeHours={rangeHours}
+        onRangeChange={setRangeHours}
+        refreshing={refreshing}
+        onRefresh={() => void refreshNow()}
+      />
 
-      {error && (
-        <div className="monitoring-warning" role="status">
-          <strong>Server metrics are temporarily unavailable.</strong>
-          <span>{error}</span>
-        </div>
-      )}
+      <MonitoringError
+        error={error}
+        title="Server metrics are temporarily unavailable."
+        hasData={hasData}
+      />
 
-      <div className={`health-summary ${hostTone}`}>
-        <div className="health-summary-icon" aria-hidden="true">
-          {hostUp === null ? '…' : serverHealthy ? '✓' : '!'}
-        </div>
-        <div className="health-summary-copy">
-          <span>Host status</span>
-          <strong>
-            {hostUp === null
-              ? initialLoading
-                ? 'Loading host metrics…'
-                : 'Host status is unavailable'
-              : serverHealthy
-                ? 'Homelab server is reporting normally'
-                : 'Host metrics are unavailable'}
-          </strong>
-          <p>
-            {hostUp === null
-              ? initialLoading
-                ? 'Fetching the latest node-exporter sample from Prometheus. This normally takes only a moment.'
-                : 'Prometheus returned no host status sample, so the dashboard will not guess that the server is offline.'
-              : serverHealthy
-                ? 'These values describe the whole Ubuntu machine, not a single container or Node.js process.'
-                : 'Prometheus can see node-exporter but cannot currently scrape it. Check the exporter target and deployment.'}
-          </p>
-        </div>
-        <div className="health-summary-time">
-          <span>Last checked</span>
-          <strong>{overview ? new Date(overview.generatedAt).toLocaleTimeString() : initialLoading ? 'Loading…' : 'Waiting'}</strong>
-        </div>
-      </div>
+      <HealthSummary
+        tone={hostTone}
+        label="Host status"
+        title={healthTitle}
+        detail={healthDetail}
+        generatedAt={overview?.generatedAt}
+        refreshing={refreshing}
+      />
 
-      <div className="friendly-metric-grid server-metric-grid" aria-busy={loading}>
-        {cards.map((card) => (
-          <article className="friendly-metric-card" key={card.label}>
-            <div className="friendly-metric-topline">
-              <span>{card.label}</span>
-              <i className={`metric-badge ${card.tone}`}>{card.badge}</i>
-            </div>
-            <strong>{card.value}</strong>
-            <p>{card.helper}</p>
-          </article>
-        ))}
-      </div>
-
-      <div className="monitoring-grid server-chart-grid">
-        {SERIES.map((series) => (
-          <MonitoringChart
-            key={series.metric}
-            points={history[series.metric] ?? []}
-            title={series.title}
-            question={series.question}
-            description={series.description}
-            valueFormatter={series.formatter}
-            axisFormatter={series.axisFormatter}
-            accent={series.accent}
-            fill={series.fill}
-            emptyTitle={series.emptyTitle}
-            emptyDescription={series.emptyDescription}
-            loading={loading}
-          />
-        ))}
-      </div>
+      <MetricCardGrid cards={cards} className="server-metric-grid" refreshing={refreshing} />
+      <MonitoringCharts
+        series={SERIES}
+        history={history}
+        className="server-chart-grid"
+        initialLoading={initialLoading}
+      />
     </section>
   )
 }
