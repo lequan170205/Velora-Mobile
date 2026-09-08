@@ -275,6 +275,7 @@ export function MonitoringSection() {
     }
   }, [refreshMonitoring])
 
+  const initialLoading = loading && overview === null && error === null
   const health = getHealthSummary(overview)
   const cpuState = cpuBadge(overview?.process.cpuSecondsPerSecond ?? Number.NaN)
   const successState = successBadge(overview?.rpc.errorRate ?? Number.NaN)
@@ -287,50 +288,54 @@ export function MonitoringSection() {
   const cards = [
     {
       label: 'Service status',
-      value: serviceUp === true ? 'Online' : serviceUp === false ? 'Offline' : '—',
+      value: initialLoading ? 'Loading…' : serviceUp === true ? 'Online' : serviceUp === false ? 'Offline' : '—',
       helper: 'Can Prometheus reach monitoring-service?',
-      badge: serviceUp === true ? 'Reachable' : serviceUp === false ? 'Unreachable' : 'Waiting',
+      badge: initialLoading ? 'Waiting' : serviceUp === true ? 'Reachable' : serviceUp === false ? 'Unreachable' : 'Waiting',
       tone: serviceUp === true ? 'good' : serviceUp === false ? 'bad' : 'neutral',
     },
     {
       label: 'Monitoring service memory',
-      value: formatBytes(overview?.process.residentMemoryBytes ?? Number.NaN),
+      value: initialLoading ? 'Loading…' : formatBytes(overview?.process.residentMemoryBytes ?? Number.NaN),
       helper: 'RAM used by this service process only — not total server memory.',
-      badge: 'Service only',
+      badge: initialLoading ? 'Waiting' : 'Service only',
       tone: 'neutral',
     },
     {
       label: 'Monitoring service CPU',
-      value: formatCpu(overview?.process.cpuSecondsPerSecond ?? Number.NaN),
+      value: initialLoading ? 'Loading…' : formatCpu(overview?.process.cpuSecondsPerSecond ?? Number.NaN),
       helper: 'CPU used by this service process only — not the whole server.',
-      badge: cpuState.label,
-      tone: cpuState.tone,
+      badge: initialLoading ? 'Waiting' : cpuState.label,
+      tone: initialLoading ? 'neutral' : cpuState.tone,
     },
     {
       label: 'Internal traffic',
-      value: formatRate(overview?.rpc.requestsPerSecond ?? Number.NaN),
+      value: initialLoading ? 'Loading…' : formatRate(overview?.rpc.requestsPerSecond ?? Number.NaN),
       helper: 'Monitoring requests handled each second.',
-      badge: requestRate === null ? 'Waiting' : requestRate <= 0.001 ? 'Idle' : 'Active',
+      badge: initialLoading ? 'Waiting' : requestRate === null ? 'Waiting' : requestRate <= 0.001 ? 'Idle' : 'Active',
       tone: 'neutral',
     },
     {
       label: 'Successful requests',
-      value: formatSuccessRate(overview?.rpc.errorRate ?? Number.NaN),
-      helper: `Request success rate. Errors: ${formatPercent(overview?.rpc.errorRate ?? Number.NaN)}.`,
-      badge: successState.label,
-      tone: successState.tone,
+      value: initialLoading ? 'Loading…' : formatSuccessRate(overview?.rpc.errorRate ?? Number.NaN),
+      helper: `Request success rate. Errors: ${initialLoading ? 'loading' : formatPercent(overview?.rpc.errorRate ?? Number.NaN)}.`,
+      badge: initialLoading ? 'Waiting' : successState.label,
+      tone: initialLoading ? 'neutral' : successState.tone,
     },
     {
       label: 'Service responsiveness',
-      value: formatSeconds(overview?.process.eventLoopP99Seconds ?? Number.NaN),
+      value: initialLoading ? 'Loading…' : formatSeconds(overview?.process.eventLoopP99Seconds ?? Number.NaN),
       helper: 'Delay before this Node.js service can react to incoming work. Lower is better.',
-      badge: responsivenessState.label,
-      tone: responsivenessState.tone,
+      badge: initialLoading ? 'Waiting' : responsivenessState.label,
+      tone: initialLoading ? 'neutral' : responsivenessState.tone,
     },
   ] as const
 
   return (
-    <section className="system-observability" aria-labelledby="system-observability-title">
+    <section
+      className="system-observability"
+      aria-labelledby="system-observability-title"
+      aria-busy={initialLoading}
+    >
       <div className="system-toolbar">
         <div>
           <p className="eyebrow">Monitoring service · live</p>
@@ -367,18 +372,18 @@ export function MonitoringSection() {
         </div>
       )}
 
-      <div className={`health-summary ${health.tone}`}>
+      <div className={`health-summary ${initialLoading ? 'neutral' : health.tone}`}>
         <div className="health-summary-icon" aria-hidden="true">
-          {health.tone === 'good' ? '✓' : health.tone === 'bad' ? '!' : health.tone === 'warn' ? '!' : '…'}
+          {initialLoading ? '…' : health.tone === 'good' ? '✓' : health.tone === 'bad' ? '!' : health.tone === 'warn' ? '!' : '…'}
         </div>
         <div className="health-summary-copy">
           <span>Quick read</span>
-          <strong>{health.title}</strong>
-          <p>{health.detail}</p>
+          <strong>{initialLoading ? 'Loading monitoring-service metrics…' : health.title}</strong>
+          <p>{initialLoading ? 'Fetching the latest Prometheus overview and chart history. This normally takes only a moment.' : health.detail}</p>
         </div>
         <div className="health-summary-time">
           <span>Last checked</span>
-          <strong>{overview ? new Date(overview.generatedAt).toLocaleTimeString() : 'Waiting'}</strong>
+          <strong>{overview ? new Date(overview.generatedAt).toLocaleTimeString() : initialLoading ? 'Loading…' : 'Waiting'}</strong>
         </div>
       </div>
 
@@ -437,21 +442,23 @@ export function MonitoringSection() {
         <summary>Technical details for monitoring-service</summary>
         <div>
           <span>JavaScript heap</span>
-          <strong>{formatBytes(overview?.process.heapUsedBytes ?? Number.NaN)}</strong>
+          <strong>{initialLoading ? 'Loading…' : formatBytes(overview?.process.heapUsedBytes ?? Number.NaN)}</strong>
         </div>
         <div>
           <span>RPC p95 latency</span>
           <strong>
-            {requestRate === null
-              ? '—'
-              : requestRate <= 0.001
-                ? 'No traffic'
-                : formatSeconds(overview?.rpc.p95LatencySeconds ?? Number.NaN)}
+            {initialLoading
+              ? 'Loading…'
+              : requestRate === null
+                ? '—'
+                : requestRate <= 0.001
+                  ? 'No traffic'
+                  : formatSeconds(overview?.rpc.p95LatencySeconds ?? Number.NaN)}
           </strong>
         </div>
         <div>
           <span>RPC error rate</span>
-          <strong>{formatPercent(overview?.rpc.errorRate ?? Number.NaN)}</strong>
+          <strong>{initialLoading ? 'Loading…' : formatPercent(overview?.rpc.errorRate ?? Number.NaN)}</strong>
         </div>
         <p>
           These technical values belong to monitoring-service. Whole-server CPU, RAM, swap, and disk are available in the separate Server view.
