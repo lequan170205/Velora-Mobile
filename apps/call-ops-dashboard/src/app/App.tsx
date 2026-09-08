@@ -21,7 +21,6 @@ import {
   viewFromHash,
   type ViewId,
 } from './DashboardShell'
-import '../admin-tabs.css'
 
 export function App() {
   const [authenticated, setAuthenticated] = useState(false)
