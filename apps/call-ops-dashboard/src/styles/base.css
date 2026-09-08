@@ -1,0 +1,62 @@
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; background: var(--bg); }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); color: var(--text); }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+h1, h2, h3, p { margin-top: 0; }
+
+/* Brand + shared controls */
+.brand-lockup { display: flex; align-items: center; gap: 11px; }
+.brand-mark {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid #5362d9;
+  border-radius: 10px;
+  background: #182047;
+  color: #c7ceff;
+  font-weight: 900;
+  letter-spacing: -.04em;
+}
+.brand-lockup strong { display: block; color: var(--text); font-size: .95rem; letter-spacing: -.01em; }
+.brand-lockup span { display: block; margin-top: 1px; color: var(--muted-2); font-size: .72rem; }
+.eyebrow {
+  margin-bottom: 7px;
+  color: #7786a0;
+  font-size: .7rem;
+  font-weight: 800;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+.section-description { max-width: 720px; margin-bottom: 0; color: var(--muted); font-size: .9rem; line-height: 1.6; }
+.primary-button, .secondary-button, .ghost-button, .table-action {
+  border: 1px solid transparent;
+  border-radius: 9px;
+  padding: 9px 13px;
+  font-weight: 750;
+  transition: border-color .16s ease, background .16s ease, color .16s ease, transform .16s ease;
+}
+.primary-button { background: #7382f7; color: #fff; }
+.primary-button:hover { background: #8190ff; transform: translateY(-1px); }
+.secondary-button, .ghost-button, .table-action { border-color: var(--border-strong); background: #111925; color: #c9d2df; }
+.secondary-button:hover, .ghost-button:hover, .table-action:hover { border-color: #3a4960; background: #172231; color: #fff; }
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible {
+  outline: 2px solid #7b8bff;
+  outline-offset: 2px;
+}
+input, select {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: #0b111a;
+  color: #e8edf4;
+  padding: 10px 11px;
+  outline: none;
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+input::placeholder { color: #536176; }
+input:focus, select:focus { border-color: #6474e4; box-shadow: 0 0 0 3px rgba(100, 116, 228, .1); }
+label { color: #8d9aaf; font-size: .76rem; font-weight: 700; }
+.status-chip i, .live-indicator i, .sidebar-status-line i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px rgba(66, 211, 146, .08); }

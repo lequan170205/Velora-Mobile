@@ -1,4 +1,7 @@
-@import './foundation.css';
+@import './tokens.css';
+@import './base.css';
+@import './auth.css';
+@import './shell.css';
 @import './monitoring.css';
 @import './calls.css';
 @import './responsive.css';
