@@ -33,27 +33,27 @@ const SERIES: readonly MonitoringSeriesDefinition[] = [
   },
   {
     metric: 'conversation_send_rate',
-    title: 'send_message requests per second',
-    question: 'How many chat send operations are hitting the service?',
-    description: 'All send_message attempts, including successful, rejected, and failed requests.',
+    title: 'Validated send attempts per second',
+    question: 'How many validated sends are reaching message persistence?',
+    description: 'Send attempts that reached SendMessageUseCase after gateway validation. Gateway-level rejects are not included yet.',
     formatter: formatRate,
     axisFormatter: formatRate,
     accent: '#7f8dff',
     fill: 'rgba(127, 141, 255, .12)',
-    emptyTitle: 'No send_message traffic yet',
-    emptyDescription: 'This chart appears after the service receives chat send operations.',
+    emptyTitle: 'No validated send traffic yet',
+    emptyDescription: 'This chart appears after validated sends reach the persistence use case.',
   },
   {
     metric: 'conversation_p95_send_latency',
-    title: 'send_message p95 latency',
-    question: 'How quickly does chat accept and fan out messages?',
-    description: '95% of successful synchronous send_message handling completes within this duration.',
+    title: 'Message persistence p95 latency',
+    question: 'How quickly are validated messages persisted?',
+    description: '95% of measured SendMessageUseCase persistence attempts complete within this duration.',
     formatter: formatSeconds,
     axisFormatter: formatSeconds,
     accent: '#f59a62',
     fill: 'rgba(245, 154, 98, .10)',
-    emptyTitle: 'No latency samples yet',
-    emptyDescription: 'Latency history requires successful send_message traffic.',
+    emptyTitle: 'No persistence latency samples yet',
+    emptyDescription: 'Latency history requires validated send traffic.',
   },
   {
     metric: 'conversation_sockets',
@@ -83,12 +83,15 @@ export function ConversationSection() {
   const p95Latency = conversation?.p95SendLatencySeconds ?? null
   const sendRequestsPerSecond = conversation?.sendRequestsPerSecond ?? null
   const hasTraffic = sendRequestsPerSecond !== null && sendRequestsPerSecond > 0.001
+  const measuredFailureRate = errorRate === null
+    ? null
+    : errorRate + (rejectRate ?? 0)
 
   const reliabilityTone: Tone = serviceUp !== true
     ? serviceUp === false ? 'bad' : 'neutral'
-    : !hasTraffic
+    : !hasTraffic || measuredFailureRate === null
       ? 'neutral'
-      : toneForThreshold((rejectRate ?? 0) + (errorRate ?? 0), 0.01, 0.05)
+      : toneForThreshold(measuredFailureRate, 0.01, 0.05)
 
   const cards: readonly MetricCardDefinition[] = [
     {
@@ -113,39 +116,97 @@ export function ConversationSection() {
       tone: 'neutral',
     },
     {
-      label: 'Send requests',
+      label: 'Validated sends',
       value: formatRate(sendRequestsPerSecond ?? Number.NaN),
-      helper: 'All incoming send_message attempts.',
+      helper: 'Persistence attempts that reached SendMessageUseCase after gateway validation.',
       badge: !hasData ? 'Waiting' : hasTraffic ? 'Active' : 'Idle',
       tone: 'neutral',
     },
     {
-      label: 'Successful sends',
-      value: hasTraffic ? formatPercent(successRate ?? Number.NaN) : hasData ? 'No traffic' : '—',
-      helper: 'Share of send_message requests handled successfully.',
-      badge: !hasData ? 'Waiting' : !hasTraffic ? 'Idle' : (successRate ?? 0) >= 0.99 ? 'Healthy' : 'Watch',
-      tone: !hasTraffic ? 'neutral' : (successRate ?? 0) >= 0.99 ? 'good' : 'warn',
+      label: 'Successful persistence',
+      value: !hasTraffic
+        ? hasData ? 'No traffic' : '—'
+        : successRate === null
+          ? 'Unavailable'
+          : formatPercent(successRate),
+      helper: 'Share of measured persistence attempts that completed successfully.',
+      badge: !hasData
+        ? 'Waiting'
+        : !hasTraffic
+          ? 'Idle'
+          : successRate === null
+            ? 'Unavailable'
+            : successRate >= 0.99
+              ? 'Healthy'
+              : 'Watch',
+      tone: !hasTraffic || successRate === null
+        ? 'neutral'
+        : successRate >= 0.99
+          ? 'good'
+          : 'warn',
     },
     {
       label: 'Rejected sends',
-      value: hasTraffic ? formatPercent(rejectRate ?? Number.NaN) : hasData ? 'No traffic' : '—',
-      helper: 'Invalid/auth/member checks rejected before message creation.',
-      badge: !hasData ? 'Waiting' : !hasTraffic ? 'Idle' : (rejectRate ?? 0) < 0.01 ? 'Low' : 'Watch',
-      tone: !hasTraffic ? 'neutral' : toneForThreshold(rejectRate, 0.01, 0.05),
+      value: rejectRate === null
+        ? 'Unavailable'
+        : !hasTraffic
+          ? hasData ? 'No traffic' : '—'
+          : formatPercent(rejectRate),
+      helper: 'Gateway-level validation/auth/member rejects are not instrumented yet.',
+      badge: rejectRate === null
+        ? 'Not measured'
+        : !hasData
+          ? 'Waiting'
+          : !hasTraffic
+            ? 'Idle'
+            : rejectRate < 0.01
+              ? 'Low'
+              : 'Watch',
+      tone: rejectRate === null || !hasTraffic
+        ? 'neutral'
+        : toneForThreshold(rejectRate, 0.01, 0.05),
     },
     {
-      label: 'Send errors',
-      value: hasTraffic ? formatPercent(errorRate ?? Number.NaN) : hasData ? 'No traffic' : '—',
-      helper: 'Unexpected send_message failures after validation.',
-      badge: !hasData ? 'Waiting' : !hasTraffic ? 'Idle' : (errorRate ?? 0) < 0.01 ? 'Low' : 'Watch',
-      tone: !hasTraffic ? 'neutral' : toneForThreshold(errorRate, 0.01, 0.05),
+      label: 'Persistence errors',
+      value: !hasTraffic
+        ? hasData ? 'No traffic' : '—'
+        : errorRate === null
+          ? 'Unavailable'
+          : formatPercent(errorRate),
+      helper: 'Failures raised while persisting a validated message.',
+      badge: !hasData
+        ? 'Waiting'
+        : !hasTraffic
+          ? 'Idle'
+          : errorRate === null
+            ? 'Unavailable'
+            : errorRate < 0.01
+              ? 'Low'
+              : 'Watch',
+      tone: !hasTraffic || errorRate === null
+        ? 'neutral'
+        : toneForThreshold(errorRate, 0.01, 0.05),
     },
     {
-      label: 'p95 send latency',
-      value: hasTraffic ? formatSeconds(p95Latency ?? Number.NaN) : hasData ? 'No traffic' : '—',
-      helper: 'Synchronous handling time for successful send_message requests.',
-      badge: !hasData ? 'Waiting' : !hasTraffic ? 'Idle' : (p95Latency ?? 0) < 0.25 ? 'Fast' : 'Watch',
-      tone: !hasTraffic ? 'neutral' : toneForThreshold(p95Latency, 0.25, 0.75),
+      label: 'p95 persistence latency',
+      value: !hasTraffic
+        ? hasData ? 'No traffic' : '—'
+        : p95Latency === null
+          ? 'Unavailable'
+          : formatSeconds(p95Latency),
+      helper: 'Time spent in the measured SendMessageUseCase persistence path.',
+      badge: !hasData
+        ? 'Waiting'
+        : !hasTraffic
+          ? 'Idle'
+          : p95Latency === null
+            ? 'Unavailable'
+            : p95Latency < 0.25
+              ? 'Fast'
+              : 'Watch',
+      tone: !hasTraffic || p95Latency === null
+        ? 'neutral'
+        : toneForThreshold(p95Latency, 0.25, 0.75),
     },
   ]
 
@@ -156,11 +217,15 @@ export function ConversationSection() {
       : !hasTraffic
         ? 'Conversation service is online and idle'
         : reliabilityTone === 'good'
-          ? 'Chat traffic is healthy'
-          : 'Chat traffic needs attention'
+          ? 'Measured message persistence is healthy'
+          : reliabilityTone === 'warn' || reliabilityTone === 'bad'
+            ? 'Measured message persistence needs attention'
+            : 'Conversation service is online'
 
   const healthDetail = serviceUp === true
-    ? 'Use message rate and p95 latency together when comparing one, two, and three replicas during load tests.'
+    ? rejectRate === null
+      ? 'Persistence throughput, failures, and latency are measured. Gateway-level rejection rate remains unavailable until that boundary is instrumented.'
+      : 'Use throughput, rejection/error rate, and p95 latency together when comparing replica counts during load tests.'
     : 'Prometheus must be able to scrape conversation-service before throughput and latency can be trusted.'
 
   return (
@@ -169,7 +234,7 @@ export function ConversationSection() {
         eyebrow="Conversation service · realtime"
         title="Chat service performance"
         titleId="conversation-observability-title"
-        description="Message throughput, send reliability, latency, socket connections, and runtime health from conversation-service."
+        description="Validated message persistence throughput, measured reliability, latency, socket connections, and runtime health from conversation-service."
         rangeLabel="Conversation history range"
         rangeHours={rangeHours}
         onRangeChange={setRangeHours}
