@@ -9,6 +9,7 @@ import {
   useCallTelemetry,
 } from '../features/calls'
 import {
+  AlertsSection,
   CallServiceSection,
   ConversationSection,
   LogsSection,
@@ -123,6 +124,7 @@ export function App() {
       {activeView === 'service' && <MonitoringSection />}
       {activeView === 'conversation' && <ConversationSection />}
       {activeView === 'call-service' && <CallServiceSection />}
+      {activeView === 'alerts' && <AlertsSection />}
       {activeView === 'logs' && <LogsSection />}
       {activeView === 'call-quality' && (
         <CallQualitySection
