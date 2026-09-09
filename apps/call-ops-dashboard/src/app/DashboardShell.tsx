@@ -1,10 +1,11 @@
 import type { FormEvent, ReactNode } from 'react'
 
-export type ViewId = 'server' | 'service' | 'conversation' | 'call-service' | 'call-quality' | 'recent-calls' | 'timeline'
+export type ViewId = 'server' | 'service' | 'conversation' | 'call-service' | 'logs' | 'call-quality' | 'recent-calls' | 'timeline'
+type ViewGroup = 'Infrastructure' | 'Observability' | 'Calls'
 
 export const VIEWS: Array<{
   id: ViewId
-  group: 'Infrastructure' | 'Calls'
+  group: ViewGroup
   label: string
   title: string
   kicker: string
@@ -13,10 +14,13 @@ export const VIEWS: Array<{
   { id: 'service', group: 'Infrastructure', label: 'Monitoring service', title: 'Monitoring service', kicker: 'Infrastructure / Service' },
   { id: 'conversation', group: 'Infrastructure', label: 'Conversation service', title: 'Conversation service', kicker: 'Infrastructure / Realtime chat' },
   { id: 'call-service', group: 'Infrastructure', label: 'Call service', title: 'Call service', kicker: 'Infrastructure / Call signaling' },
+  { id: 'logs', group: 'Observability', label: 'Service logs', title: 'Service logs', kicker: 'Observability / Loki' },
   { id: 'call-quality', group: 'Calls', label: 'Call quality', title: 'Call quality', kicker: 'Calls / Quality' },
   { id: 'recent-calls', group: 'Calls', label: 'Recent calls', title: 'Recent calls', kicker: 'Calls / Explorer' },
   { id: 'timeline', group: 'Calls', label: 'Call timeline', title: 'Call timeline', kicker: 'Calls / Timeline' },
 ]
+
+const VIEW_GROUPS: readonly ViewGroup[] = ['Infrastructure', 'Observability', 'Calls']
 
 export const viewFromHash = (): ViewId => {
   const hash = window.location.hash.replace(/^#/, '') as ViewId
@@ -99,7 +103,7 @@ export function DashboardShell({ activeView, onNavigate, onLogout, children }: D
         </div>
 
         <nav className="sidebar-nav" aria-label="Dashboard navigation">
-          {(['Infrastructure', 'Calls'] as const).map((group) => (
+          {VIEW_GROUPS.map((group) => (
             <div className="nav-group" key={group}>
               <span className="nav-label">{group}</span>
               {VIEWS.filter((view) => view.group === group).map((view) => (
@@ -119,7 +123,7 @@ export function DashboardShell({ activeView, onNavigate, onLogout, children }: D
 
         <div className="sidebar-status">
           <div className="sidebar-status-line"><span><i /> Production</span><strong>Live</strong></div>
-          <p>Prometheus metrics refresh automatically. Admin authentication refreshes in the background.</p>
+          <p>Prometheus metrics and Loki logs refresh automatically. Admin authentication refreshes in the background.</p>
         </div>
       </aside>
 

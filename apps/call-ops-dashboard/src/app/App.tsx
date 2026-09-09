@@ -11,6 +11,7 @@ import {
 import {
   CallServiceSection,
   ConversationSection,
+  LogsSection,
   MonitoringSection,
   ServerSection,
 } from '../features/monitoring'
@@ -122,6 +123,7 @@ export function App() {
       {activeView === 'service' && <MonitoringSection />}
       {activeView === 'conversation' && <ConversationSection />}
       {activeView === 'call-service' && <CallServiceSection />}
+      {activeView === 'logs' && <LogsSection />}
       {activeView === 'call-quality' && (
         <CallQualitySection
           summary={calls.summary}
