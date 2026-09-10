@@ -24,7 +24,9 @@ const notifySessionExpired = () => {
 
 export const subscribeToSessionExpired = (listener: SessionExpiredListener) => {
   sessionExpiredListeners.add(listener)
-  return () => sessionExpiredListeners.delete(listener)
+  return () => {
+    sessionExpiredListeners.delete(listener)
+  }
 }
 
 const refreshSession = () => {
