@@ -52,7 +52,7 @@ export const useConversationComposerRuntime = ({
   const { mutate: sendMessage } = useSendMessage(conversationId)
   const { enqueueMediaAssets } = useChatMediaUploads(conversationId)
   const { mutate: recallMessage } = useRecallMessage(conversationId)
-  const typingTimeoutRef = useRef<NodeJS.Timeout | number | null>(null)
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     return () => {

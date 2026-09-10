@@ -67,10 +67,13 @@ export const AppPressable = React.forwardRef<NativePressableRef, AppPressablePro
         : undefined
 
     const shouldUseOpacityFeedback = Platform.OS === 'ios' || resolvedRipple === null
-    const pressableState: PressableStateCallbackType = {
+    // React Native's runtime state includes `hovered`, but the 0.81 type
+    // definition still only exposes `pressed`. Keep hover feedback while
+    // remaining compatible with both type surfaces.
+    const pressableState = {
       pressed: isPressed,
       hovered: isHovered,
-    }
+    } as PressableStateCallbackType
     const resolvedStyle = typeof style === 'function' ? style(pressableState) : style
     const composedStyle: StyleProp<ViewStyle> = [
       shouldUseOpacityFeedback && isPressed && !disabled ? { opacity: activeOpacity } : undefined,
