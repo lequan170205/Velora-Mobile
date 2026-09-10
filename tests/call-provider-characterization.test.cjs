@@ -133,6 +133,37 @@ test('emitAndWaitForEvent subscribes before emit and supports synchronous acknow
   assert.equal(registry.size, 0)
 })
 
+test('a cleared prewarm cannot repopulate a socket credential after logout', async () => {
+  let requestCount = 0
+  let resolveFirstRequest
+  const firstRequest = new Promise((resolve) => {
+    resolveFirstRequest = resolve
+  })
+  const scopedCallSocketModule = loadTypeScriptModule(path.join(root, 'src/lib/call/callSocket.ts'), {
+    'socket.io-client': { io: () => new FakeSocket() },
+    '../../api/auth.api': {
+      authApi: {
+        getSocketToken: () => {
+          requestCount += 1
+          if (requestCount === 1) return firstRequest
+          return Promise.resolve({ accessToken: 'fresh-session-token' })
+        },
+      },
+    },
+  })
+
+  const stalePrewarm = scopedCallSocketModule.prewarmCallSocketCredentials('user-a')
+  scopedCallSocketModule.clearPrewarmedCallSocketCredentials('user-a')
+  resolveFirstRequest({ accessToken: 'stale-session-token' })
+  await stalePrewarm
+
+  const socket = new FakeSocket()
+  await scopedCallSocketModule.authenticateCallSocket(socket, 'user-a')
+
+  assert.equal(requestCount, 2)
+  assert.deepEqual(socket.auth, { token: 'fresh-session-token' })
+})
+
 test('waitForEventWhere ignores another call and clearWaitRegistry removes pending listeners', async () => {
   const socket = new FakeSocket()
   const registry = new Set()
@@ -172,6 +203,95 @@ test('teardown cancellation is classified as expected setup cancellation', async
   const cancellation = await waiter.catch((error) => error)
 
   assert.equal(callPoliciesModule.isCallSetupCancelledError(cancellation), true)
+})
+
+test('an End during a native accept terminalizes both sides of the accept race', () => {
+  const acceptSource = sliceBetween(
+    providerSource,
+    "let acceptance: IncomingCallAcceptancePayload | null = null",
+    'joinedCall = true',
+  )
+  const endSource = sliceBetween(
+    providerSource,
+    'const endCall = useCallback(',
+    'const recordCallScreenVisible = useCallback(',
+  )
+  const terminalIntentSource = sliceBetween(
+    providerSource,
+    'const emitIncomingAcceptTerminalIntent = useCallback(',
+    'const endCall = useCallback(',
+  )
+
+  assert.match(
+    acceptSource,
+    /acceptance = await emitAndWaitForEvent<[\s\S]*?\)\s*assertCallSetupCurrent\(setupToken, callId\)\s*assertCurrentCallAccount\(\)\s*break/,
+  )
+  assert.match(
+    endSource,
+    /const wasAcceptingIncomingCall = acceptingIncomingCallIdRef\.current === callId/,
+  )
+  assertOrdered(
+    terminalIntentSource,
+    ["socket.emit('reject_call'", "socket.emit('leave_call'"],
+    'incoming accept terminal intent order',
+  )
+  assertOrdered(
+    endSource,
+    [
+      'const wasAcceptingIncomingCall = acceptingIncomingCallIdRef.current === callId',
+      'emitIncomingAcceptTerminalIntent(connectedSocket, callId, reason)',
+      "await teardownOnce('end_call')",
+    ],
+    'incoming accept End ordering',
+  )
+})
+
+test('an accept ACK timeout aborts an uncertain server commit instead of leaving a ghost call', () => {
+  const incomingSource = sliceBetween(
+    providerSource,
+    'const acceptIncomingCall = useCallback(',
+    'const startCall = useCallback(',
+  )
+
+  assertOrdered(
+    incomingSource,
+    [
+      'let acceptRequestSent = false',
+      'acceptRequestSent = true',
+      'else if (acceptRequestSent)',
+      'const abortUncertainAccept = (connectedSocket: CallSocket) =>',
+      'emitIncomingAcceptTerminalIntent(connectedSocket, callId, endReason)',
+      'await teardownOnce(\'accept_incoming_call_failed\'',
+    ],
+    'uncertain accept cleanup order',
+  )
+  assert.match(incomingSource, /ensureCallSocketConnected\(callId\)[\s\S]*?abortUncertainAccept\(connectedSocket\)/)
+})
+
+test('the legacy answer flow is a baked rollback mode, never an automatic atomic retry fallback', () => {
+  const constantsSource = read('src/lib/call/callConstants.ts')
+  const incomingSource = sliceBetween(
+    providerSource,
+    'const acceptIncomingCall = useCallback(',
+    'const startCall = useCallback(',
+  )
+
+  assert.match(constantsSource, /EXPO_PUBLIC_CALL_ATOMIC_ACCEPT_ENABLED/)
+  assert.match(constantsSource, /ATOMIC_INCOMING_CALL_ACCEPT_ENABLED/)
+  assertOrdered(
+    incomingSource,
+    [
+      'if (ATOMIC_INCOMING_CALL_ACCEPT_ENABLED)',
+      "'accept_incoming_call'",
+      '} else {',
+      "telemetry.record('legacy_accept_rollback_mode'",
+      "'join_call'",
+      "'answer_call'",
+    ],
+    'atomic accept rollback ordering',
+  )
+  assert.match(
+    incomingSource, /'answer_call',[\s\S]*?\{ callId, actionId: incomingActionId \}/)
 })
 
 test('socket exceptions reject emit/wait operations and release every waiter resource', async () => {
@@ -224,7 +344,25 @@ test('teardown remains single-flight and preserves cleanup ordering', () => {
   )
 })
 
-test('post-answer setup guards every async boundary before publishing active state', () => {
+test('unrecoverable media failure is reported to native call UI as failed', () => {
+  const teardownSource = sliceBetween(
+    providerSource,
+    'const teardownOnce = useCallback(',
+    'const teardownRecoveryFailure = useCallback(',
+  )
+  const systemCalls = read('src/lib/systemCalls/veloraSystemCalls.ts')
+  const iosModule = read('modules/velora-system-calls/ios/VeloraSystemCallsModule.swift')
+
+  assert.match(teardownSource, /terminalLifecycleState === 'failed'/)
+  assert.match(teardownSource, /veloraSystemCalls\.reportCallFailed\(endingCallId\)/)
+  assert.match(systemCalls, /reportCallFailed: \(callId: string\) => Promise<CallKitTransactionResult>/)
+  assert.match(systemCalls, /reportCallFailed\(callId: string\)/)
+  assert.match(iosModule, /AsyncFunction\("reportCallFailed"\)/)
+  assert.match(iosModule, /func reportCallFailed\(callId: String/)
+  assert.match(iosModule, /reason: \.failed/)
+})
+
+test('post-answer setup makes audio usable before progressive video enrichment', () => {
   const mediaTransport = read('src/lib/call/useCallMediaTransportRuntime.ts')
   const setupSource = sliceBetween(
     mediaTransport,
@@ -242,19 +380,29 @@ test('post-answer setup guards every async boundary before publishing active sta
       "if (!localAudioTrack) throw new Error('No local audio track available')",
       'const audioProducer = await sendTransport.produce({',
       'audioProducerRef.current = audioProducer',
-      'const videoProducer = await sendTransport.produce({',
-      'if (!isCallSetupCurrent(options.setupToken, callId))',
-      'videoProducerRef.current = videoProducer',
       'await flushQueuedRemoteProducers({ setupToken: options.setupToken })',
-      'assertCallSetupCurrent(options.setupToken, callId)',
+      "telemetry?.recordLifecycle('audio_ready'",
       "phase: 'active'",
       'startTimer(options.resumeDurationSec ?? 0)',
       'armRemoteAudioFallback()',
+      'void (async () => {',
+      "telemetry?.recordLifecycle('media_enhancing'",
+      'const videoCapture = await mediaDevices.getUserMedia({',
+      'const videoProducer = await sendTransport.produce({',
+      'if (!isCallSetupCurrent(options.setupToken, callId))',
+      'videoProducerRef.current = videoProducer',
+      "telemetry?.record('video_producer_failed'",
+      'cameraEnabled: false',
     ],
-    'post-answer setup order',
+    'audio-ready then progressive video order',
   )
   assert.match(setupSource, /stopTracks: false/)
   assert.match(setupSource, /propagateFailure: producer\.kind === 'audio'/)
+  assert.match(
+    setupSource,
+    /void \(async \(\) => \{[\s\S]*?video_producer_failed[\s\S]*?\}\)\(\)/,
+    'video setup must be contained so a post-audio failure cannot reject the call setup',
+  )
 })
 
 test('remote consumer setup rolls back partially published media before retrying', () => {
@@ -352,7 +500,7 @@ test('outgoing call start is single-flight and terminal teardown cancels the rin
   )
 })
 
-test('incoming answer joins before answering and waits for native audio before media', () => {
+test('incoming answer atomically claims the server action before native audio and media', () => {
   const incomingSource = sliceBetween(
     providerSource,
     'const acceptIncomingCall = useCallback(',
@@ -364,21 +512,46 @@ test('incoming answer joins before answering and waits for native audio before m
     [
       'acceptingIncomingCallIdRef.current = callId',
       'const setupToken = beginCallSetup()',
-      'if (!isCallSetupCurrent(setupToken, callId)) return',
+      'if (!isCallSetupCurrent(setupToken, callId)) {',
       'await ensureCallSocketConnected(callId)',
       'assertCallSetupCurrent(setupToken, callId)',
       'await ensureMicPermission()',
       'assertCallSetupCurrent(setupToken, callId)',
-      "'join_call'",
-      "'answer_call'",
+      "'accept_incoming_call'",
+      "event: 'incoming_call_acceptance'",
       "phase: 'connecting'",
       'router.push(`/call/${callId}` as never)',
+      'if (!completeNativeAnswer(true))',
       'await waitForConfiguredAudioSession(setupToken, callId)',
       'await postAnswerSetup(joined, { setupToken })',
       'veloraSystemCalls.setCallActive(callId)',
     ],
     'incoming call order',
   )
+  assert.match(incomingSource, /INCOMING_ACCEPT_MAX_ATTEMPTS/)
+  assert.match(incomingSource, /INCOMING_ACCEPT_ACK_TIMEOUT_MS/)
+  assert.match(incomingSource, /server_accept_ack_retry/)
+  assert.match(incomingSource, /\{ callId, actionId: incomingActionId \}/)
+})
+
+test('a crash after server acceptance resumes with rejoin instead of replaying answer', () => {
+  const nativeActions = read('src/lib/call/useNativeCallActions.ts')
+  const provider = read('src/providers/CallProvider.tsx')
+  const recovery = read('src/lib/call/useCallRecoveryRuntime.ts')
+
+  assert.match(nativeActions, /if \(action\.action === 'resume'\)/)
+  assert.match(nativeActions, /callState\.status !== 'active'/)
+  assert.match(nativeActions, /await resumeAcceptedCall\(callState\)/)
+  assert.doesNotMatch(
+    sliceBetween(nativeActions, "if (action.action === 'resume')", "if (action.action === 'answer')"),
+    /acceptIncomingCall\('native'/,
+  )
+  assert.match(provider, /const resumeAcceptedCall = useCallback/)
+  assert.match(provider, /reconnectModeRef\.current = 'local'/)
+  assert.match(provider, /armReconnectTimeout\('native_resume_timeout'\)/)
+  assert.match(provider, /await recoverActiveCall\(\)/)
+  assert.match(recovery, /'rejoin_call'/)
+  assert.match(recovery, /markNativeCallActive\(rejoined\.callId\)/)
 })
 
 test('a delayed incoming rejection cannot teardown a newer call', () => {
@@ -545,7 +718,7 @@ test('peer reconnect disposes remote consumers without disposing local media', (
   assert.doesNotMatch(peerRecoverySource, /deactivateLocalVideo/)
 })
 
-test('native actions are auth-gated, deduplicated and reconcile server state first', () => {
+test('native answers are auth-gated, deduplicated and use the signed CallKit payload first', () => {
   const nativeActions = read('src/lib/call/useNativeCallActions.ts')
   const nativeActionSource = sliceBetween(
     nativeActions,
@@ -558,25 +731,165 @@ test('native actions are auth-gated, deduplicated and reconcile server state fir
     [
       'completedNativeActionIdsRef.current.has(action.actionId)',
       'processingNativeActionIdsRef.current.has(action.actionId)',
-      'if (isLoading || !isAuthenticated || !currentUserId || !username?.trim())',
+      "if (action.action === 'remote_end')",
+      'if (isLoading || !isAuthenticated || !currentUserId)',
       'processingNativeActionIdsRef.current.add(action.actionId)',
-      'callState = await getCallState(action.callId)',
       'const hasConflictingCall =',
       'outgoingStartInFlightRef.current',
       'activeState.callId !== action.callId',
       'if (hasConflictingCall())',
       "if (action.action === 'answer')",
-      'prepareIncomingCallFromState(callState)',
-      "await acceptIncomingCall('native')",
+      'prepareIncomingCallFromPayload(action)',
+      "await acceptIncomingCall('native', action.actionId)",
       'completeNativeCallAction(action.actionId)',
     ],
     'native action order',
   )
+  const nativeAnswerSource = sliceBetween(
+    nativeActionSource,
+    "if (action.action === 'answer')",
+    'let callState:',
+  )
+  assert.doesNotMatch(nativeAnswerSource, /getCallState\(action\.callId\)/)
   assert.match(
     nativeActionSource,
     /await ensureCallSocketConnected\(action\.callId\)[\s\S]*if \(hasConflictingCall\(\)\) \{[\s\S]*completeNativeCallAction\(action\.actionId\)[\s\S]*return[\s\S]*socket\.emit\('leave_call'/,
   )
   assert.match(providerSource, /outgoingStartInFlightRef,/)
+})
+
+test('a native terminal update clears its CallKit surface before auth hydration', () => {
+  const nativeActions = read('src/lib/call/useNativeCallActions.ts')
+  const nativeActionSource = sliceBetween(
+    nativeActions,
+    'const processNativeCallAction = useCallback(',
+    'const processPendingNativeCallAction = useCallback(',
+  )
+  const terminalIndex = nativeActionSource.indexOf("if (action.action === 'remote_end')")
+  const authGateIndex = nativeActionSource.indexOf('if (isLoading || !isAuthenticated || !currentUserId)')
+
+  assert.ok(terminalIndex >= 0, 'remote terminal action branch must exist')
+  assert.ok(authGateIndex >= 0, 'native actions must retain the auth gate for non-terminal actions')
+  assert.ok(
+    terminalIndex < authGateIndex,
+    'a remote terminal action must not wait for auth hydration',
+  )
+  assert.match(
+    nativeActionSource.slice(terminalIndex, authGateIndex),
+    /veloraSystemCalls\.dismissIncomingCall\(action\.callId\)/,
+  )
+})
+
+test('journaled terminal actions cannot affect a different signed-in account', () => {
+  const nativeActions = read('src/lib/call/useNativeCallActions.ts')
+  const nativeActionSource = sliceBetween(
+    nativeActions,
+    'const processNativeCallAction = useCallback(',
+    'const processPendingNativeCallAction = useCallback(',
+  )
+  const nativeTypes = read('src/lib/systemCalls/veloraSystemCalls.ts')
+
+  const terminalSource = sliceBetween(
+    nativeActionSource,
+    "if (action.action === 'remote_end')",
+    'if (isLoading || !isAuthenticated || !currentUserId)',
+  )
+
+  assert.match(terminalSource, /const belongsToCurrentAccount =/)
+  assertOrdered(
+    terminalSource,
+    [
+      'veloraSystemCalls.dismissIncomingCall(action.callId)',
+      'if (belongsToCurrentAccount && isCurrentCall(action.callId))',
+      "await teardownOnce('native_remote_end')",
+    ],
+    'native terminal account ownership before in-app teardown',
+  )
+  assert.match(nativeTypes, /action: 'remote_end'[\s\S]*accountId\?: string/)
+})
+
+test('an account switch during a cold-start action cannot continue with stale credentials', () => {
+  const nativeActions = read('src/lib/call/useNativeCallActions.ts')
+  const nativeActionSource = sliceBetween(
+    nativeActions,
+    'const processNativeCallAction = useCallback(',
+    'const processPendingNativeCallAction = useCallback(',
+  )
+  const incomingAcceptSource = sliceBetween(
+    providerSource,
+    'const acceptIncomingCall = useCallback(',
+    'const startCall = useCallback(',
+  )
+
+  assert.match(nativeActions, /import \{ useAuthStore \} from '\.\.\/\.\.\/stores\/authStore'/)
+  assert.match(nativeActionSource, /const isActionAccountCurrent = \(\) =>/)
+  assert.match(nativeActionSource, /const abandonActionForAccountChange = async \(\) =>/)
+  assert.match(
+    nativeActionSource,
+    /callState = await getCallState\(action\.callId\)[\s\S]*?if \(!isActionAccountCurrent\(\)\) \{[\s\S]*?await abandonActionForAccountChange\(\)/,
+  )
+  assert.match(
+    incomingAcceptSource,
+    /socket = await ensureCallSocketConnected\(callId\)[\s\S]*?assertCurrentCallAccount\(\)/,
+  )
+  assert.match(
+    incomingAcceptSource,
+    /await waitForConfiguredAudioSession\(setupToken, callId\)[\s\S]*?assertCurrentCallAccount\(\)/,
+  )
+})
+
+test('a live answer from another device ends a locally pending native answer immediately', () => {
+  const callTypes = read('src/types/call.types.ts')
+  const handlerSource = sliceBetween(
+    providerSource,
+    'const handleCallAnswered = (payload: CallAnsweredPayload) => {',
+    "socket.on('connect', handleConnect)",
+  )
+
+  assert.match(callTypes, /export interface CallAnsweredPayload \{[\s\S]*answerActionId\?: string/)
+  assert.match(handlerSource, /const localIncomingAction = incomingAnswerActionRef\.current/)
+  assert.match(handlerSource, /acceptingIncomingCallIdRef\.current === payload\.callId/)
+  assert.match(handlerSource, /localIncomingAction\.actionId !== payload\.answerActionId/)
+  assert.match(
+    handlerSource,
+    /veloraSystemCalls\.completePendingAnswer\([\s\S]*false,[\s\S]*'answered_elsewhere'/,
+  )
+  assert.match(handlerSource, /teardownOnce\('answered_elsewhere'/)
+})
+
+test('a live answer on a second device dismisses an unanswered incoming surface', () => {
+  const handlerSource = sliceBetween(
+    providerSource,
+    'const handleCallAnswered = (payload: CallAnsweredPayload) => {',
+    "socket.on('connect', handleConnect)",
+  )
+
+  assert.match(handlerSource, /state\.phase === 'incoming_ringing'/)
+  assert.match(handlerSource, /!acceptingIncomingCallIdRef\.current/)
+  assert.match(handlerSource, /veloraSystemCalls\.dismissIncomingCall\(payload\.callId\)/)
+  assert.match(handlerSource, /teardownOnce\('answered_elsewhere'/)
+})
+
+test('an authenticated account switch disposes old socket credentials and in-flight call work', () => {
+  const ownershipEffect = sliceBetween(
+    providerSource,
+    'const previousUserId = prewarmCredentialOwnerRef.current',
+    'useEffect(() => {\n    if (isLoading) {',
+  )
+
+  assertOrdered(
+    ownershipEffect,
+    [
+      'clearPrewarmedCallSocketCredentials(previousUserId)',
+      'invalidateCallSetup()',
+      'clearWaitRegistry(waitRegistryRef.current)',
+      'socketRef.current?.disconnect()',
+      'callSocketPromisesRef.current.clear()',
+      'callSocketAuthenticatedRef.current = false',
+      "teardownOnce('auth_account_changed')",
+    ],
+    'authenticated account-switch cleanup order',
+  )
 })
 
 test('background video pauses signaling intent and restores or recreates the track on resume', () => {

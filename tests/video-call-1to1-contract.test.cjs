@@ -44,7 +44,7 @@ test('camera off/on is signaled without replacing the video producer', () => {
   assert.match(mediaTransport, /remoteVideoState: videoEnabled \? 'connected' : 'off'/)
 })
 
-test('native VIDEO answer survives background recovery without silently downgrading', () => {
+test('native VIDEO answer defers camera capture without silently downgrading', () => {
   const source = read('src/providers/CallProvider.tsx')
   const mediaTransport = read('src/lib/call/useCallMediaTransportRuntime.ts')
   assert.doesNotMatch(
@@ -57,7 +57,7 @@ test('native VIDEO answer survives background recovery without silently downgrad
   )
   assert.match(
     mediaTransport,
-    /cameraEnabled:[\s\S]*Boolean\(localVideoTrack\) \|\| shouldDeferLocalVideo/,
+    /cameraEnabled: false,[\s\S]*if \(shouldDeferLocalVideo\) \{[\s\S]*cameraPausedByBackgroundRef\.current = true/,
   )
   assert.match(source, /activateLocalVideo\(\{ requestPermission: false \}\)/)
 })
@@ -71,6 +71,47 @@ test('active call screen renders RTC video and both conversion directions', () =
   assert.match(source, /switchCallType\('VOICE'\)/)
   assert.match(source, /switchCamera/)
   assert.match(source, /toggleCamera/)
+})
+
+test('outgoing video call stays on the identity layout until the peer answers', () => {
+  const source = read('app/call/[id].tsx')
+  assert.match(source, /isVideo && phase !== 'outgoing_ringing' && !areAllVideoCamerasOff/)
+  assert.match(source, /if \(shouldRenderVideoTiles\)/)
+  assert.doesNotMatch(source, /if \(isVideo\)/)
+})
+
+test('joined video participants use a camera-state-independent adaptive grid', () => {
+  const source = read('app/call/[id].tsx')
+  assert.match(source, /function VideoParticipantGrid/)
+  assert.match(source, /const tiles = Children\.toArray\(children\)/)
+  assert.match(source, /tiles\.length === 2 && !isLandscape \? 1/)
+  assert.match(source, /Math\.min\(2, tiles\.length\)/)
+  assert.match(source, /<VideoParticipantGrid isLandscape=\{isLandscape\}>/)
+  assert.match(source, /key="remote-participant"/)
+  assert.match(source, /key="local-participant"/)
+  assert.match(source, /hasRemoteVideo \? \(/)
+  assert.match(source, /hasLocalVideo \? \(/)
+})
+
+test('two disabled cameras collapse to the identity layout with a reduced-motion crossfade', () => {
+  const source = read('app/call/[id].tsx')
+  assert.match(
+    source,
+    /const areAllVideoCamerasOff = isVideo && !cameraEnabled && remoteVideoState === 'off'/,
+  )
+  assert.match(source, /const CALL_LAYOUT_ENTERING = FadeIn\.duration\(220\)/)
+  assert.match(source, /const CALL_LAYOUT_EXITING = FadeOut\.duration\(140\)/)
+  assert.equal(source.split('.reduceMotion(ReduceMotion.System)').length - 1, 2)
+  assert.match(source, /key="video-grid-layout"/)
+  assert.match(source, /key="identity-layout"/)
+})
+
+test('video call controls remain reachable after both cameras collapse to the identity layout', () => {
+  const source = read('app/call/[id].tsx')
+
+  // A VIDEO call retains its More controls button even when the visual layout
+  // switches away from tiles. Its sheet must therefore exist in both branches.
+  assert.equal(source.split('{controlsSheet}').length - 1, 2)
 })
 
 test('video call chrome stays below the device status area', () => {
@@ -135,28 +176,28 @@ test('enabled call controls use the outgoing message bubble color', () => {
   assert.match(source, /selected=\{speakerEnabled\}/)
 })
 
-test('call screen gives both participant tiles dedicated readable overlays', () => {
+test('Connecting exposes only the reliable End action', () => {
   const source = read('app/call/[id].tsx')
-  const firstGradientStart = source.indexOf('<LinearGradient')
-  const firstGradientEnd = source.indexOf('/>', firstGradientStart)
-  const secondGradientStart = source.indexOf('<LinearGradient', firstGradientEnd + 2)
-  const secondGradientEnd = source.indexOf('/>', secondGradientStart)
+  const controls = source.slice(source.indexOf('const activeControls = ('), source.indexOf('const participantsSheet = ('))
 
-  assert.notEqual(firstGradientStart, -1)
-  assert.notEqual(firstGradientEnd, -1)
-  assert.notEqual(secondGradientStart, -1)
-  assert.notEqual(secondGradientEnd, -1)
-  const firstGradientSource = source.slice(firstGradientStart, firstGradientEnd)
+  assert.match(source, /const controlsDisabled = phase !== 'active'/)
   assert.match(
-    firstGradientSource,
-    /colors=\{\['rgba\(8,10,15,0\.88\)', 'rgba\(8,10,15,0\.10\)', 'rgba\(8,10,15,0\)'\]\}/,
-    'remote tile overlay must fade to transparent',
+    controls,
+    /icon=\{muted \? 'mic-off' : 'mic'\}[\s\S]{0,260}disabled=\{controlsDisabled\}/,
   )
-  assert.match(
-    source.slice(secondGradientStart, secondGradientEnd),
-    /colors=\{\['rgba\(8,10,15,0\)', 'rgba\(8,10,15,0\.42\)', 'rgba\(8,10,15,0\.98\)'\]\}/,
-    'local tile overlay must protect the bottom control dock',
+  assert.match(controls, /icon="call-end"[\s\S]{0,180}onPress=\{\(\) => void endCall\(\)\}/)
+})
+
+test('video tiles stay edge-to-edge without artificial top or bottom vignettes', () => {
+  const source = read('app/call/[id].tsx')
+  const videoLayout = source.slice(
+    source.indexOf('if (shouldRenderVideoTiles)'),
+    source.indexOf('key="identity-layout"'),
   )
+
+  assert.doesNotMatch(videoLayout, /<LinearGradient/)
+  assert.match(source, /backgroundColor: colors\.call\.topControl/)
+  assert.match(source, /backgroundColor: colors\.call\.dock/)
 })
 
 test('conversation video entry point remains direct-chat only', () => {
@@ -166,11 +207,28 @@ test('conversation video entry point remains direct-chat only', () => {
   assert.match(screen, /const handleStartVideoCall =/)
   assert.match(
     screen,
-    /showCallActions=\{!currentConversation\?\.isGroup && Boolean\(otherUserId\)\}/,
+    /callPhase === 'idle' && !currentConversation\?\.isGroup && Boolean\(otherUserId\)/,
   )
   assert.match(header, /showCallActions \? \(/)
   assert.match(header, /onPress=\{onStartVideoCall\}/)
-  assert.match(header, /name="videocam"/)
+  assert.match(header, /icon="videocam-outline"/)
+})
+
+test('conversation call actions provide immediate single-flight loading feedback', () => {
+  const screen = read('app/conversation/[id].tsx')
+  const header = read('src/components/chat/conversation/ConversationHeader.tsx')
+
+  assert.match(screen, /const \[pendingCallType, setPendingCallType\] = useState/)
+  assert.match(screen, /callStartInFlightRef\.current/)
+  assert.match(screen, /startVoiceCall\(\{/)
+  assert.match(screen, /startVideoCall\(\{/)
+  assert.match(screen, /callActionsDisabled=\{callPhase !== 'idle' \|\| pendingCallType !== null\}/)
+  assert.match(header, /<ActivityIndicator/)
+  assert.match(header, /disabled=\{callActionsDisabled\}/)
+  assert.match(header, /busy=\{pendingCallType === 'VIDEO'\}/)
+  assert.match(header, /busy=\{pendingCallType === 'VOICE'\}/)
+  assert.match(header, /Haptics\.selectionAsync\(\)/)
+  assert.match(header, /withTiming\(0\.9/)
 })
 
 test('native call surfaces preserve and validate VIDEO callType', () => {
@@ -221,7 +279,7 @@ test('background VIDEO camera deferral is applied exactly once', () => {
   const source = read('src/lib/call/useCallMediaTransportRuntime.ts')
   const matches =
     source.match(
-      /if \(shouldDeferLocalVideo\) \{\s*cameraPausedByBackgroundRef\.current = true\s*\}/g,
+      /if \(shouldDeferLocalVideo\) \{[\s\S]*?cameraPausedByBackgroundRef\.current = true[\s\S]*?return/g,
     ) ?? []
   assert.equal(matches.length, 1)
 })
@@ -291,4 +349,44 @@ test('incoming calls stay on native call surfaces and isolate simulator audio li
   assert.ok(swift.includes('#if targetEnvironment(simulator)'))
   assert.ok(swift.includes('simulator_audio_session_activated'))
   assert.ok(swift.includes('deactivateSimulatorAudioSession'))
+})
+
+test('minimized calls use native resume surfaces and a draggable global return control', () => {
+  const layout = read('app/_layout.tsx')
+  const screen = read('app/conversation/[id].tsx')
+  const floatingCallButton = read('src/components/call/FloatingActiveCallButton.tsx')
+  const callScreen = read('app/call/[id].tsx')
+  const android = read(
+    'modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraCallNotifications.kt',
+  )
+  const provider = read('src/providers/CallProvider.tsx')
+
+  assert.doesNotMatch(layout, /ActiveCallBanner|CALL_BANNER_|Return to .* call/)
+  assert.match(layout, /<FloatingActiveCallButton \/>/)
+  assert.match(floatingCallButton, /Gesture\.Pan\(\)/)
+  assert.match(floatingCallButton, /\.minDistance\(8\)/)
+  assert.match(floatingCallButton, /event\.translationX/)
+  assert.match(floatingCallButton, /event\.translationY/)
+  assert.match(floatingCallButton, /event\.velocityX \* 0\.12/)
+  assert.match(floatingCallButton, /projectedX < \(minimumX \+ maximumX\) \/ 2/)
+  assert.match(floatingCallButton, /insets\.left \+ EDGE_INSET/)
+  assert.match(floatingCallButton, /width - insets\.right - EDGE_INSET - BUTTON_SIZE/)
+  assert.match(floatingCallButton, /getDockedTabBarHeight\(insets\.bottom\)/)
+  assert.match(floatingCallButton, /CONVERSATION_COMPOSER_CLEARANCE/)
+  assert.match(floatingCallButton, /pathname\.startsWith\('\/conversation\/'\)/)
+  assert.match(floatingCallButton, /useReanimatedKeyboardAnimation/)
+  assert.match(floatingCallButton, /keyboardAwareY/)
+  assert.match(floatingCallButton, /pathname\.startsWith\('\/call\/'\)/)
+  assert.match(floatingCallButton, /className="h-12 w-12/)
+  assert.match(floatingCallButton, /Haptics\.selectionAsync\(\)/)
+  assert.match(floatingCallButton, /router\.push\(`\/call\/\$\{callId\}` as never\)/)
+  assert.match(floatingCallButton, /backgroundColor: colors\.bubble\.outgoing/)
+  assert.match(floatingCallButton, /ReduceMotion\.System/)
+  assert.doesNotMatch(floatingCallButton, /useCallStore\(\)/)
+  assert.match(screen, /callPhase === 'idle' && !currentConversation\?\.isGroup/)
+  assert.match(callScreen, /veloraSystemCalls\.usesNativeCallUi \? \(/)
+  assert.match(android, /setContentIntent\(returnToCallPendingIntent\(context, callId\)\)/)
+  assert.match(android, /Uri\.parse\("antigravity:\/\/\/call\/\$callId"\)/)
+  assert.match(provider, /isBusyPhase\(useCallStore\.getState\(\)\.phase\)/)
+  assert.match(provider, /reason: 'busy'/)
 })

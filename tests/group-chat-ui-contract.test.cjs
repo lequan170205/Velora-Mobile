@@ -25,14 +25,15 @@ test('Messages exposes a dedicated new-group route without changing friendship s
   assert.doesNotMatch(newGroupScreen, /sendRequest|acceptRequest|removeFriend/)
 })
 
-test('group header resolves real typers and opens group info while calls stay direct-only', () => {
+test('group header resolves typers, opens info, and keeps calls direct-only', () => {
   assert.match(chatScreen, /const groupTypingLabel = useMemo/)
   assert.match(conversationPresentationPolicies, /participant\?\.fullName/)
   assert.match(chatScreen, /pathname:\s*'\/conversation\/\[id\]\/info'/)
   assert.match(
     chatScreen,
-    /showCallActions=\{!currentConversation\?\.isGroup && Boolean\(otherUserId\)\}/,
+    /callPhase === 'idle' && !currentConversation\?\.isGroup && Boolean\(otherUserId\)/,
   )
+  assert.match(chatScreen, /currentConversation\?\.isGroup \|\|[\s\S]*callPhase !== 'idle'/)
   assert.match(
     chatScreen,
     /participantCount=\{currentConversation\?\.participantIds\.length \?\? 0\}/,
