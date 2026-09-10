@@ -30,6 +30,7 @@ export function MonitoringCharts({
           fill={item.fill}
           emptyTitle={item.emptyTitle}
           emptyDescription={item.emptyDescription}
+          yAxis={item.yAxis}
           loading={initialLoading}
         />
       ))}

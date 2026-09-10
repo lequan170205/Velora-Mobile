@@ -29,6 +29,17 @@ const SERIES: readonly MonitoringSeriesDefinition[] = [
     fill: 'rgba(127, 141, 255, .12)',
     emptyTitle: 'No CPU history yet',
     emptyDescription: 'Node exporter will fill this chart after Prometheus collects a few host samples.',
+    yAxis: {
+      mode: 'adaptive',
+      min: 0,
+      max: 1,
+      minSpan: 0.15,
+      roundStep: 0.05,
+      thresholds: [
+        { value: 0.7, label: 'Watch 70%', tone: 'warn' },
+        { value: 0.9, label: 'High 90%', tone: 'bad' },
+      ],
+    },
   },
   {
     metric: 'host_memory',
@@ -41,6 +52,17 @@ const SERIES: readonly MonitoringSeriesDefinition[] = [
     fill: 'rgba(66, 211, 146, .10)',
     emptyTitle: 'No RAM history yet',
     emptyDescription: 'RAM history appears once node exporter has been scraped for a short time.',
+    yAxis: {
+      mode: 'adaptive',
+      min: 0,
+      max: 1,
+      minSpan: 0.15,
+      roundStep: 0.05,
+      thresholds: [
+        { value: 0.75, label: 'Watch 75%', tone: 'warn' },
+        { value: 0.9, label: 'High 90%', tone: 'bad' },
+      ],
+    },
   },
   {
     metric: 'host_disk',
@@ -53,6 +75,17 @@ const SERIES: readonly MonitoringSeriesDefinition[] = [
     fill: 'rgba(245, 184, 75, .10)',
     emptyTitle: 'No disk history yet',
     emptyDescription: 'Root filesystem samples will appear after node exporter is available.',
+    yAxis: {
+      mode: 'adaptive',
+      min: 0,
+      max: 1,
+      minSpan: 0.15,
+      roundStep: 0.05,
+      thresholds: [
+        { value: 0.8, label: 'Watch 80%', tone: 'warn' },
+        { value: 0.92, label: 'High 92%', tone: 'bad' },
+      ],
+    },
   },
   {
     metric: 'host_load1',

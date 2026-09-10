@@ -9,6 +9,21 @@ export const RANGE_OPTIONS = [
 
 export type RangeHours = (typeof RANGE_OPTIONS)[number]['hours']
 
+export type MonitoringThresholdDefinition = {
+  value: number
+  label: string
+  tone: 'warn' | 'bad'
+}
+
+export type MonitoringYAxisDefinition = {
+  mode: 'adaptive'
+  min?: number
+  max?: number
+  minSpan?: number
+  roundStep?: number
+  thresholds?: readonly MonitoringThresholdDefinition[]
+}
+
 export type MonitoringSeriesDefinition = {
   metric: MonitoringMetric
   title: string
@@ -20,6 +35,7 @@ export type MonitoringSeriesDefinition = {
   fill: string
   emptyTitle: string
   emptyDescription: string
+  yAxis?: MonitoringYAxisDefinition
 }
 
 export type MetricCardDefinition = {

@@ -2,6 +2,7 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -9,6 +10,7 @@ import {
 } from 'recharts'
 
 import type { MonitoringPoint } from '../api'
+import type { MonitoringYAxisDefinition } from '../model'
 
 type Props = {
   points: MonitoringPoint[]
@@ -21,6 +23,7 @@ type Props = {
   fill: string
   emptyTitle: string
   emptyDescription: string
+  yAxis?: MonitoringYAxisDefinition
   loading?: boolean
 }
 
@@ -38,6 +41,65 @@ const darkAccent = (accent: string) =>
     '#c2410c': '#f59a62',
   })[accent] ?? accent
 
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value))
+
+const calculateAdaptiveDomain = (
+  values: number[],
+  definition?: MonitoringYAxisDefinition,
+): [number, number] | undefined => {
+  if (!definition || definition.mode !== 'adaptive' || values.length === 0) return undefined
+
+  const finiteValues = values.filter(Number.isFinite)
+  if (finiteValues.length === 0) return undefined
+
+  const dataMin = Math.min(...finiteValues)
+  const dataMax = Math.max(...finiteValues)
+  const minBound = definition.min ?? Number.NEGATIVE_INFINITY
+  const maxBound = definition.max ?? Number.POSITIVE_INFINITY
+  const availableSpan = maxBound - minBound
+  const rawSpan = Math.max(0, dataMax - dataMin)
+  const minimumSpan = Math.max(0, definition.minSpan ?? 0)
+
+  let span = Math.max(rawSpan * 1.35, minimumSpan)
+  if (!Number.isFinite(span) || span <= 0) {
+    span = Math.max(Math.abs(dataMax) * 0.2, 1)
+  }
+  if (Number.isFinite(availableSpan)) {
+    span = Math.min(span, availableSpan)
+  }
+
+  const center = (dataMin + dataMax) / 2
+  let lower = center - span / 2
+  let upper = center + span / 2
+
+  if (lower < minBound) {
+    upper += minBound - lower
+    lower = minBound
+  }
+  if (upper > maxBound) {
+    lower -= upper - maxBound
+    upper = maxBound
+  }
+
+  lower = Math.max(minBound, lower)
+  upper = Math.min(maxBound, upper)
+
+  const roundStep = definition.roundStep
+  if (roundStep && Number.isFinite(roundStep) && roundStep > 0) {
+    lower = Math.floor(lower / roundStep) * roundStep
+    upper = Math.ceil(upper / roundStep) * roundStep
+    lower = clamp(lower, minBound, maxBound)
+    upper = clamp(upper, minBound, maxBound)
+  }
+
+  if (!(upper > lower)) return undefined
+  return [lower, upper]
+}
+
+const thresholdColor = (tone: 'warn' | 'bad') =>
+  tone === 'bad' ? '#ff6b6b' : '#f5b84b'
+
 export function MonitoringChart({
   points,
   title,
@@ -49,6 +111,7 @@ export function MonitoringChart({
   fill,
   emptyTitle,
   emptyDescription,
+  yAxis,
   loading = false,
 }: Props) {
   const data = points.map((point) => ({
@@ -61,7 +124,11 @@ export function MonitoringChart({
   const min = values.length ? Math.min(...values) : undefined
   const max = values.length ? Math.max(...values) : undefined
   const chartAccent = darkAccent(accent)
-  const areaFill = fill === 'transparent' ? fill : `${chartAccent}24`
+  const areaFill = fill === 'transparent' ? fill : `${chartAccent}18`
+  const yDomain = calculateAdaptiveDomain(values, yAxis)
+  const visibleThresholds = yAxis?.thresholds?.filter((threshold) =>
+    !yDomain || (threshold.value >= yDomain[0] && threshold.value <= yDomain[1]),
+  ) ?? []
 
   return (
     <article className="monitoring-chart-card">
@@ -104,11 +171,30 @@ export function MonitoringChart({
                 />
                 <YAxis
                   width={70}
+                  domain={yDomain ?? ['auto', 'auto']}
+                  allowDataOverflow={Boolean(yDomain)}
+                  tickCount={5}
                   axisLine={false}
                   tickLine={false}
                   tick={{ fill: '#738197', fontSize: 11 }}
                   tickFormatter={(value) => axisFormatter(Number(value))}
                 />
+                {visibleThresholds.map((threshold) => (
+                  <ReferenceLine
+                    key={`${threshold.tone}-${threshold.value}`}
+                    y={threshold.value}
+                    stroke={thresholdColor(threshold.tone)}
+                    strokeDasharray="5 5"
+                    strokeOpacity={0.7}
+                    ifOverflow="hidden"
+                    label={{
+                      value: threshold.label,
+                      position: 'insideTopRight',
+                      fill: thresholdColor(threshold.tone),
+                      fontSize: 10,
+                    }}
+                  />
+                ))}
                 <Tooltip
                   isAnimationActive={false}
                   cursor={{ stroke: '#526176', strokeDasharray: '4 4' }}
