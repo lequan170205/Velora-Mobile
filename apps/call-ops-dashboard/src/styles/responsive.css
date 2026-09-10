@@ -19,7 +19,7 @@
   .sidebar-brand { padding: 0 0 11px; }
   .sidebar-nav { display: flex; gap: 5px; margin: 8px 0 0; overflow-x: auto; }
   .nav-label, .sidebar-status { display: none; }
-  .sidebar-nav a { flex-shrink: 0; padding: 7px 9px; }
+  .sidebar-nav .nav-tab-button { flex-shrink: 0; padding: 7px 9px; }
   .admin-main { margin-left: 0; }
   .admin-topbar { position: static; padding: 12px 16px; }
   .admin-user, .live-indicator { display: none; }
