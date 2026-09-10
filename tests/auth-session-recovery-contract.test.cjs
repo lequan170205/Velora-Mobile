@@ -324,6 +324,10 @@ test('session recovery delays the visible check-in fallback across native and Ja
   assert.match(authProvider, /const isAuthPending = isLoading \|\| !rootNavigationState\?\.key/)
   assert.match(
     authProvider,
+    /if \(isLoading \|\| !rootNavigationState\?\.key \|\| !segments\[0\]\) return/,
+  )
+  assert.match(
+    authProvider,
     /setTimeout\(\s*\(\) => setHasAuthLoadingDelayElapsed\(true\),\s*AUTH_LOADING_FALLBACK_DELAY_MS,?\s*\)/,
   )
   assert.match(

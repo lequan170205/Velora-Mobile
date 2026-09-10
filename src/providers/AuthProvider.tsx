@@ -100,7 +100,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [authHydrationError, hydrateAuth, isLoading, isNetworkResolved, isOnline])
 
   useEffect(() => {
-    if (isLoading || !rootNavigationState?.key) return
+    // Expo Router can expose the root navigation key one render before the
+    // nested Stack has resolved its first route. Redirecting during that
+    // window throws "Attempted to navigate before mounting the Root Layout"
+    // on a cold start (especially on a fresh simulator). Wait for the first
+    // segment so the navigator is mounted before issuing a redirect.
+    if (isLoading || !rootNavigationState?.key || !segments[0]) return
 
     const inAuthGroup = segments[0] === '(auth)'
     const inCompleteProfile = segments[0] === 'complete-profile'
