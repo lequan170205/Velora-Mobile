@@ -29,8 +29,8 @@ export type MonitoringAlertsResponse = {
   alerts: MonitoringAlert[]
 }
 
-export const fetchMonitoringAlerts = async () => {
-  const response = await fetchApi('/monitoring/alerts')
+export const fetchMonitoringAlerts = async (signal?: AbortSignal) => {
+  const response = await fetchApi('/monitoring/alerts', { signal })
   if (!response.ok) {
     const text = await response.text()
     throw new Error(text || `Monitoring alerts request failed (${response.status})`)

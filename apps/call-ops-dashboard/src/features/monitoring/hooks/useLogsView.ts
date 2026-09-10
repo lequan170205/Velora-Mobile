@@ -34,6 +34,7 @@ export function useLogsView() {
   const [refreshing, setRefreshing] = useState(false)
   const [live, setLive] = useState(true)
   const requestIdRef = useRef(0)
+  const abortControllerRef = useRef<AbortController | null>(null)
   const hasLoadedRef = useRef(false)
 
   const effectiveFilters = useMemo<LogsFilters>(
@@ -47,6 +48,9 @@ export function useLogsView() {
   )
 
   const load = useCallback(async (nextFilters: LogsFilters, background = false) => {
+    abortControllerRef.current?.abort()
+    const controller = new AbortController()
+    abortControllerRef.current = controller
     const requestId = ++requestIdRef.current
     if (background) setRefreshing(true)
     else setInitialLoading(true)
@@ -62,6 +66,7 @@ export function useLogsView() {
         from: from.toISOString(),
         to: to.toISOString(),
         limit: 200,
+        signal: controller.signal,
       })
 
       if (requestId !== requestIdRef.current) return
@@ -69,12 +74,14 @@ export function useLogsView() {
       setError(null)
     } catch (cause) {
       if (requestId !== requestIdRef.current) return
+      if (cause instanceof Error && cause.name === 'AbortError') return
       setError(cause instanceof Error ? cause.message : 'Unable to load service logs')
     } finally {
       if (requestId !== requestIdRef.current) return
       hasLoadedRef.current = true
       setInitialLoading(false)
       setRefreshing(false)
+      if (abortControllerRef.current === controller) abortControllerRef.current = null
     }
   }, [])
 
@@ -112,6 +119,12 @@ export function useLogsView() {
     document.addEventListener('visibilitychange', handleVisibility)
     return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [effectiveFilters, live, load])
+
+  useEffect(() => () => {
+    requestIdRef.current += 1
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = null
+  }, [])
 
   const updateFilter = <K extends keyof LogsFilters>(key: K, value: LogsFilters[K]) => {
     setFilters((current) => ({ ...current, [key]: value }))

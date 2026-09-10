@@ -95,8 +95,8 @@ export type MonitoringTimeseries = {
   points: MonitoringPoint[]
 }
 
-export const fetchMonitoringOverview = async () => {
-  const response = await fetchApi('/monitoring/overview')
+export const fetchMonitoringOverview = async (signal?: AbortSignal) => {
+  const response = await fetchApi('/monitoring/overview', { signal })
   if (!response.ok) throw new Error(`Unable to load system monitoring (${response.status})`)
   return (await response.json()) as MonitoringOverview
 }
@@ -106,14 +106,16 @@ export const fetchMonitoringTimeseries = async ({
   from,
   to,
   stepSeconds = 60,
+  signal,
 }: {
   metric: MonitoringMetric
   from: string
   to: string
   stepSeconds?: number
+  signal?: AbortSignal
 }) => {
   const search = new URLSearchParams({ metric, from, to, stepSeconds: String(stepSeconds) })
-  const response = await fetchApi(`/monitoring/timeseries?${search}`)
+  const response = await fetchApi(`/monitoring/timeseries?${search}`, { signal })
   if (!response.ok) throw new Error(`Unable to load ${metric} history (${response.status})`)
   return (await response.json()) as MonitoringTimeseries
 }

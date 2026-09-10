@@ -35,6 +35,7 @@ export type MonitoringLogsQuery = {
   from: string
   to: string
   limit?: number
+  signal?: AbortSignal
 }
 
 export const fetchMonitoringLogs = async (query: MonitoringLogsQuery) => {
@@ -47,7 +48,9 @@ export const fetchMonitoringLogs = async (query: MonitoringLogsQuery) => {
     limit: String(query.limit ?? 200),
   })
 
-  const response = await fetchApi(`/monitoring/logs?${params.toString()}`)
+  const response = await fetchApi(`/monitoring/logs?${params.toString()}`, {
+    signal: query.signal,
+  })
   if (!response.ok) {
     const text = await response.text()
     throw new Error(text || `Monitoring logs request failed (${response.status})`)

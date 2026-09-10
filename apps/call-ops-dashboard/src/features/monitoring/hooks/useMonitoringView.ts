@@ -30,6 +30,7 @@ export function useMonitoringView({ series, errorMessage }: UseMonitoringViewInp
   const [overviewError, setOverviewError] = useState<string | null>(null)
   const [historyError, setHistoryError] = useState<string | null>(null)
   const requestIdRef = useRef(0)
+  const abortControllerRef = useRef<AbortController | null>(null)
   const lastHistoryRefreshRef = useRef(0)
 
   const selectedRange = useMemo(
@@ -39,18 +40,22 @@ export function useMonitoringView({ series, errorMessage }: UseMonitoringViewInp
 
   const refresh = useCallback(
     async (mode: RefreshMode = 'all') => {
+      abortControllerRef.current?.abort()
+      const controller = new AbortController()
+      abortControllerRef.current = controller
       const requestId = ++requestIdRef.current
       setPending(true)
 
       try {
         if (mode === 'overview') {
           try {
-            const nextOverview = await fetchMonitoringOverview()
+            const nextOverview = await fetchMonitoringOverview(controller.signal)
             if (requestId !== requestIdRef.current) return
             setOverview(nextOverview)
             setOverviewError(null)
           } catch (nextError) {
             if (requestId !== requestIdRef.current) return
+            if (nextError instanceof Error && nextError.name === 'AbortError') return
             setOverviewError(messageFromError(nextError, errorMessage))
           }
           return
@@ -59,13 +64,14 @@ export function useMonitoringView({ series, errorMessage }: UseMonitoringViewInp
         const to = new Date()
         const from = new Date(to.getTime() - selectedRange.hours * 60 * 60 * 1000)
         const [overviewResult, ...seriesResults] = await Promise.allSettled([
-          fetchMonitoringOverview(),
+          fetchMonitoringOverview(controller.signal),
           ...series.map(({ metric }) =>
             fetchMonitoringTimeseries({
               metric,
               from: from.toISOString(),
               to: to.toISOString(),
               stepSeconds: selectedRange.stepSeconds,
+              signal: controller.signal,
             }),
           ),
         ])
@@ -75,7 +81,7 @@ export function useMonitoringView({ series, errorMessage }: UseMonitoringViewInp
         if (overviewResult.status === 'fulfilled') {
           setOverview(overviewResult.value)
           setOverviewError(null)
-        } else {
+        } else if (!(overviewResult.reason instanceof Error && overviewResult.reason.name === 'AbortError')) {
           setOverviewError(messageFromError(overviewResult.reason, errorMessage))
         }
 
@@ -88,7 +94,7 @@ export function useMonitoringView({ series, errorMessage }: UseMonitoringViewInp
 
           if (result.status === 'fulfilled') {
             historyUpdates[metric] = result.value.points
-          } else {
+          } else if (!(result.reason instanceof Error && result.reason.name === 'AbortError')) {
             failedMetrics.push(metric)
           }
         })
@@ -101,7 +107,10 @@ export function useMonitoringView({ series, errorMessage }: UseMonitoringViewInp
         )
         lastHistoryRefreshRef.current = Date.now()
       } finally {
-        if (requestId === requestIdRef.current) setPending(false)
+        if (requestId === requestIdRef.current) {
+          setPending(false)
+          if (abortControllerRef.current === controller) abortControllerRef.current = null
+        }
       }
     },
     [errorMessage, selectedRange, series],
@@ -123,6 +132,8 @@ export function useMonitoringView({ series, errorMessage }: UseMonitoringViewInp
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => {
       requestIdRef.current += 1
+      abortControllerRef.current?.abort()
+      abortControllerRef.current = null
       window.clearInterval(interval)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
