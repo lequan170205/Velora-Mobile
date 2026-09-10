@@ -1,79 +1,70 @@
-# Velora-M
+# CLAUDE.md
 
-React Native mobile app (Expo SDK 54, expo-router, NativeWind, Hermes JS engine).
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
-## Commands
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
-- Dev: `pnpm start`
-- Android: `pnpm android` (run `npx expo prebuild` first on fresh clone)
-- iOS: `pnpm ios` (run `npx expo prebuild` first on fresh clone)
-- Web: `pnpm web`
-- Lint: `pnpm lint`
-- Lint fix: `pnpm lint:fix`
-- Format: `pnpm format`
-- Type check: `pnpm type-check`
+## 1. Think Before Coding
 
-> Bắt buộc pass `pnpm lint` và `pnpm type-check` trước mọi commit.
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
 
-## Path Aliases
+Before implementing:
 
-`@/*` → `src/*`; `@ui/*` → `src/components/ui/*`; `@hooks/*`, `@stores/*`, `@api/*`, `@types/*`, `@utils/*`, `@constants/*`
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
 
-## Core Features Architecture
+## 2. Simplicity First
 
-### Auth (`app/(auth)/`, `src/stores/authStore.ts`, `src/providers/AuthProvider.tsx`)
+**Minimum code that solves the problem. Nothing speculative.**
 
-- **Cookie-based hoàn toàn** (`withCredentials: true`). KHÔNG dùng expo-secure-store — `src/utils/storage.ts` là dead code.
-- Login: `POST /auth/login` → `GET /auth/me` → `store.setUser()`. Google OAuth: `GoogleSignin.signIn()` → `verifyGoogleToken`.
-- 401 interceptor trong `src/api/client.ts`: auto `POST /auth/refresh` với `_retry` flag (ngăn loop). Refresh fail → reject, KHÔNG redirect auto.
-- `authStore` KHÔNG có persist middleware. Khởi tạo `isLoading: true` → `app/_layout.tsx` gọi `hydrateAuth()` → `GET /auth/me`.
-- Route protection: `AuthProvider` redirect: unauth → `/login`, auth trong `(auth)` group → `/`.
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
 
-### Chat (`app/conversation/`, `src/providers/SocketProvider.tsx`, `src/stores/chatStore.ts`)
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
 
-- **Real-time: Socket.IO** (single instance, `SocketProvider`). URL: `EXPO_PUBLIC_WS_URL`.
-- Gửi tin nhắn: `socket.emit('send_message', payload)` — KHÔNG dùng REST.
-- Fetch: React Query `useInfiniteQuery` (messages, cursor-based), `useQuery` (conversation list, no polling).
-- Zustand `chatStore`: optimistic messages, typing users, online users, offline queue, seen receipts.
-- Typing: `socket.emit('typing_start'/'typing_stop')`, debounce 2s.
-- Offline: queue trong Zustand `offlineQueue`, flush khi socket `connect`.
-- FlatList: `inverted`, `removeClippedSubviews`, `initialNumToRender=20`, `maxToRenderPerBatch=10`. Memo `MessageBubble`, `ConversationItem`, `MessageInput`.
-- Cleanup: `socket.removeAllListeners()` + `socket.disconnect()` trong `SocketProvider` useEffect return.
+## 3. Surgical Changes
 
-### Video Call (`app/call/`, `src/stores/callStore.ts`)
+**Touch only what you must. Clean up only your own mess.**
 
-- **CHƯA implement WebRTC/Mediasoup.** Code hiện chỉ là UI scaffold + mock history.
-- `IncomingCallModal` scaffolded nhưng chưa được render. Socket `call:incoming` handler empty stub.
-- Khi implement WebRTC: bắt buộc cleanup trong useEffect return — `close()` transport, `producer.close()`, `consumer.close()`.
-- Hiện tại: `callStore.endCall()` chỉ clear timer interval, không có media teardown.
+When editing existing code:
 
-## Push Notifications
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
 
-- **Chưa install.** Muốn enable: cài `expo-notifications`, thêm plugin vào `app.json`, config APNs entitlement (`aps-environment: development/production`), thêm `AppDelegate` push token handler.
-- `Info.plist` đã khai báo `UIBackgroundModes: [audio, voip]` — placeholder cho VoIP push.
+When your changes create orphans:
 
-## Tech Stack Notes
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
 
-- Expo SDK 54 / React Native 0.81.5 / Hermes JS engine
-- `react-native-reanimated` v4: babel plugin `react-native-reanimated/plugin` phải là **plugin cuối cùng** trong `babel.config.js`
-- Google Sign-In: iOS URL scheme trong `app.json` plugins phải khớp Google Cloud Console
-- `expo-router` typed routes enabled (`experiments.typedRoutes: true`) — chạy `npx expo-router-type-gen` sau khi thêm route mới
-- Zustand (global state), React Query + Axios (server state), Zod + react-hook-form (validation)
-- `.env` vars dùng `expo-constants`, KHÔNG dùng `process.env` ngoài EAS builds
+The test: Every changed line should trace directly to the user's request.
 
-## Environment Setup
+## 4. Goal-Driven Execution
 
-- Fresh clone: `npx expo prebuild` trước `pnpm android`/`pnpm ios` để generate native dirs
-- EAS Build: `eas build -p android/ios -e preview/production`
-- `EXPO_NO_TELEMETRY=1` để suppress telemetry
+**Define success criteria. Loop until verified.**
 
-## Pitfalls
+Transform tasks into verifiable goals:
 
-- `src/utils/storage.ts`: dead code — SecureStore wrapper không được sử dụng, auth hoàn toàn cookie-based
-- `authStore` không persist — app kill rồi restart thì `user`/`isAuthenticated` reset, nhưng cookie vẫn còn nên `hydrateAuth()` recover được
-- Refresh 401 fail KHÔNG auto-redirect login — screen phải handle 401 error riêng
-- FlatList inverted trong `ChatScreen` không dùng `getItemLayout` — message heights biến đổi
-- `verify-email.tsx` — `handleResend` chỉ show Alert, không gọi API resend
-- `register.tsx` không setUser sau khi đăng ký — user object chỉ set sau email verify
-- Video call: CHƯA có WebRTC, muốn implement thì bắt đầu từ `src/hooks/useWebRTC.ts` + `IncomingCallModal` wiring
-- Push notification: entitlements file empty, AppDelegate không có push handlers
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+---
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
