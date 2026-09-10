@@ -19,12 +19,16 @@ type UseMonitoringViewInput = {
   errorMessage: string
 }
 
+const messageFromError = (error: unknown, fallback: string) =>
+  error instanceof Error ? error.message : fallback
+
 export function useMonitoringView({ series, errorMessage }: UseMonitoringViewInput) {
   const [overview, setOverview] = useState<MonitoringOverview | null>(null)
   const [history, setHistory] = useState<Partial<Record<MonitoringMetric, MonitoringPoint[]>>>({})
   const [rangeHours, setRangeHours] = useState<RangeHours>(1)
   const [pending, setPending] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [overviewError, setOverviewError] = useState<string | null>(null)
+  const [historyError, setHistoryError] = useState<string | null>(null)
   const requestIdRef = useRef(0)
   const lastHistoryRefreshRef = useRef(0)
 
@@ -40,37 +44,62 @@ export function useMonitoringView({ series, errorMessage }: UseMonitoringViewInp
 
       try {
         if (mode === 'overview') {
-          const nextOverview = await fetchMonitoringOverview()
-          if (requestId !== requestIdRef.current) return
-          setOverview(nextOverview)
-        } else {
-          const to = new Date()
-          const from = new Date(to.getTime() - selectedRange.hours * 60 * 60 * 1000)
-          const [nextOverview, ...seriesResults] = await Promise.all([
-            fetchMonitoringOverview(),
-            ...series.map(({ metric }) =>
-              fetchMonitoringTimeseries({
-                metric,
-                from: from.toISOString(),
-                to: to.toISOString(),
-                stepSeconds: selectedRange.stepSeconds,
-              }),
-            ),
-          ])
-
-          if (requestId !== requestIdRef.current) return
-
-          const nextHistory: Partial<Record<MonitoringMetric, MonitoringPoint[]>> = {}
-          for (const item of seriesResults) nextHistory[item.metric] = item.points
-          setOverview(nextOverview)
-          setHistory(nextHistory)
-          lastHistoryRefreshRef.current = Date.now()
+          try {
+            const nextOverview = await fetchMonitoringOverview()
+            if (requestId !== requestIdRef.current) return
+            setOverview(nextOverview)
+            setOverviewError(null)
+          } catch (nextError) {
+            if (requestId !== requestIdRef.current) return
+            setOverviewError(messageFromError(nextError, errorMessage))
+          }
+          return
         }
 
-        setError(null)
-      } catch (nextError) {
+        const to = new Date()
+        const from = new Date(to.getTime() - selectedRange.hours * 60 * 60 * 1000)
+        const [overviewResult, ...seriesResults] = await Promise.allSettled([
+          fetchMonitoringOverview(),
+          ...series.map(({ metric }) =>
+            fetchMonitoringTimeseries({
+              metric,
+              from: from.toISOString(),
+              to: to.toISOString(),
+              stepSeconds: selectedRange.stepSeconds,
+            }),
+          ),
+        ])
+
         if (requestId !== requestIdRef.current) return
-        setError(nextError instanceof Error ? nextError.message : errorMessage)
+
+        if (overviewResult.status === 'fulfilled') {
+          setOverview(overviewResult.value)
+          setOverviewError(null)
+        } else {
+          setOverviewError(messageFromError(overviewResult.reason, errorMessage))
+        }
+
+        const historyUpdates: Partial<Record<MonitoringMetric, MonitoringPoint[]>> = {}
+        const failedMetrics: MonitoringMetric[] = []
+
+        seriesResults.forEach((result, index) => {
+          const metric = series[index]?.metric
+          if (!metric) return
+
+          if (result.status === 'fulfilled') {
+            historyUpdates[metric] = result.value.points
+          } else {
+            failedMetrics.push(metric)
+          }
+        })
+
+        setHistory((current) => ({ ...current, ...historyUpdates }))
+        setHistoryError(
+          failedMetrics.length > 0
+            ? `Unable to refresh history for ${failedMetrics.join(', ')}.`
+            : null,
+        )
+        lastHistoryRefreshRef.current = Date.now()
       } finally {
         if (requestId === requestIdRef.current) setPending(false)
       }
@@ -98,6 +127,8 @@ export function useMonitoringView({ series, errorMessage }: UseMonitoringViewInp
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [refresh])
+
+  const error = overviewError ?? historyError
 
   return {
     overview,
