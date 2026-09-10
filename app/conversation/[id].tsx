@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons'
 import { FlashList, type ListRenderItemInfo } from '@shopify/flash-list'
 import { BlurView } from 'expo-blur'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Platform, TouchableOpacity, useColorScheme, View } from 'react-native'
 import { GestureDetector } from 'react-native-gesture-handler'
 import Animated, { useAnimatedStyle, withTiming, withSpring } from 'react-native-reanimated'
@@ -42,6 +42,7 @@ import { DEFAULT_MESSAGE_LAYOUT } from '../../src/lib/messageListState'
 import { useCall } from '../../src/providers/CallProvider'
 import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
+import { useCallStore } from '../../src/stores/callStore'
 import { useChatStore } from '../../src/stores/chatStore'
 
 import type { Message } from '../../src/types/conversation.types'
@@ -56,6 +57,9 @@ export default function ChatScreen() {
   const { user } = useAuthStore()
   // VIDEO_CALL_1TO1_CONVERSATION_PATCH
   const { startVideoCall, startVoiceCall } = useCall()
+  const callPhase = useCallStore((state) => state.phase)
+  const [pendingCallType, setPendingCallType] = useState<'VOICE' | 'VIDEO' | null>(null)
+  const callStartInFlightRef = useRef(false)
   const activeTypers = useChatStore(
     useCallback((state) => state.typingUsers[conversationId] ?? EMPTY_TYPERS, [conversationId]),
   )
@@ -205,42 +209,58 @@ export default function ChatScreen() {
     })
   }, [activeTypers, currentConversation, user?.id])
 
+  const startOutgoingCall = useCallback(
+    async (callType: 'VOICE' | 'VIDEO') => {
+      if (
+        !otherUserId ||
+        currentConversation?.isGroup ||
+        callStartInFlightRef.current ||
+        callPhase !== 'idle'
+      ) {
+        return
+      }
+
+      callStartInFlightRef.current = true
+      setPendingCallType(callType)
+
+      try {
+        const input = {
+          conversationId,
+          peerUserId: otherUserId,
+          ...(displayName ? { peerName: displayName } : {}),
+          ...(avatarUrl ? { peerAvatarUrl: avatarUrl } : {}),
+        }
+
+        if (callType === 'VIDEO') await startVideoCall({ ...input })
+        else await startVoiceCall({ ...input })
+      } finally {
+        callStartInFlightRef.current = false
+        setPendingCallType(null)
+      }
+    },
+    [
+      avatarUrl,
+      callPhase,
+      conversationId,
+      currentConversation?.isGroup,
+      displayName,
+      otherUserId,
+      startVideoCall,
+      startVoiceCall,
+    ],
+  )
+
   const handleStartVoiceCall = useCallback(() => {
     if (!otherUserId || currentConversation?.isGroup) {
       return
     }
-
-    void startVoiceCall({
-      conversationId,
-      peerUserId: otherUserId,
-      ...(displayName ? { peerName: displayName } : {}),
-      ...(avatarUrl ? { peerAvatarUrl: avatarUrl } : {}),
-    })
-  }, [
-    avatarUrl,
-    conversationId,
-    currentConversation?.isGroup,
-    displayName,
-    otherUserId,
-    startVoiceCall,
-  ])
+    void startOutgoingCall('VOICE')
+  }, [currentConversation?.isGroup, otherUserId, startOutgoingCall])
 
   const handleStartVideoCall = useCallback(() => {
     if (!otherUserId || currentConversation?.isGroup) return
-    void startVideoCall({
-      conversationId,
-      peerUserId: otherUserId,
-      ...(displayName ? { peerName: displayName } : {}),
-      ...(avatarUrl ? { peerAvatarUrl: avatarUrl } : {}),
-    })
-  }, [
-    avatarUrl,
-    conversationId,
-    currentConversation?.isGroup,
-    displayName,
-    otherUserId,
-    startVideoCall,
-  ])
+    void startOutgoingCall('VIDEO')
+  }, [currentConversation?.isGroup, otherUserId, startOutgoingCall])
 
   const { closeMediaViewer, handleOpenMedia, handleSaveMedia, mediaGalleryItems } =
     useConversationMediaViewerRuntime({
@@ -427,9 +447,13 @@ export default function ChatScreen() {
           isGroup={isGroup}
           isOnline={isOnline}
           participantCount={currentConversation?.participantIds.length ?? 0}
+          callActionsDisabled={callPhase !== 'idle' || pendingCallType !== null}
+          pendingCallType={pendingCallType}
           presenceLabel={presenceLabel}
           queuedMessageCount={queuedMessageCount}
-          showCallActions={!currentConversation?.isGroup && Boolean(otherUserId)}
+          showCallActions={
+            callPhase === 'idle' && !currentConversation?.isGroup && Boolean(otherUserId)
+          }
           onBack={handleBack}
           onOpenGroupInfo={handleOpenGroupInfo}
           onStartVideoCall={handleStartVideoCall}

@@ -9,7 +9,9 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import {
+  Children,
   type ComponentProps,
+  isValidElement,
   type ReactNode,
   useCallback,
   useEffect,
@@ -20,6 +22,8 @@ import {
 import { Image, Platform, useWindowDimensions, View } from 'react-native'
 import Animated, {
   Easing,
+  FadeIn,
+  FadeOut,
   ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
@@ -31,6 +35,7 @@ import { RTCView } from 'react-native-webrtc'
 import { AppPressable } from '../../src/components/base/AppPressable'
 import { AppText } from '../../src/components/base/AppText'
 import { colors } from '../../src/constants/theme'
+import { veloraSystemCalls } from '../../src/lib/systemCalls/veloraSystemCalls'
 import { useCall } from '../../src/providers/CallProvider'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useCallStore } from '../../src/stores/callStore'
@@ -40,6 +45,13 @@ const formatDuration = (secs: number) => {
   const seconds = secs % 60
   return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`
 }
+
+const CALL_LAYOUT_ENTERING = FadeIn.duration(220)
+  .easing(Easing.out(Easing.cubic))
+  .reduceMotion(ReduceMotion.System)
+const CALL_LAYOUT_EXITING = FadeOut.duration(140)
+  .easing(Easing.in(Easing.cubic))
+  .reduceMotion(ReduceMotion.System)
 
 type IconName = ComponentProps<typeof MaterialIcons>['name']
 
@@ -106,6 +118,41 @@ function CallDock({ children }: { children: ReactNode }) {
       }}
     >
       {children}
+    </View>
+  )
+}
+
+function VideoParticipantGrid({
+  children,
+  isLandscape,
+}: {
+  children: ReactNode
+  isLandscape: boolean
+}) {
+  const tiles = Children.toArray(children)
+  const columns = Math.max(1, tiles.length === 2 && !isLandscape ? 1 : Math.min(2, tiles.length))
+  const rows = Array.from({ length: Math.ceil(tiles.length / columns) }, (_, rowIndex) =>
+    tiles.slice(rowIndex * columns, (rowIndex + 1) * columns),
+  )
+
+  return (
+    <View className="flex-1" style={{ gap: 3 }}>
+      {rows.map((row, rowIndex) => (
+        <View key={`video-row-${rowIndex}`} className="flex-1 flex-row" style={{ gap: 3 }}>
+          {row.map((tile, tileIndex) => (
+            <View
+              key={
+                isValidElement(tile) && tile.key !== null
+                  ? String(tile.key)
+                  : `video-tile-${rowIndex}-${tileIndex}`
+              }
+              className="flex-1"
+            >
+              {tile}
+            </View>
+          ))}
+        </View>
+      ))}
     </View>
   )
 }
@@ -202,8 +249,15 @@ export default function ActiveCallScreen() {
   const router = useRouter()
   const { width, height } = useWindowDimensions()
   const insets = useSafeAreaInsets()
-  const { endCall, switchCallType, switchCamera, toggleCamera, toggleMute, toggleSpeaker } =
-    useCall()
+  const {
+    endCall,
+    recordCallScreenVisible,
+    switchCallType,
+    switchCamera,
+    toggleCamera,
+    toggleMute,
+    toggleSpeaker,
+  } = useCall()
   const {
     callId,
     callType,
@@ -308,6 +362,11 @@ export default function ActiveCallScreen() {
     }
   }, [callId, id, isValidPhase, router])
 
+  useEffect(() => {
+    if (!id || callId !== id || !isValidPhase) return
+    recordCallScreenVisible(id)
+  }, [callId, id, isValidPhase, recordCallScreenVisible])
+
   const statusLabel = useMemo(() => {
     if (phase === 'outgoing_ringing') return 'Calling…'
     if (phase === 'connecting') return 'Connecting…'
@@ -324,6 +383,8 @@ export default function ActiveCallScreen() {
       : null
 
   const isVideo = callType === 'VIDEO'
+  const areAllVideoCamerasOff = isVideo && !cameraEnabled && remoteVideoState === 'off'
+  const shouldRenderVideoTiles = isVideo && phase !== 'outgoing_ringing' && !areAllVideoCamerasOff
   const isSheetOpen = participantsVisible || controlsVisible
   const controlsDisabled = phase !== 'active'
   const hasRemoteVideo = isVideo && remoteVideoState === 'connected' && Boolean(remoteStreamUrl)
@@ -331,7 +392,7 @@ export default function ActiveCallScreen() {
   const cameraOffStatus =
     phase === 'active' ? `${peerName ? `${peerName}’s` : 'Their'} camera is off` : statusLabel
 
-  const minimizeButton = (
+  const minimizeButton = veloraSystemCalls.usesNativeCallUi ? (
     <AppPressable
       className="h-12 w-12 items-center justify-center rounded-full"
       style={{ backgroundColor: colors.call.topControl }}
@@ -342,7 +403,7 @@ export default function ActiveCallScreen() {
     >
       <MaterialIcons name="keyboard-arrow-down" size={34} color={colors.call.textPrimary} />
     </AppPressable>
-  )
+  ) : null
 
   const participantsButton = (
     <AppPressable
@@ -381,7 +442,8 @@ export default function ActiveCallScreen() {
         icon={muted ? 'mic-off' : 'mic'}
         label={muted ? 'Unmute microphone' : 'Mute microphone'}
         selected={!muted}
-        disabled={phase === 'reconnecting'}
+        // Before active, mute has no track to control; only End is enabled.
+        disabled={controlsDisabled}
         onPress={toggleMute}
       />
 
@@ -613,9 +675,15 @@ export default function ActiveCallScreen() {
     </BottomSheet>
   )
 
-  if (isVideo) {
+  if (shouldRenderVideoTiles) {
     return (
-      <View className="flex-1" style={{ backgroundColor: colors.call.background }}>
+      <Animated.View
+        key="video-grid-layout"
+        entering={CALL_LAYOUT_ENTERING}
+        exiting={CALL_LAYOUT_EXITING}
+        className="flex-1"
+        style={{ backgroundColor: colors.call.background }}
+      >
         <StatusBar style="light" />
         <SafeAreaView
           className="flex-1 px-1 pb-1"
@@ -623,8 +691,9 @@ export default function ActiveCallScreen() {
           pointerEvents="none"
           style={{ paddingTop: callTopInset }}
         >
-          <View className="flex-1" style={{ flexDirection: isLandscape ? 'row' : 'column' }}>
+          <VideoParticipantGrid isLandscape={isLandscape}>
             <View
+              key="remote-participant"
               className="relative flex-1 rounded-[18px]"
               style={{ backgroundColor: colors.call.cameraOffSurface }}
             >
@@ -655,12 +724,6 @@ export default function ActiveCallScreen() {
                 />
               )}
 
-              <LinearGradient
-                pointerEvents="none"
-                colors={['rgba(8,10,15,0.88)', 'rgba(8,10,15,0.10)', 'rgba(8,10,15,0)']}
-                locations={[0, 0.38, 1]}
-                style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 136 }}
-              />
               <View
                 pointerEvents="none"
                 className="absolute inset-0 rounded-[18px] border"
@@ -668,9 +731,8 @@ export default function ActiveCallScreen() {
               />
             </View>
 
-            <View style={isLandscape ? { width: 3 } : { height: 3 }} />
-
             <View
+              key="local-participant"
               className="relative flex-1 rounded-[18px]"
               style={{ backgroundColor: colors.call.cameraOffSurface }}
             >
@@ -696,19 +758,13 @@ export default function ActiveCallScreen() {
                 <CameraOffSurface key="local-camera-off" avatarUrl={null} name={null} local />
               )}
 
-              <LinearGradient
-                pointerEvents="none"
-                colors={['rgba(8,10,15,0)', 'rgba(8,10,15,0.42)', 'rgba(8,10,15,0.98)']}
-                locations={[0, 0.55, 1]}
-                style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 184 }}
-              />
               <View
                 pointerEvents="none"
                 className="absolute inset-0 rounded-[18px] border"
                 style={{ borderColor: colors.call.controlBorder }}
               />
             </View>
-          </View>
+          </VideoParticipantGrid>
         </SafeAreaView>
 
         <AppPressable
@@ -763,12 +819,18 @@ export default function ActiveCallScreen() {
         </Animated.View>
         {participantsSheet}
         {controlsSheet}
-      </View>
+      </Animated.View>
     )
   }
 
   return (
-    <View className="flex-1" style={{ backgroundColor: colors.call.background }}>
+    <Animated.View
+      key="identity-layout"
+      entering={CALL_LAYOUT_ENTERING}
+      exiting={CALL_LAYOUT_EXITING}
+      className="flex-1"
+      style={{ backgroundColor: colors.call.background }}
+    >
       <StatusBar style="light" />
       {peerAvatarUrl ? (
         <Image
@@ -861,6 +923,7 @@ export default function ActiveCallScreen() {
         </Animated.View>
       </SafeAreaView>
       {participantsSheet}
-    </View>
+      {controlsSheet}
+    </Animated.View>
   )
 }

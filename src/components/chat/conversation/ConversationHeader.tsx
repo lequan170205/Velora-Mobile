@@ -1,14 +1,89 @@
-import { MaterialIcons } from '@expo/vector-icons'
-import { Image, Text, TouchableOpacity, View } from 'react-native'
+import { Ionicons, MaterialIcons } from '@expo/vector-icons'
+import * as Haptics from 'expo-haptics'
+import { ActivityIndicator, Image, Text, TouchableOpacity, View } from 'react-native'
+import Animated, {
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated'
+
+import { colors } from '../../../constants/theme'
+import { AppPressable } from '../../base/AppPressable'
+
+type CallActionButtonProps = {
+  accessibilityLabel: string
+  busy: boolean
+  disabled: boolean
+  icon: keyof typeof Ionicons.glyphMap
+  onPress: () => void
+}
+
+function CallActionButton({
+  accessibilityLabel,
+  busy,
+  disabled,
+  icon,
+  onPress,
+}: CallActionButtonProps) {
+  const scale = useSharedValue(1)
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }))
+
+  return (
+    <AppPressable
+      className="h-12 w-12 items-center justify-center"
+      activeOpacity={1}
+      disabled={disabled}
+      hitSlop={0}
+      onPress={() => {
+        void Haptics.selectionAsync()
+        onPress()
+      }}
+      onPressIn={() => {
+        scale.value = withTiming(0.9, { duration: 80, reduceMotion: ReduceMotion.System })
+      }}
+      onPressOut={() => {
+        scale.value = withSpring(1, {
+          damping: 18,
+          stiffness: 360,
+          reduceMotion: ReduceMotion.System,
+        })
+      }}
+      style={{ opacity: disabled && !busy ? 0.38 : 1 }}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled, busy }}
+    >
+      <Animated.View
+        className="h-11 w-11 items-center justify-center rounded-full"
+        style={[
+          {
+            backgroundColor: busy ? colors.bubble.outgoing : colors.surface.accent,
+          },
+          animatedStyle,
+        ]}
+      >
+        {busy ? (
+          <ActivityIndicator color={colors.text.inverse} size="small" />
+        ) : (
+          <Ionicons name={icon} size={22} color={colors.brand.tertiary} />
+        )}
+      </Animated.View>
+    </AppPressable>
+  )
+}
 
 type ConversationHeaderProps = {
   avatarUrl?: string
+  callActionsDisabled: boolean
   displayName: string
   groupTypingLabel: string | null
   isConnected: boolean
   isGroup: boolean
   isOnline: boolean
   participantCount: number
+  pendingCallType: 'VOICE' | 'VIDEO' | null
   presenceLabel: string
   queuedMessageCount: number
   showCallActions: boolean
@@ -20,12 +95,14 @@ type ConversationHeaderProps = {
 
 export const ConversationHeader = ({
   avatarUrl,
+  callActionsDisabled,
   displayName,
   groupTypingLabel,
   isConnected,
   isGroup,
   isOnline,
   participantCount,
+  pendingCallType,
   presenceLabel,
   queuedMessageCount,
   showCallActions,
@@ -87,25 +164,29 @@ export const ConversationHeader = ({
         </TouchableOpacity>
 
         {showCallActions ? (
-          <View className="flex-row gap-2">
-            <TouchableOpacity
+          <View className="flex-row items-center gap-2">
+            <CallActionButton
               onPress={onStartVideoCall}
-              className="h-11 w-11 items-center justify-center rounded-full bg-surface-input"
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              accessibilityRole="button"
-              accessibilityLabel={`Video call ${displayName}`}
-            >
-              <MaterialIcons name="videocam" size={22} color="#161616" />
-            </TouchableOpacity>
-            <TouchableOpacity
+              disabled={callActionsDisabled}
+              busy={pendingCallType === 'VIDEO'}
+              icon="videocam-outline"
+              accessibilityLabel={
+                pendingCallType === 'VIDEO'
+                  ? `Starting video call with ${displayName}`
+                  : `Video call ${displayName}`
+              }
+            />
+            <CallActionButton
               onPress={onStartVoiceCall}
-              className="h-11 w-11 items-center justify-center rounded-full bg-surface-input"
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              accessibilityRole="button"
-              accessibilityLabel={`Call ${displayName}`}
-            >
-              <MaterialIcons name="call" size={22} color="#161616" />
-            </TouchableOpacity>
+              disabled={callActionsDisabled}
+              busy={pendingCallType === 'VOICE'}
+              icon="call-outline"
+              accessibilityLabel={
+                pendingCallType === 'VOICE'
+                  ? `Starting voice call with ${displayName}`
+                  : `Call ${displayName}`
+              }
+            />
           </View>
         ) : null}
       </View>
