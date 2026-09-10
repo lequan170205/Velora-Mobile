@@ -61,13 +61,13 @@ export function useCallTelemetry(enabled: boolean) {
     void loadTimeline(nextCallId)
   }
 
-  const reset = () => {
+  const reset = useCallback(() => {
     setSummary(null)
     setRecentCallLegs([])
     setTimeline([])
     setCallId('')
     setError(null)
-  }
+  }, [])
 
   return {
     filters,

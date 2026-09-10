@@ -6,15 +6,43 @@ const fetchWithCredentials = (path: string, options?: RequestInit) =>
     ...options,
   })
 
-let refreshPromise: Promise<boolean> | null = null
+type RefreshSessionResult = 'refreshed' | 'expired' | 'unavailable'
+type SessionExpiredListener = () => void
+
+const sessionExpiredListeners = new Set<SessionExpiredListener>()
+let refreshPromise: Promise<RefreshSessionResult> | null = null
+
+const notifySessionExpired = () => {
+  for (const listener of sessionExpiredListeners) {
+    try {
+      listener()
+    } catch {
+      // One listener must not prevent other session-expiry consumers from running.
+    }
+  }
+}
+
+export const subscribeToSessionExpired = (listener: SessionExpiredListener) => {
+  sessionExpiredListeners.add(listener)
+  return () => sessionExpiredListeners.delete(listener)
+}
 
 const refreshSession = () => {
   if (!refreshPromise) {
     refreshPromise = fetchWithCredentials('/auth/refresh', {
       method: 'POST',
     })
-      .then((response) => response.ok)
-      .catch(() => false)
+      .then((response): RefreshSessionResult => {
+        if (response.ok) return 'refreshed'
+
+        if (response.status === 401) {
+          notifySessionExpired()
+          return 'expired'
+        }
+
+        return 'unavailable'
+      })
+      .catch((): RefreshSessionResult => 'unavailable')
       .finally(() => {
         refreshPromise = null
       })
@@ -33,8 +61,8 @@ export const fetchApi = async (path: string, options?: RequestInit) => {
     return response
   }
 
-  const refreshed = await refreshSession()
-  if (!refreshed) {
+  const refreshResult = await refreshSession()
+  if (refreshResult !== 'refreshed') {
     return response
   }
 

@@ -16,7 +16,9 @@ import {
   MonitoringSection,
   ServerSection,
 } from '../features/monitoring'
-import { fetchApi } from '../shared/api/client'
+import { getMonitoringConnectionState } from '../features/monitoring/fresshness'
+import { useMonitoringHeartbeat } from '../features/monitoring/hooks/useMonitoringHeartbeat'
+import { fetchApi, subscribeToSessionExpired } from '../shared/api/client'
 import {
   DashboardShell,
   LoginScreen,
@@ -24,8 +26,6 @@ import {
   viewFromHash,
   type ViewId,
 } from './DashboardShell'
-import { useMonitoringHeartbeat } from '../features/monitoring/hooks/useMonitoringHeartbeat'
-import { getMonitoringConnectionState } from '../features/monitoring/fresshness'
 
 export function App() {
   const [authenticated, setAuthenticated] = useState(false)
@@ -45,6 +45,17 @@ export function App() {
 
     return () => window.clearInterval(timer)
   }, [])
+
+  useEffect(() => {
+    if (!authenticated) return
+
+    return subscribeToSessionExpired(() => {
+      setAuthenticated(false)
+      setPassword('')
+      setLoginError('Your admin session expired. Please sign in again.')
+      calls.reset()
+    })
+  }, [authenticated, calls.reset])
 
   useEffect(() => {
     const onHashChange = () => setActiveView(viewFromHash())
