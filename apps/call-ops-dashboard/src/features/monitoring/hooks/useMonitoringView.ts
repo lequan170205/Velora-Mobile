@@ -7,11 +7,7 @@ import {
   type MonitoringOverview,
   type MonitoringPoint,
 } from '../api'
-import {
-  RANGE_OPTIONS,
-  type MonitoringSeriesDefinition,
-  type RangeHours,
-} from '../model'
+import { RANGE_OPTIONS, type MonitoringSeriesDefinition, type RangeHours } from '../model'
 
 const OVERVIEW_REFRESH_INTERVAL_MS = 15_000
 const HISTORY_REFRESH_INTERVAL_MS = 60_000
@@ -37,47 +33,50 @@ export function useMonitoringView({ series, errorMessage }: UseMonitoringViewInp
     [rangeHours],
   )
 
-  const refresh = useCallback(async (mode: RefreshMode = 'all') => {
-    const requestId = ++requestIdRef.current
-    setPending(true)
+  const refresh = useCallback(
+    async (mode: RefreshMode = 'all') => {
+      const requestId = ++requestIdRef.current
+      setPending(true)
 
-    try {
-      if (mode === 'overview') {
-        const nextOverview = await fetchMonitoringOverview()
+      try {
+        if (mode === 'overview') {
+          const nextOverview = await fetchMonitoringOverview()
+          if (requestId !== requestIdRef.current) return
+          setOverview(nextOverview)
+        } else {
+          const to = new Date()
+          const from = new Date(to.getTime() - selectedRange.hours * 60 * 60 * 1000)
+          const [nextOverview, ...seriesResults] = await Promise.all([
+            fetchMonitoringOverview(),
+            ...series.map(({ metric }) =>
+              fetchMonitoringTimeseries({
+                metric,
+                from: from.toISOString(),
+                to: to.toISOString(),
+                stepSeconds: selectedRange.stepSeconds,
+              }),
+            ),
+          ])
+
+          if (requestId !== requestIdRef.current) return
+
+          const nextHistory: Partial<Record<MonitoringMetric, MonitoringPoint[]>> = {}
+          for (const item of seriesResults) nextHistory[item.metric] = item.points
+          setOverview(nextOverview)
+          setHistory(nextHistory)
+          lastHistoryRefreshRef.current = Date.now()
+        }
+
+        setError(null)
+      } catch (nextError) {
         if (requestId !== requestIdRef.current) return
-        setOverview(nextOverview)
-      } else {
-        const to = new Date()
-        const from = new Date(to.getTime() - selectedRange.hours * 60 * 60 * 1000)
-        const [nextOverview, ...seriesResults] = await Promise.all([
-          fetchMonitoringOverview(),
-          ...series.map(({ metric }) =>
-            fetchMonitoringTimeseries({
-              metric,
-              from: from.toISOString(),
-              to: to.toISOString(),
-              stepSeconds: selectedRange.stepSeconds,
-            }),
-          ),
-        ])
-
-        if (requestId !== requestIdRef.current) return
-
-        const nextHistory: Partial<Record<MonitoringMetric, MonitoringPoint[]>> = {}
-        for (const item of seriesResults) nextHistory[item.metric] = item.points
-        setOverview(nextOverview)
-        setHistory(nextHistory)
-        lastHistoryRefreshRef.current = Date.now()
+        setError(nextError instanceof Error ? nextError.message : errorMessage)
+      } finally {
+        if (requestId === requestIdRef.current) setPending(false)
       }
-
-      setError(null)
-    } catch (nextError) {
-      if (requestId !== requestIdRef.current) return
-      setError(nextError instanceof Error ? nextError.message : errorMessage)
-    } finally {
-      if (requestId === requestIdRef.current) setPending(false)
-    }
-  }, [errorMessage, selectedRange, series])
+    },
+    [errorMessage, selectedRange, series],
+  )
 
   useEffect(() => {
     void refresh('all')

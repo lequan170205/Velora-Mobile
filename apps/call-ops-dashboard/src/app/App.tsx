@@ -24,6 +24,8 @@ import {
   viewFromHash,
   type ViewId,
 } from './DashboardShell'
+import { useMonitoringHeartbeat } from '../features/monitoring/hooks/useMonitoringHeartbeat'
+import { getMonitoringConnectionState } from '../features/monitoring/fresshness'
 
 export function App() {
   const [authenticated, setAuthenticated] = useState(false)
@@ -33,6 +35,16 @@ export function App() {
   const [password, setPassword] = useState('')
   const [loginError, setLoginError] = useState<string | null>(null)
   const calls = useCallTelemetry(authenticated)
+  const [now, setNow] = useState(Date.now())
+  const heartbeat = useMonitoringHeartbeat(authenticated)
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNow(Date.now())
+    }, 5_000)
+
+    return () => window.clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     const onHashChange = () => setActiveView(viewFromHash())
@@ -52,6 +64,13 @@ export function App() {
       }
     })()
   }, [])
+
+  const connectionState = getMonitoringConnectionState({
+    now,
+    lastSuccessfulAt: heartbeat.lastSuccessfulAt,
+    refreshing: heartbeat.refreshing,
+    hasError: heartbeat.error !== null,
+  })
 
   const login = async (event: FormEvent) => {
     event.preventDefault()
@@ -119,7 +138,12 @@ export function App() {
   }
 
   return (
-    <DashboardShell activeView={activeView} onNavigate={navigate} onLogout={() => void logout()}>
+    <DashboardShell
+      activeView={activeView}
+      onNavigate={navigate}
+      onLogout={() => void logout()}
+      connectionState={connectionState}
+    >
       {activeView === 'server' && <ServerSection />}
       {activeView === 'service' && <MonitoringSection />}
       {activeView === 'conversation' && <ConversationSection />}
