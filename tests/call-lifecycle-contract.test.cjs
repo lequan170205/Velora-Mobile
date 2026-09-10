@@ -161,7 +161,21 @@ test('cold-start bridge stays UI-free and scopes prewarm work to the authenticat
 
 test('remote call-state updates reach the native reducers before React mounts', () => {
   const iosSubscriber = read('modules/velora-system-calls/ios/VeloraSystemCallsModule.swift')
-  const androidManifest = read('android/app/src/main/AndroidManifest.xml')
+  // `android/` is an Expo-generated directory and is intentionally ignored
+  // by git. The plugin source below is therefore the portable contract in a
+  // clean checkout; when a local prebuild exists, validate the rendered
+  // manifest as an additional check.
+  const androidManifestPath = path.join(
+    root,
+    'android',
+    'app',
+    'src',
+    'main',
+    'AndroidManifest.xml',
+  )
+  const androidManifest = fs.existsSync(androidManifestPath)
+    ? fs.readFileSync(androidManifestPath, 'utf8')
+    : null
   const androidReceiver = read(
     'modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraFirebaseMessagingReceiver.kt',
   )
@@ -175,8 +189,10 @@ test('remote call-state updates reach the native reducers before React mounts', 
   // Android's native broadcast receiver is deliberately used instead of a
   // FirebaseMessagingService, so state updates are handled before any JS
   // runtime or headless task starts.
-  assert.match(androidManifest, /VeloraFirebaseMessagingReceiver/)
-  assert.match(androidManifest, /com\.google\.android\.c2dm\.intent\.RECEIVE/)
+  if (androidManifest) {
+    assert.match(androidManifest, /VeloraFirebaseMessagingReceiver/)
+    assert.match(androidManifest, /com\.google\.android\.c2dm\.intent\.RECEIVE/)
+  }
   assert.match(androidReceiver, /"CALL_STATE_UPDATE"\s*->\s*VeloraCallNotifications\.handleCallStateUpdate/)
   assert.match(androidPlugin, /VeloraFirebaseMessagingReceiver/)
   assert.match(androidPlugin, /com\.google\.android\.c2dm\.intent\.RECEIVE/)
