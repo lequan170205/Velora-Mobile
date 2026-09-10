@@ -1,4 +1,15 @@
 export const CALL_JOINED_TIMEOUT_MS = 10_000
+// This is read once while the JS bundle initializes. Operators can bake
+// EXPO_PUBLIC_CALL_ATOMIC_ACCEPT_ENABLED=false into a rollback build without
+// putting a remote-config request on the cold incoming-call path.
+export const ATOMIC_INCOMING_CALL_ACCEPT_ENABLED =
+  process.env.EXPO_PUBLIC_CALL_ATOMIC_ACCEPT_ENABLED?.trim().toLowerCase() !== 'false'
+// Keep the native answer watchdog bounded while still allowing one
+// idempotent retry when the server committed but its first acknowledgement was
+// lost on the wire.
+export const INCOMING_ACCEPT_ACK_TIMEOUT_MS = 6_000
+export const INCOMING_ACCEPT_MAX_ATTEMPTS = 2
+export const INCOMING_ACCEPT_RETRY_DELAY_MS = 250
 export const SOCKET_CONNECT_TIMEOUT_MS = 10_000
 export const SOCKET_DISCONNECT_GRACE_MS = 10_000
 export const IOS_AUDIO_SESSION_READY_TIMEOUT_MS = 15_000

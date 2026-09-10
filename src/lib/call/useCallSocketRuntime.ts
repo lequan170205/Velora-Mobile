@@ -106,7 +106,7 @@ export const useCallSocketRuntime = ({
           callSocketAuthenticatedRef.current = false
           telemetrySessionRef.current?.record('socket_connect_started', { outcome: 'started' })
           debugCall('[Call] socket_connect_started', JSON.stringify({ callId }))
-          await authenticateCallSocket(socket)
+          await authenticateCallSocket(socket, useAuthStore.getState().user?.id)
 
           await new Promise<void>((resolve, reject) => {
             let settled = false

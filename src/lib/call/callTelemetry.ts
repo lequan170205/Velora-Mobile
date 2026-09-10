@@ -13,6 +13,10 @@ import {
 import { getIsOnline } from '../network'
 import { createUuid } from '../uuid'
 
+import { callLifecycleTelemetryStage, reduceCallLifecycle } from './callLifecycle'
+
+import type { CallLifecycleState } from './callLifecycle'
+import type { CallTelemetryOutboxItemModel } from '../../database/models/CallTelemetryOutboxItemModel'
 import type { CallDirection } from '../../types/call.types'
 
 const MAX_OUTBOX_EVENTS = 2000
@@ -93,6 +97,18 @@ type StageOptions = {
 
 const nowMonotonic = () => globalThis.performance?.now?.() ?? Date.now()
 
+const getHttpStatus = (error: unknown) => {
+  if (!error || typeof error !== 'object') return null
+
+  const response = (error as { response?: { status?: unknown } }).response
+  return typeof response?.status === 'number' ? response.status : null
+}
+
+const isPermanentTelemetryError = (error: unknown) => {
+  const status = getHttpStatus(error)
+  return status !== null && status >= 400 && status < 500 && status !== 408 && status !== 429
+}
+
 const getPlatform = (): CallTelemetryEvent['platform'] => {
   if (Platform.OS === 'ios' || Platform.OS === 'android') {
     return Platform.OS
@@ -115,8 +131,34 @@ const normalizeErrorCode = (error: unknown) => {
 
 let queueWrite = Promise.resolve()
 let flushing = false
+const ephemeralTelemetryTokens = new Map<string, string>()
+
+const rememberEphemeralTelemetryToken = (event: CallTelemetryEvent) => {
+  if (!event.telemetryToken) return
+
+  ephemeralTelemetryTokens.set(event.eventId, event.telemetryToken)
+  while (ephemeralTelemetryTokens.size > MAX_OUTBOX_EVENTS) {
+    const oldestEventId = ephemeralTelemetryTokens.keys().next().value
+    if (!oldestEventId) break
+    ephemeralTelemetryTokens.delete(oldestEventId)
+  }
+}
+
+const forgetEphemeralTelemetryTokens = (records: { event: CallTelemetryEvent }[]) => {
+  for (const { event } of records) {
+    ephemeralTelemetryTokens.delete(event.eventId)
+  }
+}
+
+const withEphemeralTelemetryToken = (event: CallTelemetryEvent): CallTelemetryEvent => {
+  const telemetryToken = ephemeralTelemetryTokens.get(event.eventId)
+  return telemetryToken ? { ...event, telemetryToken } : event
+}
 
 const enqueue = (event: CallTelemetryEvent) => {
+  const { telemetryToken: _telemetryToken, ...persistedEvent } = event
+  rememberEphemeralTelemetryToken(event)
+
   queueWrite = queueWrite
     .then(async () => {
       const count = await getCallTelemetryOutboxCount()
@@ -125,6 +167,7 @@ const enqueue = (event: CallTelemetryEvent) => {
         const dropped = await dropOldestCallTelemetryQualitySamples(requiredSlots)
 
         if (dropped < requiredSlots) {
+          ephemeralTelemetryTokens.delete(event.eventId)
           return
         }
       }
@@ -132,14 +175,19 @@ const enqueue = (event: CallTelemetryEvent) => {
       await insertCallTelemetryOutboxItems([
         {
           eventId: event.eventId,
-          payloadJson: JSON.stringify(event),
+          // Telemetry authorization is intentionally memory-only. A process
+          // restart can still upload the sanitized event, but must never read
+          // a bearer-like call token from the local database.
+          payloadJson: JSON.stringify(persistedEvent),
           createdAt: Date.now(),
           retryCount: 0,
           lastAttemptedAt: null,
         },
       ])
     })
-    .catch(() => undefined)
+    .catch(() => {
+      ephemeralTelemetryTokens.delete(event.eventId)
+    })
 
   return queueWrite
 }
@@ -158,27 +206,65 @@ export const flushCallTelemetry = async () => {
 
     let records = await getCallTelemetryOutboxItems(BATCH_SIZE)
     while (records.length > 0) {
-      const events = records.flatMap((record) => {
-        try {
-          return [JSON.parse(record.payloadJson) as CallTelemetryEvent]
-        } catch {
-          return []
-        }
-      })
+      const parsedRecords: {
+        record: CallTelemetryOutboxItemModel
+        event: CallTelemetryEvent
+      }[] = []
+      const malformedRecords: CallTelemetryOutboxItemModel[] = []
 
-      if (events.length === 0) {
-        await deleteCallTelemetryOutboxItems(records)
-      } else {
+      for (const record of records) {
         try {
-          await callTelemetryApi.track(events)
-          await deleteCallTelemetryOutboxItems(records)
+          parsedRecords.push({
+            record,
+            event: JSON.parse(record.payloadJson) as CallTelemetryEvent,
+          })
         } catch {
-          await markCallTelemetryOutboxItemsAttempted(records, Date.now())
-          return false
+          malformedRecords.push(record)
         }
       }
 
-      records = await getCallTelemetryOutboxItems(BATCH_SIZE)
+      if (malformedRecords.length > 0) {
+        await deleteCallTelemetryOutboxItems(malformedRecords)
+      }
+
+      if (parsedRecords.length === 0) {
+        records = await getCallTelemetryOutboxItems(BATCH_SIZE)
+      } else {
+        try {
+          await callTelemetryApi.track(
+            parsedRecords.map(({ event }) => withEphemeralTelemetryToken(event)),
+          )
+          await deleteCallTelemetryOutboxItems(parsedRecords.map(({ record }) => record))
+          forgetEphemeralTelemetryTokens(parsedRecords)
+        } catch (error) {
+          if (!isPermanentTelemetryError(error)) {
+            await markCallTelemetryOutboxItemsAttempted(
+              parsedRecords.map(({ record }) => record),
+              Date.now(),
+            )
+            return false
+          }
+
+          for (const { record, event } of parsedRecords) {
+            try {
+              await callTelemetryApi.track([withEphemeralTelemetryToken(event)])
+              await deleteCallTelemetryOutboxItems([record])
+              forgetEphemeralTelemetryTokens([{ event }])
+            } catch (singleEventError) {
+              if (isPermanentTelemetryError(singleEventError)) {
+                await deleteCallTelemetryOutboxItems([record])
+                forgetEphemeralTelemetryTokens([{ event }])
+                continue
+              }
+
+              await markCallTelemetryOutboxItemsAttempted([record], Date.now())
+              return false
+            }
+          }
+        }
+
+        records = await getCallTelemetryOutboxItems(BATCH_SIZE)
+      }
     }
 
     return true
@@ -190,6 +276,7 @@ export const flushCallTelemetry = async () => {
 export class CallTelemetrySession {
   readonly attemptId = createUuid()
   private readonly startedAt = nowMonotonic()
+  private lifecycleState: CallLifecycleState = 'ringing'
   private telemetryToken: string | undefined
 
   constructor(private readonly direction: CallDirection) {}
@@ -223,6 +310,11 @@ export class CallTelemetrySession {
 
     void enqueue(event)
     return event
+  }
+
+  recordLifecycle(next: CallLifecycleState, options: StageOptions = {}) {
+    this.lifecycleState = reduceCallLifecycle(this.lifecycleState, next)
+    return this.record(callLifecycleTelemetryStage(this.lifecycleState), options)
   }
 
   terminal(stage: string, error?: unknown, errorCode?: string) {

@@ -436,6 +436,10 @@ export const useCallMediaTransportRuntime = ({
         })
         if (firstRemoteAudio) {
           telemetrySessionRef.current?.record('remote_consumer_resumed', { outcome: 'succeeded' })
+          // The consumer has resumed and its audio track is attached to the
+          // stream. This is our client-side, privacy-safe usability proxy;
+          // it intentionally does not inspect or record audio content.
+          telemetrySessionRef.current?.record('remote_audio_ready', { outcome: 'succeeded' })
           confirmAudioFlow()
         }
         if (wasWaitingForPeerAudio) startTimer(useCallStore.getState().durationSec)
@@ -528,7 +532,9 @@ export const useCallMediaTransportRuntime = ({
 
   const flushQueuedRemoteProducers = useCallback(
     async (options: { setupToken: number }) => {
-      const queuedProducers = [...queuedRemoteProducerMapRef.current.values()]
+      const queuedProducers = [...queuedRemoteProducerMapRef.current.values()].sort(
+        (left, right) => Number(right.kind === 'audio') - Number(left.kind === 'audio'),
+      )
 
       for (const payload of queuedProducers) {
         await consumeRemoteProducer(payload, {
@@ -559,16 +565,17 @@ export const useCallMediaTransportRuntime = ({
 
       stopRingingPreview()
       const stateBeforeMedia = useCallStore.getState()
+      // Establish the audio path independently from video. On a cold start,
+      // camera initialization can take noticeably longer than the microphone;
+      // coupling the two meant a video call sounded silent until camera setup
+      // completed even though CallKit had already activated the audio session.
       const [recvTransportResult, sendTransportResult, localStreamResult] =
         await Promise.allSettled([
           createTransport(socket, callId, 'recv', device),
           createTransport(socket, callId, 'send', device),
           mediaDevices.getUserMedia({
             audio: true,
-            video:
-              callType === 'VIDEO' && !shouldDeferLocalVideo
-                ? cameraConstraints(stateBeforeMedia.cameraFacing)
-                : false,
+            video: false,
           }),
         ])
 
@@ -606,14 +613,10 @@ export const useCallMediaTransportRuntime = ({
       sendTransportRef.current = sendTransport
       localStreamRef.current = localStream
       const localAudioTrack = localStream.getAudioTracks()[0]
-      const localVideoTrack = localStream.getVideoTracks()[0]
       if (!localAudioTrack) throw new Error('No local audio track available')
-      if (callType === 'VIDEO' && !shouldDeferLocalVideo && !localVideoTrack)
-        throw new Error('No local video track available')
 
       const muted = useCallStore.getState().muted
       localAudioTrack.enabled = !muted
-      if (localVideoTrack) localVideoTrack.enabled = true
       telemetry?.record('microphone_ready', { outcome: 'succeeded' })
 
       if (!device.canProduce('audio')) throw new Error('Device cannot produce audio')
@@ -635,21 +638,10 @@ export const useCallMediaTransportRuntime = ({
         getStats: () => audioProducer.getStats(),
       })
 
-      if (callType === 'VIDEO' && localVideoTrack) {
-        if (!device.canProduce('video')) throw new Error('Device cannot produce video')
-        const videoProducer = await sendTransport.produce({
-          track: localVideoTrack as never,
-          stopTracks: false,
-        })
-        if (!isCallSetupCurrent(options.setupToken, callId)) {
-          videoProducer.close()
-          throw new Error(CALL_SETUP_CANCELLED_ERROR)
-        }
-        videoProducerRef.current = videoProducer
-        telemetry?.record('video_producer_ready', { outcome: 'succeeded' })
-      }
-
-      for (const producer of payload.activeProducers ?? []) {
+      const activeProducers = [...(payload.activeProducers ?? [])].sort(
+        (left, right) => Number(right.kind === 'audio') - Number(left.kind === 'audio'),
+      )
+      for (const producer of activeProducers) {
         await consumeRemoteProducer(
           {
             callId,
@@ -663,18 +655,18 @@ export const useCallMediaTransportRuntime = ({
       }
       await flushQueuedRemoteProducers({ setupToken: options.setupToken })
       assertCallSetupCurrent(options.setupToken, callId)
+      telemetry?.recordLifecycle('audio_ready', { outcome: 'succeeded' })
       callAnsweredRef.current = true
-
-      if (shouldDeferLocalVideo) {
-        cameraPausedByBackgroundRef.current = true
-      }
 
       const consumers = [...consumerMapRef.current.values()]
       useCallStore.getState().patch({
         phase: 'active',
         callType,
         muted,
-        cameraEnabled: callType === 'VIDEO' && (Boolean(localVideoTrack) || shouldDeferLocalVideo),
+        // Audio makes the call usable. Video joins later so a slow camera or
+        // a camera runtime failure can never tear down an otherwise healthy
+        // audio call after the authoritative accept has succeeded.
+        cameraEnabled: false,
         localStreamUrl: localStream.toURL(),
         remoteAudioState: consumers.some((consumer) => consumer.kind === 'audio')
           ? 'connected'
@@ -690,6 +682,80 @@ export const useCallMediaTransportRuntime = ({
       })
       startTimer(options.resumeDurationSec ?? 0)
       armRemoteAudioFallback()
+
+      if (callType !== 'VIDEO') return
+
+      if (shouldDeferLocalVideo) {
+        cameraPausedByBackgroundRef.current = true
+        return
+      }
+
+      // Keep this enrichment detached from the audio-ready critical path.
+      // `activateLocalVideo` handles later user retries; this first attempt is
+      // best-effort after the camera permission check that happened pre-accept.
+      void (async () => {
+        try {
+          telemetry?.recordLifecycle('media_enhancing', { outcome: 'started' })
+          if (!device.canProduce('video')) throw new Error('Device cannot produce video')
+
+          const videoCapture = await mediaDevices.getUserMedia({
+            audio: false,
+            video: cameraConstraints(stateBeforeMedia.cameraFacing),
+          })
+          const capturedVideoTrack = videoCapture.getVideoTracks()[0]
+          if (!capturedVideoTrack) {
+            videoCapture.getTracks().forEach((track) => track.stop())
+            throw new Error('No local video track available')
+          }
+          if (!isCallSetupCurrent(options.setupToken, callId)) {
+            videoCapture.getTracks().forEach((track) => track.stop())
+            return
+          }
+
+          capturedVideoTrack.enabled = true
+          localStream.addTrack(capturedVideoTrack as unknown as MediaStreamTrack)
+          try {
+            const videoProducer = await sendTransport.produce({
+              track: capturedVideoTrack as never,
+              stopTracks: false,
+            })
+            if (!isCallSetupCurrent(options.setupToken, callId)) {
+              videoProducer.close()
+              localStream.removeTrack(capturedVideoTrack as unknown as MediaStreamTrack)
+              capturedVideoTrack.stop()
+              return
+            }
+            videoProducerRef.current = videoProducer
+            telemetry?.record('video_producer_ready', { outcome: 'succeeded' })
+            useCallStore.getState().patch({
+              cameraEnabled: true,
+              localStreamUrl: localStream.toURL(),
+            })
+          } catch (error) {
+            try {
+              localStream.removeTrack(capturedVideoTrack as unknown as MediaStreamTrack)
+            } catch {
+              // The call teardown may already have removed the track.
+            }
+            capturedVideoTrack.stop()
+            throw error
+          }
+        } catch (error) {
+          const currentState = useCallStore.getState()
+          if (
+            !isCallSetupCurrent(options.setupToken, callId) ||
+            currentState.callId !== callId ||
+            currentState.phase !== 'active'
+          ) {
+            return
+          }
+          telemetry?.record('video_producer_failed', { outcome: 'failed', error })
+          useCallStore.getState().patch({
+            cameraEnabled: false,
+            localStreamUrl: localStream.toURL(),
+          })
+        }
+      })()
     },
     [
       armRemoteAudioFallback,

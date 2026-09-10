@@ -5,9 +5,13 @@ import { AppState, Platform } from 'react-native'
 import { mediaDevices } from 'react-native-webrtc'
 
 import {
+  ATOMIC_INCOMING_CALL_ACCEPT_ENABLED,
   CALL_JOINED_TIMEOUT_MS,
   CALL_SETUP_CANCELLED_ERROR,
   getOutgoingRingWaitTimeoutMs,
+  INCOMING_ACCEPT_ACK_TIMEOUT_MS,
+  INCOMING_ACCEPT_MAX_ATTEMPTS,
+  INCOMING_ACCEPT_RETRY_DELAY_MS,
   PEER_LEFT_GRACE_MS,
   RECONNECT_RECOVERY_TIMEOUT_MS,
   REMOTE_AUDIO_WAIT_FALLBACK_MS,
@@ -32,6 +36,7 @@ import {
   clearTimeoutRef,
 } from '../lib/call/callRuntimeCleanup'
 import {
+  clearPrewarmedCallSocketCredentials,
   clearWaitRegistry,
   createCallSocket,
   emitAndWaitForEvent,
@@ -55,22 +60,26 @@ import {
   veloraSystemCalls,
   type AudioSessionActivatedEvent,
   type AudioSessionConfiguredEvent,
+  type NativeCallPayload,
 } from '../lib/systemCalls/veloraSystemCalls'
 import { useAuthStore } from '../stores/authStore'
 import { useCallStore } from '../stores/callStore'
 
 import type { CallStateResponse } from '../api/call.api'
+import type { CallLifecycleTerminalState } from '../lib/call/callLifecycle'
 // VIDEO_CALL_1TO1_PROVIDER_PATCH
 import type {
   AudioBitrateProfile,
   CallAnsweredPayload,
   CallEndedPayload,
+  CallJoinedPayload,
   CallSocketReadyPayload,
   CallRejectedPayload,
   CallSocket,
   CallType,
   CallTypeChangedPayload,
   IncomingCallPayload,
+  IncomingCallAcceptancePayload,
   NewProducerPayload,
   PeerLeftPayload,
   ProducerClosedPayload,
@@ -93,6 +102,42 @@ const debugCall = (...args: Parameters<typeof console.warn>) => {
   }
 }
 
+const CALL_ACCOUNT_CHANGED_ERROR = 'call_account_changed'
+
+const terminalLifecycleStateFor = (
+  reason: string,
+  options?: { telemetryError?: unknown; telemetryErrorCode?: string },
+): CallLifecycleTerminalState => {
+  const signal = `${reason} ${options?.telemetryErrorCode ?? ''}`.toLowerCase()
+
+  if (signal.includes('answered_elsewhere')) return 'answered_elsewhere'
+  if (signal.includes('cancel')) return 'cancelled'
+  if (
+    signal.includes('reject') ||
+    signal.includes('declin') ||
+    signal.includes('busy') ||
+    signal.includes('permission_denied')
+  ) {
+    return 'rejected'
+  }
+  if (signal.includes('expire') || signal.includes('no_answer') || signal.includes('timeout')) {
+    return 'expired'
+  }
+  if (
+    options?.telemetryError ||
+    signal.includes('fail') ||
+    signal.includes('error') ||
+    signal.includes('disconnect') ||
+    signal.includes('media_unavailable') ||
+    signal.includes('unauthorized') ||
+    signal.includes('auth_lost')
+  ) {
+    return 'failed'
+  }
+
+  return 'ended'
+}
+
 const CallContext = createContext<UseCallValue>({
   startVoiceCall: async () => {},
   startVideoCall: async () => {},
@@ -104,6 +149,7 @@ const CallContext = createContext<UseCallValue>({
   toggleCamera: async () => {},
   switchCamera: async () => {},
   switchCallType: async () => {},
+  recordCallScreenVisible: () => {},
   dismissCallError: () => {},
 })
 
@@ -114,7 +160,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const { isAuthenticated, isLoading, user } = useAuthStore()
   const currentUserId = user?.id ?? null
-  const username = user?.username ?? null
   const callPhase = useCallStore((state) => state.phase)
   const callId = useCallStore((state) => state.callId)
 
@@ -142,12 +187,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const telemetrySessionRef = useRef<CallTelemetrySession | null>(null)
   const rtcQualityCountersRef = useRef<RtcQualityCounters | null>(null)
   const rtcQualityStreakRef = useRef<RtcQualityStreak>({ degraded: 0, healthy: 0 })
+  const callScreenTelemetryCallIdsRef = useRef<Set<string>>(new Set())
+  const prewarmCredentialOwnerRef = useRef<string | null>(currentUserId)
   const incomingAudioBitrateProfileRef = useRef<AudioBitrateProfile>('normal')
   const incomingAudioBitrateUpdateInFlightRef = useRef(false)
   const incomingAudioBitrateRetryAfterMsRef = useRef(0)
   const audioFlowingRef = useRef(false)
   const audioFlowConfirmationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const callSetupGenerationRef = useRef(0)
+  const incomingAnswerActionRef = useRef<{ callId: string; actionId: string } | null>(null)
   const outgoingStartInFlightRef = useRef(false)
   const teardownInProgressRef = useRef(false)
   const callAnsweredRef = useRef(false)
@@ -221,6 +269,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     },
     [isCallSetupCurrent],
   )
+
+  const isCurrentCallAccount = useCallback(() => {
+    const auth = useAuthStore.getState()
+
+    return Boolean(currentUserId && auth.isAuthenticated && auth.user?.id === currentUserId)
+  }, [currentUserId])
 
   const {
     waitForConfiguredAudioSession,
@@ -362,6 +416,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (!options?.preserveActiveCall) {
         activeCallIdRef.current = null
         callAnsweredRef.current = false
+        incomingAnswerActionRef.current = null
       }
     },
     [
@@ -506,6 +561,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         outcome: 'started',
         ...(options?.telemetryErrorCode ? { errorCode: options.telemetryErrorCode } : {}),
       })
+      const terminalLifecycleState = terminalLifecycleStateFor(reason, options)
+      telemetrySessionRef.current?.recordLifecycle(terminalLifecycleState, {
+        eventType: 'terminal',
+        outcome: terminalLifecycleState === 'failed' ? 'failed' : 'ended',
+        ...(options?.telemetryErrorCode ? { errorCode: options.telemetryErrorCode } : {}),
+      })
       telemetrySessionRef.current?.terminal(
         reason,
         options?.telemetryError ??
@@ -517,12 +578,20 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (acceptingIncomingCallIdRef.current === endingCallId) {
         acceptingIncomingCallIdRef.current = null
       }
+      if (incomingAnswerActionRef.current?.callId === endingCallId) {
+        incomingAnswerActionRef.current = null
+      }
       if (endingCallId) {
         cancelAudioSessionWait(endingCallId)
+        callScreenTelemetryCallIdsRef.current.delete(endingCallId)
       }
       stopTimer()
       if (endingCallId) {
-        veloraSystemCalls.endCall(endingCallId)
+        if (terminalLifecycleState === 'failed') {
+          void veloraSystemCalls.reportCallFailed(endingCallId)
+        } else {
+          void veloraSystemCalls.endCall(endingCallId)
+        }
       }
       disposeMediaRuntime()
       useCallStore.getState().reset()
@@ -536,6 +605,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     },
     [
       cancelAudioSessionWait,
+      callScreenTelemetryCallIdsRef,
       clearSocketDisconnectGraceTimeout,
       disposeMediaRuntime,
       invalidateCallSetup,
@@ -637,6 +707,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const state = useCallStore.getState()
       void teardownOnce(source === 'live' ? 'call_ended' : 'call_ended_replayed', {
         errorMessage: getCallEndedMessage(payload, state),
+        telemetryErrorCode: payload.reason,
       })
     },
     [clearPeerLeftFallback, isCurrentCall, teardownOnce],
@@ -728,6 +799,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     assertCallSetupCurrent,
     clearReconnectTimeout,
     startTimer,
+    markNativeCallActive: (callId) => veloraSystemCalls.setCallActive(callId),
     armReconnectTimeout,
     teardownRecoveryFailure,
     stopTimer,
@@ -773,28 +845,78 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     await teardownOnce('reject_incoming_call')
   }, [ensureCallSocketConnected, isCurrentCall, teardownOnce])
 
+  const emitIncomingAcceptTerminalIntent = useCallback(
+    (socket: CallSocket, callId: string, reason?: string) => {
+      // `leave_call` is only authorized once the accepting transition has
+      // added this callee to the session. Send the terminal reject as well so
+      // the request wins when it races before that mutation; if activation won
+      // first, the leave command ends the now-active call.
+      socket.emit('reject_call', {
+        callId,
+        reason: reason ?? 'cancelled',
+      })
+      socket.emit('leave_call', {
+        callId,
+        ...(reason ? { reason } : {}),
+      })
+    },
+    [],
+  )
+
   const endCall = useCallback(
     async (reason?: string) => {
       const socket = socketRef.current
       const state = useCallStore.getState()
+      const callId = state.callId
 
-      if (!state.callId) {
+      if (!callId) {
         return
       }
 
       useCallStore.getState().patch({ phase: 'ending' })
-
-      if (socket?.connected) {
-        socket.emit('leave_call', {
-          callId: state.callId,
+      const wasAcceptingIncomingCall = acceptingIncomingCallIdRef.current === callId
+      const emitServerEndIntent = (connectedSocket: CallSocket) => {
+        if (wasAcceptingIncomingCall) {
+          emitIncomingAcceptTerminalIntent(connectedSocket, callId, reason)
+          return
+        }
+        connectedSocket.emit('leave_call', {
+          callId,
           ...(reason ? { reason } : {}),
         })
       }
 
+      if (socket?.connected) {
+        emitServerEndIntent(socket)
+      } else if (wasAcceptingIncomingCall) {
+        // A local End must still win if it happens while the cold-path socket
+        // connection is pending. Capture the accepting state before teardown,
+        // then send both terminal intents once the authenticated socket exists.
+        void ensureCallSocketConnected(callId)
+          .then((connectedSocket) => {
+            if (useAuthStore.getState().user?.id !== currentUserId) return
+            emitServerEndIntent(connectedSocket)
+          })
+          .catch(() => undefined)
+      }
+
       await teardownOnce('end_call')
     },
-    [teardownOnce],
+    [currentUserId, emitIncomingAcceptTerminalIntent, ensureCallSocketConnected, teardownOnce],
   )
+
+  const recordCallScreenVisible = useCallback((visibleCallId: string) => {
+    const activeCallId = activeCallIdRef.current ?? useCallStore.getState().callId
+    if (
+      activeCallId !== visibleCallId ||
+      callScreenTelemetryCallIdsRef.current.has(visibleCallId)
+    ) {
+      return
+    }
+
+    callScreenTelemetryCallIdsRef.current.add(visibleCallId)
+    telemetrySessionRef.current?.record('call_screen_visible', { outcome: 'succeeded' })
+  }, [])
 
   const handleIncomingCall = useCallback(
     async (payload: IncomingCallPayload) => {
@@ -852,8 +974,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     [currentUserId, queryClient],
   )
 
-  const prepareIncomingCallFromState = useCallback(
-    (callState: CallStateResponse) => {
+  const prepareIncomingCallFromPayload = useCallback(
+    (callState: CallStateResponse | IncomingCallPayload | NativeCallPayload) => {
       if (!currentUserId) {
         return false
       }
@@ -894,8 +1016,69 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     [currentUserId, queryClient],
   )
 
+  const prepareIncomingCallFromState = useCallback(
+    (callState: CallStateResponse) => prepareIncomingCallFromPayload(callState),
+    [prepareIncomingCallFromPayload],
+  )
+
+  const resumeAcceptedCall = useCallback(
+    async (callState: CallStateResponse) => {
+      if (callState.status !== 'active' || !prepareIncomingCallFromState(callState)) {
+        return false
+      }
+
+      const resumedCallId = callState.callId
+      const telemetry = new CallTelemetrySession('incoming')
+      telemetrySessionRef.current = telemetry
+      telemetry.record('call_recovery_started', { outcome: 'started' })
+      telemetry.recordLifecycle('active', { outcome: 'succeeded' })
+
+      useCallStore.getState().patch({
+        phase: 'reconnecting',
+        reconnectDeadlineMs: Date.now() + RECONNECT_RECOVERY_TIMEOUT_MS,
+      })
+      // A cold-start resume has no prior socket lifecycle to arm recovery for
+      // us. Mark it as a local recovery and give it the same bounded window as
+      // a live reconnect so a lost rejoin acknowledgement cannot leave CallKit
+      // active indefinitely.
+      reconnectModeRef.current = 'local'
+      armReconnectTimeout('native_resume_timeout')
+      router.replace(`/call/${resumedCallId}` as never)
+
+      try {
+        const setupToken = beginCallSetup()
+        await ensureCallSocketConnected(resumedCallId)
+        assertCallSetupCurrent(setupToken, resumedCallId)
+        await waitForConfiguredAudioSession(setupToken, resumedCallId)
+        assertCallSetupCurrent(setupToken, resumedCallId)
+        await recoverActiveCall()
+
+        const resumedState = useCallStore.getState()
+        return resumedState.callId === resumedCallId && resumedState.phase === 'active'
+      } catch (error) {
+        if (isCurrentCall(resumedCallId)) {
+          await teardownRecoveryFailure('native_resume_failed')
+        }
+        return false
+      }
+    },
+    [
+      assertCallSetupCurrent,
+      armReconnectTimeout,
+      beginCallSetup,
+      ensureCallSocketConnected,
+      isCurrentCall,
+      prepareIncomingCallFromState,
+      reconnectModeRef,
+      recoverActiveCall,
+      router,
+      teardownRecoveryFailure,
+      waitForConfiguredAudioSession,
+    ],
+  )
+
   const acceptIncomingCall = useCallback(
-    async (source: 'native' | 'ui' = 'ui') => {
+    async (source: 'native' | 'ui' = 'ui', actionId?: string) => {
       const state = useCallStore.getState()
       let socket = socketRef.current
       const callId = state.callId
@@ -907,15 +1090,51 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (acceptingIncomingCallIdRef.current === callId) {
         return
       }
+
+      const existingAction = incomingAnswerActionRef.current
+      const incomingActionId =
+        actionId ??
+        (existingAction?.callId === callId
+          ? existingAction.actionId
+          : `ui:${Date.now()}:${Math.random().toString(36).slice(2)}`)
+      incomingAnswerActionRef.current = { callId, actionId: incomingActionId }
+      let nativeAnswerCompleted = false
+      const completeNativeAnswer = (success: boolean, reason?: string) => {
+        if (source !== 'native' || nativeAnswerCompleted) return true
+        nativeAnswerCompleted = true
+        return veloraSystemCalls.completePendingAnswer(incomingActionId, success, reason)
+      }
+      const abandonForAccountChange = async () => {
+        completeNativeAnswer(false, 'account_changed')
+        if (isCurrentCall(callId)) {
+          await teardownOnce('accept_incoming_call_account_changed')
+        } else {
+          void veloraSystemCalls.dismissIncomingCall(callId)
+        }
+      }
+      const assertCurrentCallAccount = () => {
+        if (!isCurrentCallAccount()) {
+          throw new Error(CALL_ACCOUNT_CHANGED_ERROR)
+        }
+      }
+
+      if (!isCurrentCallAccount()) {
+        await abandonForAccountChange()
+        return
+      }
+
       acceptingIncomingCallIdRef.current = callId
       const setupToken = beginCallSetup()
 
       const telemetry = new CallTelemetrySession('incoming')
       telemetrySessionRef.current = telemetry
       telemetry.record('call_attempt', { outcome: 'started' })
+      telemetry.recordLifecycle('ringing', { outcome: 'started' })
+      telemetry.record('auth_ready', { outcome: 'succeeded' })
       if (source === 'native') {
         telemetry.record('native_answer_received', { outcome: 'succeeded' })
       }
+      telemetry.recordLifecycle('answer_requested', { outcome: 'started' })
 
       try {
         const nativeAudioState = await veloraSystemCalls.getNativeAudioSessionState()
@@ -934,15 +1153,34 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         telemetry.record('audio_snapshot_loaded', { outcome: 'failed', error })
       }
 
-      if (!isCallSetupCurrent(setupToken, callId)) return
+      try {
+        assertCurrentCallAccount()
+      } catch {
+        await abandonForAccountChange()
+        return
+      }
+
+      if (!isCallSetupCurrent(setupToken, callId)) {
+        completeNativeAnswer(false, 'setup_cancelled')
+        return
+      }
 
       try {
         socket = await ensureCallSocketConnected(callId)
         assertCallSetupCurrent(setupToken, callId)
+        assertCurrentCallAccount()
         telemetry.record('socket_connected', { outcome: 'succeeded' })
       } catch (error) {
-        if (!isCallSetupCurrent(setupToken, callId)) return
+        if (error instanceof Error && error.message === CALL_ACCOUNT_CHANGED_ERROR) {
+          await abandonForAccountChange()
+          return
+        }
+        if (!isCallSetupCurrent(setupToken, callId)) {
+          completeNativeAnswer(false, 'setup_cancelled')
+          return
+        }
         const errorCode = getAcceptIncomingCallFailureCode(error)
+        completeNativeAnswer(false, errorCode)
         telemetry.record('socket_connected', { outcome: 'failed', error })
         telemetry.record('accept_call_failed', { outcome: 'failed', error, errorCode })
         debugCall('[Call] accept_call_failed', JSON.stringify({ callId, errorCode }))
@@ -958,9 +1196,18 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       try {
         hasPermission = await ensureMicPermission()
         assertCallSetupCurrent(setupToken, callId)
+        assertCurrentCallAccount()
       } catch (error) {
-        if (!isCallSetupCurrent(setupToken, callId)) return
+        if (error instanceof Error && error.message === CALL_ACCOUNT_CHANGED_ERROR) {
+          await abandonForAccountChange()
+          return
+        }
+        if (!isCallSetupCurrent(setupToken, callId)) {
+          completeNativeAnswer(false, 'setup_cancelled')
+          return
+        }
         const errorCode = getAcceptIncomingCallFailureCode(error)
+        completeNativeAnswer(false, errorCode)
         telemetry.record('microphone_permission', { outcome: 'failed', error })
         telemetry.record('accept_call_failed', { outcome: 'failed', error, errorCode })
         await teardownOnce('accept_incoming_call_permission_failed', {
@@ -971,6 +1218,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         return
       }
       if (!hasPermission) {
+        completeNativeAnswer(false, 'microphone_permission_denied')
         telemetry.record('microphone_permission', {
           outcome: 'failed',
           error: new Error('microphone permission denied'),
@@ -998,11 +1246,20 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         try {
           cameraGranted = await ensureCameraPermission()
           assertCallSetupCurrent(setupToken, callId)
+          assertCurrentCallAccount()
         } catch (error) {
-          if (!isCallSetupCurrent(setupToken, callId)) return
+          if (error instanceof Error && error.message === CALL_ACCOUNT_CHANGED_ERROR) {
+            await abandonForAccountChange()
+            return
+          }
+          if (!isCallSetupCurrent(setupToken, callId)) {
+            completeNativeAnswer(false, 'setup_cancelled')
+            return
+          }
           telemetry.record('camera_permission', { outcome: 'failed', error })
         }
         if (!cameraGranted) {
+          completeNativeAnswer(false, 'camera_permission_denied')
           socket.emit('reject_call', { callId, reason: 'camera_permission_denied' })
           await teardownOnce('accept_video_call_camera_permission_denied', {
             errorMessage: 'Velora needs camera access for video calls',
@@ -1013,39 +1270,155 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
 
       let joinedCall = false
+      let acceptRequestSent = false
 
       try {
-        const joined = await emitAndWaitForEvent<'join_call', 'call_joined'>(
-          socket,
-          'join_call',
-          { callId },
-          {
-            event: 'call_joined',
-            timeoutMs: CALL_JOINED_TIMEOUT_MS,
-            registry: waitRegistryRef.current,
-            filter: (payload) => payload.callId === callId,
-          },
-        )
+        telemetry.recordLifecycle('server_accepting', { outcome: 'started' })
+        let acceptance: IncomingCallAcceptancePayload | null = null
+        if (ATOMIC_INCOMING_CALL_ACCEPT_ENABLED) {
+          for (let attempt = 1; attempt <= INCOMING_ACCEPT_MAX_ATTEMPTS; attempt += 1) {
+            try {
+              acceptRequestSent = true
+              acceptance = await emitAndWaitForEvent<
+                'accept_incoming_call',
+                'incoming_call_acceptance'
+              >(
+                socket,
+                'accept_incoming_call',
+                { callId, actionId: incomingActionId },
+                {
+                  event: 'incoming_call_acceptance',
+                  timeoutMs: INCOMING_ACCEPT_ACK_TIMEOUT_MS,
+                  registry: waitRegistryRef.current,
+                  filter: (payload) => payload.callId === callId,
+                },
+              )
+              assertCallSetupCurrent(setupToken, callId)
+              assertCurrentCallAccount()
+              break
+            } catch (error) {
+              if (isCallSetupCancelledError(error)) throw error
+
+              const errorCode = getAcceptIncomingCallFailureCode(error)
+              const canRetryAck =
+                attempt < INCOMING_ACCEPT_MAX_ATTEMPTS &&
+                (errorCode === 'accept_timeout' || errorCode === 'network_unavailable')
+              telemetry.record('server_accept_ack_attempt_failed', {
+                outcome: 'failed',
+                error,
+                errorCode,
+              })
+              if (!canRetryAck) throw error
+
+              telemetry.record('server_accept_ack_retry', {
+                outcome: 'started',
+                errorCode,
+              })
+              await new Promise<void>((resolve) => {
+                setTimeout(resolve, INCOMING_ACCEPT_RETRY_DELAY_MS)
+              })
+              assertCallSetupCurrent(setupToken, callId)
+              assertCurrentCallAccount()
+            }
+          }
+        } else {
+          // Compatibility rollback is deliberately selected before any atomic
+          // request is sent. Never fall back after an uncertain atomic ACK:
+          // doing so would create a second answer contender for one tap.
+          telemetry.record('legacy_accept_rollback_mode', { outcome: 'started' })
+          acceptRequestSent = true
+          const legacyJoined = await emitAndWaitForEvent<'join_call', 'call_joined'>(
+            socket,
+            'join_call',
+            { callId },
+            {
+              event: 'call_joined',
+              timeoutMs: CALL_JOINED_TIMEOUT_MS,
+              registry: waitRegistryRef.current,
+              filter: (payload) => payload.callId === callId && payload.role === 'guest',
+            },
+          )
+          assertCallSetupCurrent(setupToken, callId)
+          assertCurrentCallAccount()
+          await emitAndWaitForEvent<'answer_call', 'call_answered'>(
+            socket,
+            'answer_call',
+            { callId, actionId: incomingActionId },
+            {
+              event: 'call_answered',
+              timeoutMs: CALL_JOINED_TIMEOUT_MS,
+              registry: waitRegistryRef.current,
+              filter: (payload) => payload.callId === callId,
+            },
+          )
+          assertCallSetupCurrent(setupToken, callId)
+          assertCurrentCallAccount()
+          acceptance = {
+            callId: legacyJoined.callId,
+            outcome: 'accepted',
+            role: 'guest',
+            session: legacyJoined.session,
+            rtpCapabilities: legacyJoined.rtpCapabilities,
+            ...(legacyJoined.activeProducers
+              ? { activeProducers: legacyJoined.activeProducers }
+              : {}),
+            ...(legacyJoined.noAnswerTimeoutMs !== undefined
+              ? { noAnswerTimeoutMs: legacyJoined.noAnswerTimeoutMs }
+              : {}),
+            telemetryToken: legacyJoined.telemetryToken,
+          }
+        }
+
+        if (!acceptance) {
+          throw new Error('incoming_call_acceptance_ack_missing')
+        }
+
+        if (
+          acceptance.outcome === 'answered_elsewhere' ||
+          acceptance.outcome === 'terminal' ||
+          acceptance.outcome === 'expired' ||
+          acceptance.outcome === 'unauthorized' ||
+          acceptance.outcome === 'busy' ||
+          acceptance.outcome === 'media_unavailable'
+        ) {
+          completeNativeAnswer(false, acceptance.outcome)
+          await teardownOnce('accept_incoming_call_not_available', {
+            telemetryErrorCode: acceptance.outcome,
+          })
+          return
+        }
+
+        if (
+          !acceptance.session ||
+          !acceptance.role ||
+          !acceptance.rtpCapabilities ||
+          !acceptance.telemetryToken
+        ) {
+          throw new Error('incoming_call_acceptance_payload_incomplete')
+        }
+
+        const joined: CallJoinedPayload = {
+          callId: acceptance.callId,
+          role: acceptance.role,
+          session: acceptance.session,
+          rtpCapabilities: acceptance.rtpCapabilities,
+          telemetryToken: acceptance.telemetryToken,
+          ...(acceptance.activeProducers ? { activeProducers: acceptance.activeProducers } : {}),
+          ...(acceptance.noAnswerTimeoutMs !== undefined
+            ? { noAnswerTimeoutMs: acceptance.noAnswerTimeoutMs }
+            : {}),
+        }
 
         joinedCall = true
         telemetry.attachCall(joined.telemetryToken)
+        telemetry.record('server_accept_ack', { outcome: 'succeeded' })
         telemetry.record('call_joined', { outcome: 'succeeded' })
         telemetry.record('accept_call_started', { outcome: 'started' })
         debugCall('[Call] accept_call_started', JSON.stringify({ callId, source }))
 
-        await emitAndWaitForEvent<'answer_call', 'call_answered'>(
-          socket,
-          'answer_call',
-          { callId },
-          {
-            event: 'call_answered',
-            timeoutMs: CALL_JOINED_TIMEOUT_MS,
-            registry: waitRegistryRef.current,
-            filter: (payload) => payload.callId === callId,
-          },
-        )
         callAnsweredRef.current = true
         telemetry.record('accept_call_succeeded', { outcome: 'succeeded' })
+        telemetry.recordLifecycle('active', { outcome: 'succeeded' })
         debugCall('[Call] accept_call_succeeded', JSON.stringify({ callId, source }))
 
         useCallStore.getState().patch({
@@ -1058,6 +1431,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         })
         router.push(`/call/${callId}` as never)
 
+        if (!completeNativeAnswer(true)) {
+          throw new Error('native_answer_action_unavailable')
+        }
+        if (source === 'native') {
+          telemetry.record('callkit_fulfilled', { outcome: 'succeeded' })
+        }
+
         debugCall('[Call] Waiting for configured native audio session...')
         if (
           veloraSystemCalls.isIosSimulator &&
@@ -1067,6 +1447,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
         const audioSessionConfiguration = await waitForConfiguredAudioSession(setupToken, callId)
         assertCallSetupCurrent(setupToken, callId)
+        assertCurrentCallAccount()
         const audioRoute = toAudioRouteTelemetry(audioSessionConfiguration)
         telemetry.record('native_audio_configured', {
           outcome: 'succeeded',
@@ -1076,6 +1457,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         telemetry.record('media_setup_started', { outcome: 'started' })
         await postAnswerSetup(joined, { setupToken })
         assertCallSetupCurrent(setupToken, callId)
+        assertCurrentCallAccount()
         if (state.callType === 'VIDEO') {
           enableDefaultVideoSpeaker(audioSessionConfiguration)
         }
@@ -1084,11 +1466,17 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
         telemetry.record('control_plane_active', { outcome: 'succeeded' })
       } catch (error) {
+        if (error instanceof Error && error.message === CALL_ACCOUNT_CHANGED_ERROR) {
+          await abandonForAccountChange()
+          return
+        }
         if (isCallSetupCancelledError(error)) {
+          completeNativeAnswer(false, 'setup_cancelled')
           return
         }
 
         const errorCode = getAcceptIncomingCallFailureCode(error)
+        completeNativeAnswer(false, errorCode)
         debugCall(
           '[Call] accept_call_failed',
           JSON.stringify({
@@ -1102,6 +1490,24 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             callId,
             reason: getRemoteSetupFailureReason(errorCode),
           })
+        } else if (acceptRequestSent) {
+          // A timeout says only that this client did not observe the ACK; the
+          // server may already have activated the exact action id. End both
+          // possible server states rather than leaving a connected ghost call.
+          const endReason = getRemoteSetupFailureReason(errorCode)
+          const abortUncertainAccept = (connectedSocket: CallSocket) => {
+            emitIncomingAcceptTerminalIntent(connectedSocket, callId, endReason)
+          }
+          if (socket?.connected) {
+            abortUncertainAccept(socket)
+          } else {
+            void ensureCallSocketConnected(callId)
+              .then((connectedSocket) => {
+                if (useAuthStore.getState().user?.id !== currentUserId) return
+                abortUncertainAccept(connectedSocket)
+              })
+              .catch(() => undefined)
+          }
         }
         telemetry.record('setup_failed', { outcome: 'failed', error, errorCode })
         telemetry.record('accept_call_failed', { outcome: 'failed', error, errorCode })
@@ -1115,15 +1521,19 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     [
       assertCallSetupCurrent,
       beginCallSetup,
+      currentUserId,
       ensureMicPermission,
       ensureCameraPermission,
       ensureCallSocketConnected,
       enableDefaultVideoSpeaker,
+      emitIncomingAcceptTerminalIntent,
       postAnswerSetup,
       router,
       teardownOnce,
       waitForConfiguredAudioSession,
       isCallSetupCurrent,
+      isCurrentCall,
+      isCurrentCallAccount,
     ],
   )
 
@@ -1151,6 +1561,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const telemetry = new CallTelemetrySession('outgoing')
       telemetrySessionRef.current = telemetry
       telemetry.record('call_attempt', { outcome: 'started' })
+      telemetry.recordLifecycle('ringing', { outcome: 'started' })
 
       try {
         const micGranted = await ensureMicPermission()
@@ -1218,6 +1629,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           conversationId: input.conversationId,
           peerName: input.peerName ?? 'Unknown',
           callType,
+          accountId: currentUserId,
         })
         useCallStore.getState().patch({
           phase: 'outgoing_ringing',
@@ -1271,6 +1683,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         if (answerOutcome !== 'answered') return
 
         callAnsweredRef.current = true
+        telemetry.record('call_answered_ack', { outcome: 'succeeded' })
+        telemetry.recordLifecycle('answer_requested', { outcome: 'succeeded' })
+        telemetry.recordLifecycle('server_accepting', { outcome: 'succeeded' })
+        telemetry.recordLifecycle('active', { outcome: 'succeeded' })
         useCallStore.getState().patch({ phase: 'connecting', reconnectDeadlineMs: null })
         stopRingingPreview()
 
@@ -1312,7 +1728,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
         telemetry.record('setup_failed', { outcome: 'failed', error })
         if (!activeCallId) {
-          telemetry.terminal('start_call_failed', error)
+          const errorCode = getAcceptIncomingCallFailureCode(error)
+          telemetry.recordLifecycle('failed', {
+            eventType: 'terminal',
+            outcome: 'failed',
+            error,
+            errorCode,
+          })
+          telemetry.terminal('start_call_failed', error, errorCode)
           telemetrySessionRef.current = null
           useCallStore.getState().patch({ phase: 'idle' })
           presentError(
@@ -1357,7 +1780,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     isLoading,
     isAuthenticated,
     currentUserId,
-    username,
     processingNativeActionIdsRef,
     completedNativeActionIdsRef,
     acceptingIncomingCallIdRef,
@@ -1367,6 +1789,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     isCurrentCall,
     teardownOnce,
     prepareIncomingCallFromState,
+    prepareIncomingCallFromPayload,
+    resumeAcceptedCall,
     acceptIncomingCall,
     endCall,
     ensureCallSocketConnected,
@@ -1546,8 +1970,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (
         previousState !== 'active' &&
         cameraPausedByBackgroundRef.current &&
-        callState.callType === 'VIDEO' &&
-        callState.cameraEnabled
+        callState.callType === 'VIDEO'
       ) {
         if (localVideoTrack) {
           localVideoTrack.enabled = true
@@ -1560,11 +1983,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             })
             .catch(() => {
               const currentState = useCallStore.getState()
-              if (
-                currentState.phase === 'active' &&
-                currentState.callType === 'VIDEO' &&
-                currentState.cameraEnabled
-              ) {
+              if (currentState.phase === 'active' && currentState.callType === 'VIDEO') {
                 presentError('Unable to restore video')
               }
             })
@@ -1633,12 +2052,34 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   }, [callId, callPhase, sampleRtcQuality])
 
   useEffect(() => {
-    if (isLoading || !isAuthenticated || !currentUserId || !username?.trim()) {
+    if (isLoading || !isAuthenticated || !currentUserId) {
       return
     }
 
     processPendingNativeCallAction('auth_ready')
-  }, [currentUserId, isAuthenticated, isLoading, processPendingNativeCallAction, username])
+  }, [currentUserId, isAuthenticated, isLoading, processPendingNativeCallAction])
+
+  useEffect(() => {
+    const previousUserId = prewarmCredentialOwnerRef.current
+    if (previousUserId && previousUserId !== currentUserId) {
+      clearPrewarmedCallSocketCredentials(previousUserId)
+      // An authenticated account switch does not pass through the signed-out
+      // branch below. Tear down every old-account resource before a new
+      // socket can be authenticated, otherwise a stale CallKit/media action
+      // could continue using account A after account B is visible.
+      invalidateCallSetup()
+      clearWaitRegistry(waitRegistryRef.current)
+      socketRef.current?.removeAllListeners()
+      socketRef.current?.disconnect()
+      socketRef.current = null
+      callSocketPromisesRef.current.clear()
+      socketConnectPromiseRef.current = null
+      authRestorePromiseRef.current = null
+      callSocketAuthenticatedRef.current = false
+      void teardownOnce('auth_account_changed')
+    }
+    prewarmCredentialOwnerRef.current = currentUserId
+  }, [currentUserId, invalidateCallSetup, teardownOnce])
 
   useEffect(() => {
     if (isLoading) {
@@ -1646,7 +2087,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (!isAuthenticated || !currentUserId) {
-      const pendingNativeAnswer = veloraSystemCalls.getPendingCallAction()?.action === 'answer'
+      clearPrewarmedCallSocketCredentials()
+      const pendingNativeAction = veloraSystemCalls.getPendingCallAction()?.action
+      const pendingNativeAnswer =
+        pendingNativeAction === 'answer' || pendingNativeAction === 'resume'
       const authHydrationError = useAuthStore.getState().authHydrationError
       if (pendingNativeAnswer && authHydrationError === 'network') {
         return
@@ -1773,6 +2217,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       void teardownOnce('call_rejected', {
         errorMessage: getCallRejectedMessage(payload),
+        telemetryErrorCode: payload.reason,
       })
     }
 
@@ -1863,7 +2308,47 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
 
     const handleCallAnswered = (payload: CallAnsweredPayload) => {
-      if (isCurrentCall(payload.callId)) callAnsweredRef.current = true
+      if (!isCurrentCall(payload.callId)) return
+
+      const state = useCallStore.getState()
+      const localIncomingAction = incomingAnswerActionRef.current
+      const otherDeviceWon = Boolean(
+        localIncomingAction &&
+        acceptingIncomingCallIdRef.current === payload.callId &&
+        localIncomingAction.callId === payload.callId &&
+        payload.answerActionId &&
+        localIncomingAction.actionId !== payload.answerActionId,
+      )
+
+      // The atomic accept ACK can be delayed or lost. If another device that
+      // shares this account won, do not wait for the local retry timeout: fail
+      // the pending CallKit action and cancel this setup generation now. Older
+      // servers omit answerActionId, so they retain the safe ACK/retry path.
+      if (otherDeviceWon && localIncomingAction) {
+        veloraSystemCalls.completePendingAnswer(
+          localIncomingAction.actionId,
+          false,
+          'answered_elsewhere',
+        )
+        void teardownOnce('answered_elsewhere', {
+          telemetryErrorCode: 'answered_elsewhere',
+        })
+        return
+      }
+
+      // A second device under the same recipient account can answer before
+      // this device has tapped Answer. That device is not in the call room,
+      // so the gateway also sends this event to the recipient's user room.
+      // Resolve this incoming UI immediately instead of waiting for APNs.
+      if (state.phase === 'incoming_ringing' && !acceptingIncomingCallIdRef.current) {
+        void veloraSystemCalls.dismissIncomingCall(payload.callId)
+        void teardownOnce('answered_elsewhere', {
+          telemetryErrorCode: 'answered_elsewhere',
+        })
+        return
+      }
+
+      callAnsweredRef.current = true
     }
 
     socket.on('connect', handleConnect)
@@ -1967,6 +2452,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       toggleCamera,
       switchCamera,
       switchCallType,
+      recordCallScreenVisible,
       dismissCallError,
     }),
     [
@@ -1981,6 +2467,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       toggleCamera,
       switchCamera,
       switchCallType,
+      recordCallScreenVisible,
     ],
   )
 

@@ -26,6 +26,19 @@ interface WaitForEventOptions<TPayload> {
 }
 
 const DEFAULT_SOCKET_PATH = '/call/socket.io'
+const PREWARMED_SOCKET_TOKEN_TTL_MS = 15_000
+
+let prewarmedSocketToken: {
+  userId: string
+  token: string
+  expiresAt: number
+} | null = null
+let prewarmedSocketTokenPromise: Promise<string> | null = null
+let prewarmedSocketTokenUserId: string | null = null
+// Credentials only live in memory, but a logout or account switch can race the
+// request that fetches them. The generation prevents a late response from
+// putting a credential from the old session back into the prewarm cache.
+let prewarmedSocketTokenGeneration = 0
 
 export const createCallSocket = () => {
   const url = process.env.EXPO_PUBLIC_CALL_WS_URL?.trim()
@@ -47,9 +60,97 @@ export const createCallSocket = () => {
   }) as CallSocket
 }
 
-export const authenticateCallSocket = async (socket: CallSocket) => {
+export const prewarmCallSocketCredentials = (userId: string) => {
+  const now = Date.now()
+  if (prewarmedSocketToken?.userId === userId && prewarmedSocketToken.expiresAt > now) {
+    return Promise.resolve(prewarmedSocketToken.token)
+  }
+
+  if (prewarmedSocketTokenPromise && prewarmedSocketTokenUserId === userId) {
+    return prewarmedSocketTokenPromise
+  }
+
+  if (prewarmedSocketToken?.userId !== userId) {
+    prewarmedSocketToken = null
+  }
+
+  const generation = ++prewarmedSocketTokenGeneration
+  prewarmedSocketTokenUserId = userId
+  const tokenPromise = authApi
+    .getSocketToken()
+    .then(({ accessToken }) => {
+      if (!accessToken.trim()) throw new Error('socket_auth_failed')
+      if (prewarmedSocketTokenGeneration === generation && prewarmedSocketTokenUserId === userId) {
+        prewarmedSocketToken = {
+          userId,
+          token: accessToken,
+          expiresAt: Date.now() + PREWARMED_SOCKET_TOKEN_TTL_MS,
+        }
+      }
+      return accessToken
+    })
+    .finally(() => {
+      if (prewarmedSocketTokenPromise === tokenPromise) {
+        prewarmedSocketTokenPromise = null
+        prewarmedSocketTokenUserId = null
+      }
+    })
+
+  prewarmedSocketTokenPromise = tokenPromise
+  return tokenPromise
+}
+
+export const clearPrewarmedCallSocketCredentials = (userId?: string) => {
+  const clearsCachedToken = !userId || prewarmedSocketToken?.userId === userId
+  const clearsInFlightRequest = !userId || prewarmedSocketTokenUserId === userId
+  if (clearsCachedToken || clearsInFlightRequest) {
+    prewarmedSocketTokenGeneration += 1
+  }
+  if (!userId || prewarmedSocketToken?.userId === userId) {
+    prewarmedSocketToken = null
+  }
+  if (!userId || prewarmedSocketTokenUserId === userId) {
+    prewarmedSocketTokenPromise = null
+    prewarmedSocketTokenUserId = null
+  }
+}
+
+const takePrewarmedCallSocketToken = (userId?: string | null) => {
+  if (!userId || prewarmedSocketToken?.userId !== userId) return null
+  if (prewarmedSocketToken.expiresAt <= Date.now()) {
+    prewarmedSocketToken = null
+    return null
+  }
+
+  const token = prewarmedSocketToken.token
+  prewarmedSocketToken = null
+  return token
+}
+
+const takeOrAwaitPrewarmedCallSocketToken = async (userId?: string | null) => {
+  const cachedToken = takePrewarmedCallSocketToken(userId)
+  if (
+    cachedToken ||
+    !userId ||
+    prewarmedSocketTokenUserId !== userId ||
+    !prewarmedSocketTokenPromise
+  ) {
+    return cachedToken
+  }
+
   try {
-    const { accessToken } = await authApi.getSocketToken()
+    await prewarmedSocketTokenPromise
+    return takePrewarmedCallSocketToken(userId)
+  } catch {
+    return null
+  }
+}
+
+export const authenticateCallSocket = async (socket: CallSocket, userId?: string | null) => {
+  try {
+    const accessToken =
+      (await takeOrAwaitPrewarmedCallSocketToken(userId)) ??
+      (await authApi.getSocketToken()).accessToken
     if (!accessToken.trim()) {
       throw new Error('socket_auth_failed')
     }

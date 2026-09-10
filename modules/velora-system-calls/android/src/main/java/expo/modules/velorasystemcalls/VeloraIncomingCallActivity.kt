@@ -128,6 +128,18 @@ class VeloraIncomingCallActivity : Activity() {
     val callId = payload["callId"] as? String ?: return
     VeloraCallNotifications.cancelIncomingCallExpiration(this, callId)
     VeloraSystemCallStore.storePendingAction(this, action, payload)
+    if (action == "answer") {
+      val pendingAnswer = VeloraSystemCallStore.pendingAnswerAction(this, callId)
+      val actionId = pendingAnswer?.get("actionId") as? String
+      if (!actionId.isNullOrBlank()) {
+        VeloraCallNotifications.schedulePendingAnswerWatchdog(
+          this,
+          callId,
+          actionId,
+          pendingAnswer["createdAt"] as? String,
+        )
+      }
+    }
     VeloraCallNotifications.dismissIncomingPresentation(this, callId)
     VeloraCallNotifications.launchMainActivity(this)
     finish()

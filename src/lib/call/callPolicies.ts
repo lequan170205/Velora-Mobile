@@ -263,6 +263,9 @@ export const toNativeIncomingCallPayload = (
     initiatorId: payload.initiatorId,
     targetUserId: payload.targetUserId,
     recipientUserId: payload.recipientUserId,
+    // Persist the call owner with the native presentation. The native action
+    // may be emitted after auth has switched to another account.
+    accountId: payload.recipientUserId,
     callType: payload.callType,
     initiatorDisplayName: payload.initiatorDisplayName,
     ringTimeoutMs: payload.ringTimeoutMs,

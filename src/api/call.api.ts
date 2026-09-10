@@ -9,7 +9,7 @@ export type CallStateResponse = {
   targetUserId: string
   recipientUserId: string
   callType: CallType
-  status: 'initiated' | 'ringing' | 'active' | 'cancelled' | 'ended' | 'rejected'
+  status: 'initiated' | 'ringing' | 'accepting' | 'active' | 'cancelled' | 'ended' | 'rejected'
   initiatorDisplayName: string
   initiatorAvatarUrl?: string
   ringTimeoutMs: number

@@ -1,13 +1,14 @@
 import { useCallback } from 'react'
 
 import { getCallState } from '../../api/call.api'
+import { useAuthStore } from '../../stores/authStore'
 import { useCallStore } from '../../stores/callStore'
 import { veloraSystemCalls } from '../systemCalls/veloraSystemCalls'
 
 import { isBusyPhase, isRetryableCallStateError } from './callPolicies'
 
 import type { CallSocket } from '../../types/call.types'
-import type { NativeCallAction } from '../systemCalls/veloraSystemCalls'
+import type { NativeCallAction, NativeCallPayload } from '../systemCalls/veloraSystemCalls'
 
 type MutableRef<T> = { current: T }
 
@@ -15,7 +16,6 @@ type NativeCallActionsOptions = {
   isLoading: boolean
   isAuthenticated: boolean
   currentUserId: string | null
-  username: string | null
   processingNativeActionIdsRef: MutableRef<Set<string>>
   completedNativeActionIdsRef: MutableRef<Set<string>>
   acceptingIncomingCallIdRef: MutableRef<string | null>
@@ -25,7 +25,9 @@ type NativeCallActionsOptions = {
   isCurrentCall: (callId: string) => boolean
   teardownOnce: (reason: string) => Promise<void>
   prepareIncomingCallFromState: (callState: Awaited<ReturnType<typeof getCallState>>) => boolean
-  acceptIncomingCall: (source?: 'native' | 'ui') => Promise<void>
+  prepareIncomingCallFromPayload: (payload: NativeCallPayload) => boolean
+  resumeAcceptedCall: (callState: Awaited<ReturnType<typeof getCallState>>) => Promise<boolean>
+  acceptIncomingCall: (source?: 'native' | 'ui', actionId?: string) => Promise<void>
   endCall: (reason?: string) => Promise<void>
   ensureCallSocketConnected: (callId: string) => Promise<CallSocket>
   rejectIncomingCall: () => Promise<void>
@@ -39,7 +41,6 @@ export const useNativeCallActions = ({
   isLoading,
   isAuthenticated,
   currentUserId,
-  username,
   processingNativeActionIdsRef,
   completedNativeActionIdsRef,
   acceptingIncomingCallIdRef,
@@ -49,6 +50,8 @@ export const useNativeCallActions = ({
   isCurrentCall,
   teardownOnce,
   prepareIncomingCallFromState,
+  prepareIncomingCallFromPayload,
+  resumeAcceptedCall,
   acceptIncomingCall,
   endCall,
   ensureCallSocketConnected,
@@ -79,13 +82,159 @@ export const useNativeCallActions = ({
         return
       }
 
-      if (isLoading || !isAuthenticated || !currentUserId || !username?.trim()) return
+      // A native terminal update is cleanup-only. It must win even while the
+      // JS app is cold-starting or authentication is still hydrating; waiting
+      // for credentials here can leave an obsolete CallKit surface visible.
+      if (action.action === 'remote_end') {
+        processingNativeActionIdsRef.current.add(action.actionId)
+        try {
+          const liveUserId = useAuthStore.getState().user?.id
+          const belongsToCurrentAccount =
+            !action.accountId || !liveUserId || action.accountId === liveUserId
+
+          // A journaled terminal action from another signed-in account may
+          // dismiss its own stale native UI, but must never tear down an
+          // unrelated in-app call for the current account.
+          veloraSystemCalls.dismissIncomingCall(action.callId)
+          if (belongsToCurrentAccount && isCurrentCall(action.callId)) {
+            await teardownOnce('native_remote_end')
+          }
+          completeNativeCallAction(action.actionId)
+        } finally {
+          processingNativeActionIdsRef.current.delete(action.actionId)
+        }
+        return
+      }
+
+      if (isLoading || !isAuthenticated || !currentUserId) return
 
       try {
         processingNativeActionIdsRef.current.add(action.actionId)
 
-        if (action.action === 'remote_end') {
-          if (isCurrentCall(action.callId)) await teardownOnce('native_remote_end')
+        // `currentUserId` belongs to the render that started this async action.
+        // Re-read auth after network boundaries so an account switch cannot let
+        // a stale native action prepare media or authenticate a call socket.
+        const isActionAccountCurrent = () => {
+          const liveAuth = useAuthStore.getState()
+          const liveUserId = liveAuth.user?.id
+
+          return Boolean(
+            liveAuth.isAuthenticated &&
+            liveUserId &&
+            liveUserId === currentUserId &&
+            (!action.accountId || action.accountId === liveUserId),
+          )
+        }
+        const abandonActionForAccountChange = async () => {
+          if (action.action === 'answer') {
+            veloraSystemCalls.completePendingAnswer(action.actionId, false, 'account_changed')
+          }
+          veloraSystemCalls.dismissIncomingCall(action.callId)
+          if (isCurrentCall(action.callId)) {
+            await teardownOnce('native_action_account_changed')
+          }
+          completeNativeCallAction(action.actionId)
+        }
+
+        if (action.accountId && action.accountId !== currentUserId) {
+          await abandonActionForAccountChange()
+          return
+        }
+
+        if (!isActionAccountCurrent()) {
+          await abandonActionForAccountChange()
+          return
+        }
+
+        const hasConflictingCall = () => {
+          const activeState = useCallStore.getState()
+          return (
+            (outgoingStartInFlightRef.current || isBusyPhase(activeState.phase)) &&
+            activeState.callId !== action.callId
+          )
+        }
+
+        if (action.action === 'resume') {
+          if (hasConflictingCall()) {
+            veloraSystemCalls.dismissIncomingCall(action.callId)
+            completeNativeCallAction(action.actionId)
+            return
+          }
+
+          let callState: Awaited<ReturnType<typeof getCallState>>
+          try {
+            callState = await getCallState(action.callId)
+          } catch (error) {
+            if (isRetryableCallStateError(error)) {
+              clearNativeActionRetryTimeout()
+              nativeActionRetryTimeoutRef.current = setTimeout(() => {
+                nativeActionRetryTimeoutRef.current = null
+                const pendingAction = veloraSystemCalls.getPendingCallAction()
+                if (pendingAction?.actionId === action.actionId) {
+                  void processNativeCallAction(pendingAction)
+                }
+              }, 1500)
+              return
+            }
+
+            veloraSystemCalls.dismissIncomingCall(action.callId)
+            completeNativeCallAction(action.actionId)
+            return
+          }
+
+          if (!isActionAccountCurrent()) {
+            await abandonActionForAccountChange()
+            return
+          }
+
+          if (callState.status !== 'active' || !prepareIncomingCallFromState(callState)) {
+            veloraSystemCalls.dismissIncomingCall(action.callId)
+            completeNativeCallAction(action.actionId)
+            return
+          }
+
+          const resumed = await resumeAcceptedCall(callState)
+          if (!isActionAccountCurrent()) {
+            await abandonActionForAccountChange()
+            return
+          }
+          if (resumed) {
+            completeNativeCallAction(action.actionId)
+          }
+          return
+        }
+
+        if (hasConflictingCall()) {
+          if (action.action === 'answer') {
+            veloraSystemCalls.completePendingAnswer(action.actionId, false, 'busy')
+          }
+          veloraSystemCalls.dismissIncomingCall(action.callId)
+          completeNativeCallAction(action.actionId)
+          return
+        }
+
+        // The PushKit/CallKit payload already carries the signed call identity.
+        // Answer through the atomic socket transition first; a REST state read
+        // here adds a full cold-start network round trip and races terminal
+        // updates that the server transition already resolves deterministically.
+        if (action.action === 'answer') {
+          if (acceptingIncomingCallIdRef.current === action.callId) {
+            veloraSystemCalls.completePendingAnswer(action.actionId, false, 'answer_in_progress')
+            completeNativeCallAction(action.actionId)
+            return
+          }
+
+          if (!isActionAccountCurrent()) {
+            await abandonActionForAccountChange()
+            return
+          }
+
+          if (prepareIncomingCallFromPayload(action)) {
+            await acceptIncomingCall('native', action.actionId)
+          } else {
+            veloraSystemCalls.completePendingAnswer(action.actionId, false, 'unauthenticated')
+            veloraSystemCalls.dismissIncomingCall(action.callId)
+          }
           completeNativeCallAction(action.actionId)
           return
         }
@@ -111,6 +260,11 @@ export const useNativeCallActions = ({
           return
         }
 
+        if (!isActionAccountCurrent()) {
+          await abandonActionForAccountChange()
+          return
+        }
+
         if (
           callState.status === 'ended' ||
           callState.status === 'cancelled' ||
@@ -125,42 +279,16 @@ export const useNativeCallActions = ({
           return
         }
 
-        const hasConflictingCall = () => {
-          const activeState = useCallStore.getState()
-          return (
-            (outgoingStartInFlightRef.current || isBusyPhase(activeState.phase)) &&
-            activeState.callId !== action.callId
-          )
-        }
-        if (hasConflictingCall()) {
-          veloraSystemCalls.dismissIncomingCall(action.callId)
-          completeNativeCallAction(action.actionId)
-          return
-        }
-
-        if (action.action === 'answer') {
-          if (callState.status !== 'initiated' && callState.status !== 'ringing') {
-            veloraSystemCalls.dismissIncomingCall(action.callId)
-            completeNativeCallAction(action.actionId)
-            return
-          }
-
-          if (acceptingIncomingCallIdRef.current === action.callId) {
-            completeNativeCallAction(action.actionId)
-            return
-          }
-
-          if (prepareIncomingCallFromState(callState)) await acceptIncomingCall('native')
-          completeNativeCallAction(action.actionId)
-          return
-        }
-
         if (action.action === 'end') {
           const state = useCallStore.getState()
           if (state.callId === action.callId && isBusyPhase(state.phase)) {
             await endCall('ended')
           } else if (callState.status === 'active') {
             const socket = await ensureCallSocketConnected(action.callId)
+            if (!isActionAccountCurrent()) {
+              await abandonActionForAccountChange()
+              return
+            }
             if (hasConflictingCall()) {
               veloraSystemCalls.dismissIncomingCall(action.callId)
               completeNativeCallAction(action.actionId)
@@ -192,6 +320,10 @@ export const useNativeCallActions = ({
             error: error instanceof Error ? error.message : 'unknown_error',
           }),
         )
+        if (action.action === 'answer') {
+          veloraSystemCalls.completePendingAnswer(action.actionId, false, 'native_answer_failed')
+          completeNativeCallAction(action.actionId)
+        }
       } finally {
         processingNativeActionIdsRef.current.delete(action.actionId)
       }
@@ -210,11 +342,12 @@ export const useNativeCallActions = ({
       isLoading,
       nativeActionRetryTimeoutRef,
       outgoingStartInFlightRef,
+      prepareIncomingCallFromPayload,
       prepareIncomingCallFromState,
       processingNativeActionIdsRef,
       rejectIncomingCall,
+      resumeAcceptedCall,
       teardownOnce,
-      username,
     ],
   )
 

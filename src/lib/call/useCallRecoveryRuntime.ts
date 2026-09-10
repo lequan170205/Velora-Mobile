@@ -63,6 +63,7 @@ type RecoveryRuntimeOptions = {
   assertCallSetupCurrent: (setupToken: number, callId: string) => void
   clearReconnectTimeout: () => void
   startTimer: (initialDurationSec?: number) => void
+  markNativeCallActive: (callId: string) => boolean
   armReconnectTimeout: (reason: string, timeoutMs?: number) => void
   teardownRecoveryFailure: (reason: string) => Promise<void>
   stopTimer: (options?: { resetDuration?: boolean }) => void
@@ -99,6 +100,7 @@ export const useCallRecoveryRuntime = ({
   assertCallSetupCurrent,
   clearReconnectTimeout,
   startTimer,
+  markNativeCallActive,
   armReconnectTimeout,
   teardownRecoveryFailure,
   stopTimer,
@@ -213,6 +215,9 @@ export const useCallRecoveryRuntime = ({
         clearReconnectTimeout()
         useCallStore.getState().patch({ reconnectDeadlineMs: null })
         startTimer(useCallStore.getState().durationSec)
+        if (!markNativeCallActive(rejoined.callId)) {
+          throw new Error('Native call is no longer active')
+        }
         telemetrySessionRef.current?.record('reconnect_transport_connected', {
           outcome: 'succeeded',
         })
@@ -242,6 +247,9 @@ export const useCallRecoveryRuntime = ({
         setupToken,
       })
       assertCallSetupCurrent(setupToken, rejoined.callId)
+      if (!markNativeCallActive(rejoined.callId)) {
+        throw new Error('Native call is no longer active')
+      }
       clearReconnectTimeout()
       telemetrySessionRef.current?.record('reconnect', { outcome: 'succeeded' })
 
@@ -284,6 +292,7 @@ export const useCallRecoveryRuntime = ({
     reconnectModeRef,
     reconnectRecoveryInFlightRef,
     restartConnectedTransports,
+    markNativeCallActive,
     socketRef,
     startTimer,
     teardownRecoveryFailure,

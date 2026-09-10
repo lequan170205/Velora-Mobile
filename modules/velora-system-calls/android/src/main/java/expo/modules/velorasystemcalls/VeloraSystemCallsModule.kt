@@ -49,6 +49,13 @@ class VeloraSystemCallsModule : Module() {
       VeloraSystemCallStore.clearPendingAction(context, actionId)
     }
 
+    Function("completePendingAnswer") { actionId: String, success: Boolean, reason: String? ->
+      val callId = VeloraSystemCallStore.pendingActionCallId(context, actionId)
+      val completed = VeloraSystemCallStore.completePendingAnswer(context, actionId, success, reason)
+      callId?.let { VeloraCallNotifications.cancelPendingAnswerWatchdog(context, it) }
+      completed
+    }
+
     Function("presentIncomingCall") { payload: Map<String, Any?> ->
       VeloraCallNotifications.showIncomingCall(context, payload)
     }
@@ -86,6 +93,10 @@ class VeloraSystemCallsModule : Module() {
     }
 
     Function("endCall") { callId: String ->
+      VeloraCallNotifications.endCall(context, callId)
+    }
+
+    Function("reportCallFailed") { callId: String ->
       VeloraCallNotifications.endCall(context, callId)
     }
 

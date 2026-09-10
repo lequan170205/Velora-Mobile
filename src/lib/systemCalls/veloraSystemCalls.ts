@@ -16,12 +16,16 @@ export type NativeCallPayload = {
   initiatorAvatarUrl?: string
   ringTimeoutMs: number
   expiresAt: string
+  /** The signed-in account that owned the native CallKit action. */
+  accountId?: string
 }
 
 export type NativeCallAction =
   | (NativeCallPayload & {
-      action: 'answer' | 'reject' | 'end'
+      action: 'answer' | 'reject' | 'end' | 'resume'
       actionId: string
+      /** The accepted server attempt that a persisted resume belongs to. */
+      answerActionId?: string
       callUuid?: string
       reason?: string
     })
@@ -29,6 +33,8 @@ export type NativeCallAction =
       action: 'remote_end'
       actionId: string
       callId: string
+      /** The account that owned the persisted native terminal action. */
+      accountId?: string
       callUuid?: string
       reason?: string
       status?: 'active' | 'rejected' | 'ended' | 'cancelled'
@@ -102,6 +108,8 @@ export type NativeOutgoingCallPayload = {
   conversationId: string
   peerName: string
   callType: CallType
+  /** Immutable account owner captured when the native CallKit call is created. */
+  accountId: string
 }
 
 type VeloraSystemCallsModule = {
@@ -112,12 +120,14 @@ type VeloraSystemCallsModule = {
   getAudioSessionConfigurationState: () => AudioSessionConfigurationState
   getNativeAudioSessionState: () => Promise<NativeAudioSessionState>
   clearPendingCallAction: (actionId?: string | null) => void
+  completePendingAnswer: (actionId: string, success: boolean, reason?: string | null) => boolean
   presentIncomingCall: (payload: NativeCallPayload) => Promise<CallKitTransactionResult>
   registerOutgoingCall: (payload: NativeOutgoingCallPayload) => Promise<CallKitTransactionResult>
   setCallActive: (callId: string) => boolean
   setCallType: (callId: string, callType: CallType) => boolean
   setSpeakerEnabled: (enabled: boolean) => boolean
   endCall: (callId: string) => Promise<CallKitTransactionResult>
+  reportCallFailed: (callId: string) => Promise<CallKitTransactionResult>
   dismissIncomingCall: (callId: string) => Promise<CallKitTransactionResult>
   activateSimulatorAudioSession: (callId: string) => boolean
   deactivateSimulatorAudioSession: (callId: string) => boolean
@@ -199,6 +209,11 @@ export const veloraSystemCalls = {
     nativeModule?.clearPendingCallAction?.(actionId ?? null)
   },
 
+  completePendingAnswer(actionId: string, success: boolean, reason?: string | null) {
+    if (isIosSimulator) return true
+    return nativeModule?.completePendingAnswer?.(actionId, success, reason ?? null) ?? false
+  },
+
   presentIncomingCall(payload: NativeCallPayload): Promise<CallKitTransactionResult> {
     if (isIosSimulator) return simulatorCallResult(payload.callId)
     return (
@@ -247,6 +262,24 @@ export const veloraSystemCalls = {
       return simulatorCallResult(callId)
     }
     return (
+      nativeModule?.endCall?.(callId) ??
+      Promise.resolve({
+        success: false,
+        callId,
+        callUuid: null,
+        errorCode: 'native_module_unavailable',
+        errorMessage: 'VeloraSystemCalls native module is unavailable.',
+      })
+    )
+  },
+
+  reportCallFailed(callId: string): Promise<CallKitTransactionResult> {
+    if (isIosSimulator) {
+      nativeModule?.deactivateSimulatorAudioSession?.(callId)
+      return simulatorCallResult(callId)
+    }
+    return (
+      nativeModule?.reportCallFailed?.(callId) ??
       nativeModule?.endCall?.(callId) ??
       Promise.resolve({
         success: false,
