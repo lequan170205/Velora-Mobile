@@ -1,4 +1,4 @@
-import type { RecommendationMetadata } from './recommendation.types'
+import type { UserRecommendationMetadata } from './recommendation.types'
 
 export interface UserSession {
   id: string
@@ -42,5 +42,6 @@ export interface PublicUserProfile {
 }
 
 export interface RecommendedPublicUserProfile extends PublicUserProfile {
-  recommendation?: RecommendationMetadata
+  mutualFriendCount?: number
+  recommendation: UserRecommendationMetadata
 }

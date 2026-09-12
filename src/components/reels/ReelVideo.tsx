@@ -8,7 +8,7 @@ import React, {
   useRef,
   useState,
 } from 'react'
-import { StyleSheet } from 'react-native'
+import { Image as ReactNativeImage, StyleSheet } from 'react-native'
 
 import {
   getReelPlaybackVideoUri,
@@ -35,6 +35,7 @@ interface ReelVideoProps {
   muted?: boolean | undefined
   nativeControls?: boolean | undefined
   contentFit?: ContentFit | undefined
+  disableOrientationAwareContentFit?: boolean | undefined
   style?: StyleProp<ViewStyle> | undefined
   resetOnPause?: boolean | undefined
   externallyManagedPlayback?: boolean | undefined
@@ -212,6 +213,80 @@ const posterStyle = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
 })
+
+const ORIENTATION_CONTENT_FIT_CACHE_LIMIT = 128
+const orientationContentFitCache = new Map<string, ContentFit>()
+
+const getCachedOrientationContentFit = (posterUri: string | undefined, enabled: boolean) => {
+  if (!enabled || !posterUri) {
+    return undefined
+  }
+
+  return orientationContentFitCache.get(posterUri)
+}
+
+const cacheOrientationContentFit = (posterUri: string, contentFit: ContentFit) => {
+  orientationContentFitCache.delete(posterUri)
+  orientationContentFitCache.set(posterUri, contentFit)
+
+  while (orientationContentFitCache.size > ORIENTATION_CONTENT_FIT_CACHE_LIMIT) {
+    const oldestPosterUri = orientationContentFitCache.keys().next().value
+    if (typeof oldestPosterUri !== 'string') {
+      break
+    }
+
+    orientationContentFitCache.delete(oldestPosterUri)
+  }
+}
+
+const useOrientationAwareContentFit = (
+  requestedContentFit: ContentFit,
+  posterUri?: string,
+  enabled = true,
+): ContentFit => {
+  const cachedContentFit = getCachedOrientationContentFit(posterUri, enabled)
+  const [resolvedContentFit, setResolvedContentFit] = useState<ContentFit>(
+    cachedContentFit ?? requestedContentFit,
+  )
+
+  useEffect(() => {
+    if (!enabled || requestedContentFit === 'contain' || !posterUri) {
+      setResolvedContentFit(requestedContentFit)
+      return
+    }
+
+    const cachedFit = getCachedOrientationContentFit(posterUri, enabled)
+    if (cachedFit) {
+      setResolvedContentFit(cachedFit)
+      return
+    }
+
+    setResolvedContentFit(requestedContentFit)
+
+    let active = true
+
+    ReactNativeImage.getSize(
+      posterUri,
+      (width, height) => {
+        if (!active || width <= 0 || height <= 0) {
+          return
+        }
+
+        const aspectRatio = width / height
+        const nextContentFit = aspectRatio >= 0.9 ? 'contain' : 'cover'
+        cacheOrientationContentFit(posterUri, nextContentFit)
+        setResolvedContentFit(nextContentFit)
+      },
+      () => undefined,
+    )
+
+    return () => {
+      active = false
+    }
+  }, [enabled, posterUri, requestedContentFit])
+
+  return cachedContentFit ?? resolvedContentFit
+}
 
 const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoVideoPlayer(
   {
@@ -536,17 +611,25 @@ const ExpoAvPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoAv
 
 export const ReelVideo = forwardRef<ReelVideoHandle, ReelVideoProps>(
   function ReelVideo(props, ref) {
+    const requestedContentFit = props.contentFit ?? 'cover'
+    const contentFit = useOrientationAwareContentFit(
+      requestedContentFit,
+      props.posterUri,
+      !props.disableOrientationAwareContentFit,
+    )
+    const resolvedProps = { ...props, contentFit }
+
     if (expoVideoModule) {
-      return <ExpoVideoPlayer {...props} ref={ref} />
+      return <ExpoVideoPlayer {...resolvedProps} ref={ref} />
     }
 
     if (getExpoAvModule()) {
-      return <ExpoAvPlayer {...props} ref={ref} />
+      return <ExpoAvPlayer {...resolvedProps} ref={ref} />
     }
 
     return props.posterUri ? (
       <Image
-        contentFit={props.contentFit ?? 'cover'}
+        contentFit={contentFit}
         source={{ uri: props.posterUri }}
         style={posterStyle.fill}
         transition={0}

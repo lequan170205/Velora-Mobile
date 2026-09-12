@@ -37,9 +37,9 @@ export function OtpCodeInput({
   const activeIndex = normalizedValue.length >= length ? length - 1 : normalizedValue.length
 
   return (
-    <Pressable onPress={() => resolvedInputRef.current?.focus()} className="rounded-[22px]">
-      <View className="rounded-[22px] border border-[#F1E3D7] bg-white px-4 py-4">
-        <Text className="mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">{label}</Text>
+    <Pressable onPress={() => resolvedInputRef.current?.focus()} className="rounded-[20px]">
+      <View className="rounded-[20px] border border-[#F1E8E1] bg-[#FFFBF8] px-4 py-4">
+        <Text className="mb-3 text-sm2 font-semibold text-text-primary">{label}</Text>
 
         <View className="flex-row items-center justify-between gap-2">
           {Array.from({ length }).map((_, index) => {
@@ -51,8 +51,8 @@ export function OtpCodeInput({
               <View
                 key={index}
                 className={cn(
-                  'h-14 flex-1 items-center justify-center rounded-[18px] border bg-[#FFF9F5]',
-                  isActive ? 'border-brand bg-[#FFF2E8]' : 'border-[#F1E3D7]',
+                  'h-14 flex-1 items-center justify-center rounded-[16px] border bg-white',
+                  isActive ? 'border-brand bg-[#FFF7F2]' : 'border-[#EEE7E2]',
                   isFilled ? 'bg-white' : null,
                 )}
               >

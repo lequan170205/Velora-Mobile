@@ -22,8 +22,9 @@ export interface Conversation {
   isGroup: boolean
 
   // Custom frontend fields typically attached by the backend wrapper
-  name?: string
-  picture?: string
+  name?: string | null
+  picture?: string | null
+  memberJoinedAt?: Record<string, string>
   unreadCount?: number
 }
 
@@ -38,6 +39,27 @@ export interface ReactionMap {
     emoji: string
     createdAt: string
   }
+}
+
+export interface MessageReactionActor {
+  id: string
+  fullName?: string | null
+  username?: string | null
+  picture?: string | null
+}
+
+export interface MessageReactionDetail {
+  userId: string
+  emoji: string
+  createdAt: string
+  user: MessageReactionActor | null
+}
+
+export interface MessageReactionDetails {
+  messageId: string
+  conversationId: string
+  total: number
+  reactions: MessageReactionDetail[]
 }
 
 export interface ReplyPreviewData {
@@ -96,11 +118,33 @@ export interface AiRagCitation {
   quote?: string
 }
 
+export type GroupSystemActivityType =
+  | 'GROUP_CREATED'
+  | 'MEMBER_ADDED'
+  | 'MEMBER_LEFT'
+  | 'MEMBER_REMOVED'
+  | 'MEMBER_PROMOTED'
+  | 'MEMBER_DEMOTED'
+  | 'OWNERSHIP_TRANSFERRED'
+  | 'GROUP_RENAMED'
+  | 'GROUP_PICTURE_CHANGED'
+
+export interface GroupSystemActivity {
+  type: GroupSystemActivityType
+  actorUserId: string
+  actorName?: string
+  targetUserId?: string
+  targetName?: string
+  previousValue?: string | null
+  nextValue?: string | null
+}
+
 export interface MessageMetadata {
-  kind?: 'velora_ai_response' | 'velora_ai_reel_recommendations'
+  kind?: 'velora_ai_response' | 'velora_ai_reel_recommendations' | 'group_system_activity'
   citations?: AiRagCitation[]
   recommendedReels?: ReelFeedListItem[]
   suggestedQueries?: string[]
+  groupActivity?: GroupSystemActivity
 }
 
 export interface Message {
@@ -136,8 +180,20 @@ export interface Message {
   reply_preview?: string
 }
 
+export type ConversationMemberRole = 'OWNER' | 'ADMIN' | 'MEMBER'
+export type ConversationMemberStatus = 'ACTIVE' | 'LEFT' | 'REMOVED'
+
+export interface ConversationMemberUser extends UserSummary {
+  name?: string
+  fullName?: string
+  username?: string | null
+}
+
 export interface ConversationMember {
   userId: string
-  user: UserSummary
+  role: ConversationMemberRole
+  status: ConversationMemberStatus
+  user: ConversationMemberUser
   joinedAt: string
+  invitedBy?: string
 }

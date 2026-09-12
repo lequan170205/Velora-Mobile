@@ -46,6 +46,7 @@
     "babel-preset-expo": "~54.0.10",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "event-target-shim": "6.0.2",
     "expo": "^54.0.33",
     "expo-auth-session": "~7.0.10",
     "expo-av": "~16.0.8",

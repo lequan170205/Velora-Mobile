@@ -1,9 +1,9 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import React from 'react'
-import { ActivityIndicator, Pressable, View } from 'react-native'
+import { ActivityIndicator, View } from 'react-native'
 
 import { cn } from '../../lib/cn'
-import { AppTextInput } from '../base'
+import { AppPressable, AppTextInput } from '../base'
 
 import type { TextInputProps } from 'react-native'
 
@@ -82,9 +82,15 @@ export const AppSearchBar = React.forwardRef<NativeTextInputRef, AppSearchBarPro
         {isLoading ? (
           <ActivityIndicator color={loadingColor} size="small" />
         ) : hasValue && onClear ? (
-          <Pressable className="ml-2" onPress={onClear}>
+          <AppPressable
+            className="ml-1 h-11 w-11 items-center justify-center rounded-full"
+            onPress={onClear}
+            accessibilityRole="button"
+            accessibilityLabel="Clear search"
+            hitSlop={4}
+          >
             <MaterialIcons name="close" size={iconSize} color={iconColor} />
-          </Pressable>
+          </AppPressable>
         ) : iconPlacement === 'right' ? (
           <View className="ml-3">{icon}</View>
         ) : null}

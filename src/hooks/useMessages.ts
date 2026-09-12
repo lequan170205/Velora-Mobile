@@ -31,6 +31,7 @@ import { useSocket } from '../providers/SocketProvider'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
 
+import type { OptimisticSortAnchor } from '../stores/chatStore'
 import type { Conversation, Message } from '../types/conversation.types'
 
 const ensureClientMessageId = (variables: { clientMessageId?: string }) => {
@@ -128,13 +129,6 @@ const getOldestMessage = (messages: Message[]) => {
   }, messages[0])
 }
 
-const getNextOlderCursorFromPages = (pages?: Message[][]) => {
-  const lastPage = pages?.[pages.length - 1]
-  if (!lastPage || lastPage.length === 0) return null
-
-  return getOldestMessage(lastPage)?.id ?? null
-}
-
 const isBoundaryOlderThan = (
   candidate: Pick<MessageSyncRangeBoundary, 'endCreatedAt' | 'endMessageId'>,
   existing: Pick<MessageSyncRangeBoundary, 'endCreatedAt' | 'endMessageId'>,
@@ -152,48 +146,6 @@ const isBoundaryOlderThan = (
   }
 
   return candidate.endMessageId.localeCompare(existing.endMessageId) < 0
-}
-
-const isMessageAtOrOlderThanExhaustedBoundary = (
-  message: Message,
-  latestSyncRange?: MessageSyncRangeSnapshot | null,
-) => {
-  if (!latestSyncRange?.remoteExhaustedOlder) {
-    return false
-  }
-
-  const messageId = message.id || message._id || ''
-
-  if (latestSyncRange.endCreatedAt === null || !latestSyncRange.endMessageId) {
-    return latestSyncRange.lastCursor ? messageId === latestSyncRange.lastCursor : true
-  }
-
-  const messageCreatedAt = getMessageCreatedAtMs(message)
-
-  if (messageCreatedAt !== latestSyncRange.endCreatedAt) {
-    return messageCreatedAt < latestSyncRange.endCreatedAt
-  }
-
-  return messageId.localeCompare(latestSyncRange.endMessageId) <= 0
-}
-
-const isCursorAtExhaustedOlderBoundary = (
-  cursor: string | undefined,
-  latestSyncRange?: MessageSyncRangeSnapshot | null,
-) => {
-  if (!cursor || !latestSyncRange?.remoteExhaustedOlder) {
-    return false
-  }
-
-  if (latestSyncRange.endMessageId) {
-    return cursor === latestSyncRange.endMessageId
-  }
-
-  if (latestSyncRange.lastCursor) {
-    return cursor === latestSyncRange.lastCursor
-  }
-
-  return true
 }
 
 const writeLatestRemoteSyncRangeMetadata = async ({
@@ -288,6 +240,63 @@ const getCachedConversation = (
   return conversations.find((conversation) => conversation.id === conversationId) ?? null
 }
 
+const getLatestPersistedServerFrontier = ({
+  conversation,
+  conversationId,
+  queryClient,
+}: {
+  conversation?: Conversation | null
+  conversationId: string
+  queryClient: QueryClient
+}) => {
+  const cachedMessages = queryClient.getQueryData<InfiniteData<Message[]> | Message[] | undefined>(
+    queryKeys.conversations.messages(conversationId),
+  )
+  const flattenedMessages = Array.isArray(cachedMessages)
+    ? cachedMessages
+    : (cachedMessages?.pages?.flat() ?? [])
+  const latestPersistedMessage =
+    sortMessagesNewestFirst(
+      flattenedMessages.filter((message) => Boolean(message.id) && !message.id.startsWith('temp-')),
+    )[0] ?? null
+
+  if (latestPersistedMessage?.id) {
+    return {
+      frontierCreatedAtMs: getMessageCreatedAtMs(latestPersistedMessage),
+      frontierMessageId: latestPersistedMessage.id,
+    }
+  }
+
+  const fallbackCreatedAtMs = Date.parse(
+    conversation?.lastMessageAt ?? conversation?.updatedAt ?? conversation?.createdAt ?? '',
+  )
+
+  return {
+    frontierCreatedAtMs: Number.isFinite(fallbackCreatedAtMs) ? fallbackCreatedAtMs : 0,
+    frontierMessageId: null,
+  }
+}
+
+const getNextOptimisticSequenceForFrontier = ({
+  anchorsByMessageId,
+  frontierCreatedAtMs,
+  frontierMessageId,
+}: {
+  anchorsByMessageId: Record<string, OptimisticSortAnchor>
+  frontierCreatedAtMs: number
+  frontierMessageId: string | null
+}) =>
+  Object.values(anchorsByMessageId).reduce((maxSequence, anchor) => {
+    if (
+      anchor.frontierCreatedAtMs !== frontierCreatedAtMs ||
+      (anchor.frontierMessageId ?? null) !== frontierMessageId
+    ) {
+      return maxSequence
+    }
+
+    return Math.max(maxSequence, anchor.sequence)
+  }, 0)
+
 type MessagesQueryOptionsInput = {
   conversation?: Conversation | null
   conversationId: string
@@ -311,7 +320,7 @@ export const getMessagesInfiniteQueryOptions = ({
   currentUser,
   isOnline = true,
   isNetworkResolved = true,
-  latestSyncRange,
+  latestSyncRange: _latestSyncRange,
   onLatestSyncCompleted,
   onLatestSyncRangeUpdated,
   queryClient,
@@ -357,10 +366,6 @@ export const getMessagesInfiniteQueryOptions = ({
       }
 
       return sortMessagesNewestFirst(localPage)
-    }
-
-    if (isCursorAtExhaustedOlderBoundary(cursor, latestSyncRange)) {
-      return []
     }
 
     if (!isNetworkResolved) {
@@ -413,11 +418,7 @@ export const getMessagesInfiniteQueryOptions = ({
     const oldestMessage = getOldestMessage(lastPage)
     if (!oldestMessage) return undefined
 
-    if (isMessageAtOrOlderThanExhaustedBoundary(oldestMessage, latestSyncRange)) {
-      return undefined
-    }
-
-    return oldestMessage?.id
+    return oldestMessage.id
   },
 
   initialPageParam: undefined as string | undefined,
@@ -618,7 +619,6 @@ export function useMessages(conversationId: string) {
   const currentUser = useAuthStore((state) => state.user)
   const { isNetworkResolved, isOnline } = useNetworkStatus()
   const [latestSyncRange, setLatestSyncRange] = useState<MessageSyncRangeSnapshot | null>(null)
-  const failedOlderCursorRef = useRef<string | null>(null)
   const needsLatestSyncOnEntryRef = useRef(true)
   const wasOnlineRef = useRef(isOnline)
 
@@ -656,13 +656,8 @@ export function useMessages(conversationId: string) {
   )
 
   const hasLoadedMessagePages = Boolean(query.data?.pages.length)
-  const nextOlderCursor = useMemo(
-    () => getNextOlderCursorFromPages(query.data?.pages),
-    [query.data?.pages],
-  )
 
   useEffect(() => {
-    failedOlderCursorRef.current = null
     needsLatestSyncOnEntryRef.current = true
   }, [conversationId])
 
@@ -689,14 +684,7 @@ export function useMessages(conversationId: string) {
   }, [conversationId])
 
   useEffect(() => {
-    if (failedOlderCursorRef.current && failedOlderCursorRef.current !== nextOlderCursor) {
-      failedOlderCursorRef.current = null
-    }
-  }, [nextOlderCursor])
-
-  useEffect(() => {
     if (!wasOnlineRef.current && isOnline) {
-      failedOlderCursorRef.current = null
       needsLatestSyncOnEntryRef.current = true
     }
 
@@ -739,7 +727,6 @@ export function useMessages(conversationId: string) {
           queryClient,
         })
 
-        failedOlderCursorRef.current = null
         needsLatestSyncOnEntryRef.current = false
       } catch (error) {
         console.warn('[Messages] Failed to sync latest messages', error)
@@ -764,46 +751,13 @@ export function useMessages(conversationId: string) {
     queryClient,
   ])
 
-  const fetchNextPage = useCallback(
-    (...args: Parameters<typeof query.fetchNextPage>) => {
-      const cursor = getNextOlderCursorFromPages(query.data?.pages)
-
-      if (cursor && failedOlderCursorRef.current === cursor) {
-        return Promise.resolve(query as Awaited<ReturnType<typeof query.fetchNextPage>>)
-      }
-
-      return query
-        .fetchNextPage(...args)
-        .then((result) => {
-          if (result.isError) {
-            failedOlderCursorRef.current = cursor
-            return result
-          }
-
-          failedOlderCursorRef.current = null
-          return result
-        })
-        .catch((error) => {
-          failedOlderCursorRef.current = cursor
-          throw error
-        })
-    },
-    [query],
-  )
-
-  return useMemo(
-    () => ({
-      ...query,
-      fetchNextPage,
-    }),
-    [fetchNextPage, query],
-  )
+  return query
 }
 
 export function useSendMessage(conversationId: string) {
   const { socket } = useSocket()
   const { isNetworkResolved, isOnline } = useNetworkStatus()
-  const { addOptimisticMessage, enqueueOfflineMessage, markMessageFailed, replyToMessage } =
+  const { addOptimisticMessages, enqueueOfflineMessage, markMessageFailed, replyToMessage } =
     useChatStore()
   const { user } = useAuthStore()
   const queryClient = useQueryClient()
@@ -909,7 +863,27 @@ export function useSendMessage(conversationId: string) {
         ...(replyPreview && { replyPreview }),
       }
 
-      addOptimisticMessage(conversationId, tempMessage)
+      const existingSortAnchors =
+        useChatStore.getState().optimisticSortAnchors[conversationId] ?? {}
+      const frontier = getLatestPersistedServerFrontier({
+        conversation: currentConversation,
+        conversationId,
+        queryClient,
+      })
+      const nextSequence =
+        getNextOptimisticSequenceForFrontier({
+          anchorsByMessageId: existingSortAnchors,
+          frontierCreatedAtMs: frontier.frontierCreatedAtMs,
+          frontierMessageId: frontier.frontierMessageId,
+        }) + 1
+
+      addOptimisticMessages(conversationId, [tempMessage], {
+        [tempId]: {
+          frontierCreatedAtMs: frontier.frontierCreatedAtMs,
+          frontierMessageId: frontier.frontierMessageId,
+          sequence: nextSequence,
+        },
+      })
 
       if (type === 'text' && !media) {
         void createPendingTextMessage({

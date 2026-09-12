@@ -9,6 +9,7 @@ import android.app.PendingIntent
 import android.app.Person
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 
 object VeloraCallNotifications {
@@ -19,7 +20,11 @@ object VeloraCallNotifications {
     "expo.modules.velorasystemcalls.DISMISS_INCOMING_ACTIVITY"
   private const val EXPIRE_INCOMING_CALL_ACTION =
     "expo.modules.velorasystemcalls.EXPIRE_INCOMING_CALL"
+  private const val EXPIRE_PENDING_ANSWER_ACTION =
+    "expo.modules.velorasystemcalls.EXPIRE_PENDING_ANSWER"
   private const val EXPIRY_ALARM_SALT = 4
+  private const val PENDING_ANSWER_WATCHDOG_ALARM_SALT = 6
+  private const val PENDING_ANSWER_WATCHDOG_MS = 25_000L
 
   fun showIncomingCall(context: Context, rawPayload: Map<String, Any?>) {
     val payload = VeloraSystemCallStore.normalizePayload(rawPayload)
@@ -29,7 +34,14 @@ object VeloraCallNotifications {
 
     val callId = payload["callId"] as? String ?: return
     val expiresAtMs = (payload["expiresAt"] as? String)?.let(VeloraSystemCallStore::parseIsoDateMs)
-    if (!VeloraSystemCallStore.beginRingingCall(context, callId, expiresAtMs)) {
+    if (
+      !VeloraSystemCallStore.beginRingingCall(
+        context,
+        callId,
+        expiresAtMs,
+        payload["callType"] as? String,
+      )
+    ) {
       return
     }
     expiresAtMs?.let { scheduleIncomingCallExpiration(context, callId, it) }
@@ -46,8 +58,6 @@ object VeloraCallNotifications {
       pendingIntentFlags(),
     )
 
-    // The Answer action must target an Activity directly. Starting MainActivity from a
-    // BroadcastReceiver is a notification trampoline and is blocked on Android 12+.
     val answerIntent = Intent(context, VeloraIncomingCallActivity::class.java).apply {
       flags =
         Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -75,12 +85,13 @@ object VeloraCallNotifications {
       pendingIntentFlags(),
     )
     val callerName = callerName(payload)
+    val incomingLabel = if (isVideoCall(payload)) "Incoming video call" else "Incoming voice call"
     val smallIcon = context.applicationInfo.icon
 
     val builder = notificationBuilder(context)
       .setSmallIcon(smallIcon)
       .setContentTitle(callerName)
-      .setContentText("Incoming voice call")
+      .setContentText(incomingLabel)
       .setCategory(Notification.CATEGORY_CALL)
       .setOngoing(true)
       .setAutoCancel(false)
@@ -105,7 +116,14 @@ object VeloraCallNotifications {
 
   fun registerOutgoingCall(context: Context, payload: Map<String, Any?>) {
     val callId = payload["callId"] as? String ?: return
-    if (!VeloraSystemCallStore.beginRingingCall(context, callId, null)) {
+    if (
+      !VeloraSystemCallStore.beginRingingCall(
+        context,
+        callId,
+        null,
+        payload["callType"] as? String,
+      )
+    ) {
       return
     }
     ensureCallChannel(context)
@@ -116,6 +134,8 @@ object VeloraCallNotifications {
     if (!VeloraSystemCallStore.markCallActive(context, callId)) {
       return false
     }
+    cancelPendingAnswerWatchdog(context, callId)
+    VeloraSystemCallStore.completePendingResume(context, callId)
     cancelIncomingCallExpiration(context, callId)
     dismissIncomingPresentation(context, callId)
 
@@ -132,15 +152,34 @@ object VeloraCallNotifications {
     return true
   }
 
+  fun updateCallType(context: Context, callId: String, callType: String): Boolean {
+    if (!VeloraSystemCallStore.updateCallType(context, callId, callType)) return false
+    val currentCall = VeloraSystemCallStore.getCurrentCall(context) ?: return false
+    if (currentCall.phase == "active") {
+      notificationManager(context).notify(
+        ongoingNotificationId(callId),
+        ongoingNotification(
+          context,
+          mapOf(
+            "callId" to callId,
+            "initiatorDisplayName" to "Velora call",
+            "callType" to callType,
+          ),
+        ),
+      )
+    }
+    return true
+  }
+
   fun endCall(context: Context, callId: String, eventAtMs: Long? = null) {
     cancelIncomingCallExpiration(context, callId)
+    cancelPendingAnswerWatchdog(context, callId)
     val shouldStopForegroundService = VeloraSystemCallStore.terminateCall(context, callId, eventAtMs)
     dismissIncomingPresentation(context, callId)
     if (shouldStopForegroundService) {
       context.stopService(Intent(context, VeloraCallForegroundService::class.java))
     }
     notificationManager(context).cancel(ongoingNotificationId(callId))
-
   }
 
   fun handleCallStateUpdate(context: Context, rawPayload: Map<String, Any?>) {
@@ -152,23 +191,76 @@ object VeloraCallNotifications {
     val callId = payload["callId"] as String
     val status = payload["status"] as String
     val eventAt = payload["at"] as String
+    val eventAtMs = VeloraSystemCallStore.parseIsoDateMs(eventAt)
+      ?: return
+    val lifecycleRevision = VeloraSystemCallStore.parseLifecycleRevision(
+      payload["lifecycleRevision"],
+    )
+    val localWinningAnswerActionId = VeloraSystemCallStore.pendingWinningAnswerActionId(
+      context,
+      callId,
+    )
+    val winnerActionId = payload["answerActionId"] as? String
+    val isExplicitlyAnsweredElsewhere =
+      status == "active" &&
+        localWinningAnswerActionId != null &&
+        !winnerActionId.isNullOrBlank() &&
+        localWinningAnswerActionId != winnerActionId
+
+    if (!VeloraSystemCallStore.storeRemoteCallStateUpdate(
+        context,
+        callId,
+        if (isExplicitlyAnsweredElsewhere) "ended" else status,
+        eventAtMs,
+        lifecycleRevision,
+      )
+    ) {
+      return
+    }
+
+    if (isExplicitlyAnsweredElsewhere) {
+      // From this device's perspective the server-owned winner is terminal,
+      // even though the wire status is `active`: a different local native
+      // answer action can no longer join this call.
+      endCall(context, callId, eventAtMs)
+      VeloraSystemCallStore.storePendingAction(
+        context,
+        "remote_end",
+        payload + mapOf("reason" to "answered_elsewhere"),
+      )
+      return
+    }
 
     when (status) {
       "active" -> {
+        val pendingAnswerActionId = VeloraSystemCallStore.pendingAnswerAction(context, callId)
+          ?.get("actionId") as? String
         if (!VeloraSystemCallStore.markCallActive(context, callId)) {
-          // FCM does not guarantee that the incoming and active updates arrive
-          // in order. Preserve the active update so a late incoming push cannot
-          // present a call that was already answered elsewhere.
           VeloraSystemCallStore.terminateCall(
             context,
             callId,
-            VeloraSystemCallStore.parseIsoDateMs(eventAt),
+            eventAtMs,
           )
+        } else if (
+          pendingAnswerActionId != null &&
+          pendingAnswerActionId == winnerActionId &&
+          VeloraSystemCallStore.completePendingAnswer(
+            context,
+            pendingAnswerActionId,
+            true,
+            null,
+          )
+        ) {
+          // The server committed the same native answer, but JS may still be
+          // cold or have lost the ACK. Convert it into a durable resume intent
+          // and disarm the watchdog rather than locally ending a live call.
+          cancelPendingAnswerWatchdog(context, callId)
         }
         dismissIncomingPresentation(context, callId)
       }
       "rejected", "ended", "cancelled" -> {
-        endCall(context, callId, VeloraSystemCallStore.parseIsoDateMs(eventAt))
+        endCall(context, callId, eventAtMs)
+        VeloraSystemCallStore.storePendingAction(context, "remote_end", payload)
       }
     }
   }
@@ -200,6 +292,27 @@ object VeloraCallNotifications {
     )
   }
 
+  internal fun handlePendingAnswerWatchdog(
+    context: Context,
+    callId: String,
+    actionId: String,
+  ) {
+    if (!VeloraSystemCallStore.hasPendingAnswerAction(context, callId, actionId)) {
+      return
+    }
+
+    endCall(context, callId)
+    VeloraSystemCallStore.storePendingAction(
+      context,
+      "remote_end",
+      mapOf(
+        "callId" to callId,
+        "status" to "ended",
+        "reason" to "native_answer_confirmation_timeout",
+      ),
+    )
+  }
+
   fun dismissIncomingPresentation(context: Context, callId: String) {
     notificationManager(context).cancel(ringingNotificationId(callId))
     context.sendBroadcast(
@@ -219,15 +332,22 @@ object VeloraCallNotifications {
     ensureCallChannel(context)
     val smallIcon = context.applicationInfo.icon
     val callerName = callerName(payload)
+    val progressLabel = if (isVideoCall(payload)) "Velora video call in progress" else "Velora call in progress"
+    val callId = payload["callId"] as? String
 
-    return notificationBuilder(context)
+    val builder = notificationBuilder(context)
       .setSmallIcon(smallIcon)
       .setContentTitle(callerName)
-      .setContentText("Velora call in progress")
+      .setContentText(progressLabel)
       .setCategory(Notification.CATEGORY_CALL)
       .setOngoing(true)
       .setPriority(Notification.PRIORITY_HIGH)
-      .build()
+
+    if (callId != null) {
+      builder.setContentIntent(returnToCallPendingIntent(context, callId))
+    }
+
+    return builder.build()
   }
 
   fun isAppInForeground(context: Context): Boolean {
@@ -241,10 +361,7 @@ object VeloraCallNotifications {
   }
 
   private fun ensureCallChannel(context: Context) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-      return
-    }
-
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
     val channel = NotificationChannel(
       CALL_CHANNEL_ID,
       "Calls",
@@ -254,28 +371,25 @@ object VeloraCallNotifications {
       lockscreenVisibility = Notification.VISIBILITY_PUBLIC
       enableVibration(true)
     }
-
     notificationManager(context).createNotificationChannel(channel)
   }
 
-  private fun notificationManager(context: Context): NotificationManager {
-    return context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-  }
+  private fun notificationManager(context: Context): NotificationManager =
+    context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-  private fun notificationBuilder(context: Context): Notification.Builder {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+  private fun notificationBuilder(context: Context): Notification.Builder =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
       Notification.Builder(context, CALL_CHANNEL_ID)
     } else {
       @Suppress("DEPRECATION")
       Notification.Builder(context)
     }
-  }
 
-  private fun callerName(payload: Map<String, Any?>): String {
-    return (payload["initiatorDisplayName"] as? String)
-      ?.takeIf { it.isNotBlank() }
-      ?: "Velora call"
-  }
+  private fun callerName(payload: Map<String, Any?>): String =
+    (payload["initiatorDisplayName"] as? String)?.takeIf { it.isNotBlank() } ?: "Velora call"
+
+  private fun isVideoCall(payload: Map<String, Any?>): Boolean =
+    (payload["callType"] as? String)?.uppercase() == "VIDEO"
 
   private fun Intent.putPayload(payload: Map<String, Any?>) {
     payload.forEach { (key, value) ->
@@ -292,26 +406,17 @@ object VeloraCallNotifications {
   }
 
   fun ongoingNotificationId(callId: String): Int = notificationId(callId, ONGOING_NOTIFICATION_SALT)
-
   fun dismissIncomingActivityAction(): String = DISMISS_INCOMING_ACTIVITY_ACTION
-
   internal fun incomingCallExpirationAction(): String = EXPIRE_INCOMING_CALL_ACTION
-
-  internal fun ringingNotificationId(callId: String): Int =
-    notificationId(callId, RINGING_NOTIFICATION_SALT)
-
+  internal fun pendingAnswerWatchdogAction(): String = EXPIRE_PENDING_ANSWER_ACTION
+  internal fun ringingNotificationId(callId: String): Int = notificationId(callId, RINGING_NOTIFICATION_SALT)
   private fun notificationId(callId: String, salt: Int): Int = 31 * callId.hashCode() + salt
-
   private fun requestCode(callId: String, salt: Int): Int = 31 * callId.hashCode() + salt
 
   private fun scheduleIncomingCallExpiration(context: Context, callId: String, expiresAtMs: Long) {
     val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
     val pendingIntent = incomingCallExpirationPendingIntent(context, callId, expiresAtMs)
-
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-      // This is intentionally inexact: an incoming-call expiry is a fallback
-      // behind the server's terminal FCM update and does not require the
-      // user-granted exact-alarm permission.
       alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, expiresAtMs, pendingIntent)
     } else {
       alarmManager.set(AlarmManager.RTC_WAKEUP, expiresAtMs, pendingIntent)
@@ -321,6 +426,33 @@ object VeloraCallNotifications {
   internal fun cancelIncomingCallExpiration(context: Context, callId: String) {
     val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
     val pendingIntent = incomingCallExpirationPendingIntent(context, callId, 0L)
+    alarmManager.cancel(pendingIntent)
+    pendingIntent.cancel()
+  }
+
+  internal fun schedulePendingAnswerWatchdog(
+    context: Context,
+    callId: String,
+    actionId: String,
+    createdAt: String?,
+  ) {
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+    val createdAtMs = createdAt?.let(VeloraSystemCallStore::parseIsoDateMs)
+    val deadlineMs = maxOf(
+      System.currentTimeMillis() + 1L,
+      (createdAtMs ?: System.currentTimeMillis()) + PENDING_ANSWER_WATCHDOG_MS,
+    )
+    val pendingIntent = pendingAnswerWatchdogPendingIntent(context, callId, actionId)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+      alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, deadlineMs, pendingIntent)
+    } else {
+      alarmManager.set(AlarmManager.RTC_WAKEUP, deadlineMs, pendingIntent)
+    }
+  }
+
+  internal fun cancelPendingAnswerWatchdog(context: Context, callId: String) {
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+    val pendingIntent = pendingAnswerWatchdogPendingIntent(context, callId, "")
     alarmManager.cancel(pendingIntent)
     pendingIntent.cancel()
   }
@@ -343,8 +475,41 @@ object VeloraCallNotifications {
     )
   }
 
-  private fun pendingIntentFlags(): Int {
-    return PendingIntent.FLAG_UPDATE_CURRENT or
+  private fun pendingAnswerWatchdogPendingIntent(
+    context: Context,
+    callId: String,
+    actionId: String,
+  ): PendingIntent {
+    val intent = Intent(context, VeloraCallExpirationReceiver::class.java).apply {
+      action = EXPIRE_PENDING_ANSWER_ACTION
+      putExtra("callId", callId)
+      putExtra("actionId", actionId)
+    }
+    return PendingIntent.getBroadcast(
+      context,
+      requestCode(callId, PENDING_ANSWER_WATCHDOG_ALARM_SALT),
+      intent,
+      pendingIntentFlags(),
+    )
+  }
+
+  private fun pendingIntentFlags(): Int =
+    PendingIntent.FLAG_UPDATE_CURRENT or
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+
+  private fun returnToCallPendingIntent(context: Context, callId: String): PendingIntent {
+    val intent = Intent(
+      Intent.ACTION_VIEW,
+      Uri.parse("antigravity:///call/$callId"),
+    ).apply {
+      setPackage(context.packageName)
+      flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+    }
+    return PendingIntent.getActivity(
+      context,
+      requestCode(callId, 5),
+      intent,
+      pendingIntentFlags(),
+    )
   }
 }

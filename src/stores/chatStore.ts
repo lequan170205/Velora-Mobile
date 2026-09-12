@@ -30,6 +30,7 @@ interface ChatState {
   replyToMessage: Message | null // Currently replying to message
   seenMessages: Record<string, Set<string>> // conversationId -> Set<messageId> da duoc read
   botConversationIds: Set<string> // Conversation IDs that belong to bot chats
+  revokedConversationIds: Set<string> // Session-only tombstones for revoked conversation access
 
   addOptimisticMessage: (conversationId: string, message: Message) => void
   addOptimisticMessages: (
@@ -65,6 +66,10 @@ interface ChatState {
   setReplyToMessage: (message: Message | null) => void
   markAsBotConversation: (conversationId: string) => void
   isBotConversation: (conversationId: string) => boolean
+  markConversationRevoked: (conversationId: string) => void
+  clearConversationRevoked: (conversationId: string) => void
+  isConversationRevoked: (conversationId: string) => boolean
+  clearConversationState: (conversationId: string) => void
   clearCache: () => void
 }
 
@@ -126,6 +131,7 @@ export const useChatStore = create<ChatState>()(
       replyToMessage: null,
       seenMessages: {},
       botConversationIds: new Set(),
+      revokedConversationIds: new Set(),
 
       setMessageAsSeen: (conversationId, messageId) =>
         set((state) => {
@@ -301,6 +307,14 @@ export const useChatStore = create<ChatState>()(
 
       confirmMessage: (tempId, currentMessage) =>
         set((state) => {
+          // Server-authored group activities can share senderId with the user
+          // who triggered the action. They are never acknowledgements for a
+          // local optimistic message, even if SocketProvider's legacy fallback
+          // sees exactly one temp message in the conversation.
+          if (currentMessage.metadata?.kind === 'group_system_activity') {
+            return state
+          }
+
           const conversationId = currentMessage.conversationId
           const msgs = state.optimisticMessages[conversationId] || []
           const nextMessages = msgs.filter((message) => message.id !== tempId)
@@ -482,6 +496,56 @@ export const useChatStore = create<ChatState>()(
         return get().botConversationIds.has(conversationId)
       },
 
+      markConversationRevoked: (conversationId) =>
+        set((state) => {
+          const revokedConversationIds = new Set(state.revokedConversationIds)
+          revokedConversationIds.add(conversationId)
+          return { revokedConversationIds }
+        }),
+
+      clearConversationRevoked: (conversationId) =>
+        set((state) => {
+          if (!state.revokedConversationIds.has(conversationId)) {
+            return state
+          }
+
+          const revokedConversationIds = new Set(state.revokedConversationIds)
+          revokedConversationIds.delete(conversationId)
+          return { revokedConversationIds }
+        }),
+
+      isConversationRevoked: (conversationId) => {
+        return get().revokedConversationIds.has(conversationId)
+      },
+
+      clearConversationState: (conversationId) =>
+        set((state) => {
+          const optimisticMessages = { ...state.optimisticMessages }
+          const optimisticSortAnchors = { ...state.optimisticSortAnchors }
+          const typingUsers = { ...state.typingUsers }
+          const seenMessages = { ...state.seenMessages }
+          const botConversationIds = new Set(state.botConversationIds)
+
+          delete optimisticMessages[conversationId]
+          delete optimisticSortAnchors[conversationId]
+          delete typingUsers[conversationId]
+          delete seenMessages[conversationId]
+          botConversationIds.delete(conversationId)
+
+          return {
+            optimisticMessages,
+            optimisticSortAnchors,
+            typingUsers,
+            seenMessages,
+            botConversationIds,
+            offlineQueue: state.offlineQueue.filter(
+              (message) => message.conversationId !== conversationId,
+            ),
+            replyToMessage:
+              state.replyToMessage?.conversationId === conversationId ? null : state.replyToMessage,
+          }
+        }),
+
       clearCache: async () => {
         set(() => ({
           optimisticMessages: {},
@@ -489,6 +553,7 @@ export const useChatStore = create<ChatState>()(
           offlineQueue: [],
           replyToMessage: null,
           seenMessages: {},
+          revokedConversationIds: new Set(),
           // Keep botConversationIds because they are stable.
         }))
         await AsyncStorage.removeItem('chat-storage')

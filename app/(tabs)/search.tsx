@@ -18,7 +18,7 @@ import { ReelThumbnailGrid } from '../../src/components/reels/ReelThumbnailGrid'
 import { colors } from '../../src/constants/theme'
 import { useBotChat } from '../../src/hooks/useBotChat'
 import { useConversationNavigation } from '../../src/hooks/useConversationNavigation'
-import { useFriends, useFriendshipStatus } from '../../src/hooks/useFriends'
+import { useFriendshipStatus } from '../../src/hooks/useFriends'
 import { useGlobalSearch } from '../../src/hooks/useGlobalSearch'
 import { useRecommendedUsers } from '../../src/hooks/useRecommendedUsers'
 import { useRecommendedReelsFeed } from '../../src/hooks/useReels'
@@ -28,8 +28,10 @@ import { getInitials } from '../../src/lib/profile'
 import { flattenRecommendedReelPages } from '../../src/lib/recommendationFeed'
 import { useNetworkStatus } from '../../src/providers/NetworkProvider'
 
+import type { FriendshipState } from '../../src/types/friend.types'
 import type { ReelFeedListItem } from '../../src/types/reel.types'
 import type { GlobalSearchType, PublicUserProfile } from '../../src/types/search.types'
+import type { RecommendedPublicUserProfile } from '../../src/types/user.types'
 import type { TextInput } from 'react-native'
 
 const SEARCH_DEBOUNCE_MS = 400
@@ -216,25 +218,29 @@ function EmptyQueryState({
   )
 }
 
-function ContactResultRow({
+const getFriendshipStatusLabel = (status?: FriendshipState | undefined) =>
+  status === 'friends'
+    ? 'Friends'
+    : status === 'request_sent'
+      ? 'Request sent'
+      : status === 'request_received'
+        ? 'Respond in Friend Requests'
+        : null
+
+function ContactRow({
+  mutualFriendLabel,
   onFriendRequestsPress,
   onPress,
+  status,
   user,
 }: {
+  mutualFriendLabel?: string | null
   onFriendRequestsPress: () => void
   onPress?: (() => void) | undefined
   user: PublicUserProfile
+  status?: FriendshipState | undefined
 }) {
-  const { data: friendshipStatus } = useFriendshipStatus(user.id)
-  const status = friendshipStatus?.status
-  const statusLabel =
-    status === 'friends'
-      ? 'Friends'
-      : status === 'request_sent'
-        ? 'Request sent'
-        : status === 'request_received'
-          ? 'Respond in Friend Requests'
-          : null
+  const statusLabel = getFriendshipStatusLabel(status)
 
   return (
     <Pressable className="px-4 py-3" disabled={!onPress} onPress={onPress}>
@@ -265,6 +271,12 @@ function ContactResultRow({
               {getHandleLabel(user.username)}
             </Text>
           ) : null}
+
+          {mutualFriendLabel ? (
+            <Text className="mt-0.5 text-xs2 text-text-muted" numberOfLines={1}>
+              {mutualFriendLabel}
+            </Text>
+          ) : null}
         </View>
 
         <View className="items-end">
@@ -288,15 +300,75 @@ function ContactResultRow({
   )
 }
 
+function ContactResultRow({
+  onFriendRequestsPress,
+  onPress,
+  user,
+}: {
+  onFriendRequestsPress: () => void
+  onPress?: (() => void) | undefined
+  user: PublicUserProfile
+}) {
+  const { data: friendshipStatus } = useFriendshipStatus(user.id)
+
+  return (
+    <ContactRow
+      onFriendRequestsPress={onFriendRequestsPress}
+      onPress={onPress}
+      status={friendshipStatus?.status}
+      user={user}
+    />
+  )
+}
+
+const getMutualFriendLabel = (user: RecommendedPublicUserProfile) => {
+  const count = user.mutualFriendCount
+
+  if (
+    user.recommendation.candidateSource !== 'GRAPH_TWO_HOP' ||
+    typeof count !== 'number' ||
+    !Number.isFinite(count) ||
+    count <= 0
+  ) {
+    return null
+  }
+
+  return `${count} mutual friend${count === 1 ? '' : 's'}`
+}
+
+function RecommendedContactRow({
+  onFriendRequestsPress,
+  onPress,
+  user,
+}: {
+  onFriendRequestsPress: () => void
+  onPress?: (() => void) | undefined
+  user: RecommendedPublicUserProfile
+}) {
+  return (
+    <ContactRow
+      mutualFriendLabel={getMutualFriendLabel(user)}
+      onFriendRequestsPress={onFriendRequestsPress}
+      onPress={onPress}
+      user={user}
+    />
+  )
+}
+
+type ContactResultsListProps = {
+  onFriendRequestsPress: () => void
+  onUserPress: (user: PublicUserProfile) => void
+} & (
+  | { mode: 'search'; users: PublicUserProfile[] }
+  | { mode: 'recommended'; users: RecommendedPublicUserProfile[] }
+)
+
 function ContactResultsList({
   onFriendRequestsPress,
   onUserPress,
+  mode,
   users,
-}: {
-  onFriendRequestsPress: () => void
-  onUserPress: (user: PublicUserProfile) => void
-  users: PublicUserProfile[]
-}) {
+}: ContactResultsListProps) {
   return (
     <View>
       {users.map((user, index) => {
@@ -304,11 +376,19 @@ function ContactResultsList({
 
         return (
           <View key={user.id}>
-            <ContactResultRow
-              onFriendRequestsPress={onFriendRequestsPress}
-              user={user}
-              onPress={normalizedUsername ? () => onUserPress(user) : undefined}
-            />
+            {mode === 'recommended' ? (
+              <RecommendedContactRow
+                onFriendRequestsPress={onFriendRequestsPress}
+                user={user as RecommendedPublicUserProfile}
+                onPress={normalizedUsername ? () => onUserPress(user) : undefined}
+              />
+            ) : (
+              <ContactResultRow
+                onFriendRequestsPress={onFriendRequestsPress}
+                user={user}
+                onPress={normalizedUsername ? () => onUserPress(user) : undefined}
+              />
+            )}
             {index < users.length - 1 ? <View className="mx-4 h-px bg-border-light" /> : null}
           </View>
         )
@@ -325,6 +405,7 @@ function SearchResultsPanel({
   onReelPress,
   onFriendRequestsPress,
   onSuggestionPress,
+  onRecommendedUsersRetry,
   onSwitchTab,
   onUserPress,
   query,
@@ -335,6 +416,7 @@ function SearchResultsPanel({
   suggestions,
   tileSize,
   isRecommendedReelsLoading,
+  isRecommendedUsersError,
   isRecommendedUsersLoading,
 }: {
   backendType: GlobalSearchType
@@ -342,15 +424,17 @@ function SearchResultsPanel({
   hasResolvedSuggestions: boolean
   isLoadingSuggestions: boolean
   isRecommendedReelsLoading: boolean
+  isRecommendedUsersError: boolean
   isRecommendedUsersLoading: boolean
   onReelPress: (reel: ReelFeedListItem) => void
   onFriendRequestsPress: () => void
+  onRecommendedUsersRetry: () => void
   onSuggestionPress: (value: string) => void
   onSwitchTab: (tab: SearchTabKey) => void
   onUserPress: (user: PublicUserProfile) => void
   query: string
   recommendedReels: ReelFeedListItem[]
-  recommendedUsers: PublicUserProfile[]
+  recommendedUsers: RecommendedPublicUserProfile[]
   selectedTab: SearchTabKey
   showSuggestions: boolean
   suggestions: { label: string; query: string }[]
@@ -402,6 +486,16 @@ function SearchResultsPanel({
         )
       }
 
+      if (isRecommendedUsersError) {
+        return (
+          <SearchMessageState
+            title="Couldn’t load suggestions"
+            actionLabel="Retry"
+            onPress={onRecommendedUsersRetry}
+          />
+        )
+      }
+
       if (recommendedUsers.length === 0) {
         return (
           <SearchMessageState
@@ -415,6 +509,7 @@ function SearchResultsPanel({
         <View>
           <SearchSectionHeader title="Suggested contacts" />
           <ContactResultsList
+            mode="recommended"
             onFriendRequestsPress={onFriendRequestsPress}
             onUserPress={onUserPress}
             users={recommendedUsers}
@@ -478,6 +573,7 @@ function SearchResultsPanel({
   if (selectedTab === 'contacts') {
     return (
       <ContactResultsList
+        mode="search"
         onFriendRequestsPress={onFriendRequestsPress}
         onUserPress={onUserPress}
         users={contacts}
@@ -495,6 +591,7 @@ function SearchResultsPanel({
         <>
           <SearchSectionHeader title="Contacts" onSeeAll={() => onSwitchTab('contacts')} />
           <ContactResultsList
+            mode="search"
             onFriendRequestsPress={onFriendRequestsPress}
             onUserPress={onUserPress}
             users={previewContacts}
@@ -546,12 +643,15 @@ export default function SearchScreen() {
       enabled: shouldLoadRecommendedReels,
       limit: 24,
     })
-  const { data: recommendedUsersData = [], isLoading: isRecommendedUsersLoading } =
-    useRecommendedUsers({
-      enabled: shouldLoadRecommendedUsers,
-      limit: 20,
-    })
-  const { data: acceptedFriends = [] } = useFriends()
+  const {
+    data: recommendedUsers = [],
+    isError: isRecommendedUsersError,
+    isLoading: isRecommendedUsersLoading,
+    refetch: refetchRecommendedUsers,
+  } = useRecommendedUsers({
+    enabled: shouldLoadRecommendedUsers,
+    limit: 20,
+  })
   const tileSize = useMemo(() => Math.floor((windowWidth - 4) / 3), [windowWidth])
   const searchSuggestionChips = useMemo(
     () =>
@@ -565,10 +665,6 @@ export default function SearchScreen() {
     () => flattenRecommendedReelPages(recommendedReelsData?.pages ?? []),
     [recommendedReelsData],
   )
-  const recommendedUsers = useMemo(() => {
-    const acceptedFriendIds = new Set(acceptedFriends.map((friend) => friend.user.id))
-    return recommendedUsersData.filter((user) => !acceptedFriendIds.has(user.id))
-  }, [acceptedFriends, recommendedUsersData])
   const hasResolvedSearchSuggestions =
     shouldShowSuggestionChips &&
     (searchSuggestionsData !== undefined || !isSearchSuggestionsLoading)
@@ -685,9 +781,13 @@ export default function SearchScreen() {
           hasResolvedSuggestions={hasResolvedSearchSuggestions}
           isLoadingSuggestions={isSearchSuggestionsLoading}
           isRecommendedReelsLoading={isRecommendedReelsLoading}
+          isRecommendedUsersError={isRecommendedUsersError}
           isRecommendedUsersLoading={isRecommendedUsersLoading}
           onReelPress={handleReelPress}
           onFriendRequestsPress={handleFriendRequestsPress}
+          onRecommendedUsersRetry={() => {
+            void refetchRecommendedUsers()
+          }}
           onSuggestionPress={handleSuggestionPress}
           onSwitchTab={handleSwitchSearchTab}
           onUserPress={handleUserPress}

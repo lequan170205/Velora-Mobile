@@ -11,7 +11,13 @@ private let voipTokenEvent = "onVoipTokenUpdated"
 private let audioSessionActivatedEvent = "onAudioSessionActivated"
 private let audioSessionConfiguredEvent = "onAudioSessionConfigured"
 private let authenticatedUserIdStorageKey = "velora.calls.authenticatedUserId"
+// `pendingActionStorageKey` is retained only to migrate actions written by
+// older builds. New builds journal multiple actions so a terminal update can
+// never overwrite (or be overwritten by) a concurrent answer action.
 private let pendingActionStorageKey = "velora.calls.pendingAction"
+private let pendingActionsStorageKey = "velora.calls.pendingActions"
+private let completedActionsStorageKey = "velora.calls.completedActions"
+private let pendingActionRevisionStorageKey = "velora.calls.pendingActionRevision"
 private let voipTokenStorageKey = "velora.calls.voipToken"
 private let voipTokenUpdatedAtStorageKey = "velora.calls.voipTokenUpdatedAt"
 private let voipTokenInvalidatedAtStorageKey = "velora.calls.voipTokenInvalidatedAt"
@@ -21,7 +27,49 @@ private let reportedIncomingCallIdsStorageKey = "velora.calls.reportedIncomingCa
 private let incomingCallExpirationsStorageKey = "velora.calls.incomingCallExpirations"
 private let remoteCallStateUpdatesStorageKey = "velora.calls.remoteCallStateUpdates"
 private let remoteCallStateUpdateRetention: TimeInterval = 24 * 60 * 60
+private let pendingActionJournalCapacity = 16
+private let completedActionJournalCapacity = 64
+private let completedActionRetention: TimeInterval = 24 * 60 * 60
+private let fallbackAnswerActionRetention: TimeInterval = 60
+private let acceptedAnswerRecoveryRetention: TimeInterval = 60
+private let terminalActionRetention: TimeInterval = 24 * 60 * 60
+private let pendingAnswerWatchdogTimeout: TimeInterval = 25
 private let systemCallsLogger = Logger(subsystem: "com.quan.velora", category: "SystemCalls")
+
+// The action journal survives process death, so it must never be a copy of a
+// raw APNs/PushKit payload. Keep only fields needed to reconstruct a native
+// intent or resolve its server-owned lifecycle. In particular, auth headers,
+// token-like fields, `aps`, and future opaque provider metadata are excluded.
+private let pendingActionJournalAllowedKeys: Set<String> = [
+  "type",
+  "callId",
+  "conversationId",
+  "initiatorId",
+  "targetUserId",
+  "recipientUserId",
+  "callerId",
+  "callerName",
+  "peerName",
+  "callType",
+  "initiatorDisplayName",
+  "initiatorAvatarUrl",
+  "ringTimeoutMs",
+  "expiresAt",
+  "status",
+  "reason",
+  "at",
+  "answerActionId",
+  "lifecycleRevision",
+  "action",
+  "actionId",
+  "callUuid",
+  "createdAt",
+  "createdMonotonicMs",
+  "processLaunchId",
+  "revision",
+  "accountId",
+  "journalExpiresAt",
+]
 
 private enum ExistingIncomingCallState: Equatable {
   case none
@@ -48,6 +96,25 @@ private struct PendingCallStateUpdate {
   let status: String
   let reason: String?
   let endedAt: Date
+  // Optional during the additive backend rollout. Newer state updates use a
+  // server-owned revision before falling back to wall-clock ordering.
+  let lifecycleRevision: Int?
+
+  init(
+    status: String,
+    reason: String?,
+    endedAt: Date,
+    lifecycleRevision: Int? = nil
+  ) {
+    self.status = status
+    self.reason = reason
+    self.endedAt = endedAt
+    self.lifecycleRevision = lifecycleRevision
+  }
+}
+
+private struct CallOperationTiming {
+  let monotonicUptime = ProcessInfo.processInfo.systemUptime
 }
 
 public class VeloraSystemCallsModule: Module {
@@ -123,6 +190,21 @@ public class VeloraSystemCallsModule: Module {
       }
     }
 
+    Function("completePendingAnswer") { (
+      actionId: String,
+      success: Bool,
+      reason: String?
+    ) -> Bool in
+      let callCenter = VeloraSystemCallCenter.shared
+      return callCenter.runOnMain {
+        callCenter.completePendingAnswer(
+          actionId: actionId,
+          success: success,
+          reason: reason
+        )
+      }
+    }
+
     AsyncFunction("presentIncomingCall") { (payload: [String: Any], promise: Promise) in
       let callCenter = VeloraSystemCallCenter.shared
       callCenter.runOnMain {
@@ -148,6 +230,13 @@ public class VeloraSystemCallsModule: Module {
       }
     }
 
+    Function("setCallType") { (callId: String, callType: String) -> Bool in
+      let callCenter = VeloraSystemCallCenter.shared
+      return callCenter.runOnMain {
+        callCenter.setCallType(callId: callId, callType: callType)
+      }
+    }
+
     Function("setSpeakerEnabled") { (enabled: Bool) -> Bool in
       let callCenter = VeloraSystemCallCenter.shared
       return callCenter.runOnMain {
@@ -164,6 +253,15 @@ public class VeloraSystemCallsModule: Module {
       }
     }
 
+    AsyncFunction("reportCallFailed") { (callId: String, promise: Promise) in
+      let callCenter = VeloraSystemCallCenter.shared
+      callCenter.runOnMain {
+        callCenter.reportCallFailed(callId: callId) { result in
+          promise.resolve(result)
+        }
+      }
+    }
+
     AsyncFunction("dismissIncomingCall") { (callId: String, promise: Promise) in
       let callCenter = VeloraSystemCallCenter.shared
       callCenter.runOnMain {
@@ -171,6 +269,16 @@ public class VeloraSystemCallsModule: Module {
           promise.resolve(result)
         }
       }
+    }
+
+    Function("activateSimulatorAudioSession") { (callId: String) -> Bool in
+      let callCenter = VeloraSystemCallCenter.shared
+      return callCenter.runOnMain { callCenter.activateSimulatorAudioSession(callId: callId) }
+    }
+
+    Function("deactivateSimulatorAudioSession") { (callId: String) -> Bool in
+      let callCenter = VeloraSystemCallCenter.shared
+      return callCenter.runOnMain { callCenter.deactivateSimulatorAudioSession(callId: callId) }
     }
   }
 }
@@ -214,6 +322,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
   private let callController: CXCallController
   private let callObserver = CXCallObserver()
   private let processLaunchId = UUID().uuidString
+  private let processMonotonicStartedAt = ProcessInfo.processInfo.systemUptime
   private var pushRegistry: PKPushRegistry?
   private var callIdsByUuid: [UUID: String] = [:]
   private var uuidsByCallId: [String: UUID] = [:]
@@ -221,6 +330,9 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
   private var programmaticEndingCallIds = Set<String>()
   private var activeCallIds = Set<String>()
   private var pendingAnswerCallIds = Set<String>()
+  private var pendingAnswerActionsByCallId: [String: CXAnswerCallAction] = [:]
+  private var pendingAnswerActionIdsByCallId: [String: String] = [:]
+  private var pendingAnswerWatchdogsByCallId: [String: DispatchWorkItem] = [:]
   private var isAudioSessionConfigured = false
   private var audioSessionConfigurationErrorCode: String?
   private var lastAudioSessionConfiguration: [String: Any]?
@@ -241,7 +353,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
 
   private override init() {
     let configuration = CXProviderConfiguration()
-    configuration.supportsVideo = false
+    configuration.supportsVideo = true
     configuration.maximumCallsPerCallGroup = 1
     configuration.supportedHandleTypes = [.generic]
     configuration.includesCallsInRecents = false
@@ -316,7 +428,14 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
   }
 
   func pendingCallAction() -> [String: Any]? {
-    userDefaults.dictionary(forKey: pendingActionStorageKey)
+    pendingCallActions().max { left, right in
+      let leftPriority = pendingActionPriority(left["action"] as? String)
+      let rightPriority = pendingActionPriority(right["action"] as? String)
+      if leftPriority != rightPriority {
+        return leftPriority < rightPriority
+      }
+      return pendingActionRevision(left) < pendingActionRevision(right)
+    }
   }
 
   func voipRegistrationState() -> [String: Any] {
@@ -374,14 +493,14 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
 
   func clearPendingCallAction(actionId: String?) {
     guard let actionId else {
-      userDefaults.removeObject(forKey: pendingActionStorageKey)
+      pendingCallActions().forEach { action in
+        recordCompletedPendingAction(action, outcome: "cleared")
+      }
+      persistPendingCallActions([])
       return
     }
 
-    let pending = pendingCallAction()
-    if pending?["actionId"] as? String == actionId {
-      userDefaults.removeObject(forKey: pendingActionStorageKey)
-    }
+    completePendingAction(actionId: actionId, outcome: "cleared")
   }
 
   func presentIncomingCall(
@@ -402,7 +521,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     requiresCallKitFallbackOnInvalid: Bool,
     completion: @escaping ([String: Any]) -> Void
   ) {
-    let startedAt = Date()
+    let startedAt = CallOperationTiming()
     let validation = validateIncomingPayload(payload)
     let existingState = validation.callId.map { currentIncomingCallState(for: $0) }
 
@@ -537,7 +656,10 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     payloadsByCallId[callId] = payload
     reportingIncomingCallIds.insert(callId)
 
-    let update = callUpdate(displayName: callerName(from: payload))
+    let update = callUpdate(
+      displayName: callerName(from: payload),
+      isVideo: nonEmptyString(payload["callType"]) == "VIDEO"
+    )
     prepareWebRtcAudioSessionForCallKit(callId: callId, callUuid: uuid)
     logOperationalNotice(
       layer: layer,
@@ -640,7 +762,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     payload: [String: Any],
     completion: @escaping ([String: Any]) -> Void
   ) {
-    let startedAt = Date()
+    let startedAt = CallOperationTiming()
     guard let callId = nonEmptyString(payload["callId"]) else {
       let errorCode = "missing_call_id"
       let errorMessage = "Outgoing call registration requires a non-empty callId."
@@ -670,7 +792,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       call: uuid,
       handle: CXHandle(type: .generic, value: peerName(from: payload))
     )
-    action.isVideo = false
+    action.isVideo = nonEmptyString(payload["callType"]) == "VIDEO"
 
     callController.request(CXTransaction(action: action)) { [weak self] error in
       guard let self else {
@@ -732,6 +854,13 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
   }
 
   func setCallActive(callId: String) -> Bool {
+    if payloadsByCallId[callId] == nil,
+       let resumeAction = pendingCallActions().first(where: {
+         $0["callId"] as? String == callId && $0["action"] as? String == "resume"
+       }) {
+      payloadsByCallId[callId] = resumeAction
+    }
+
     guard let uuid = uuidsByCallId[callId], payloadsByCallId[callId] != nil else {
       logPhaseEvent(
         layer: "callkit",
@@ -747,11 +876,183 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     pendingAnswerCallIds.remove(callId)
     activeCallIds.insert(callId)
     cancelIncomingCallExpiration(callId: callId)
+    completePendingActions(callId: callId, action: "resume", outcome: "active")
 
     if payloadsByCallId[callId]?["type"] as? String != "INCOMING_CALL" {
       provider.reportOutgoingCall(with: uuid, connectedAt: Date())
     }
 
+    return true
+  }
+
+  func completePendingAnswer(
+    actionId: String,
+    success: Bool,
+    reason: String?
+  ) -> Bool {
+    guard let callId = pendingAnswerActionIdsByCallId.first(where: {
+      $0.value == actionId
+    })?.key,
+    let action = pendingAnswerActionsByCallId[callId] else {
+      let alreadyAccepted = success && completedPendingActions().contains { completed in
+        completed["actionId"] as? String == actionId &&
+          completed["outcome"] as? String == "accepted"
+      }
+      logPhaseEvent(
+        layer: "callkit",
+        event: alreadyAccepted
+          ? "answer_action_completion_idempotent"
+          : "answer_action_completion_ignored",
+        success: alreadyAccepted,
+        errorCode: alreadyAccepted ? nil : "pending_answer_action_not_found",
+        errorMessage: alreadyAccepted
+          ? nil
+          : "The requested pending CallKit answer action was not found.",
+        extra: ["actionId": actionId]
+      )
+      return alreadyAccepted
+    }
+
+    let persistedAction = pendingCallActions().first(where: {
+      $0["actionId"] as? String == actionId
+    })
+    pendingAnswerActionsByCallId.removeValue(forKey: callId)
+    pendingAnswerActionIdsByCallId.removeValue(forKey: callId)
+    pendingAnswerCallIds.remove(callId)
+    cancelPendingAnswerWatchdog(callId: callId)
+    completePendingAction(
+      actionId: actionId,
+      outcome: success ? "accepted" : (reason ?? "answer_rejected")
+    )
+
+    if success {
+      storePendingAction(
+        action: "resume",
+        callId: callId,
+        payload: persistedAction,
+        extra: ["answerActionId": actionId],
+        emitEvent: false
+      )
+      activeCallIds.insert(callId)
+      cancelIncomingCallExpiration(callId: callId)
+      action.fulfill()
+      logPhaseEvent(
+        layer: "callkit",
+        event: "answer_action_fulfilled_after_server_confirmation",
+        callId: callId,
+        callUuid: action.callUUID,
+        success: true,
+        extra: ["actionId": actionId]
+      )
+      return true
+    }
+
+    action.fail()
+    if let uuid = uuidsByCallId[callId] {
+      provider.reportCall(
+        with: uuid,
+        endedAt: Date(),
+        reason: callKitEndReasonForAnswerFailure(reason)
+      )
+    }
+    clearCall(callId: callId)
+    logPhaseEvent(
+      layer: "callkit",
+      event: "answer_action_failed_before_server_confirmation",
+      callId: callId,
+      callUuid: action.callUUID,
+      success: false,
+      errorCode: reason ?? "answer_rejected",
+      errorMessage: "The call answer could not be confirmed by the server.",
+      extra: ["actionId": actionId]
+    )
+    return true
+  }
+
+  @discardableResult
+  private func failPendingAnswer(callId: String, reason: String) -> Bool {
+    guard let action = pendingAnswerActionsByCallId.removeValue(forKey: callId) else {
+      return false
+    }
+
+    let actionId = pendingAnswerActionIdsByCallId.removeValue(forKey: callId)
+    pendingAnswerCallIds.remove(callId)
+    cancelPendingAnswerWatchdog(callId: callId)
+    if let actionId {
+      completePendingAction(actionId: actionId, outcome: reason)
+    }
+    action.fail()
+    logPhaseEvent(
+      layer: "callkit",
+      event: "answer_action_failed",
+      callId: callId,
+      callUuid: action.callUUID,
+      success: false,
+      errorCode: reason,
+      errorMessage: "The pending CallKit answer action was superseded before confirmation."
+    )
+    return true
+  }
+
+  private func callKitEndReasonForAnswerFailure(_ reason: String?) -> CXCallEndedReason {
+    switch reason {
+    case "answered_elsewhere":
+      return .answeredElsewhere
+    case "declined_elsewhere":
+      return .declinedElsewhere
+    case "no_answer", "expired":
+      return .unanswered
+    default:
+      return .failed
+    }
+  }
+
+  private func schedulePendingAnswerWatchdog(callId: String, actionId: String, callUuid: UUID) {
+    cancelPendingAnswerWatchdog(callId: callId)
+    let watchdog = DispatchWorkItem { [weak self] in
+      guard let self,
+            self.pendingAnswerActionIdsByCallId[callId] == actionId else {
+        return
+      }
+
+      self.failPendingAnswer(callId: callId, reason: "native_answer_confirmation_timeout")
+      self.provider.reportCall(with: callUuid, endedAt: Date(), reason: .failed)
+      self.clearCall(callId: callId)
+      self.logPhaseEvent(
+        layer: "callkit",
+        event: "answer_action_watchdog_timed_out",
+        callId: callId,
+        callUuid: callUuid,
+        success: false,
+        errorCode: "native_answer_confirmation_timeout",
+        errorMessage: "The native answer action was not confirmed before its watchdog deadline.",
+        extra: ["actionId": actionId]
+      )
+    }
+    pendingAnswerWatchdogsByCallId[callId] = watchdog
+    DispatchQueue.main.asyncAfter(deadline: .now() + pendingAnswerWatchdogTimeout, execute: watchdog)
+  }
+
+  private func cancelPendingAnswerWatchdog(callId: String) {
+    pendingAnswerWatchdogsByCallId.removeValue(forKey: callId)?.cancel()
+  }
+
+  func setCallType(callId: String, callType: String) -> Bool {
+    guard (callType == "VOICE" || callType == "VIDEO"),
+          let uuid = uuidsByCallId[callId],
+          var payload = payloadsByCallId[callId] else {
+      return false
+    }
+
+    payload["callType"] = callType
+    payloadsByCallId[callId] = payload
+    let displayName = payload["type"] as? String == "INCOMING_CALL"
+      ? callerName(from: payload)
+      : peerName(from: payload)
+    provider.reportCall(
+      with: uuid,
+      updated: callUpdate(displayName: displayName, isVideo: callType == "VIDEO")
+    )
     return true
   }
 
@@ -773,7 +1074,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       emitAudioSessionConfigured(audioSession)
       return true
     } catch {
-      NSLog("VeloraSystemCalls failed to change speaker route: \(error)")
+      NSLog("VeloraSystemCalls failed to change speaker route")
       emitAudioSessionConfigured(
         audioSession,
         routeErrorCode: "audio_route_override_failed"
@@ -783,7 +1084,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
   }
 
   func endCall(callId: String, completion: @escaping ([String: Any]) -> Void) {
-    let startedAt = Date()
+    let startedAt = CallOperationTiming()
     guard let uuid = uuidsByCallId[callId] else {
       let errorCode = "call_not_found"
       let errorMessage = "No native CallKit mapping exists for the provided callId."
@@ -869,6 +1170,50 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     }
   }
 
+  func reportCallFailed(callId: String, completion: @escaping ([String: Any]) -> Void) {
+    let startedAt = CallOperationTiming()
+    guard let uuid = uuidsByCallId[callId] else {
+      let errorCode = "call_not_found"
+      let errorMessage = "No native CallKit mapping exists for the provided callId."
+      logPhaseEvent(
+        layer: "callkit",
+        event: "report_call_failed_rejected",
+        callId: callId,
+        success: false,
+        errorCode: errorCode,
+        errorMessage: errorMessage,
+        elapsedMs: elapsedMilliseconds(since: startedAt)
+      )
+      completion(
+        makeCallResult(
+          success: false,
+          callId: callId,
+          errorCode: errorCode,
+          errorMessage: errorMessage
+        )
+      )
+      return
+    }
+
+    provider.reportCall(with: uuid, endedAt: Date(), reason: .failed)
+    clearCall(callId: callId)
+    logPhaseEvent(
+      layer: "callkit",
+      event: "report_call_failed",
+      callId: callId,
+      callUuid: uuid,
+      success: true,
+      elapsedMs: elapsedMilliseconds(since: startedAt)
+    )
+    completion(
+      makeCallResult(
+        success: true,
+        callId: callId,
+        callUuid: uuid
+      )
+    )
+  }
+
   func pushRegistry(
     _ registry: PKPushRegistry,
     didUpdate pushCredentials: PKPushCredentials,
@@ -895,14 +1240,12 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       extra: [
         "bundleId": registrationState["bundleId"] ?? NSNull(),
         "apnsEnvironment": registrationState["apnsEnvironment"] ?? NSNull(),
-        "tokenPrefix": safeTokenPrefix(token),
       ]
     )
     logOperationalNotice(
       layer: "pushkit",
       event: "voip_token_updated",
-      success: true,
-      tokenPrefix: safeTokenPrefix(token)
+      success: true
     )
   }
 
@@ -930,7 +1273,6 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       extra: [
         "bundleId": registrationState["bundleId"] ?? NSNull(),
         "apnsEnvironment": registrationState["apnsEnvironment"] ?? NSNull(),
-        "tokenPrefix": safeTokenPrefix(previousToken),
       ]
     )
   }
@@ -963,12 +1305,58 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
   }
 
   private func handleCallStateUpdate(payload: [String: Any]) -> Bool {
-    let startedAt = Date()
+    let startedAt = CallOperationTiming()
     let validation = validateCallStateUpdatePayload(payload)
+    let lifecycleRevisionValidation =
+      validateCallStateUpdateLifecycleRevision(payload)
     let uuid = validation.callId.flatMap { uuidsByCallId[$0] }
-    let isLocallyAnswering = validation.callId.map {
-      pendingAnswerCallIds.contains($0) || activeCallIds.contains($0)
+    let answerActionId = nonEmptyString(payload["answerActionId"])
+    let isLocallyActive = validation.callId.map {
+      activeCallIds.contains($0)
     } ?? false
+    let isAnswerPending = validation.callId.map {
+      pendingAnswerCallIds.contains($0)
+    } ?? false
+    let pendingAnswerActionId = validation.callId.flatMap {
+      pendingAnswerActionIdsByCallId[$0]
+    }
+    let pendingResumeAnswerActionId = validation.callId.flatMap { callId in
+      pendingCallActions().first { pending in
+        pending["callId"] as? String == callId && pending["action"] as? String == "resume"
+      }?["answerActionId"] as? String
+    }
+    let localWinningAnswerActionId = pendingAnswerActionId ?? pendingResumeAnswerActionId
+    let isCurrentPendingAnswer = validation.callId.map { callId in
+      guard let answerActionId else {
+        // Older notification-service deployments do not attach an action id.
+        // Preserve the previous safe behavior until the end-to-end rollout is
+        // complete; an explicit non-matching id always wins deterministically.
+        return isAnswerPending
+      }
+      return pendingAnswerActionIdsByCallId[callId] == answerActionId
+    } ?? false
+    let isCurrentPendingResume = validation.callId.map { callId in
+      let pendingResume = pendingCallActions().first { pending in
+        pending["callId"] as? String == callId && pending["action"] as? String == "resume"
+      }
+      guard let pendingResume else {
+        return false
+      }
+      guard let answerActionId else {
+        return true
+      }
+      return pendingResume["answerActionId"] as? String == answerActionId
+    } ?? false
+    // `completePendingAnswer(true)` deliberately marks CallKit active before
+    // media setup so CallKit is fulfilled only after the server ACK. An
+    // explicit winner from another device must still beat that local active
+    // marker; otherwise a late answered_elsewhere update can be ignored and
+    // leave a ghost native call alive.
+    let isExplicitlyAnsweredElsewhere =
+      validation.status == "active" &&
+      answerActionId != nil &&
+      localWinningAnswerActionId != nil &&
+      localWinningAnswerActionId != answerActionId
     let isIncomingCallReportInFlight = validation.callId.map {
       reportingIncomingCallIds.contains($0) && payloadsByCallId[$0]?["type"] as? String == "INCOMING_CALL"
     } ?? false
@@ -977,7 +1365,8 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       validationAccepted: validation.accepted,
       status: validation.status,
       hasKnownCall: uuid != nil,
-      isLocallyAnswering: isLocallyAnswering,
+      isLocallyActive: !isExplicitlyAnsweredElsewhere &&
+        (isLocallyActive || isCurrentPendingAnswer || isCurrentPendingResume),
       isIncomingCallReportInFlight: isIncomingCallReportInFlight
     )
 
@@ -990,18 +1379,79 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
         callId: validation.callId,
         callUuid: uuid,
         success: false,
-        errorCode: validation.errorCode ?? (isLocallyAnswering ? "local_answer_in_progress" : "call_not_found"),
+        errorCode: validation.errorCode ?? ((isLocallyActive || isAnswerPending || isCurrentPendingResume) ? "local_answer_in_progress" : "call_not_found"),
         errorMessage: validation.errorMessage ?? "Call state update was ignored by the native CallKit state.",
         elapsedMs: elapsedMilliseconds(since: startedAt)
       )
       return false
     }
 
+    guard lifecycleRevisionValidation.accepted else {
+      logPhaseEvent(
+        layer: "remote-notification",
+        event: "call_state_update_ignored",
+        callId: callId,
+        callUuid: uuid,
+        success: false,
+        errorCode: "invalid_call_state_update_lifecycle_revision",
+        errorMessage: "Remote call state update contained an invalid lifecycle revision.",
+        elapsedMs: elapsedMilliseconds(since: startedAt)
+      )
+      return false
+    }
+
     let update = PendingCallStateUpdate(
-      status: status,
-      reason: validation.reason,
-      endedAt: endedAt
+      // `active` from a different winning answer action is terminal for this
+      // device. Store that effective state as terminal too, so a duplicate or
+      // delayed active update cannot override the answered-elsewhere outcome.
+      status: isExplicitlyAnsweredElsewhere ? "ended" : status,
+      reason: isExplicitlyAnsweredElsewhere ? "answered_elsewhere" : validation.reason,
+      endedAt: endedAt,
+      lifecycleRevision: lifecycleRevisionValidation.lifecycleRevision
     )
+
+    // A matching, authoritative `active` update can arrive when the server
+    // committed the answer but its direct ACK was lost while JS was cold. It
+    // is safe to fulfill only when the server explicitly names this native
+    // action; older action-less updates retain the normal retry/watchdog path.
+    if status == "active",
+       let answerActionId,
+       pendingAnswerActionId == answerActionId {
+      guard storeRemoteCallStateUpdate(callId: callId, update: update) else {
+        logPhaseEvent(
+          layer: "remote-notification",
+          event: "call_state_update_superseded",
+          callId: callId,
+          callUuid: uuid,
+          success: true,
+          elapsedMs: elapsedMilliseconds(since: startedAt),
+          extra: ["status": status]
+        )
+        return true
+      }
+
+      let didComplete = completePendingAnswer(
+        actionId: answerActionId,
+        success: true,
+        reason: nil
+      )
+      logPhaseEvent(
+        layer: "remote-notification",
+        event: didComplete
+          ? "call_state_update_confirmed_pending_answer"
+          : "call_state_update_pending_answer_confirmation_failed",
+        callId: callId,
+        callUuid: uuid,
+        success: didComplete,
+        errorCode: didComplete ? nil : "pending_answer_action_not_found",
+        errorMessage: didComplete
+          ? nil
+          : "The matching native answer action was no longer pending.",
+        elapsedMs: elapsedMilliseconds(since: startedAt),
+        extra: ["status": status, "actionId": answerActionId]
+      )
+      return didComplete
+    }
 
     if strategy == .ignore {
       logPhaseEvent(
@@ -1010,7 +1460,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
         callId: callId,
         callUuid: uuid,
         success: false,
-        errorCode: isLocallyAnswering ? "local_answer_in_progress" : "call_state_update_ignored",
+        errorCode: (isLocallyActive || isAnswerPending || isCurrentPendingResume) ? "local_answer_in_progress" : "call_state_update_ignored",
         errorMessage: "Call state update was ignored by the native CallKit state.",
         elapsedMs: elapsedMilliseconds(since: startedAt)
       )
@@ -1073,8 +1523,9 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     callId: String,
     uuid: UUID,
     update: PendingCallStateUpdate,
-    startedAt: Date
+    startedAt: CallOperationTiming
   ) {
+    failPendingAnswer(callId: callId, reason: "remote_call_state_update")
     let endReason = callStateUpdateEndedReason(
       status: update.status,
       reason: update.reason
@@ -1125,13 +1576,33 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       return
     }
 
+    if pendingAnswerActionsByCallId[callId] != nil {
+      logPhaseEvent(
+        layer: "callkit",
+        event: "answer_action_rejected_while_pending",
+        callId: callId,
+        callUuid: action.callUUID,
+        success: false,
+        errorCode: "answer_already_pending",
+        errorMessage: "A CallKit answer action is already awaiting server confirmation."
+      )
+      action.fail()
+      return
+    }
+
     resetAudioConfigurationState()
     speakerOverrideEnabled = false
     pendingAnswerCallIds.insert(callId)
-    cancelIncomingCallExpiration(callId: callId)
     prepareWebRtcAudioSessionForCallKit(callId: callId, callUuid: action.callUUID)
-    storePendingAction(action: "answer", callId: callId)
-    let actionStartedAt = Date()
+    let pendingAction = storePendingAction(action: "answer", callId: callId)
+    guard let actionId = pendingAction["actionId"] as? String else {
+      action.fail()
+      clearCall(callId: callId)
+      return
+    }
+    pendingAnswerActionsByCallId[callId] = action
+    pendingAnswerActionIdsByCallId[callId] = actionId
+    schedulePendingAnswerWatchdog(callId: callId, actionId: actionId, callUuid: action.callUUID)
     logOperationalNotice(
       layer: "callkit",
       event: "callkit_answer_action_received",
@@ -1141,19 +1612,11 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     )
     logPhaseEvent(
       layer: "callkit",
-      event: "answer_action_fulfilled",
-      callId: callId,
-      callUuid: action.callUUID,
-      success: true
-    )
-    action.fulfill()
-    logOperationalNotice(
-      layer: "callkit",
-      event: "callkit_answer_action_fulfilled",
+      event: "answer_action_pending_server_confirmation",
       callId: callId,
       callUuid: action.callUUID,
       success: true,
-      elapsedMs: elapsedMilliseconds(since: actionStartedAt)
+      extra: ["actionId": actionId]
     )
   }
 
@@ -1197,6 +1660,8 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       return
     }
 
+    failPendingAnswer(callId: callId, reason: "ended_while_answer_pending")
+
     let nativeAction = callKitEndAction(
       isActiveCall: activeCallIds.contains(callId),
       isIncomingCall: payloadsByCallId[callId]?["type"] as? String == "INCOMING_CALL"
@@ -1214,6 +1679,29 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       success: true
     )
     action.fulfill()
+  }
+
+  func provider(_ provider: CXProvider, timedOutPerforming action: CXAction) {
+    guard let answerAction = action as? CXAnswerCallAction,
+          let callId = callIdsByUuid[answerAction.callUUID] else {
+      action.fail()
+      return
+    }
+
+    failPendingAnswer(callId: callId, reason: "callkit_answer_timed_out")
+    if let uuid = uuidsByCallId[callId] {
+      provider.reportCall(with: uuid, endedAt: Date(), reason: .failed)
+    }
+    clearCall(callId: callId)
+    logPhaseEvent(
+      layer: "callkit",
+      event: "answer_action_timed_out",
+      callId: callId,
+      callUuid: answerAction.callUUID,
+      success: false,
+      errorCode: "callkit_answer_timed_out",
+      errorMessage: "CallKit timed out before the answer action was confirmed."
+    )
   }
 
   func provider(_ provider: CXProvider, perform action: CXSetHeldCallAction) {
@@ -1288,6 +1776,9 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
 
   func providerDidReset(_ provider: CXProvider) {
     let trackedCallIds = Array(uuidsByCallId.keys)
+    Array(pendingAnswerActionsByCallId.keys).forEach { callId in
+      failPendingAnswer(callId: callId, reason: "provider_reset")
+    }
     trackedCallIds.forEach { callId in
       if let nativeAction = callProviderResetAction(
         isActiveCall: activeCallIds.contains(callId)
@@ -1315,6 +1806,8 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     programmaticEndingCallIds.removeAll()
     activeCallIds.removeAll()
     pendingAnswerCallIds.removeAll()
+    pendingAnswerActionsByCallId.removeAll()
+    pendingAnswerActionIdsByCallId.removeAll()
     speakerOverrideEnabled = false
     resetAudioConfigurationState()
     reportingIncomingCallIds.removeAll()
@@ -1422,7 +1915,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       errorMessage: String?
     ),
     layer: String,
-    startedAt: Date,
+    startedAt: CallOperationTiming,
     completion: @escaping ([String: Any]) -> Void
   ) {
     let callId = validation.callId ?? "pushkit-fallback-\(UUID().uuidString)"
@@ -1439,7 +1932,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     reportingIncomingCallIds.insert(callId)
     fallbackEndedIncomingCallReasonsById[callId] = endReason
 
-    let update = callUpdate(displayName: "Velora call")
+    let update = callUpdate(displayName: "Velora call", isVideo: false)
     logOperationalNotice(
       layer: layer,
       event: "report_new_incoming_call_started",
@@ -1544,11 +2037,11 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     }
   }
 
-  private func callUpdate(displayName: String) -> CXCallUpdate {
+  private func callUpdate(displayName: String, isVideo: Bool) -> CXCallUpdate {
     let update = CXCallUpdate()
     update.remoteHandle = CXHandle(type: .generic, value: displayName)
     update.localizedCallerName = displayName
-    update.hasVideo = false
+    update.hasVideo = isVideo
     update.supportsHolding = false
     update.supportsGrouping = false
     update.supportsUngrouping = false
@@ -1614,14 +2107,14 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     validationAccepted: Bool,
     status: String?,
     hasKnownCall: Bool,
-    isLocallyAnswering: Bool,
+    isLocallyActive: Bool,
     isIncomingCallReportInFlight: Bool
   ) -> CallStateUpdateHandlingStrategy {
     guard validationAccepted && hasKnownCall else {
       return validationAccepted ? .recordWithoutLocalCall : .ignore
     }
 
-    if status == "active" && isLocallyAnswering {
+    if status == "active" && isLocallyActive {
       return .ignore
     }
 
@@ -1632,7 +2125,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     status: String,
     reason: String?
   ) -> CXCallEndedReason {
-    if status == "active" {
+    if status == "active" || reason == "answered_elsewhere" {
       return .answeredElsewhere
     }
 
@@ -1687,9 +2180,8 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       let valid = validateIncomingPayload(validPayload, authenticatedUserIdOverride: "debug-user")
       assert(valid.accepted)
       assert(incomingCallExpirationDate(from: validPayload) != nil)
-      assert(shouldEndIncomingCallAtExpiration(isActive: false, isAnswerPending: false))
-      assert(!shouldEndIncomingCallAtExpiration(isActive: true, isAnswerPending: false))
-      assert(!shouldEndIncomingCallAtExpiration(isActive: false, isAnswerPending: true))
+      assert(shouldEndIncomingCallAtExpiration(isActive: false))
+      assert(!shouldEndIncomingCallAtExpiration(isActive: true))
       assert(
         pushKitHandlingStrategy(
           validationAccepted: valid.accepted,
@@ -1731,12 +2223,22 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
         authenticatedUserIdOverride: "debug-user"
       )
       assert(validCallState.accepted)
+      let validLifecycleRevision = validateCallStateUpdateLifecycleRevision(
+        validCallStatePayload.merging(["lifecycleRevision": "4"]) { _, latest in latest }
+      )
+      assert(validLifecycleRevision.accepted)
+      assert(validLifecycleRevision.lifecycleRevision == 4)
+      assert(
+        !validateCallStateUpdateLifecycleRevision(
+          validCallStatePayload.merging(["lifecycleRevision": "04"]) { _, latest in latest }
+        ).accepted
+      )
       assert(
         callStateUpdateHandlingStrategy(
           validationAccepted: validCallState.accepted,
           status: validCallState.status,
           hasKnownCall: true,
-          isLocallyAnswering: false,
+          isLocallyActive: false,
           isIncomingCallReportInFlight: false
         ) == .reportEndedCall
       )
@@ -1745,7 +2247,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
           validationAccepted: validCallState.accepted,
           status: validCallState.status,
           hasKnownCall: false,
-          isLocallyAnswering: false,
+          isLocallyActive: false,
           isIncomingCallReportInFlight: false
         ) == .recordWithoutLocalCall
       )
@@ -1754,7 +2256,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
           validationAccepted: validCallState.accepted,
           status: validCallState.status,
           hasKnownCall: true,
-          isLocallyAnswering: false,
+          isLocallyActive: false,
           isIncomingCallReportInFlight: true
         ) == .queueUntilIncomingCallReported
       )
@@ -1783,7 +2285,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
           validationAccepted: activeCallState.accepted,
           status: activeCallState.status,
           hasKnownCall: true,
-          isLocallyAnswering: false,
+          isLocallyActive: false,
           isIncomingCallReportInFlight: false
         ) == .reportEndedCall
       )
@@ -1792,7 +2294,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
           validationAccepted: activeCallState.accepted,
           status: activeCallState.status,
           hasKnownCall: true,
-          isLocallyAnswering: true,
+          isLocallyActive: true,
           isIncomingCallReportInFlight: false
         ) == .ignore
       )
@@ -1815,15 +2317,24 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       let activeStateUpdate = PendingCallStateUpdate(
         status: "active",
         reason: nil,
-        endedAt: Date(timeIntervalSince1970: 1)
+        endedAt: Date(timeIntervalSince1970: 1),
+        lifecycleRevision: 3
       )
       let endedStateUpdate = PendingCallStateUpdate(
         status: "ended",
         reason: nil,
-        endedAt: Date(timeIntervalSince1970: 2)
+        endedAt: Date(timeIntervalSince1970: 2),
+        lifecycleRevision: 4
       )
       assert(shouldReplaceRemoteCallStateUpdate(endedStateUpdate, existing: activeStateUpdate))
       assert(!shouldReplaceRemoteCallStateUpdate(activeStateUpdate, existing: endedStateUpdate))
+      let staleActiveStateUpdate = PendingCallStateUpdate(
+        status: "active",
+        reason: nil,
+        endedAt: Date(timeIntervalSince1970: 3),
+        lifecycleRevision: 3
+      )
+      assert(!shouldReplaceRemoteCallStateUpdate(staleActiveStateUpdate, existing: endedStateUpdate))
 
       let expired = validateIncomingPayload(
         validPayload.merging(["expiresAt": "2020-01-01T00:00:00Z"]) { _, latest in latest },
@@ -1845,15 +2356,22 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
           == .reportFallbackAndEnd
       )
 
-      let unsupportedVideo = validateIncomingPayload(
+      let supportedVideo = validateIncomingPayload(
         validPayload.merging(["callType": "VIDEO"]) { _, latest in latest },
         authenticatedUserIdOverride: "debug-user"
       )
-      assert(unsupportedVideo.errorCode == "unsupported_call_type")
+      assert(supportedVideo.accepted)
+      assert(supportedVideo.errorCode == nil)
       assert(
-        pushKitHandlingStrategy(validationAccepted: unsupportedVideo.accepted, existingState: nil)
-          == .reportFallbackAndEnd
+        pushKitHandlingStrategy(validationAccepted: supportedVideo.accepted, existingState: nil)
+          == .reportValidatedIncomingCall
       )
+
+      let unsupportedCallType = validateIncomingPayload(
+        validPayload.merging(["callType": "SCREEN_SHARE"]) { _, latest in latest },
+        authenticatedUserIdOverride: "debug-user"
+      )
+      assert(unsupportedCallType.errorCode == "unsupported_call_type")
 
       let activeUuid = UUID()
       assert(
@@ -1902,20 +2420,262 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     }
   #endif
 
-  private func storePendingAction(action: String, callId: String, extra: [String: Any] = [:]) {
-    let payload = payloadsByCallId[callId] ?? ["callId": callId]
-    var record = payload
+  @discardableResult
+  private func storePendingAction(
+    action: String,
+    callId: String,
+    payload: [String: Any]? = nil,
+    extra: [String: Any] = [:],
+    emitEvent: Bool = true
+  ) -> [String: Any] {
+    let basePayload = payload ?? payloadsByCallId[callId] ?? ["callId": callId]
+    var record = sanitizedPendingActionRecord(basePayload)
     record["action"] = action
     record["actionId"] = UUID().uuidString
     record["callId"] = callId
+    record["createdAt"] = isoTimestamp()
+    record["createdMonotonicMs"] = processMonotonicMilliseconds()
+    record["processLaunchId"] = processLaunchId
+    record["revision"] = nextPendingActionRevision()
+    // The CallKit action can arrive after logout/account switching has changed
+    // the native auth value. Keep the owner from the original call payload so
+    // a stale action cannot be replayed with a newly signed-in account.
+    let accountId = nonEmptyString(record["recipientUserId"])
+      ?? nonEmptyString(record["accountId"])
+      ?? userDefaults.string(forKey: authenticatedUserIdStorageKey)
+    if let accountId {
+      record["accountId"] = accountId
+    }
     if let uuid = uuidsByCallId[callId] {
       record["callUuid"] = uuid.uuidString
     }
     extra.forEach { key, value in
+      guard pendingActionJournalAllowedKeys.contains(key),
+            isSafePendingActionJournalValue(value) else {
+        return
+      }
       record[key] = value
     }
-    userDefaults.set(record, forKey: pendingActionStorageKey)
-    eventSink?(callActionEvent, record)
+    record["journalExpiresAt"] = isoTimestamp(
+      pendingActionJournalExpiration(action: action, payload: record)
+    )
+    var pendingActions = pendingCallActions()
+    if isTerminalPendingAction(action) {
+      // A terminal state is authoritative for this call and supersedes any
+      // not-yet-replayed answer record.
+      let supersededActions = pendingActions.filter { pending in
+        pending["callId"] as? String == callId
+      }
+      supersededActions.forEach { pending in
+        recordCompletedPendingAction(pending, outcome: "superseded_by_terminal")
+      }
+      pendingActions.removeAll { pending in
+        pending["callId"] as? String == callId
+      }
+    } else if action == "answer" {
+      pendingActions.removeAll { pending in
+        pending["callId"] as? String == callId && pending["action"] as? String == "answer"
+      }
+    }
+    pendingActions.append(record)
+    persistPendingCallActions(Array(pendingActions.suffix(pendingActionJournalCapacity)))
+    if emitEvent {
+      eventSink?(callActionEvent, record)
+    }
+    return record
+  }
+
+  private func pendingCallActions() -> [[String: Any]] {
+    let pendingActions: [[String: Any]]
+    if let storedActions = userDefaults.array(forKey: pendingActionsStorageKey) as? [[String: Any]] {
+      pendingActions = storedActions
+    } else if let legacyAction = userDefaults.dictionary(forKey: pendingActionStorageKey) {
+      // Migrate the single-record journal used by earlier app builds without
+      // discarding an action captured before the update was installed.
+      userDefaults.removeObject(forKey: pendingActionStorageKey)
+      pendingActions = [legacyAction]
+    } else {
+      return []
+    }
+
+    var didNormalize = false
+    let normalizedActions = pendingActions.map { action -> [String: Any] in
+      var normalized = sanitizedPendingActionRecord(action)
+      if normalized.count != action.count {
+        didNormalize = true
+      }
+      if nonEmptyString(normalized["journalExpiresAt"]) == nil {
+        let pendingAction = nonEmptyString(normalized["action"]) ?? "answer"
+        normalized["journalExpiresAt"] = isoTimestamp(
+          pendingActionJournalExpiration(action: pendingAction, payload: normalized)
+        )
+        didNormalize = true
+      }
+      return normalized
+    }
+    let completedActionIds = Set(
+      completedPendingActions().compactMap { $0["actionId"] as? String }
+    )
+    let activeActions = normalizedActions.filter { action in
+      guard let actionId = action["actionId"] as? String else {
+        return false
+      }
+      return !completedActionIds.contains(actionId) && !isPendingActionExpired(action)
+    }
+
+    if didNormalize || activeActions.count != normalizedActions.count || userDefaults.object(forKey: pendingActionStorageKey) != nil {
+      persistPendingCallActions(activeActions)
+    }
+    return activeActions
+  }
+
+  private func persistPendingCallActions(_ actions: [[String: Any]]) {
+    userDefaults.removeObject(forKey: pendingActionStorageKey)
+    if actions.isEmpty {
+      userDefaults.removeObject(forKey: pendingActionsStorageKey)
+      return
+    }
+    userDefaults.set(actions, forKey: pendingActionsStorageKey)
+  }
+
+  private func sanitizedPendingActionRecord(_ payload: [String: Any]) -> [String: Any] {
+    payload.reduce(into: [:]) { result, entry in
+      guard pendingActionJournalAllowedKeys.contains(entry.key),
+            isSafePendingActionJournalValue(entry.value) else {
+        return
+      }
+      result[entry.key] = entry.value
+    }
+  }
+
+  private func isSafePendingActionJournalValue(_ value: Any) -> Bool {
+    value is String || value is NSNumber
+  }
+
+  private func completePendingAction(actionId: String, outcome: String) {
+    let pendingActions = pendingCallActions()
+    guard let action = pendingActions.first(where: { $0["actionId"] as? String == actionId }) else {
+      return
+    }
+
+    persistPendingCallActions(
+      pendingActions.filter { $0["actionId"] as? String != actionId }
+    )
+    recordCompletedPendingAction(action, outcome: outcome)
+  }
+
+  private func completePendingActions(callId: String, action: String, outcome: String) {
+    pendingCallActions()
+      .filter { pending in
+        pending["callId"] as? String == callId && pending["action"] as? String == action
+      }
+      .forEach { pending in
+        guard let actionId = pending["actionId"] as? String else {
+          return
+        }
+        completePendingAction(actionId: actionId, outcome: outcome)
+      }
+  }
+
+  private func recordCompletedPendingAction(_ action: [String: Any], outcome: String) {
+    guard let actionId = action["actionId"] as? String else {
+      return
+    }
+
+    var completed = completedPendingActions().filter { $0["actionId"] as? String != actionId }
+    var record: [String: Any] = [
+      "actionId": actionId,
+      "callId": action["callId"] ?? NSNull(),
+      "action": action["action"] ?? NSNull(),
+      "revision": action["revision"] ?? 0,
+      "accountId": action["accountId"] ?? NSNull(),
+      "outcome": outcome,
+      "processedAt": isoTimestamp(),
+      "expiresAt": isoTimestamp(Date().addingTimeInterval(completedActionRetention)),
+    ]
+    if let processLaunchId = action["processLaunchId"] {
+      record["processLaunchId"] = processLaunchId
+    }
+    completed.append(record)
+    persistCompletedPendingActions(Array(completed.suffix(completedActionJournalCapacity)))
+  }
+
+  private func completedPendingActions() -> [[String: Any]] {
+    guard let storedActions = userDefaults.array(forKey: completedActionsStorageKey) as? [[String: Any]] else {
+      return []
+    }
+
+    let activeActions = storedActions.filter { action in
+      guard let expiresAt = nonEmptyString(action["expiresAt"]),
+            let expirationDate = parseIso8601Date(expiresAt) else {
+        return false
+      }
+      return expirationDate > Date()
+    }
+    if activeActions.count != storedActions.count {
+      persistCompletedPendingActions(activeActions)
+    }
+    return activeActions
+  }
+
+  private func persistCompletedPendingActions(_ actions: [[String: Any]]) {
+    if actions.isEmpty {
+      userDefaults.removeObject(forKey: completedActionsStorageKey)
+      return
+    }
+    userDefaults.set(actions, forKey: completedActionsStorageKey)
+  }
+
+  private func pendingActionJournalExpiration(action: String, payload: [String: Any]) -> Date {
+    if isTerminalPendingAction(action) {
+      return Date().addingTimeInterval(terminalActionRetention)
+    }
+
+    if action == "resume" {
+      return Date().addingTimeInterval(acceptedAnswerRecoveryRetention)
+    }
+
+    let fallbackExpiration = Date().addingTimeInterval(fallbackAnswerActionRetention)
+    guard let callExpiration = incomingCallExpirationDate(from: payload) else {
+      return fallbackExpiration
+    }
+    // An unconfirmed answer must never outlive the server-authoritative ring
+    // deadline. Successful answers are converted to the separate `resume`
+    // action above, which retains its short recovery window independently.
+    return min(callExpiration, fallbackExpiration)
+  }
+
+  private func isPendingActionExpired(_ action: [String: Any]) -> Bool {
+    guard let expiresAt = nonEmptyString(action["journalExpiresAt"]),
+          let expirationDate = parseIso8601Date(expiresAt) else {
+      return true
+    }
+    return expirationDate <= Date()
+  }
+
+  private func nextPendingActionRevision() -> Int {
+    let revision = userDefaults.integer(forKey: pendingActionRevisionStorageKey) + 1
+    userDefaults.set(revision, forKey: pendingActionRevisionStorageKey)
+    return revision
+  }
+
+  private func pendingActionRevision(_ action: [String: Any]) -> Int {
+    action["revision"] as? Int ?? 0
+  }
+
+  private func pendingActionPriority(_ action: String?) -> Int {
+    switch action {
+    case "remote_end", "end", "reject":
+      return 2
+    case "answer", "resume":
+      return 1
+    default:
+      return 0
+    }
+  }
+
+  private func isTerminalPendingAction(_ action: String) -> Bool {
+    pendingActionPriority(action) == 2
   }
 
   private func validateIncomingPayload(_ payload: [String: Any]) -> (
@@ -1954,12 +2714,13 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       )
     }
 
-    if payload["callType"] as? String == "VIDEO" {
+    if let callType = nonEmptyString(payload["callType"]),
+       callType != "VOICE" && callType != "VIDEO" {
       return (
         false,
         callId,
         "unsupported_call_type",
-        "VoIP incoming call reporting only supports audio calls."
+        "VoIP incoming call reporting only supports VOICE or VIDEO calls."
       )
     }
 
@@ -2172,6 +2933,35 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     )
   }
 
+  private func validateCallStateUpdateLifecycleRevision(
+    _ payload: [String: Any]
+  ) -> (accepted: Bool, lifecycleRevision: Int?) {
+    guard let rawRevision = payload["lifecycleRevision"] else {
+      // Additive rollout: older call-service / notification-service builds do
+      // not send this field, so preserve timestamp ordering for those events.
+      return (true, nil)
+    }
+
+    if rawRevision is Bool {
+      return (false, nil)
+    }
+
+    if let revision = rawRevision as? Int {
+      return revision >= 0 ? (true, revision) : (false, nil)
+    }
+
+    // Firebase data values are strings. Require a canonical non-negative
+    // integer so malformed data cannot silently downgrade ordering semantics.
+    guard let encodedRevision = rawRevision as? String,
+          let revision = Int(encodedRevision),
+          revision >= 0,
+          String(revision) == encodedRevision else {
+      return (false, nil)
+    }
+
+    return (true, revision)
+  }
+
   private func parseIso8601Date(_ value: String) -> Date? {
     let fractionalFormatter = ISO8601DateFormatter()
     fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -2224,6 +3014,12 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
   }
 
   private func clearCall(callId: String) {
+    // CallKit actions must always complete. This is a last-resort guard for
+    // paths such as account changes and provider resets that do not originate
+    // from the JS answer bridge.
+    cancelPendingAnswerWatchdog(callId: callId)
+    failPendingAnswer(callId: callId, reason: "call_cleared")
+    completePendingActions(callId: callId, action: "resume", outcome: "native_call_cleared")
     cancelIncomingCallExpiration(callId: callId)
     if let uuid = uuidsByCallId.removeValue(forKey: callId) {
       callIdsByUuid.removeValue(forKey: uuid)
@@ -2232,6 +3028,8 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     programmaticEndingCallIds.remove(callId)
     activeCallIds.remove(callId)
     pendingAnswerCallIds.remove(callId)
+    pendingAnswerActionsByCallId.removeValue(forKey: callId)
+    pendingAnswerActionIdsByCallId.removeValue(forKey: callId)
     if activeCallIds.isEmpty {
       speakerOverrideEnabled = false
     }
@@ -2252,11 +3050,8 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     return parseIso8601Date(expiresAt)
   }
 
-  private func shouldEndIncomingCallAtExpiration(
-    isActive: Bool,
-    isAnswerPending: Bool
-  ) -> Bool {
-    !isActive && !isAnswerPending
+  private func shouldEndIncomingCallAtExpiration(isActive: Bool) -> Bool {
+    !isActive
   }
 
   private func scheduleIncomingCallExpiration(
@@ -2301,12 +3096,13 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     }
 
     guard shouldEndIncomingCallAtExpiration(
-      isActive: activeCallIds.contains(callId),
-      isAnswerPending: pendingAnswerCallIds.contains(callId)
+      isActive: activeCallIds.contains(callId)
     ) else {
       cancelIncomingCallExpiration(callId: callId)
       return
     }
+
+    failPendingAnswer(callId: callId, reason: "incoming_call_expired")
 
     let update = PendingCallStateUpdate(
       status: "ended",
@@ -2404,11 +3200,33 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     _ candidate: PendingCallStateUpdate,
     existing: PendingCallStateUpdate
   ) -> Bool {
+    let candidateIsTerminal = candidate.status != "active"
+    let existingIsTerminal = existing.status != "active"
+
+    // A terminal state is a safety boundary. It must never be undone by a
+    // delayed active notification, even if a legacy event has no revision or
+    // a wall-clock anomaly occurs between services.
+    if candidateIsTerminal != existingIsTerminal {
+      return candidateIsTerminal
+    }
+
+    switch (candidate.lifecycleRevision, existing.lifecycleRevision) {
+    case let (.some(candidateRevision), .some(existingRevision))
+      where candidateRevision != existingRevision:
+      return candidateRevision > existingRevision
+    case (.some(_), .none):
+      return true
+    case (.none, .some(_)):
+      return false
+    default:
+      break
+    }
+
     if candidate.endedAt != existing.endedAt {
       return candidate.endedAt > existing.endedAt
     }
 
-    return existing.status == "active" && candidate.status != "active"
+    return false
   }
 
   private func restoreRemoteCallStateUpdates() {
@@ -2423,11 +3241,17 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
             let endedAt = parseIso8601Date(at) else {
         return
       }
+      let lifecycleRevisionValidation =
+        validateCallStateUpdateLifecycleRevision(storedUpdate)
+      guard lifecycleRevisionValidation.accepted else {
+        return
+      }
 
       remoteCallStateUpdatesByCallId[callId] = PendingCallStateUpdate(
         status: status,
         reason: nonEmptyString(storedUpdate["reason"]),
-        endedAt: endedAt
+        endedAt: endedAt,
+        lifecycleRevision: lifecycleRevisionValidation.lifecycleRevision
       )
     }
     pruneRemoteCallStateUpdates()
@@ -2461,6 +3285,9 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       ]
       if let reason = entry.value.reason {
         storedUpdate["reason"] = reason
+      }
+      if let lifecycleRevision = entry.value.lifecycleRevision {
+        storedUpdate["lifecycleRevision"] = String(lifecycleRevision)
       }
       result[entry.key] = storedUpdate
     }
@@ -2590,27 +3417,23 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
   }
 
   private func sanitizedErrorMessage(_ error: Error, fallback: String) -> String {
-    let message = (error as NSError).localizedDescription.trimmingCharacters(
-      in: .whitespacesAndNewlines
-    )
-    return message.isEmpty ? fallback : message
+    // OS and SDK error descriptions are not a stable diagnostic contract and
+    // may include opaque provider data. Keep the native journal/logs to the
+    // explicit error code plus a known-safe fallback message.
+    _ = error
+    return fallback
   }
 
-  private func elapsedMilliseconds(since startedAt: Date) -> Int {
-    max(0, Int(Date().timeIntervalSince(startedAt) * 1000))
+  private func elapsedMilliseconds(since startedAt: CallOperationTiming) -> Int {
+    max(0, Int((ProcessInfo.processInfo.systemUptime - startedAt.monotonicUptime) * 1000))
+  }
+
+  private func processMonotonicMilliseconds() -> Int {
+    max(0, Int((ProcessInfo.processInfo.systemUptime - processMonotonicStartedAt) * 1000))
   }
 
   private func isoTimestamp(_ date: Date = Date()) -> String {
     ISO8601DateFormatter().string(from: date)
-  }
-
-  private func safeTokenPrefix(_ token: String?) -> String {
-    guard let token else {
-      return "none"
-    }
-
-    let prefix = String(token.prefix(12))
-    return prefix.isEmpty ? "empty" : prefix
   }
 
   private func currentApnsEnvironment() -> String? {
@@ -2645,8 +3468,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     callUuid: UUID? = nil,
     success: Bool? = nil,
     errorCode: String? = nil,
-    elapsedMs: Int? = nil,
-    tokenPrefix: String? = nil
+    elapsedMs: Int? = nil
   ) {
     let bundleId = Bundle.main.bundleIdentifier ?? "unknown"
     let callIdValue = callId ?? "none"
@@ -2654,11 +3476,10 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     let successValue = success.map(String.init) ?? "unknown"
     let errorCodeValue = errorCode ?? "none"
     let elapsedValue = elapsedMs.map(String.init) ?? "none"
-    let tokenPrefixValue = tokenPrefix ?? "none"
     let apnsEnvironment = currentApnsEnvironment() ?? "unknown"
 
     systemCallsLogger.notice(
-      "layer=\(layer, privacy: .public) event=\(event, privacy: .public) callId=\(callIdValue, privacy: .public) callUuid=\(callUuidValue, privacy: .public) success=\(successValue, privacy: .public) errorCode=\(errorCodeValue, privacy: .public) elapsedMs=\(elapsedValue, privacy: .public) appState=\(self.currentAppState(), privacy: .public) processLaunchId=\(self.processLaunchId, privacy: .public) bundleId=\(bundleId, privacy: .public) apnsEnvironment=\(apnsEnvironment, privacy: .public) tokenPrefix=\(tokenPrefixValue, privacy: .public)"
+      "layer=\(layer, privacy: .public) event=\(event, privacy: .public) callId=\(callIdValue, privacy: .public) callUuid=\(callUuidValue, privacy: .public) success=\(successValue, privacy: .public) errorCode=\(errorCodeValue, privacy: .public) elapsedMs=\(elapsedValue, privacy: .public) monotonicMs=\(self.processMonotonicMilliseconds(), privacy: .public) appState=\(self.currentAppState(), privacy: .public) processLaunchId=\(self.processLaunchId, privacy: .public) bundleId=\(bundleId, privacy: .public) apnsEnvironment=\(apnsEnvironment, privacy: .public)"
     )
   }
 
@@ -2680,6 +3501,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       "callUuid": callUuid?.uuidString ?? NSNull(),
       "appState": currentAppState(),
       "processLaunchId": processLaunchId,
+      "monotonicMs": processMonotonicMilliseconds(),
     ]
 
     if let success {
@@ -2701,11 +3523,58 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     guard JSONSerialization.isValidJSONObject(payload),
           let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
           let encoded = String(data: data, encoding: .utf8) else {
-      NSLog("VeloraSystemCalls %@", "\(payload)")
+      NSLog("VeloraSystemCalls event=%@ serialization_failed", event)
       return
     }
 
     NSLog("VeloraSystemCalls %@", encoded)
+  }
+
+  func activateSimulatorAudioSession(callId: String) -> Bool {
+    #if targetEnvironment(simulator)
+      let audioSession = AVAudioSession.sharedInstance()
+      resetAudioConfigurationState()
+      speakerOverrideEnabled = false
+      do {
+        try audioSession.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP, .allowBluetoothA2DP])
+        try audioSession.setActive(true)
+        isNativeAudioSessionActivated = true
+        nativeAudioSessionActivatedAt = Date()
+        nativeAudioSessionDeactivatedAt = nil
+        nativeAudioSessionActivationSequence += 1
+        nativeAudioSessionCallUuid = uuidsByCallId[callId]
+        configureWebRtcAudioSession(audioSession)
+        logOperationalNotice(layer: "simulator", event: "simulator_audio_session_activated", callId: callId, success: isAudioSessionConfigured)
+        return isAudioSessionConfigured
+      } catch {
+        audioSessionConfigurationErrorCode = "simulator_audio_session_activation_failed"
+        logOperationalNotice(layer: "simulator", event: "simulator_audio_session_activation_failed", callId: callId, success: false, errorCode: audioSessionConfigurationErrorCode)
+        return false
+      }
+    #else
+      return false
+    #endif
+  }
+
+  func deactivateSimulatorAudioSession(callId: String) -> Bool {
+    #if targetEnvironment(simulator)
+      let audioSession = AVAudioSession.sharedInstance()
+      RTCAudioSession.sharedInstance().isAudioEnabled = false
+      do {
+        try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+      } catch {
+        logOperationalNotice(layer: "simulator", event: "simulator_audio_session_deactivation_failed", callId: callId, success: false, errorCode: "simulator_audio_session_deactivation_failed")
+        return false
+      }
+      isNativeAudioSessionActivated = false
+      nativeAudioSessionDeactivatedAt = Date()
+      nativeAudioSessionCallUuid = nil
+      resetAudioConfigurationState()
+      logOperationalNotice(layer: "simulator", event: "simulator_audio_session_deactivated", callId: callId, success: true)
+      return true
+    #else
+      return false
+    #endif
   }
 
   private func prepareWebRtcAudioSessionForCallKit(callId: String?, callUuid: UUID?) {
@@ -2739,7 +3608,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
         success: false,
         errorCode: audioSessionConfigurationErrorCode
       )
-      NSLog("VeloraSystemCalls failed to prepare WebRTC audio session for CallKit: \(error)")
+      NSLog("VeloraSystemCalls failed to prepare WebRTC audio session for CallKit")
     }
   }
 
@@ -2760,7 +3629,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       _ = try rtcAudioSession.setConfiguration(configuration)
     } catch {
       audioSessionConfigurationErrorCode = "audio_session_configuration_failed"
-      NSLog("VeloraSystemCalls failed to configure WebRTC audio session: \(error)")
+      NSLog("VeloraSystemCalls failed to configure WebRTC audio session")
       emitAudioSessionConfigured(
         audioSession,
         errorCode: audioSessionConfigurationErrorCode
@@ -2774,7 +3643,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
         try audioSession.overrideOutputAudioPort(.speaker)
       } catch {
         routeErrorCode = "audio_route_override_failed"
-        NSLog("VeloraSystemCalls failed to restore speaker route: \(error)")
+        NSLog("VeloraSystemCalls failed to restore speaker route")
       }
     }
 

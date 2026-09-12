@@ -10,8 +10,9 @@ class VeloraCallForegroundService : Service() {
   private var activeCallId: String? = null
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    val currentCall = VeloraSystemCallStore.getCurrentCall(this)
     val callId = intent?.getStringExtra("callId")
-      ?: VeloraSystemCallStore.getCurrentCall(this)
+      ?: currentCall
         ?.takeIf { it.phase == "active" }
         ?.callId
     if (callId == null || !VeloraSystemCallStore.isActiveCall(this, callId)) {
@@ -25,6 +26,7 @@ class VeloraCallForegroundService : Service() {
       mapOf(
         "callId" to callId,
         "initiatorDisplayName" to "Velora call",
+        "callType" to currentCall?.takeIf { it.callId == callId }?.callType,
       ),
     )
 

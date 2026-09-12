@@ -1,20 +1,20 @@
 import '../src/global.css'
 
-import { MaterialIcons } from '@expo/vector-icons'
 import { Inter_400Regular, Inter_500Medium, useFonts } from '@expo-google-fonts/inter'
 import { SpaceGrotesk_600SemiBold, SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk'
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet'
-import { Stack, usePathname, useRouter } from 'expo-router'
+import { Stack } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
 import { useEffect, useState } from 'react'
-import { AppState, Platform, Text, TouchableOpacity, View } from 'react-native'
+import { AppState, Platform } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { PaperProvider } from 'react-native-paper'
-import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 
-import { CallErrorModal } from '../src/components/call/CallErrorModal'
+import { CallFeedbackNotice } from '../src/components/call/CallErrorModal'
+import { FloatingActiveCallButton } from '../src/components/call/FloatingActiveCallButton'
 import { paperTheme } from '../src/constants/paperTheme'
 import { colors } from '../src/constants/theme'
 import { useReelSavingMode } from '../src/hooks/useReelSavingMode'
@@ -25,11 +25,13 @@ import {
   runReelOfflineStartupMaintenance,
 } from '../src/lib/reelOfflineMaintenance'
 import { initializeReelPlaybackVideoCache } from '../src/lib/reelPlaybackVideoCache'
-import { AuthProvider } from '../src/providers/AuthProvider'
+import { veloraSystemCalls } from '../src/lib/systemCalls/veloraSystemCalls'
+import { AUTH_LOADING_FALLBACK_DELAY_MS, AuthProvider } from '../src/providers/AuthProvider'
 import { CallProvider, useCall } from '../src/providers/CallProvider'
 import { ChatMediaUploadProvider } from '../src/providers/ChatMediaUploadProvider'
 import { ChatMediaViewerProvider } from '../src/providers/ChatMediaViewerProvider'
 import { FcmDebugProvider } from '../src/providers/FcmDebugProvider'
+import { IncomingCallPrewarmBridge } from '../src/providers/IncomingCallPrewarmBridge'
 import { NetworkProvider } from '../src/providers/NetworkProvider'
 import { PushTokenLifecycleProvider } from '../src/providers/PushTokenLifecycleProvider'
 import { QueryProvider } from '../src/providers/QueryProvider'
@@ -40,89 +42,23 @@ import { useCallStore } from '../src/stores/callStore'
 
 SplashScreen.preventAutoHideAsync()
 
-function ActiveCallBanner() {
-  const { phase, durationSec, callId, reconnectDeadlineMs } = useCallStore()
-  const pathname = usePathname()
-  const router = useRouter()
-  const insets = useSafeAreaInsets()
-  const [nowMs, setNowMs] = useState(Date.now())
-
-  useEffect(() => {
-    if (phase !== 'reconnecting' || !reconnectDeadlineMs) {
-      return
-    }
-
-    setNowMs(Date.now())
-    const intervalId = setInterval(() => {
-      setNowMs(Date.now())
-    }, 1000)
-
-    return () => {
-      clearInterval(intervalId)
-    }
-  }, [phase, reconnectDeadlineMs])
-
-  if (
-    (phase !== 'active' && phase !== 'reconnecting') ||
-    !callId ||
-    pathname.startsWith('/call/')
-  ) {
-    return null
-  }
-
-  const formatDuration = (secs: number) => {
-    const minutes = Math.floor(secs / 60)
-    const seconds = secs % 60
-    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`
-  }
-
-  const reconnectSecondsLeft =
-    reconnectDeadlineMs && phase === 'reconnecting'
-      ? Math.max(0, Math.ceil((reconnectDeadlineMs - nowMs) / 1000))
-      : null
-
-  return (
-    <TouchableOpacity
-      style={{
-        bottom:
-          Platform.OS === 'ios' ? insets.bottom + 64 : insets.bottom > 0 ? insets.bottom + 84 : 90,
-      }}
-      className="absolute left-5 right-5 flex-row items-center justify-between rounded-xl border border-call-green bg-surface-card px-4 py-3 z-[9999]"
-      activeOpacity={0.9}
-      onPress={() => {
-        router.push(`/call/${callId}` as never)
-      }}
-    >
-      <View className="flex-row items-center gap-3">
-        <View className="h-7 w-7 items-center justify-center rounded-full bg-call-green">
-          <MaterialIcons name="call" size={16} color="#ffffff" />
-        </View>
-        <Text className="text-md font-medium text-text-primary">
-          {phase === 'reconnecting' ? 'Reconnecting...' : 'Call in progress...'}
-        </Text>
-      </View>
-      <Text className="text-md font-semibold text-call-green">
-        {phase === 'reconnecting' && reconnectSecondsLeft !== null
-          ? `${reconnectSecondsLeft}s`
-          : formatDuration(durationSec)}
-      </Text>
-    </TouchableOpacity>
-  )
-}
-
 function CallUiOverlays() {
   const { error } = useCallStore()
   const { dismissCallError } = useCall()
 
   return (
     <>
-      <CallErrorModal visible={Boolean(error)} message={error} onDismiss={dismissCallError} />
-      <ActiveCallBanner />
+      <FloatingActiveCallButton />
+      <CallFeedbackNotice visible={Boolean(error)} message={error} onDismiss={dismissCallError} />
     </>
   )
 }
 
-export default function RootLayout() {
+type RootAppShellProps = {
+  hasPendingNativeCallIntent: boolean
+}
+
+function RootAppShell({ hasPendingNativeCallIntent }: RootAppShellProps) {
   const [loaded, error] = useFonts({
     SpaceGrotesk_600SemiBold,
     SpaceGrotesk_700Bold,
@@ -133,36 +69,46 @@ export default function RootLayout() {
   const [isReelPlaybackVideoCacheReady, setIsReelPlaybackVideoCacheReady] = useState(
     Platform.OS !== 'ios',
   )
+  const hydrateAuth = useAuthStore((state) => state.hydrateAuth)
+  const isAuthLoading = useAuthStore((state) => state.isLoading)
+  const [hasAuthStartupDelayElapsed, setHasAuthStartupDelayElapsed] = useState(false)
 
   useEffect(() => {
-    if ((loaded || error) && isReelPlaybackVideoCacheReady) {
+    const timeoutId = setTimeout(
+      () => setHasAuthStartupDelayElapsed(true),
+      AUTH_LOADING_FALLBACK_DELAY_MS,
+    )
+
+    return () => clearTimeout(timeoutId)
+  }, [])
+
+  useEffect(() => {
+    if (
+      (loaded || error) &&
+      isReelPlaybackVideoCacheReady &&
+      (!isAuthLoading || hasAuthStartupDelayElapsed)
+    ) {
       SplashScreen.hideAsync()
     }
-  }, [error, isReelPlaybackVideoCacheReady, loaded])
+  }, [error, hasAuthStartupDelayElapsed, isAuthLoading, isReelPlaybackVideoCacheReady, loaded])
 
   useEffect(() => {
-    if (Platform.OS !== 'ios') {
+    if (Platform.OS !== 'ios' || hasPendingNativeCallIntent) {
+      setIsReelPlaybackVideoCacheReady(true)
       return undefined
     }
-
     let isMounted = true
-
     void initializeReelPlaybackVideoCache()
-      .catch((error: unknown) => {
-        console.warn('[ReelVideoCache] Failed to start iOS HLS cache', error)
-      })
+      .catch((error: unknown) =>
+        console.warn('[ReelVideoCache] Failed to start iOS HLS cache', error),
+      )
       .finally(() => {
-        if (isMounted) {
-          setIsReelPlaybackVideoCacheReady(true)
-        }
+        if (isMounted) setIsReelPlaybackVideoCacheReady(true)
       })
-
     return () => {
       isMounted = false
     }
-  }, [])
-
-  const hydrateAuth = useAuthStore((state) => state.hydrateAuth)
+  }, [hasPendingNativeCallIntent])
 
   useEffect(() => {
     hydrateAuth()
@@ -175,27 +121,19 @@ export default function RootLayout() {
   }, [isReelSavingModeHydrated, reelSavingModeEnabled])
 
   useEffect(() => {
+    if (hasPendingNativeCallIntent) return undefined
     void runReelOfflineStartupMaintenance().catch(() => undefined)
-
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
         void runReelOfflineAppActiveMaintenance().catch(() => undefined)
         return
       }
-
       if (nextState === 'background' || nextState === 'inactive') {
         void runReelOfflineBackgroundMaintenance().catch(() => undefined)
       }
     })
-
-    return () => {
-      subscription.remove()
-    }
-  }, [])
-
-  if ((!loaded && !error) || !isReelPlaybackVideoCacheReady) {
-    return null
-  }
+    return () => subscription.remove()
+  }, [hasPendingNativeCallIntent])
 
   return (
     <GestureHandlerRootView className="flex-1 bg-bg-primary">
@@ -207,11 +145,11 @@ export default function RootLayout() {
               <QueryProvider>
                 <NetworkProvider>
                   <AuthProvider>
-                    <PushTokenLifecycleProvider>
-                      <SystemCallProvider>
-                        <FcmDebugProvider>
-                          <SocketProvider>
-                            <CallProvider>
+                    <CallProvider>
+                      <PushTokenLifecycleProvider>
+                        <SystemCallProvider>
+                          <FcmDebugProvider>
+                            <SocketProvider>
                               <ChatMediaUploadProvider>
                                 <ChatMediaViewerProvider>
                                   <Stack
@@ -239,23 +177,40 @@ export default function RootLayout() {
                                       }}
                                     />
                                     <Stack.Screen
+                                      name="conversation/new-group"
+                                      options={{
+                                        animation: 'slide_from_right',
+                                        animationDuration: 250,
+                                      }}
+                                    />
+                                    <Stack.Screen
+                                      name="conversation/[id]/info"
+                                      options={{
+                                        animation: 'slide_from_right',
+                                        animationDuration: 250,
+                                      }}
+                                    />
+                                    <Stack.Screen
                                       name="reels/create"
                                       options={{ presentation: 'fullScreenModal' }}
                                     />
                                     <Stack.Screen
                                       name="call/[id]"
-                                      options={{ presentation: 'fullScreenModal' }}
+                                      options={{
+                                        presentation: 'fullScreenModal',
+                                        animation: 'slide_from_bottom',
+                                        animationDuration: 220,
+                                      }}
                                     />
                                   </Stack>
-
                                   <CallUiOverlays />
                                 </ChatMediaViewerProvider>
                               </ChatMediaUploadProvider>
-                            </CallProvider>
-                          </SocketProvider>
-                        </FcmDebugProvider>
-                      </SystemCallProvider>
-                    </PushTokenLifecycleProvider>
+                            </SocketProvider>
+                          </FcmDebugProvider>
+                        </SystemCallProvider>
+                      </PushTokenLifecycleProvider>
+                    </CallProvider>
                   </AuthProvider>
                 </NetworkProvider>
               </QueryProvider>
@@ -264,5 +219,20 @@ export default function RootLayout() {
         </PaperProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
+  )
+}
+
+export default function RootLayout() {
+  const [hasPendingNativeCallIntent, setHasPendingNativeCallIntent] = useState(() =>
+    Boolean(veloraSystemCalls.getPendingCallAction()),
+  )
+
+  // This bridge deliberately renders before RootAppShell. Its auth/socket
+  // prewarm effect is therefore registered before font and Reels work start.
+  return (
+    <>
+      <IncomingCallPrewarmBridge onPendingCallIntentChange={setHasPendingNativeCallIntent} />
+      <RootAppShell hasPendingNativeCallIntent={hasPendingNativeCallIntent} />
+    </>
   )
 }

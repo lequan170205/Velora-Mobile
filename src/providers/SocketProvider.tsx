@@ -5,7 +5,13 @@ import { io } from 'socket.io-client'
 import type { InfiniteData } from '@tanstack/react-query'
 
 import { authApi } from '../api/auth.api'
+import { conversationApi } from '../api/conversation.api'
 import { queryKeys } from '../constants/queryKeys'
+import {
+  ensureConversationBootstrap,
+  getLocalConversationIds,
+  removeConversationLocalData,
+} from '../database/conversationBootstrap'
 import { getPendingTextMessagesForRetry } from '../database/messageRepository'
 import {
   applyReplyPreviewUpdate,
@@ -15,12 +21,14 @@ import {
   upsertRemoteMessage,
 } from '../database/messageSync'
 import {
+  patchConversationAnchoredMessagesInCache,
   patchConversationMessageCollectionsInCache,
   patchExistingMessageAcrossConversationCaches,
   patchMessagesAcrossConversationCaches,
 } from '../lib/chatMessageCache'
 import {
   getMessageAnchorIdentityKey,
+  getMessageIdentityKey,
   isMessageBeyondOptimisticReadFrontier,
   isSameMessageIdentity,
   mergeMessageRecords,
@@ -649,6 +657,14 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           : [],
       )
 
+      void getLocalConversationIds()
+        .then((conversationIds) => {
+          joinConversationRooms(conversationIds)
+        })
+        .catch((error) => {
+          console.warn('[Socket] Failed to restore local conversation rooms', error)
+        })
+
       flushOfflineQueueWhenReady(newSocket)
     })
 
@@ -836,6 +852,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
               ...(patch.participants !== undefined ? { participants: patch.participants } : {}),
               ...(patch.name !== undefined ? { name: patch.name } : {}),
               ...(patch.picture !== undefined ? { picture: patch.picture } : {}),
+              ...(patch.memberJoinedAt !== undefined
+                ? { memberJoinedAt: patch.memberJoinedAt }
+                : {}),
               ...(patch.unreadCount !== undefined ? { unreadCount: patch.unreadCount } : {}),
             } as Conversation)
 
@@ -859,6 +878,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
               ? { picture: baseConversation.picture }
               : {}),
             ...(patch.picture !== undefined ? { picture: patch.picture } : {}),
+            ...(baseConversation.memberJoinedAt !== undefined
+              ? { memberJoinedAt: baseConversation.memberJoinedAt }
+              : {}),
+            ...(patch.memberJoinedAt !== undefined ? { memberJoinedAt: patch.memberJoinedAt } : {}),
             ...(baseConversation.unreadCount !== undefined
               ? { unreadCount: baseConversation.unreadCount }
               : {}),
@@ -888,7 +911,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
             existingConversation.createdAt !== mergedConversation.createdAt ||
             existingConversation.isGroup !== mergedConversation.isGroup ||
             existingConversation.name !== mergedConversation.name ||
-            existingConversation.picture !== mergedConversation.picture
+            existingConversation.picture !== mergedConversation.picture ||
+            existingConversation.memberJoinedAt !== mergedConversation.memberJoinedAt
 
           if (!hasSummaryChanged && existingIndex === 0) {
             return oldData
@@ -945,6 +969,139 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           : conversation,
         { allowPlaceholder: true },
       )
+    }
+
+    const inFlightConversationFetches = new Map<string, Promise<Conversation | null>>()
+    const removedConversationIds = new Set<string>()
+
+    const persistConversationMetadata = (conversation: Conversation) => {
+      const currentUser = useAuthStore.getState().user
+
+      void ensureConversationBootstrap({
+        conversationId: conversation.id,
+        conversation,
+        currentUser: currentUser ?? null,
+      }).catch((error) => {
+        console.warn('[Socket] Failed to persist conversation metadata locally', error)
+      })
+    }
+
+    const resolveConversationMetadata = (conversationId: string): Promise<Conversation | null> => {
+      const cachedConversation = getCachedConversation(conversationId)
+      if (cachedConversation) {
+        return Promise.resolve(cachedConversation)
+      }
+
+      if (removedConversationIds.has(conversationId)) {
+        return Promise.resolve(null)
+      }
+
+      const existingRequest = inFlightConversationFetches.get(conversationId)
+      if (existingRequest) {
+        return existingRequest
+      }
+
+      const request = conversationApi
+        .getById(conversationId)
+        .then((conversation) => {
+          if (!conversation?.id || removedConversationIds.has(conversationId)) {
+            return null
+          }
+
+          upsertCreatedConversation(conversation)
+          queryClient.setQueryData(queryKeys.conversations.detail(conversationId), conversation)
+          persistConversationMetadata(conversation)
+          joinConversationRooms([conversationId])
+          return conversation
+        })
+        .catch((error) => {
+          console.warn(
+            `[Socket] Failed to resolve conversation metadata for ${conversationId}`,
+            error,
+          )
+          void queryClient.invalidateQueries({ queryKey: queryKeys.conversations.all })
+          return null
+        })
+        .finally(() => {
+          inFlightConversationFetches.delete(conversationId)
+        })
+
+      inFlightConversationFetches.set(conversationId, request)
+      return request
+    }
+
+    const processedConversationActivityKeys = new Set<string>()
+    const processedConversationActivityOrder: string[] = []
+    const MAX_PROCESSED_CONVERSATION_ACTIVITY_KEYS = 512
+
+    const shouldIncrementUnreadForMessageActivity = (message: Message) => {
+      const identityKey = getMessageIdentityKey(message)
+      if (!identityKey) {
+        return true
+      }
+
+      const activityKey = `${message.conversationId}:${identityKey}`
+      if (processedConversationActivityKeys.has(activityKey)) {
+        return false
+      }
+
+      processedConversationActivityKeys.add(activityKey)
+      processedConversationActivityOrder.push(activityKey)
+
+      if (processedConversationActivityOrder.length > MAX_PROCESSED_CONVERSATION_ACTIVITY_KEYS) {
+        const oldestActivityKey = processedConversationActivityOrder.shift()
+        if (oldestActivityKey) {
+          processedConversationActivityKeys.delete(oldestActivityKey)
+        }
+      }
+
+      return true
+    }
+
+    const syncConversationForMessage = (
+      message: Message,
+      incrementUnread: boolean,
+      conversationOverride?: Conversation,
+    ) => {
+      const applyConversation = (conversation: Conversation) => {
+        persistSocketMessage(message, {
+          conversation,
+          incrementUnread,
+        })
+
+        const { unreadCount: _snapshotUnreadCount, ...conversationWithoutUnreadCount } =
+          conversation
+        const conversationActivityPatch = incrementUnread
+          ? conversationWithoutUnreadCount
+          : conversation
+
+        upsertConversationSummary(
+          {
+            ...conversationActivityPatch,
+            lastMessage: message.content ?? null,
+            lastMessageAt: message.createdAt || new Date().toISOString(),
+            updatedAt: message.updatedAt || message.createdAt || new Date().toISOString(),
+          },
+          { allowPlaceholder: true, incrementUnread },
+        )
+      }
+
+      if (conversationOverride) {
+        applyConversation(conversationOverride)
+        return
+      }
+
+      const cachedConversation = getCachedConversation(message.conversationId)
+      if (cachedConversation) {
+        applyConversation(cachedConversation)
+        return
+      }
+
+      void resolveConversationMetadata(message.conversationId).then((conversation) => {
+        if (conversation) {
+          applyConversation(conversation)
+        }
+      })
     }
 
     const reconcileOptimisticMessage = (message: Message) => {
@@ -1099,13 +1256,15 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     const persistSocketMessage = (
       message: Message,
-      options?: {
+      options: {
+        conversation: Conversation
         incrementUnread?: boolean
       },
     ) => {
       const currentUser = useAuthStore.getState().user
 
       void upsertRemoteMessage({
+        conversation: options.conversation,
         currentUser: currentUser ?? null,
         message,
         ...(options?.incrementUnread !== undefined
@@ -1219,6 +1378,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     })
 
     newSocket.on('new_message', (incomingMessage: Message) => {
+      if (removedConversationIds.has(incomingMessage.conversationId)) {
+        return
+      }
+
       const message = hydrateReplyContextFromLocalState(
         mergeMessageWithOptimisticReplyPreview(normalizeIncomingMessage(incomingMessage)),
       )
@@ -1238,27 +1401,20 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         reconcileStreamingBotMessage(message)
       }
 
-      persistSocketMessage(message, {
-        incrementUnread: !isOwnMessage,
-      })
-
-      upsertConversationSummary(
-        {
-          id: conversationId,
-          lastMessage: message.content ?? null,
-          lastMessageAt: message.createdAt || new Date().toISOString(),
-          updatedAt: message.updatedAt || message.createdAt || new Date().toISOString(),
-          participantIds: [message.senderId],
-          createdAt: message.createdAt,
-        },
-        { allowPlaceholder: true, incrementUnread: !isOwnMessage },
-      )
+      const shouldIncrementUnread =
+        !isOwnMessage && shouldIncrementUnreadForMessageActivity(message)
+      syncConversationForMessage(message, shouldIncrementUnread)
 
       if (!isOwnMessage || !isPendingEcho) {
         upsertMessageQuery(message)
+        patchConversationAnchoredMessagesInCache(queryClient, conversationId, (candidate) =>
+          isSameMessageIdentity(candidate, message)
+            ? mergeMessageRecords(candidate, message)
+            : candidate,
+        )
+      } else {
+        patchExistingMessageAcrossConversationCaches(queryClient, message)
       }
-
-      patchExistingMessageAcrossConversationCaches(queryClient, message)
 
       if (!isOwnMessage) {
         return
@@ -1271,17 +1427,98 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       reconcileOptimisticMessage(message)
     })
 
+    newSocket.on(
+      'conversation_message_activity',
+      (payload: { conversation?: Conversation; message?: Message }) => {
+        const conversation = payload?.conversation
+        const incomingMessage = payload?.message
+        const currentUser = useAuthStore.getState().user
+
+        if (
+          !conversation?.id ||
+          !incomingMessage?.conversationId ||
+          conversation.id !== incomingMessage.conversationId ||
+          incomingMessage.senderId === currentUser?.id ||
+          removedConversationIds.has(conversation.id)
+        ) {
+          return
+        }
+
+        persistConversationMetadata(conversation)
+
+        const shouldIncrementUnread = shouldIncrementUnreadForMessageActivity(incomingMessage)
+        syncConversationForMessage(incomingMessage, shouldIncrementUnread, conversation)
+      },
+    )
+
     newSocket.on('conversation_updated', (conversation: Conversation) => {
-      if (!conversation?.id) return
-      upsertConversationSummary(conversation, { allowPlaceholder: true })
+      if (!conversation?.id || removedConversationIds.has(conversation.id)) return
+      upsertCreatedConversation(conversation)
+      queryClient.setQueryData(queryKeys.conversations.detail(conversation.id), conversation)
+      persistConversationMetadata(conversation)
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.conversations.members(conversation.id),
+      })
     })
 
     newSocket.on('conversation_created', (conversation: Conversation) => {
       if (!conversation?.id) return
+      removedConversationIds.delete(conversation.id)
+      useChatStore.getState().clearConversationRevoked(conversation.id)
       upsertCreatedConversation(conversation)
+      queryClient.setQueryData(queryKeys.conversations.detail(conversation.id), conversation)
+      persistConversationMetadata(conversation)
+      joinedConversationIds.delete(conversation.id)
+      joinConversationRooms([conversation.id])
     })
 
+    newSocket.on(
+      'conversation_removed',
+      (payload: { conversationId?: string; reason?: 'removed' | 'left' }) => {
+        const conversationId = payload?.conversationId?.trim()
+        if (!conversationId) return
+
+        removedConversationIds.add(conversationId)
+        joinedConversationIds.delete(conversationId)
+        flushingOfflineConversationIdsRef.current.delete(conversationId)
+
+        const store = useChatStore.getState()
+        store.markConversationRevoked(conversationId)
+        const queuedMessageIds = store.offlineQueue
+          .filter((message) => message.conversationId === conversationId)
+          .map((message) => message.id)
+        queuedMessageIds.forEach((messageId) => {
+          flushingOfflineMessageIdsRef.current.delete(messageId)
+          clearOfflineMessageAckTimeout(messageId)
+        })
+        store.clearConversationState(conversationId)
+
+        queryClient.setQueryData<Conversation[] | undefined>(
+          queryKeys.conversations.all,
+          (oldData) =>
+            Array.isArray(oldData)
+              ? oldData.filter((conversation) => conversation.id !== conversationId)
+              : oldData,
+        )
+        void queryClient
+          .cancelQueries({ queryKey: queryKeys.conversations.detail(conversationId) })
+          .finally(() => {
+            queryClient.removeQueries({
+              queryKey: queryKeys.conversations.detail(conversationId),
+            })
+          })
+
+        void removeConversationLocalData(conversationId).catch((error) => {
+          console.warn('[Socket] Failed to remove revoked conversation from local database', error)
+        })
+      },
+    )
+
     newSocket.on('message_synced', (incomingMessage: Message) => {
+      if (removedConversationIds.has(incomingMessage.conversationId)) {
+        return
+      }
+
       const store = useChatStore.getState()
       const pendingMsgs = store.optimisticMessages[incomingMessage.conversationId] || []
 
@@ -1314,19 +1551,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           status: existingReadBy.length > 0 ? 'READ' : message.status,
         }
       }
-      persistSocketMessage(message)
-
-      upsertConversationSummary(
-        {
-          id: message.conversationId,
-          lastMessage: message.content ?? null,
-          lastMessageAt: message.createdAt || new Date().toISOString(),
-          updatedAt: message.updatedAt || message.createdAt || new Date().toISOString(),
-          participantIds: [message.senderId],
-          createdAt: message.createdAt,
-        },
-        { allowPlaceholder: true },
-      )
+      syncConversationForMessage(message, false)
 
       upsertMessageQuery(message)
       patchExistingMessageAcrossConversationCaches(queryClient, message)
@@ -1338,6 +1563,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           flushingOfflineConversationIdsRef.current.delete(message.conversationId)
           clearOfflineMessageAckTimeout(message.clientMessageId)
           store.confirmMessage(message.clientMessageId, message)
+          store.removeOptimisticSortAnchors(message.conversationId, [message.clientMessageId])
           store.dequeueOfflineMessage(message.clientMessageId)
           flushOfflineQueueRef.current(newSocket)
         } else {
@@ -1548,11 +1774,21 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     )
 
     newSocket.on('message_reaction_updated', (message: Message) => {
-      if (!message?.conversationId) {
+      if (!message?.conversationId || removedConversationIds.has(message.conversationId)) {
         return
       }
 
-      persistSocketMessage(message)
+      const cachedConversation = getCachedConversation(message.conversationId)
+      if (cachedConversation) {
+        persistSocketMessage(message, { conversation: cachedConversation })
+      } else {
+        void resolveConversationMetadata(message.conversationId).then((conversation) => {
+          if (conversation) {
+            persistSocketMessage(message, { conversation })
+          }
+        })
+      }
+
       patchExistingMessageAcrossConversationCaches(queryClient, message)
     })
 
@@ -1592,7 +1828,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           void applyReadReceiptUpdate({
             at: seenAt,
             conversationId,
-            currentUserId,
             messageId,
             readByUserId,
             ...(readFrontierAnchorIdentityKey
@@ -1616,7 +1851,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         )
 
         patchConversationMessageCollectionsInCache(queryClient, conversationId, (msg) => {
-          if (msg.senderId !== currentUserId) {
+          // Mirror the backend read rule exactly: the reader has seen every
+          // message from other participants up to the emitted frontier.
+          // This matters in groups because a read frontier can advance across
+          // messages authored by someone other than the current viewer.
+          if (msg.senderId === readByUserId) {
             return msg
           }
 
@@ -1660,7 +1899,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         void applyReadReceiptUpdate({
           at: seenAt,
           conversationId,
-          currentUserId,
           messageId,
           readByUserId,
           ...(readFrontierAnchorIdentityKey

@@ -11,7 +11,7 @@ import type { GlobalSearchParams } from '../types/search.types'
 export function useGlobalSearch(params: GlobalSearchParams) {
   const normalizedQuery = params.q.trim()
   const normalizedType = params.type ?? 'all'
-  const blockedUsers = useBlockedUserIds()
+  const blockedUsers = useBlockedUserIds({ enabled: normalizedQuery.length > 0 })
 
   const query = useQuery({
     queryKey: queryKeys.search.global(normalizedQuery, normalizedType, params.limit),

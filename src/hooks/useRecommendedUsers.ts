@@ -17,13 +17,13 @@ const normalizeRecommendedUsersLimit = (limit?: number) => {
     return 20
   }
 
-  return Math.max(1, Math.floor(limit ?? 20))
+  return Math.min(30, Math.max(1, Math.floor(limit ?? 20)))
 }
 
 export function useRecommendedUsers(params: { enabled?: boolean; limit?: number } = {}) {
   const userId = useAuthStore((state) => state.user?.id)
-  const { data: acceptedFriends = [] } = useFriends(undefined, { enabled: Boolean(userId) })
-  const blockedUsers = useBlockedUserIds()
+  const { data: acceptedFriends = [] } = useFriends(undefined, { enabled: false })
+  const blockedUsers = useBlockedUserIds({ enabled: false })
   const recommendationSessionRef = useRef<RecommendationSession | null>(null)
 
   if (!recommendationSessionRef.current) {
@@ -49,9 +49,7 @@ export function useRecommendedUsers(params: { enabled?: boolean; limit?: number 
 
   return {
     ...query,
-    data: blockedUsers.isVisibilityReady ? visibleUsers : undefined,
-    isError: query.isError || blockedUsers.isError,
-    isLoading: query.isLoading || blockedUsers.isLoading,
+    data: visibleUsers,
     feedSessionId,
   }
 }

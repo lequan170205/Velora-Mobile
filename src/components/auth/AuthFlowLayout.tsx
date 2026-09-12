@@ -1,9 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import { type ReactNode, type RefObject } from 'react'
+import { type ReactNode } from 'react'
 import {
   Keyboard,
-  KeyboardAvoidingView,
-  ScrollView,
   Text,
   TouchableOpacity,
   TouchableWithoutFeedback,
@@ -13,6 +11,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { cn } from '../../lib/cn'
+import { ShortFormScreen } from '../base/ShortFormScreen'
 
 type AuthFlowLayoutProps = {
   children: ReactNode
@@ -22,7 +21,6 @@ type AuthFlowLayoutProps = {
   progressActive?: number
   progressTotal?: number
   footer?: ReactNode
-  scrollViewRef?: RefObject<ScrollView | null>
   scrollViewProps?: ScrollViewProps
 }
 
@@ -40,7 +38,6 @@ export function AuthFlowLayout({
   progressActive = 1,
   progressTotal = 2,
   footer,
-  scrollViewRef,
   scrollViewProps,
 }: AuthFlowLayoutProps) {
   const insets = useSafeAreaInsets()
@@ -48,10 +45,9 @@ export function AuthFlowLayout({
   const progressItems = Array.from({ length: Math.max(progressTotal, 1) })
 
   return (
-    <KeyboardAvoidingView className="flex-1 bg-bg-primary" behavior="padding">
+    <View className="flex-1 bg-bg-primary">
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-        <ScrollView
-          ref={scrollViewRef}
+        <ShortFormScreen
           className="flex-1"
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
@@ -60,21 +56,18 @@ export function AuthFlowLayout({
           contentContainerStyle={[
             {
               flexGrow: 1,
-              paddingBottom: Math.max(insets.bottom, 20) + 24,
+              paddingBottom: Math.max(insets.bottom + 28, 44),
               paddingHorizontal: 24,
-              paddingTop: insets.top + 14,
+              paddingTop: insets.top + 10,
             },
             contentContainerStyle,
           ]}
         >
-          <View className="absolute right-[-42px] top-[72px] h-40 w-40 rounded-full bg-[#FFF1E8]" />
-          <View className="absolute left-[-54px] top-[188px] h-28 w-28 rounded-full bg-[#FFF6EF]" />
-
           <View className="flex-1">
             <View className="flex-row items-center justify-between">
               <TouchableOpacity
                 onPress={onBack}
-                className="h-11 w-11 items-center justify-center rounded-full border border-[#F1E3D7] bg-white"
+                className="h-11 w-11 items-center justify-center rounded-[16px] border border-[#EEE7E2] bg-white"
                 activeOpacity={0.8}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
@@ -90,9 +83,9 @@ export function AuthFlowLayout({
               </View>
             </View>
 
-            <View className="pt-9">
+            <View className="pt-6">
               {typeof title === 'string' ? (
-                <Text className="font-heading text-[34px] leading-[38px] text-text-primary">
+                <Text className="font-heading text-[32px] leading-[36px] tracking-[-0.6px] text-text-primary">
                   {title}
                 </Text>
               ) : (
@@ -101,7 +94,7 @@ export function AuthFlowLayout({
 
               {subtitle ? (
                 typeof subtitle === 'string' ? (
-                  <Text className="mt-2 text-base2 font-sans leading-6 text-text-secondary">
+                  <Text className="mt-2 text-base font-sans leading-6 text-text-secondary">
                     {subtitle}
                   </Text>
                 ) : (
@@ -110,12 +103,12 @@ export function AuthFlowLayout({
               ) : null}
             </View>
 
-            <View className="mt-8 flex-1">{children}</View>
+            <View className="mt-6 flex-1">{children}</View>
 
-            {footer ? <View className="pt-8">{footer}</View> : null}
+            {footer ? <View className="pt-7">{footer}</View> : null}
           </View>
-        </ScrollView>
+        </ShortFormScreen>
       </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
+    </View>
   )
 }

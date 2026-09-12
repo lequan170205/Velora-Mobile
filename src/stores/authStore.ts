@@ -2,10 +2,15 @@ import { isAxiosError } from 'axios'
 import { create } from 'zustand'
 
 import { authApi } from '../api/auth.api'
+import { resumePushTokenRegistration } from '../lib/notifications/pushTokenOperationState'
 
 import type { UserSession } from '../types/user.types'
 
 type AuthHydrationError = 'network' | 'unauthorized' | null
+type HydrateAuthOptions = {
+  silent?: boolean
+  fresh?: boolean
+}
 
 interface AuthState {
   user: UserSession | null
@@ -15,7 +20,7 @@ interface AuthState {
 
   setUser: (user: UserSession) => void
   clearAuth: () => void
-  hydrateAuth: (options?: { silent?: boolean }) => Promise<void>
+  hydrateAuth: (options?: HydrateAuthOptions) => Promise<void>
 }
 
 const getAuthHydrationError = (error: unknown): Exclude<AuthHydrationError, null> => {
@@ -32,47 +37,84 @@ const getAuthHydrationError = (error: unknown): Exclude<AuthHydrationError, null
   return 'network'
 }
 
+let authHydrationPromise: Promise<void> | null = null
+let authHydrationVersion = 0
+
+const invalidateAuthHydration = () => {
+  authHydrationVersion += 1
+  authHydrationPromise = null
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isAuthenticated: false,
   isLoading: true,
   authHydrationError: null,
 
-  setUser: (user) => set({ user, isAuthenticated: true, authHydrationError: null }),
-
-  clearAuth: () => {
-    set({ user: null, isAuthenticated: false, authHydrationError: null })
+  setUser: (user) => {
+    invalidateAuthHydration()
+    set({ user, isAuthenticated: true, isLoading: false, authHydrationError: null })
   },
 
-  hydrateAuth: async (options) => {
+  clearAuth: () => {
+    invalidateAuthHydration()
+    set({ user: null, isAuthenticated: false, isLoading: false, authHydrationError: null })
+  },
+
+  hydrateAuth: (options) => {
     const shouldShowLoading = !options?.silent
 
-    try {
+    if (authHydrationPromise && !options?.fresh) {
       if (shouldShowLoading) {
         set({ isLoading: true })
       }
 
-      const data = await authApi.me()
-      set({ user: data, isAuthenticated: true, isLoading: false, authHydrationError: null })
-    } catch (error) {
-      const hydrationError = getAuthHydrationError(error)
+      return authHydrationPromise
+    }
 
-      if (hydrationError === 'unauthorized') {
-        set({
-          user: null,
-          isAuthenticated: false,
+    const hydrationVersion = ++authHydrationVersion
+    const hydrationPromise = (async () => {
+      try {
+        if (shouldShowLoading) {
+          set({ isLoading: true })
+        }
+
+        const data = await authApi.me()
+        if (hydrationVersion !== authHydrationVersion) return
+
+        await resumePushTokenRegistration()
+        if (hydrationVersion !== authHydrationVersion) return
+
+        set({ user: data, isAuthenticated: true, isLoading: false, authHydrationError: null })
+      } catch (error) {
+        if (hydrationVersion !== authHydrationVersion) return
+
+        const hydrationError = getAuthHydrationError(error)
+
+        if (hydrationError === 'unauthorized') {
+          set({
+            user: null,
+            isAuthenticated: false,
+            isLoading: false,
+            authHydrationError: hydrationError,
+          })
+          return
+        }
+
+        set((state) => ({
+          user: state.user,
+          isAuthenticated: state.isAuthenticated,
           isLoading: false,
           authHydrationError: hydrationError,
-        })
-        return
+        }))
       }
+    })()
 
-      set((state) => ({
-        user: state.user,
-        isAuthenticated: state.isAuthenticated,
-        isLoading: false,
-        authHydrationError: hydrationError,
-      }))
-    }
+    authHydrationPromise = hydrationPromise
+    return hydrationPromise.finally(() => {
+      if (authHydrationPromise === hydrationPromise) {
+        authHydrationPromise = null
+      }
+    })
   },
 }))

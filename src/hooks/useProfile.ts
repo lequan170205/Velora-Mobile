@@ -15,7 +15,7 @@ export function useUpdateProfile() {
       return userApi.update(user.id, data)
     },
     onSuccess: async () => {
-      await hydrateAuth({ silent: true })
+      await hydrateAuth({ silent: true, fresh: true })
     },
   })
 }
@@ -49,7 +49,7 @@ export function useUpdateAvatar() {
       return result
     },
     onSuccess: async () => {
-      await hydrateAuth({ silent: true })
+      await hydrateAuth({ silent: true, fresh: true })
     },
   })
 }

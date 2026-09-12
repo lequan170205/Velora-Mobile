@@ -25,10 +25,12 @@ import Animated, {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { conversationApi } from '../../src/api/conversation.api'
+import { ProfileActionsMenu } from '../../src/components/profile/ProfileActionsMenu'
 import {
   ReelThumbnailGridSkeleton,
   ReelThumbnailTile,
 } from '../../src/components/reels/ReelThumbnailGrid'
+import { colors } from '../../src/constants/theme'
 import { usePublicProfile } from '../../src/hooks/useContacts'
 import { useConversationNavigation } from '../../src/hooks/useConversationNavigation'
 import { getConversationsQueryOptions } from '../../src/hooks/useConversations'
@@ -214,7 +216,9 @@ export default function PublicProfileScreen() {
   )
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
   const [actionErrorMessage, setActionErrorMessage] = useState<string | null>(null)
+  const [isProfileActionsVisible, setIsProfileActionsVisible] = useState(false)
   const [isRemoveSheetVisible, setIsRemoveSheetVisible] = useState(false)
+  const blockSubmissionStartedRef = useRef(false)
   const removeSheetBackdropOpacity = useSharedValue(0)
   const removeSheetTranslateY = useSharedValue(48)
   const removeSheetScale = useSharedValue(0.985)
@@ -283,6 +287,10 @@ export default function PublicProfileScreen() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    setIsProfileActionsVisible(false)
+  }, [profile?.id])
 
   const animateRemoveSheetIn = useCallback(() => {
     removeSheetBackdropOpacity.value = withTiming(1, {
@@ -407,24 +415,45 @@ export default function PublicProfileScreen() {
     })
   }, [closeRemoveSheet, profile?.id, removeFriend])
 
-  const handleBlockUser = useCallback(() => {
-    if (!profile?.id || blockUser.isPending) return
+  const handleOpenProfileActions = useCallback(() => {
+    if (!profile?.id || isOwnProfile || blockUser.isPending) return
 
-    Alert.alert('Block user?', `You will no longer see content from ${profile.fullName}.`, [
+    setIsProfileActionsVisible(true)
+  }, [blockUser.isPending, isOwnProfile, profile?.id])
+
+  const handleCloseProfileActions = useCallback(() => {
+    setIsProfileActionsVisible(false)
+  }, [])
+
+  const handleBlockUser = useCallback(() => {
+    if (!profile?.id || isOwnProfile || blockUser.isPending || blockSubmissionStartedRef.current) {
+      return
+    }
+
+    const handleLabel = getHandleLabel(profile.username)
+
+    Alert.alert(`Block ${handleLabel}?`, 'You will no longer see content from this user.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Block',
         style: 'destructive',
         onPress: () => {
+          if (blockUser.isPending || blockSubmissionStartedRef.current) return
+
+          blockSubmissionStartedRef.current = true
+
           blockUser.mutate(profile.id, {
             onSuccess: () => {
               router.back()
+            },
+            onSettled: () => {
+              blockSubmissionStartedRef.current = false
             },
           })
         },
       },
     ])
-  }, [blockUser, profile?.fullName, profile?.id, router])
+  }, [blockUser, isOwnProfile, profile?.id, profile?.username, router])
 
   const handleFriendPress = useCallback(
     (username?: string | null) => {
@@ -510,32 +539,40 @@ export default function PublicProfileScreen() {
         }
         ListHeaderComponent={
           <View className="px-5 pb-6 pt-2">
-            <View className="flex-row items-center justify-between">
-              <View>
-                <Text className="text-xs2 uppercase tracking-[1.2px] text-text-muted">Profile</Text>
-                <Text className="mt-1 font-heading text-xl text-text-primary">
+            <View className="flex-row items-center">
+              <Pressable
+                accessibilityLabel="Go back"
+                accessibilityRole="button"
+                className="h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border-light bg-surface-card"
+                onPress={() => router.back()}
+              >
+                <MaterialIcons name="arrow-back" size={22} color={colors.text.primary} />
+              </Pressable>
+
+              <View className="min-w-0 flex-1 items-center px-2">
+                <Text
+                  className="font-heading text-xl text-text-primary"
+                  ellipsizeMode="tail"
+                  numberOfLines={1}
+                >
                   {getHandleLabel(profile.username)}
                 </Text>
               </View>
 
-              <View className="flex-row gap-2">
-                {!isOwnProfile ? (
-                  <Pressable
-                    className="h-11 w-11 items-center justify-center rounded-full border border-[#FFD9D5] bg-[#FFF2F0]"
-                    disabled={blockUser.isPending}
-                    onPress={handleBlockUser}
-                    style={{ opacity: blockUser.isPending ? 0.65 : 1 }}
-                  >
-                    <MaterialIcons name="block" size={20} color="#D8453C" />
-                  </Pressable>
-                ) : null}
+              {!isOwnProfile ? (
                 <Pressable
-                  className="h-11 w-11 items-center justify-center rounded-full border border-border-light bg-surface-card"
-                  onPress={() => router.back()}
+                  accessibilityLabel={`More options for ${getHandleLabel(profile.username)}`}
+                  accessibilityRole="button"
+                  className="h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border-light bg-surface-card"
+                  disabled={blockUser.isPending}
+                  onPress={handleOpenProfileActions}
+                  style={{ opacity: blockUser.isPending ? 0.65 : 1 }}
                 >
-                  <MaterialIcons name="arrow-back" size={22} color="#161616" />
+                  <MaterialIcons name="more-horiz" size={24} color={colors.text.primary} />
                 </Pressable>
-              </View>
+              ) : (
+                <View className="h-11 w-11 shrink-0" />
+              )}
             </View>
 
             <LinearGradient
@@ -743,6 +780,13 @@ export default function PublicProfileScreen() {
             void fetchNextPage()
           }
         }}
+      />
+
+      <ProfileActionsMenu
+        onBlock={handleBlockUser}
+        onClose={handleCloseProfileActions}
+        username={getHandleLabel(profile.username)}
+        visible={isProfileActionsVisible && !isOwnProfile}
       />
 
       <Modal

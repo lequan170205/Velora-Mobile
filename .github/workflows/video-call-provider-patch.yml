@@ -1,0 +1,102 @@
+name: Apply Video Call Provider Patch
+
+on:
+  pull_request:
+    branches:
+      - feat/video-call-1to1
+    paths:
+      - scripts/finalize-ios-simulator-call-lifecycle.cjs
+      - scripts/video-call-ci-trigger.txt
+      - .github/workflows/video-call-provider-patch.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: video-call-provider-patch-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/video-call-1to1
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Finalize simulator lifecycle source
+        run: node scripts/finalize-ios-simulator-call-lifecycle.cjs
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Format simulator-call touched files
+        run: |
+          pnpm exec prettier --write \
+            'app/call/[id].tsx' \
+            src/lib/systemCalls/veloraSystemCalls.ts \
+            src/providers/CallProvider.tsx \
+            tests/video-call-1to1-contract.test.cjs
+      - name: Verify feature branch
+        shell: bash
+        run: |
+          set +e
+          pnpm type-check > /tmp/typecheck.log 2>&1
+          TYPECHECK=$?
+          pnpm test > /tmp/test.log 2>&1
+          TEST=$?
+          pnpm exec eslint \
+            'app/call/[id].tsx' \
+            src/lib/systemCalls/veloraSystemCalls.ts \
+            src/providers/CallProvider.tsx \
+            tests/video-call-1to1-contract.test.cjs > /tmp/feature-lint.log 2>&1
+          FEATURE_LINT=$?
+          {
+            echo '# Video Call CI Result'
+            echo
+            echo "- Typecheck exit: $TYPECHECK"
+            echo "- Tests exit: $TEST"
+            echo "- Feature lint exit: $FEATURE_LINT"
+            echo
+            echo '## Typecheck'
+            echo '```text'
+            tail -n 160 /tmp/typecheck.log
+            echo '```'
+            echo
+            echo '## Tests'
+            echo '```text'
+            tail -n 260 /tmp/test.log
+            echo '```'
+            echo
+            echo '## Feature lint'
+            echo '```text'
+            tail -n 180 /tmp/feature-lint.log
+            echo '```'
+          } > VIDEO_CALL_CI_RESULT.md
+          if [ "$TEST" -ne 0 ] || [ "$FEATURE_LINT" -ne 0 ]; then
+            exit 1
+          fi
+      - name: Commit verified simulator lifecycle changes
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            'app/call/[id].tsx' \
+            src/lib/systemCalls/veloraSystemCalls.ts \
+            src/providers/CallProvider.tsx \
+            tests/video-call-1to1-contract.test.cjs \
+            VIDEO_CALL_CI_RESULT.md
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          HUSKY=0 git commit -m 'fix(call): finalize iOS simulator lifecycle'
+          git fetch origin feat/video-call-1to1
+          git rebase origin/feat/video-call-1to1
+          git push origin HEAD:feat/video-call-1to1

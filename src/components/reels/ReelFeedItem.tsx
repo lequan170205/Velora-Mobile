@@ -109,6 +109,36 @@ const styles = StyleSheet.create({
   },
 })
 
+type ReelPlaybackContentFit = 'cover' | 'contain'
+
+const getStablePlaybackContentFit = (reel: Reel): ReelPlaybackContentFit | null => {
+  if (reel.edit?.framing === 'crop') {
+    return 'cover'
+  }
+
+  if (reel.edit?.framing !== 'fit') {
+    return null
+  }
+
+  if (reel.sourceOrientation === 'PORTRAIT') {
+    return 'cover'
+  }
+
+  if (reel.sourceOrientation === 'LANDSCAPE' || reel.sourceOrientation === 'SQUARE') {
+    return 'contain'
+  }
+
+  if (
+    typeof reel.sourceAspectRatio === 'number' &&
+    Number.isFinite(reel.sourceAspectRatio) &&
+    reel.sourceAspectRatio > 0
+  ) {
+    return reel.sourceAspectRatio >= 0.9 ? 'contain' : 'cover'
+  }
+
+  return null
+}
+
 const getPlaybackState = (reel: Reel, streamUrl?: string | null) => {
   if (Boolean(streamUrl) && isReelPlayable({ ...reel, streamUrl: streamUrl ?? reel.streamUrl })) {
     return { isPlayable: true, label: null }
@@ -404,7 +434,9 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const canManageReel = user?.id === displayReel.userId
   const posterUri =
     offlineVideoSource.posterUri ?? displayReel.thumbnailUrl ?? displayReel.localThumbnailUri
-  const shouldShowVideoLayer = isActive && (isReady || playbackPosition > 0)
+  const stablePlaybackContentFit = getStablePlaybackContentFit(displayReel)
+  const playbackContentFit = stablePlaybackContentFit ?? 'cover'
+  const shouldShowVideoLayer = isActive || isReady || playbackPosition > 0
 
   const triggerScrubStartHaptic = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined)
@@ -790,7 +822,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
     <View className="flex-1 overflow-hidden bg-[#050505]" style={{ height }}>
       <View className="flex-1 overflow-hidden bg-[#050505]">
         {posterUri ? (
-          <Image source={{ uri: posterUri }} contentFit="cover" style={styles.video} />
+          <Image source={{ uri: posterUri }} contentFit={playbackContentFit} style={styles.video} />
         ) : (
           <View style={styles.video} />
         )}
@@ -803,7 +835,8 @@ const ReelFeedItemComponent = function ReelFeedItem({
             shouldPlay={isActive && !isPausedByUser && !hasPlaybackError}
             loop
             muted={isMuted || !isActive}
-            contentFit="cover"
+            contentFit={playbackContentFit}
+            disableOrientationAwareContentFit={stablePlaybackContentFit !== null}
             resetOnPause={false}
             externallyManagedPlayback
             onReady={() => {

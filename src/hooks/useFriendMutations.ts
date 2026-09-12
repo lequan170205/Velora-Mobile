@@ -7,6 +7,7 @@ import { friendApi } from '../api/friend.api'
 import { queryKeys } from '../constants/queryKeys'
 import {
   insertOrReplaceFriendSummary,
+  invalidateRecommendedUsersQueries,
   invalidateRelationshipCaches,
   removeBlockedUserFromPages,
   removeFriendRequestFromPages,
@@ -140,6 +141,11 @@ export function useSendFriendRequest() {
         ...(response.id ? { id: response.id } : {}),
       })
 
+      if (response.status !== 'none') {
+        removeUserFromRecommendedUsersCaches(queryClient, targetUserId)
+        void invalidateRecommendedUsersQueries(queryClient)
+      }
+
       if (response.status === 'request_sent') {
         void queryClient.invalidateQueries({ queryKey: queryKeys.friends.outgoing(viewerId) })
       }
@@ -250,6 +256,7 @@ export function useRejectFriendRequest() {
         status: response.status,
         ...(response.id ? { id: response.id } : {}),
       })
+      void invalidateRecommendedUsersQueries(queryClient)
     },
     onError: (error, input, context) => {
       if (!isCurrentViewer(viewerId)) return
@@ -305,6 +312,7 @@ export function useCancelFriendRequest() {
         status: response.status,
         ...(response.id ? { id: response.id } : {}),
       })
+      void invalidateRecommendedUsersQueries(queryClient)
     },
     onError: (error, input, context) => {
       if (!isCurrentViewer(viewerId)) return

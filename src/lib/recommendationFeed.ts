@@ -1,24 +1,29 @@
 import { flattenRecommendedReels } from './recommendedReels'
 
-import type { RecommendationMetadata } from '../types/recommendation.types'
+import type {
+  RecommendationMetadata,
+  UserRecommendationMetadata,
+} from '../types/recommendation.types'
 import type { RecommendedReelsPage } from '../types/reel.types'
 import type { RecommendedPublicUserProfile } from '../types/user.types'
 
-type LegacyRecommendationMetadata = RecommendationMetadata & {
+type RecommendationMetadataLike = RecommendationMetadata | UserRecommendationMetadata
+
+type LegacyRecommendationMetadata = RecommendationMetadataLike & {
   candidateReasons?: unknown
   candidateScore?: unknown
 }
 
-const discardLegacyRecommendationFields = (
-  recommendation: RecommendationMetadata,
-): RecommendationMetadata => {
+const discardLegacyRecommendationFields = <T extends RecommendationMetadataLike>(
+  recommendation: T,
+): T => {
   const {
     candidateReasons: _candidateReasons,
     candidateScore: _candidateScore,
     ...phaseFiveRecommendation
   } = recommendation as LegacyRecommendationMetadata
 
-  return phaseFiveRecommendation
+  return phaseFiveRecommendation as T
 }
 
 export const parseRecommendedReelsResponse = (
@@ -35,11 +40,10 @@ export const parseRecommendedReelsResponse = (
 export const parseRecommendedUsersResponse = (
   users: RecommendedPublicUserProfile[],
 ): RecommendedPublicUserProfile[] =>
-  users.map((user) =>
-    user.recommendation
-      ? { ...user, recommendation: discardLegacyRecommendationFields(user.recommendation) }
-      : user,
-  )
+  users.map((user) => ({
+    ...user,
+    recommendation: discardLegacyRecommendationFields(user.recommendation),
+  }))
 
 export const flattenRecommendedReelPages = (pages: readonly RecommendedReelsPage[]) =>
   flattenRecommendedReels(pages)
