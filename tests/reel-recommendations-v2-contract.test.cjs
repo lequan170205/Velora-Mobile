@@ -26,10 +26,7 @@ test('reel recommendation types stay aligned with backend candidate sources', ()
   assert.match(sourceList, /'SEMANTIC'/)
   assert.match(sourceList, /'SOCIAL'/)
   assert.match(sourceList, /'EXPLORATION'/)
-  assert.match(
-    recommendationTypes,
-    /candidateSources\?: RecommendationCandidateSource\[\]/,
-  )
+  assert.match(recommendationTypes, /candidateSources\?: RecommendationCandidateSource\[\]/)
 })
 
 test('recommended reel pagination keeps the backend cursor opaque and reuses its feed session', () => {
@@ -52,10 +49,7 @@ test('recommended feed starts fresh on first page, refresh, and account transiti
   const hookStart = reelsHook.indexOf('export function useRecommendedReelsFeed')
   const recommendedFeedHook = reelsHook.slice(hookStart)
 
-  assert.match(
-    recommendedFeedHook,
-    /if \(!pageParam\) \{\s*session\.reset\(\)\s*\}/,
-  )
+  assert.match(recommendedFeedHook, /if \(!pageParam\) \{\s*session\.reset\(\)\s*\}/)
   assert.match(recommendedFeedHook, /session\.capture\(response\)/)
   assert.match(
     recommendedFeedHook,
