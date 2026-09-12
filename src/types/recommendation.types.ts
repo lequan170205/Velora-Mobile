@@ -4,6 +4,7 @@ export const RECOMMENDATION_CANDIDATE_SOURCES = [
   'TAG_AFFINITY',
   'CREATOR_AFFINITY',
   'CONTENT_SIMILARITY',
+  'SEMANTIC',
   'SOCIAL',
   'EXPLORATION',
 ] as const
@@ -23,7 +24,7 @@ export interface RecommendationMetadata {
   feedSessionId: string
   algorithmVersion: string
   candidateSource: RecommendationCandidateSource
-  candidateSources?: string[]
+  candidateSources?: RecommendationCandidateSource[]
   rank: number
   generatedAt: string
 }
