@@ -34,10 +34,13 @@ test('camera off/on is signaled without replacing the video producer', () => {
   const mediaTransport = read('src/lib/call/useCallMediaTransportRuntime.ts')
   const provider = read('src/providers/CallProvider.tsx')
   assert.match(localMedia, /const emitLocalVideoState = useCallback/)
-  assert.match(localMedia, /socket\.emit\('set_video_enabled'/)
+  assert.match(localMedia, /emitAndWaitForEvent<[\s\S]*'video_state_updated'/)
+  assert.match(localMedia, /revision/)
+  assert.match(localMedia, /pendingActionId/)
   assert.match(localMedia, /emitLocalVideoState\(false\)/)
   assert.match(localMedia, /emitLocalVideoState\(true\)/)
   assert.match(provider, /socket\.on\('video_state_changed', handleVideoStateChanged\)/)
+  assert.match(localMedia, /event: 'video_state_updated'/)
   assert.match(provider, /remoteVideoEnabledByProducerRef/)
   assert.match(provider, /if \(payload\.enabled\) videoConsumer\.resume\(\)/)
   assert.match(provider, /else videoConsumer\.pause\(\)/)
@@ -178,7 +181,10 @@ test('enabled call controls use the outgoing message bubble color', () => {
 
 test('Connecting exposes only the reliable End action', () => {
   const source = read('app/call/[id].tsx')
-  const controls = source.slice(source.indexOf('const activeControls = ('), source.indexOf('const participantsSheet = ('))
+  const controls = source.slice(
+    source.indexOf('const activeControls = ('),
+    source.indexOf('const participantsSheet = ('),
+  )
 
   assert.match(source, /const controlsDisabled = phase !== 'active'/)
   assert.match(

@@ -80,6 +80,7 @@ import type {
   CallTypeChangedPayload,
   IncomingCallPayload,
   IncomingCallAcceptancePayload,
+  LocalVideoSyncState,
   NewProducerPayload,
   PeerLeftPayload,
   ProducerClosedPayload,
@@ -181,6 +182,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const queuedRemoteProducerMapRef = useRef<Map<string, NewProducerPayload>>(new Map())
   const handledRemoteProducerIdsRef = useRef<Set<string>>(new Set())
   const remoteVideoEnabledByProducerRef = useRef<Map<string, boolean>>(new Map())
+  const localVideoStateRef = useRef<LocalVideoSyncState>({
+    desiredEnabled: false,
+    confirmedEnabled: false,
+    revision: 0,
+    pendingActionId: null,
+  })
   const consumingProducerIdsRef = useRef<Set<string>>(new Set())
   const retryingProducerIdsRef = useRef<Set<string>>(new Set())
   const activeCallIdRef = useRef<string | null>(null)
@@ -392,6 +399,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       queuedRemoteProducerMapRef.current.clear()
       handledRemoteProducerIdsRef.current.clear()
       remoteVideoEnabledByProducerRef.current.clear()
+      if (!options?.preserveActiveCall) {
+        localVideoStateRef.current = {
+          desiredEnabled: false,
+          confirmedEnabled: false,
+          revision: 0,
+          pendingActionId: null,
+        }
+      }
       consumingProducerIdsRef.current.clear()
       retryingProducerIdsRef.current.clear()
       audioFlowingRef.current = false
@@ -675,14 +690,17 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     toggleMute,
     toggleCamera,
     switchCamera,
+    synchronizeLocalVideoState,
   } = useCallLocalMediaRuntime({
     socketRef,
+    waitRegistryRef,
     deviceRef,
     sendTransportRef,
     localStreamRef,
     ringingPreviewStreamRef,
     remoteStreamRef,
     videoProducerRef,
+    localVideoStateRef,
     consumerMapRef,
     handledRemoteProducerIdsRef,
     cameraPausedByBackgroundRef,
@@ -782,6 +800,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     sendTransportRef,
     recvTransportRef,
     videoProducerRef,
+    localVideoStateRef,
     connectedTransportIdsRef,
     activeCallIdRef,
     callAnsweredRef,
@@ -792,6 +811,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     teardownInProgressRef,
     mediaTransportDisconnectTimeoutsRef,
     activateLocalVideo,
+    synchronizeLocalVideoState,
     deactivateLocalVideo,
     clearRemoteVideoRuntime,
     consumeRemoteProducer,
@@ -1964,7 +1984,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           localVideoTrack
         ) {
           localVideoTrack.enabled = false
-          emitLocalVideoState(false)
+          void emitLocalVideoState(false)
           cameraPausedByBackgroundRef.current = true
         }
         return
@@ -1977,7 +1997,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       ) {
         if (localVideoTrack) {
           localVideoTrack.enabled = true
-          emitLocalVideoState(true)
+          void emitLocalVideoState(true)
           cameraPausedByBackgroundRef.current = false
         } else {
           void activateLocalVideo({ requestPermission: false })

@@ -15,6 +15,14 @@ export type RemoteAudioState = 'idle' | 'waiting' | 'connected'
 export type RemoteVideoState = 'idle' | 'waiting' | 'connected' | 'off'
 export type CameraFacing = 'user' | 'environment'
 export type AudioBitrateProfile = 'normal' | 'constrained'
+export type VideoStateUpdateStatus = 'applied' | 'stale' | 'already_applied'
+
+export interface LocalVideoSyncState {
+  desiredEnabled: boolean
+  confirmedEnabled: boolean
+  revision: number
+  pendingActionId: string | null
+}
 
 export interface CallSessionPayload {
   callId: string
@@ -129,6 +137,9 @@ export interface SetVideoEnabledPayload {
   callId: string
   producerId: string
   enabled: boolean
+  revision?: number
+  actionId?: string
+  requestId?: string
 }
 
 export interface IncomingCallPayload {
@@ -154,6 +165,7 @@ export interface CallJoinedPayload {
     producerId: string
     kind: 'audio' | 'video'
     paused?: boolean
+    revision?: number
   }[]
   noAnswerTimeoutMs?: number
   telemetryToken: string
@@ -179,6 +191,7 @@ export interface IncomingCallAcceptancePayload {
     producerId: string
     kind: 'audio' | 'video'
     paused?: boolean
+    revision?: number
   }[]
   noAnswerTimeoutMs?: number
   telemetryToken?: string
@@ -194,6 +207,7 @@ export interface CallRejoinedPayload {
     producerId: string
     kind: 'audio' | 'video'
     paused?: boolean
+    revision?: number
   }[]
   telemetryToken: string
 }
@@ -223,6 +237,7 @@ export interface NewProducerPayload {
   producerId: string
   kind: 'audio' | 'video'
   paused?: boolean
+  revision?: number
 }
 
 export interface ProducerCreatedPayload {
@@ -276,6 +291,19 @@ export interface VideoStateChangedPayload {
   userId: string
   producerId: string
   enabled: boolean
+  revision?: number
+  actionId?: string
+}
+
+export interface VideoStateUpdatedPayload {
+  callId: string
+  userId: string
+  producerId: string
+  enabled: boolean
+  revision: number
+  status: VideoStateUpdateStatus
+  actionId?: string
+  requestId?: string
 }
 
 export interface CallAnsweredPayload {
@@ -344,6 +372,7 @@ export interface CallServerEvents {
   audio_bitrate_updated: (payload: AudioBitrateUpdatedPayload) => void
   call_type_changed: (payload: CallTypeChangedPayload) => void
   video_state_changed: (payload: VideoStateChangedPayload) => void
+  video_state_updated: (payload: VideoStateUpdatedPayload) => void
   call_answered: (payload: CallAnsweredPayload) => void
   call_rejected: (payload: CallRejectedPayload) => void
   peer_reconnecting: (payload: PeerReconnectingPayload) => void

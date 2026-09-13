@@ -563,6 +563,8 @@ export const useCallMediaTransportRuntime = ({
       const callId = payload.callId
       const callType = payload.session.callType
       const shouldDeferLocalVideo = callType === 'VIDEO' && AppState.currentState !== 'active'
+      const shouldAutoEnableLocalVideo =
+        callType === 'VIDEO' && useCallStore.getState().phase === 'connecting'
       const telemetry = telemetrySessionRef.current
       assertCallSetupCurrent(options.setupToken, callId)
       const device = await ensureDeviceLoaded(payload)
@@ -688,7 +690,7 @@ export const useCallMediaTransportRuntime = ({
       startTimer(options.resumeDurationSec ?? 0)
       armRemoteAudioFallback()
 
-      if (callType !== 'VIDEO') return
+      if (callType !== 'VIDEO' || !shouldAutoEnableLocalVideo) return
 
       if (shouldDeferLocalVideo) {
         cameraPausedByBackgroundRef.current = true

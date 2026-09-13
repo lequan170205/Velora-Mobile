@@ -22,6 +22,7 @@ import type {
   CallRejoinedPayload,
   CallSocket,
   IceRestartedPayload,
+  LocalVideoSyncState,
   NewProducerPayload,
   PeerReconnectedPayload,
   PeerReconnectingPayload,
@@ -38,6 +39,7 @@ type RecoveryRuntimeOptions = {
   sendTransportRef: MutableRef<MediasoupTypes.Transport<Record<string, unknown>> | null>
   recvTransportRef: MutableRef<MediasoupTypes.Transport<Record<string, unknown>> | null>
   videoProducerRef: MutableRef<MediasoupTypes.Producer<Record<string, unknown>> | null>
+  localVideoStateRef: MutableRef<LocalVideoSyncState>
   connectedTransportIdsRef: MutableRef<Set<string>>
   activeCallIdRef: MutableRef<string | null>
   callAnsweredRef: MutableRef<boolean>
@@ -83,6 +85,7 @@ export const useCallRecoveryRuntime = ({
   sendTransportRef,
   recvTransportRef,
   videoProducerRef,
+  localVideoStateRef,
   connectedTransportIdsRef,
   activeCallIdRef,
   callAnsweredRef,
@@ -231,7 +234,8 @@ export const useCallRecoveryRuntime = ({
         if (
           recoveredCallType === 'VIDEO' &&
           useCallStore.getState().hasCameraPermission === true &&
-          !videoProducerRef.current
+          !videoProducerRef.current &&
+          localVideoStateRef.current.desiredEnabled
         ) {
           await activateLocalVideo({ requestPermission: false })
           assertCallSetupCurrent(restartSetupToken, rejoined.callId)
@@ -281,6 +285,14 @@ export const useCallRecoveryRuntime = ({
         setupToken,
       })
       assertCallSetupCurrent(setupToken, rejoined.callId)
+      if (
+        rejoined.session.callType === 'VIDEO' &&
+        videoProducerRef.current &&
+        synchronizeLocalVideoState
+      ) {
+        await synchronizeLocalVideoState()
+        assertCallSetupCurrent(setupToken, rejoined.callId)
+      }
       if (!markNativeCallActive(rejoined.callId)) {
         throw new Error('Native call is no longer active')
       }
@@ -324,6 +336,7 @@ export const useCallRecoveryRuntime = ({
     deactivateLocalVideo,
     disposeMediaRuntime,
     invalidateCallSetup,
+    localVideoStateRef,
     postAnswerSetup,
     reconnectModeRef,
     reconnectRecoveryInFlightRef,

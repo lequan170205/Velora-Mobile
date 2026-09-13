@@ -5,9 +5,17 @@ import { MediaStream, mediaDevices } from 'react-native-webrtc'
 
 import { useCallStore } from '../../stores/callStore'
 
+import { VIDEO_STATE_UPDATED_TIMEOUT_MS } from './callConstants'
 import { cameraConstraints } from './callPolicies'
+import { createCallRequestId, emitAndWaitForEvent } from './callSocket'
 
-import type { CallSocket, CameraFacing } from '../../types/call.types'
+import type { CallWaitRegistry } from './callSocket'
+import type {
+  CallSocket,
+  CameraFacing,
+  LocalVideoSyncState,
+  VideoStateUpdatedPayload,
+} from '../../types/call.types'
 import type { Device as MediasoupDevice } from 'mediasoup-client'
 import type * as MediasoupTypes from 'mediasoup-client/types'
 import type { MediaStreamTrack } from 'react-native-webrtc'
@@ -16,12 +24,14 @@ type MutableRef<T> = { current: T }
 
 type LocalMediaRuntimeOptions = {
   socketRef: MutableRef<CallSocket | null>
+  waitRegistryRef: MutableRef<CallWaitRegistry>
   deviceRef: MutableRef<MediasoupDevice | null>
   sendTransportRef: MutableRef<MediasoupTypes.Transport<Record<string, unknown>> | null>
   localStreamRef: MutableRef<MediaStream | null>
   ringingPreviewStreamRef: MutableRef<MediaStream | null>
   remoteStreamRef: MutableRef<MediaStream | null>
   videoProducerRef: MutableRef<MediasoupTypes.Producer<Record<string, unknown>> | null>
+  localVideoStateRef: MutableRef<LocalVideoSyncState>
   consumerMapRef: MutableRef<Map<string, MediasoupTypes.Consumer<Record<string, unknown>>>>
   handledRemoteProducerIdsRef: MutableRef<Set<string>>
   cameraPausedByBackgroundRef: MutableRef<boolean>
@@ -32,12 +42,14 @@ type LocalMediaRuntimeOptions = {
 
 export const useCallLocalMediaRuntime = ({
   socketRef,
+  waitRegistryRef,
   deviceRef,
   sendTransportRef,
   localStreamRef,
   ringingPreviewStreamRef,
   remoteStreamRef,
   videoProducerRef,
+  localVideoStateRef,
   consumerMapRef,
   handledRemoteProducerIdsRef,
   cameraPausedByBackgroundRef,
@@ -88,8 +100,10 @@ export const useCallLocalMediaRuntime = ({
   }, [localStreamRef, ringingPreviewStreamRef])
 
   const emitLocalVideoState = useCallback(
-    (enabled: boolean) => {
+    async (enabled: boolean): Promise<boolean> => {
       const state = useCallStore.getState()
+      const localVideoState = localVideoStateRef.current
+      localVideoState.desiredEnabled = enabled
       const socket = socketRef.current
       const producerId = videoProducerRef.current?.id
       if (
@@ -99,17 +113,71 @@ export const useCallLocalMediaRuntime = ({
         !producerId ||
         !socket?.connected
       ) {
-        return
+        return false
       }
 
-      socket.emit('set_video_enabled', {
-        callId: state.callId,
-        producerId,
-        enabled,
-      })
+      const actionId = createCallRequestId('camera')
+      const revision = Math.max(localVideoState.revision + 1, 1)
+      localVideoState.revision = revision
+      localVideoState.pendingActionId = actionId
+
+      try {
+        const acknowledgement = await emitAndWaitForEvent<
+          'set_video_enabled',
+          'video_state_updated'
+        >(
+          socket,
+          'set_video_enabled',
+          {
+            callId: state.callId,
+            producerId,
+            enabled,
+            revision,
+            actionId,
+            requestId: actionId,
+          },
+          {
+            event: 'video_state_updated',
+            timeoutMs: VIDEO_STATE_UPDATED_TIMEOUT_MS,
+            registry: waitRegistryRef.current,
+            requestId: actionId,
+            filter: (payload: VideoStateUpdatedPayload) =>
+              payload.callId === state.callId &&
+              payload.producerId === producerId &&
+              payload.requestId === actionId,
+          },
+        )
+
+        const isLatestAction = localVideoState.pendingActionId === actionId
+        if (acknowledgement.revision >= localVideoState.revision) {
+          localVideoState.revision = acknowledgement.revision
+          localVideoState.confirmedEnabled = acknowledgement.enabled
+        }
+        if (isLatestAction) localVideoState.pendingActionId = null
+
+        if (
+          isLatestAction &&
+          acknowledgement.status === 'stale' &&
+          acknowledgement.revision >= revision
+        ) {
+          localVideoState.desiredEnabled = acknowledgement.enabled
+          useCallStore.getState().patch({ cameraEnabled: acknowledgement.enabled })
+        }
+        return acknowledgement.status !== 'stale'
+      } catch {
+        if (localVideoState.pendingActionId === actionId) {
+          localVideoState.pendingActionId = null
+        }
+        return false
+      }
     },
-    [socketRef, videoProducerRef],
+    [localVideoStateRef, socketRef, videoProducerRef, waitRegistryRef],
   )
+
+  const synchronizeLocalVideoState = useCallback(async () => {
+    if (!videoProducerRef.current) return false
+    return emitLocalVideoState(localVideoStateRef.current.desiredEnabled)
+  }, [emitLocalVideoState, localVideoStateRef, videoProducerRef])
 
   const deactivateLocalVideo = useCallback(() => {
     videoActivationGenerationRef.current += 1
@@ -135,16 +203,21 @@ export const useCallLocalMediaRuntime = ({
     })
 
     cameraPausedByBackgroundRef.current = false
+    localVideoStateRef.current.desiredEnabled = false
+    localVideoStateRef.current.confirmedEnabled = false
+    localVideoStateRef.current.revision = 0
+    localVideoStateRef.current.pendingActionId = null
     useCallStore.getState().patch({
       cameraEnabled: false,
       localStreamUrl: localStream?.toURL() ?? null,
     })
-  }, [cameraPausedByBackgroundRef, localStreamRef, videoProducerRef])
+  }, [cameraPausedByBackgroundRef, localStreamRef, localVideoStateRef, videoProducerRef])
 
   const activateLocalVideo = useCallback(
     async (options?: { requestPermission?: boolean }) => {
       const state = useCallStore.getState()
       if (state.phase !== 'active' || state.callType !== 'VIDEO' || !state.callId) return false
+      localVideoStateRef.current.desiredEnabled = true
       const callId = state.callId
       const setupToken = callSetupGenerationRef.current
       const activationGeneration = videoActivationGenerationRef.current
@@ -183,7 +256,7 @@ export const useCallLocalMediaRuntime = ({
         if (existingTrack && existingTrack.readyState === 'live') {
           if (!isActivationCurrent()) return false
           existingTrack.enabled = true
-          emitLocalVideoState(true)
+          void emitLocalVideoState(true)
           useCallStore.getState().patch({
             cameraEnabled: true,
             localStreamUrl: localStreamRef.current?.toURL() ?? null,
@@ -236,6 +309,7 @@ export const useCallLocalMediaRuntime = ({
           }
 
           videoProducerRef.current = producer
+          void emitLocalVideoState(true)
           useCallStore.getState().patch({
             cameraEnabled: true,
             localStreamUrl: targetStream.toURL(),
@@ -273,6 +347,7 @@ export const useCallLocalMediaRuntime = ({
       deviceRef,
       emitLocalVideoState,
       ensureCameraPermission,
+      localVideoStateRef,
       isCallSetupCurrent,
       localStreamRef,
       presentError,
@@ -335,9 +410,10 @@ export const useCallLocalMediaRuntime = ({
     }
     const track = localStreamRef.current?.getVideoTracks()[0]
     if (track) track.enabled = false
-    emitLocalVideoState(false)
+    localVideoStateRef.current.desiredEnabled = false
+    void emitLocalVideoState(false)
     useCallStore.getState().patch({ cameraEnabled: false })
-  }, [activateLocalVideo, emitLocalVideoState, localStreamRef, presentError])
+  }, [activateLocalVideo, emitLocalVideoState, localStreamRef, localVideoStateRef, presentError])
 
   const switchCamera = useCallback(async () => {
     const state = useCallStore.getState()
@@ -395,6 +471,7 @@ export const useCallLocalMediaRuntime = ({
     ensureCameraPermission,
     stopRingingPreview,
     emitLocalVideoState,
+    synchronizeLocalVideoState,
     deactivateLocalVideo,
     activateLocalVideo,
     clearRemoteVideoRuntime,
