@@ -42,9 +42,13 @@ test('camera off/on is signaled without replacing the video producer', () => {
   assert.match(provider, /socket\.on\('video_state_changed', handleVideoStateChanged\)/)
   assert.match(localMedia, /event: 'video_state_updated'/)
   assert.match(provider, /remoteVideoEnabledByProducerRef/)
+  assert.match(provider, /remoteVideoRevisionByProducerRef/)
+  assert.match(provider, /payload\.revision < currentRevision/)
   assert.match(provider, /if \(payload\.enabled\) videoConsumer\.resume\(\)/)
   assert.match(provider, /else videoConsumer\.pause\(\)/)
-  assert.match(mediaTransport, /remoteVideoState: videoEnabled \? 'connected' : 'off'/)
+  assert.match(mediaTransport, /markRemoteVideoSnapshotReady\(false\)/)
+  assert.match(mediaTransport, /markRemoteVideoSnapshotReady\(callType === 'VIDEO'\)/)
+  assert.match(mediaTransport, /remoteVideoState: deriveRemoteVideoState\(\)/)
 })
 
 test('native VIDEO answer defers camera capture without silently downgrading', () => {

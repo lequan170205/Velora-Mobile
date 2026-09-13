@@ -680,6 +680,46 @@ test('local video activation is single-flight and discards stale media resources
   )
 })
 
+test('rapid camera taps cancel pending activation and keep the producer stable', () => {
+  const localMedia = read('src/lib/call/useCallLocalMediaRuntime.ts')
+  const toggleSource = sliceBetween(
+    localMedia,
+    'const toggleCamera = useCallback(',
+    'const switchCamera = useCallback(',
+  )
+
+  assert.match(
+    toggleSource,
+    /const cameraIsDesiredOn = state\.cameraEnabled \|\| localVideoStateRef\.current\.desiredEnabled/,
+  )
+  assertOrdered(
+    toggleSource,
+    [
+      'const cameraIsDesiredOn =',
+      'if (!cameraIsDesiredOn)',
+      'await activateLocalVideo()',
+      'if (!videoProducerRef.current)',
+      'deactivateLocalVideo()',
+      'emitLocalVideoState(false)',
+    ],
+    'rapid camera toggle cancellation order',
+  )
+})
+
+test('remote video state is rebuilt from a revisioned producer snapshot after recovery', () => {
+  const provider = read('src/providers/CallProvider.tsx')
+  const mediaTransport = read('src/lib/call/useCallMediaTransportRuntime.ts')
+  const recovery = read('src/lib/call/useCallRecoveryRuntime.ts')
+
+  assert.match(provider, /const deriveRemoteVideoState = useCallback/)
+  assert.match(provider, /hasLiveConsumer/)
+  assert.match(provider, /remoteVideoSnapshotReadyRef\.current = false/)
+  assert.match(mediaTransport, /remoteVideoRevisionByProducerRef\.current\.set/)
+  assert.match(mediaTransport, /markRemoteVideoSnapshotReady\(callType === 'VIDEO'\)/)
+  assert.match(recovery, /markRemoteVideoSnapshotReady\(false\)/)
+  assert.match(recovery, /markRemoteVideoSnapshotReady\(recoveredCallType === 'VIDEO'\)/)
+})
+
 test('call type and camera facing changes publish only into their originating session', () => {
   const callTypeSource = sliceBetween(
     providerSource,
