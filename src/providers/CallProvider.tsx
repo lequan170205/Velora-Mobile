@@ -206,6 +206,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const peerLeftTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reconnectRecoveryInFlightRef = useRef(false)
+  const controlPlaneRecoveringRef = useRef(false)
   const reconnectModeRef = useRef<'local' | 'peer' | null>(null)
   const nativeActionRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const socketDisconnectGraceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -411,6 +412,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       cameraPausedByBackgroundRef.current = false
       routerRtpCapabilitiesRef.current = null
       reconnectRecoveryInFlightRef.current = false
+      controlPlaneRecoveringRef.current = false
       reconnectModeRef.current = null
 
       if (!options?.preserveActiveCall) {
@@ -785,6 +787,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     callAnsweredRef,
     telemetrySessionRef,
     reconnectRecoveryInFlightRef,
+    controlPlaneRecoveringRef,
     reconnectModeRef,
     teardownInProgressRef,
     mediaTransportDisconnectTimeoutsRef,
@@ -2123,9 +2126,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
     const handleConnect = () => {
       if (
-        useCallStore.getState().phase === 'reconnecting' &&
-        reconnectModeRef.current === 'local'
+        controlPlaneRecoveringRef.current ||
+        (useCallStore.getState().phase === 'reconnecting' && reconnectModeRef.current === 'local')
       ) {
+        clearSocketDisconnectGraceTimeout()
         void recoverActiveCall()
       }
     }
@@ -2151,8 +2155,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (phase === 'active') {
-        beginReconnectRecovery()
-        return
+        // A Socket.IO reconnect is a control-plane event. Keep existing
+        // mediasoup transports and native audio alive while the socket
+        // authenticates and rejoins the call room.
+        controlPlaneRecoveringRef.current = true
       }
 
       if (!isBusyPhase(phase) || !disconnectedCallId) {
@@ -2196,7 +2202,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             '[Call] socket_reconnect_succeeded',
             JSON.stringify({ callId: disconnectedCallId }),
           )
-          if (useCallStore.getState().phase === 'reconnecting') {
+          if (
+            controlPlaneRecoveringRef.current ||
+            useCallStore.getState().phase === 'reconnecting'
+          ) {
             void recoverActiveCall()
           }
         })
@@ -2392,6 +2401,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     deactivateLocalVideo,
     beginReconnectRecovery,
     clearSocketDisconnectGraceTimeout,
+    controlPlaneRecoveringRef,
     handlePeerReconnected,
     handlePeerReconnecting,
     handleIncomingCall,

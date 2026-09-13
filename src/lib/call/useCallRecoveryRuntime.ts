@@ -43,10 +43,12 @@ type RecoveryRuntimeOptions = {
   callAnsweredRef: MutableRef<boolean>
   telemetrySessionRef: MutableRef<CallTelemetrySession | null>
   reconnectRecoveryInFlightRef: MutableRef<boolean>
+  controlPlaneRecoveringRef: MutableRef<boolean>
   reconnectModeRef: MutableRef<'local' | 'peer' | null>
   teardownInProgressRef: MutableRef<boolean>
   mediaTransportDisconnectTimeoutsRef: MutableRef<Map<string, ReturnType<typeof setTimeout>>>
   activateLocalVideo: (options?: { requestPermission?: boolean }) => Promise<boolean>
+  synchronizeLocalVideoState?: () => Promise<boolean>
   deactivateLocalVideo: () => void
   clearRemoteVideoRuntime: (state?: 'idle' | 'off') => void
   consumeRemoteProducer: (
@@ -86,10 +88,12 @@ export const useCallRecoveryRuntime = ({
   callAnsweredRef,
   telemetrySessionRef,
   reconnectRecoveryInFlightRef,
+  controlPlaneRecoveringRef,
   reconnectModeRef,
   teardownInProgressRef,
   mediaTransportDisconnectTimeoutsRef,
   activateLocalVideo,
+  synchronizeLocalVideoState,
   deactivateLocalVideo,
   clearRemoteVideoRuntime,
   consumeRemoteProducer,
@@ -111,11 +115,17 @@ export const useCallRecoveryRuntime = ({
 }: RecoveryRuntimeOptions) => {
   const restartConnectedTransports = useCallback(
     async (socket: CallSocket, callId: string) => {
+      const skipHealthyTransports = controlPlaneRecoveringRef.current
       const transports = [sendTransportRef.current, recvTransportRef.current].filter(
         (transport): transport is MediasoupTypes.Transport<Record<string, unknown>> =>
-          Boolean(transport && connectedTransportIdsRef.current.has(transport.id)),
+          Boolean(
+            transport &&
+            connectedTransportIdsRef.current.has(transport.id) &&
+            (!skipHealthyTransports || !isConnectedTransportState(transport.connectionState)),
+          ),
       )
       if (transports.length === 0) {
+        if (skipHealthyTransports) return
         throw new Error('No connected media transport is available for ICE restart')
       }
 
@@ -140,22 +150,32 @@ export const useCallRecoveryRuntime = ({
       )
       await Promise.all(transports.map((transport) => waitForTransportConnection(transport)))
     },
-    [connectedTransportIdsRef, recvTransportRef, sendTransportRef, waitRegistryRef],
+    [
+      connectedTransportIdsRef,
+      controlPlaneRecoveringRef,
+      recvTransportRef,
+      sendTransportRef,
+      waitRegistryRef,
+    ],
   )
 
   const recoverActiveCall = useCallback(async () => {
     const socket = socketRef.current
     const state = useCallStore.getState()
+    const controlPlaneRecovery = controlPlaneRecoveringRef.current
     if (
       reconnectRecoveryInFlightRef.current ||
       !socket?.connected ||
-      state.phase !== 'reconnecting' ||
+      (state.phase !== 'reconnecting' && !controlPlaneRecovery) ||
       !state.callId
     ) {
       return
     }
 
     reconnectRecoveryInFlightRef.current = true
+    if (controlPlaneRecovery) {
+      reconnectModeRef.current = 'local'
+    }
     const restartSetupToken = beginCallSetup()
     try {
       const rejoined = await emitAndWaitForEvent<'rejoin_call', 'call_rejoined'>(
@@ -175,11 +195,13 @@ export const useCallRecoveryRuntime = ({
       callAnsweredRef.current = true
       telemetrySessionRef.current?.attachCall(rejoined.telemetryToken)
       const recoveredCallType = rejoined.session.callType
-      useCallStore.getState().patch({
-        callType: recoveredCallType,
-        remoteVideoState: recoveredCallType === 'VIDEO' ? 'waiting' : 'idle',
-      })
-      if (recoveredCallType === 'VOICE') {
+      if (!controlPlaneRecovery) {
+        useCallStore.getState().patch({
+          callType: recoveredCallType,
+          remoteVideoState: recoveredCallType === 'VIDEO' ? 'waiting' : 'idle',
+        })
+      }
+      if (!controlPlaneRecovery && recoveredCallType === 'VOICE') {
         deactivateLocalVideo()
         clearRemoteVideoRuntime('idle')
       }
@@ -203,7 +225,9 @@ export const useCallRecoveryRuntime = ({
           )
           assertCallSetupCurrent(restartSetupToken, rejoined.callId)
         }
-        useCallStore.getState().patch({ phase: 'active' })
+        if (!controlPlaneRecovery) {
+          useCallStore.getState().patch({ phase: 'active' })
+        }
         if (
           recoveredCallType === 'VIDEO' &&
           useCallStore.getState().hasCameraPermission === true &&
@@ -212,6 +236,15 @@ export const useCallRecoveryRuntime = ({
           await activateLocalVideo({ requestPermission: false })
           assertCallSetupCurrent(restartSetupToken, rejoined.callId)
         }
+        if (
+          recoveredCallType === 'VIDEO' &&
+          videoProducerRef.current &&
+          synchronizeLocalVideoState
+        ) {
+          await synchronizeLocalVideoState()
+          assertCallSetupCurrent(restartSetupToken, rejoined.callId)
+        }
+        controlPlaneRecoveringRef.current = false
         clearReconnectTimeout()
         useCallStore.getState().patch({ reconnectDeadlineMs: null })
         startTimer(useCallStore.getState().durationSec)
@@ -235,6 +268,7 @@ export const useCallRecoveryRuntime = ({
       }
 
       invalidateCallSetup()
+      controlPlaneRecoveringRef.current = false
       disposeMediaRuntime({ preserveActiveCall: true })
       useCallStore.getState().patch({
         phase: 'reconnecting',
@@ -251,6 +285,7 @@ export const useCallRecoveryRuntime = ({
         throw new Error('Native call is no longer active')
       }
       clearReconnectTimeout()
+      controlPlaneRecoveringRef.current = false
       telemetrySessionRef.current?.record('reconnect', { outcome: 'succeeded' })
 
       if (useCallStore.getState().remoteAudioState !== 'connected') {
@@ -282,6 +317,7 @@ export const useCallRecoveryRuntime = ({
     assertCallSetupCurrent,
     beginCallSetup,
     callAnsweredRef,
+    controlPlaneRecoveringRef,
     clearReconnectTimeout,
     clearRemoteVideoRuntime,
     consumeRemoteProducer,
@@ -295,6 +331,7 @@ export const useCallRecoveryRuntime = ({
     markNativeCallActive,
     socketRef,
     startTimer,
+    synchronizeLocalVideoState,
     teardownRecoveryFailure,
     telemetrySessionRef,
     waitRegistryRef,
@@ -309,6 +346,7 @@ export const useCallRecoveryRuntime = ({
       !isAuthenticated ||
       !currentUserId ||
       reconnectRecoveryInFlightRef.current ||
+      controlPlaneRecoveringRef.current ||
       (state.phase === 'reconnecting' && reconnectModeRef.current !== 'peer')
     ) {
       return
@@ -325,6 +363,7 @@ export const useCallRecoveryRuntime = ({
   }, [
     armReconnectTimeout,
     currentUserId,
+    controlPlaneRecoveringRef,
     isAuthenticated,
     reconnectModeRef,
     reconnectRecoveryInFlightRef,
