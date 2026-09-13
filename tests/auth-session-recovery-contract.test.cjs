@@ -6,9 +6,16 @@ const ts = require('typescript')
 
 const root = path.resolve(__dirname, '..')
 
-const loadApiClient = ({ post }) => {
+const loadApiClient = ({
+  post,
+  getAccessToken = () => 'access-token',
+  getRefreshToken = async () => 'refresh-token',
+  installTokenPair = async () => undefined,
+  clear = async () => undefined,
+}) => {
   const clientRequests = []
   let createConfig
+  let requestHandler
   let responseErrorHandler
 
   const apiClient = (request) => {
@@ -17,6 +24,11 @@ const loadApiClient = ({ post }) => {
   }
   apiClient.post = post
   apiClient.interceptors = {
+    request: {
+      use: (onFulfilled) => {
+        requestHandler = onFulfilled
+      },
+    },
     response: {
       use: (_onFulfilled, onRejected) => {
         responseErrorHandler = onRejected
@@ -34,6 +46,7 @@ const loadApiClient = ({ post }) => {
   }).outputText
   const loadedModule = { exports: {} }
   const axiosMock = {
+    isAxiosError: (error) => Boolean(error?.isAxiosError),
     create: (config) => {
       createConfig = config
       return apiClient
@@ -41,7 +54,20 @@ const loadApiClient = ({ post }) => {
   }
 
   new Function('require', 'module', 'exports', compiled)(
-    (specifier) => (specifier === 'axios' ? axiosMock : require(specifier)),
+    (specifier) => {
+      if (specifier === 'axios') return axiosMock
+      if (specifier === '../lib/auth/tokenSession') {
+        return {
+          authTokenSession: {
+            getAccessToken,
+            getRefreshToken,
+            installTokenPair,
+            clear,
+          },
+        }
+      }
+      return require(specifier)
+    },
     loadedModule,
     loadedModule.exports,
   )
@@ -50,11 +76,12 @@ const loadApiClient = ({ post }) => {
     apiClientModule: loadedModule.exports,
     clientRequests,
     createConfig,
+    requestHandler,
     responseErrorHandler,
   }
 }
 
-const loadAuthStore = ({ me, resumePushTokenRegistration }) => {
+const loadAuthStore = ({ restoreSession = async () => true, me, resumePushTokenRegistration }) => {
   let state
   const create = (initializer) => {
     const set = (partial) => {
@@ -83,7 +110,7 @@ const loadAuthStore = ({ me, resumePushTokenRegistration }) => {
         return { isAxiosError: (error) => Boolean(error?.isAxiosError) }
       }
       if (specifier === 'zustand') return { create }
-      if (specifier === '../api/auth.api') return { authApi: { me } }
+      if (specifier === '../api/auth.api') return { authApi: { restoreSession, me } }
       if (specifier === '../lib/notifications/pushTokenOperationState') {
         return { resumePushTokenRegistration }
       }
@@ -117,16 +144,84 @@ test('concurrent 401 responses share one refresh request before retrying', async
   const firstRequest = responseErrorHandler(unauthorizedRequest())
   const secondRequest = responseErrorHandler(unauthorizedRequest())
 
+  await Promise.resolve()
+
   assert.equal(refreshCalls, 1)
 
-  resolveRefresh({ data: {} })
+  resolveRefresh({ data: { accessToken: 'new-access', refreshToken: 'new-refresh' } })
   await Promise.all([firstRequest, secondRequest])
 
   assert.equal(clientRequests.length, 2)
 })
 
+test('refresh preserves the stored session on network failure', async () => {
+  const networkError = Object.assign(new Error('offline'), { isAxiosError: true })
+  let clearCalls = 0
+  const { apiClientModule } = loadApiClient({
+    post: () => Promise.reject(networkError),
+    clear: async () => {
+      clearCalls += 1
+    },
+  })
+
+  await assert.rejects(apiClientModule.refreshAccessToken(), (error) => error === networkError)
+  assert.equal(clearCalls, 0)
+})
+
+test('refresh clears local credentials after a definitive unauthorized response', async () => {
+  const unauthorizedError = Object.assign(new Error('revoked'), {
+    isAxiosError: true,
+    response: { status: 401 },
+  })
+  let clearCalls = 0
+  const { apiClientModule } = loadApiClient({
+    post: () => Promise.reject(unauthorizedError),
+    clear: async () => {
+      clearCalls += 1
+    },
+  })
+
+  await assert.rejects(apiClientModule.refreshAccessToken(), (error) => error === unauthorizedError)
+  assert.equal(clearCalls, 1)
+})
+
+test('refresh without a stored refresh token reports no restorable session', async () => {
+  let postCalls = 0
+  const { apiClientModule } = loadApiClient({
+    getRefreshToken: async () => null,
+    post: async () => {
+      postCalls += 1
+      return { data: {} }
+    },
+  })
+
+  assert.equal(await apiClientModule.refreshAccessToken(), null)
+  assert.equal(postCalls, 0)
+})
+
+test('mobile auth endpoint failures never recursively trigger token refresh', async () => {
+  let refreshCalls = 0
+  const { responseErrorHandler } = loadApiClient({
+    post: async () => {
+      refreshCalls += 1
+      return { data: {} }
+    },
+  })
+  const loginUnauthorized = {
+    config: { url: '/auth/mobile/login' },
+    response: { status: 401 },
+  }
+
+  await assert.rejects(
+    responseErrorHandler(loginUnauthorized),
+    (error) => error === loginUnauthorized,
+  )
+  assert.equal(refreshCalls, 0)
+})
+
 test('concurrent session hydration shares one identity request and push-token resume', async () => {
   const meResolvers = []
+  let restoreSessionCalls = 0
   let meCalls = 0
   let resumePushTokenCalls = 0
   const session = {
@@ -139,6 +234,10 @@ test('concurrent session hydration shares one identity request and push-token re
     isEmailVerified: true,
   }
   const authStore = loadAuthStore({
+    restoreSession: async () => {
+      restoreSessionCalls += 1
+      return true
+    },
     me: () => {
       meCalls += 1
       return new Promise((resolve) => meResolvers.push(resolve))
@@ -151,6 +250,9 @@ test('concurrent session hydration shares one identity request and push-token re
   const firstHydration = authStore.getState().hydrateAuth()
   const secondHydration = authStore.getState().hydrateAuth()
 
+  await Promise.resolve()
+
+  assert.equal(restoreSessionCalls, 1)
   assert.equal(meCalls, 1)
 
   meResolvers[0](session)
@@ -162,6 +264,8 @@ test('concurrent session hydration shares one identity request and push-token re
   assert.equal(authStore.getState().isLoading, false)
 
   const silentHydration = authStore.getState().hydrateAuth({ silent: true })
+  await Promise.resolve()
+  assert.equal(restoreSessionCalls, 2)
   assert.equal(meCalls, 2)
   assert.equal(authStore.getState().isLoading, false)
 
@@ -201,6 +305,7 @@ test('logout invalidates an in-flight hydration before it can restore auth state
   }
 
   const hydration = authStore.getState().hydrateAuth({ silent: true })
+  await Promise.resolve()
   meResolvers[0](session)
   await pushTokenResumeStarted
 
@@ -215,9 +320,14 @@ test('logout invalidates an in-flight hydration before it can restore auth state
 
 test('a fresh profile hydration wins over an older in-flight response', async () => {
   const meResolvers = []
+  let restoreSessionCalls = 0
   let meCalls = 0
   let resumePushTokenCalls = 0
   const authStore = loadAuthStore({
+    restoreSession: async () => {
+      restoreSessionCalls += 1
+      return true
+    },
     me: () => {
       meCalls += 1
       return new Promise((resolve) => meResolvers.push(resolve))
@@ -240,15 +350,88 @@ test('a fresh profile hydration wins over an older in-flight response', async ()
   const olderHydration = authStore.getState().hydrateAuth({ silent: true })
   const freshHydration = authStore.getState().hydrateAuth({ silent: true, fresh: true })
 
-  assert.equal(meCalls, 2)
+  await Promise.resolve()
+  await Promise.resolve()
 
-  meResolvers[1](freshSession)
+  assert.equal(restoreSessionCalls, 2)
+  assert.equal(meCalls, 1)
+
+  meResolvers[0](freshSession)
   await freshHydration
-  meResolvers[0](staleSession)
   await olderHydration
 
   assert.equal(resumePushTokenCalls, 1)
   assert.equal(authStore.getState().user?.picture, 'latest-image')
+})
+
+test('network failure while restoring a cold-start session remains recoverable', async () => {
+  const networkError = Object.assign(new Error('offline'), {
+    isAxiosError: true,
+    response: undefined,
+  })
+  let meCalls = 0
+  const authStore = loadAuthStore({
+    restoreSession: async () => {
+      throw networkError
+    },
+    me: async () => {
+      meCalls += 1
+      throw new Error('me should not run')
+    },
+    resumePushTokenRegistration: async () => undefined,
+  })
+
+  await authStore.getState().hydrateAuth()
+
+  assert.equal(meCalls, 0)
+  assert.equal(authStore.getState().isAuthenticated, false)
+  assert.equal(authStore.getState().authHydrationError, 'network')
+  assert.equal(authStore.getState().isLoading, false)
+})
+
+test('cold start without a stored refresh token resolves to logged out state', async () => {
+  let meCalls = 0
+  const authStore = loadAuthStore({
+    restoreSession: async () => false,
+    me: async () => {
+      meCalls += 1
+      throw new Error('me should not run')
+    },
+    resumePushTokenRegistration: async () => undefined,
+  })
+
+  await authStore.getState().hydrateAuth()
+
+  assert.equal(meCalls, 0)
+  assert.equal(authStore.getState().user, null)
+  assert.equal(authStore.getState().isAuthenticated, false)
+  assert.equal(authStore.getState().authHydrationError, null)
+  assert.equal(authStore.getState().isLoading, false)
+})
+
+test('unauthorized cold-start restoration resolves to logged out state', async () => {
+  const unauthorizedError = Object.assign(new Error('refresh revoked'), {
+    isAxiosError: true,
+    response: { status: 401 },
+  })
+  let meCalls = 0
+  const authStore = loadAuthStore({
+    restoreSession: async () => {
+      throw unauthorizedError
+    },
+    me: async () => {
+      meCalls += 1
+      throw new Error('me should not run')
+    },
+    resumePushTokenRegistration: async () => undefined,
+  })
+
+  await authStore.getState().hydrateAuth()
+
+  assert.equal(meCalls, 0)
+  assert.equal(authStore.getState().isAuthenticated, false)
+  assert.equal(authStore.getState().authHydrationError, 'unauthorized')
+  assert.equal(authStore.getState().isLoading, false)
 })
 
 test('logout waits for an active refresh and blocks later refresh attempts', async () => {
@@ -272,15 +455,36 @@ test('logout waits for an active refresh and blocks later refresh attempts', asy
   const waitForRefreshBeforeLogout = apiClientModule.beginLogout()
   const requestDuringLogout = unauthorizedRequest()
 
+  await Promise.resolve()
+
   await assert.rejects(
     responseErrorHandler(requestDuringLogout),
     (error) => error === requestDuringLogout,
   )
   assert.equal(refreshCalls, 1)
 
-  resolveRefresh({ data: {} })
+  resolveRefresh({ data: { accessToken: 'new-access', refreshToken: 'new-refresh' } })
   await Promise.all([requestAlreadyRefreshing, waitForRefreshBeforeLogout])
   apiClientModule.endLogout()
+})
+
+test('authenticated requests receive the in-memory bearer token without cookie credentials', () => {
+  const { createConfig, requestHandler } = loadApiClient({
+    post: () => Promise.resolve({ data: {} }),
+    getAccessToken: () => 'memory-access-token',
+  })
+  const headers = new Map()
+  const config = {
+    headers: {
+      set: (name, value) => headers.set(name, value),
+    },
+  }
+
+  const result = requestHandler(config)
+
+  assert.equal(result, config)
+  assert.equal(headers.get('Authorization'), 'Bearer memory-access-token')
+  assert.equal(createConfig.withCredentials, undefined)
 })
 
 test('logout does not preflight /auth/me, which can re-create the access session', () => {

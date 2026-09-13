@@ -12,16 +12,19 @@ test('authenticated session hydration resumes push-token registration before exp
     /import \{ resumePushTokenRegistration \} from '\.\.\/lib\/notifications\/pushTokenOperationState'/,
   )
 
-  const meIndex = source.indexOf('const data = await authApi.me()')
+  const restoreIndex = source.indexOf('const hasSession = await authApi.restoreSession()')
+  const meIndex = source.indexOf('const data = await authApi.me()', restoreIndex)
   const resumeIndex = source.indexOf('await resumePushTokenRegistration()', meIndex)
   const authenticatedSetIndex = source.indexOf(
     'set({ user: data, isAuthenticated: true, isLoading: false, authHydrationError: null })',
     meIndex,
   )
 
+  assert.notEqual(restoreIndex, -1)
   assert.notEqual(meIndex, -1)
   assert.notEqual(resumeIndex, -1)
   assert.notEqual(authenticatedSetIndex, -1)
+  assert.ok(meIndex > restoreIndex)
   assert.ok(resumeIndex > meIndex)
   assert.ok(resumeIndex < authenticatedSetIndex)
 })

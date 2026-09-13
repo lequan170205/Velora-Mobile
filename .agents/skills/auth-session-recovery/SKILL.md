@@ -9,13 +9,18 @@ Use this skill for changes involving login/logout, `/auth/me`, `/auth/refresh`, 
 
 ## Preserve these invariants
 
-- Keep authentication cookie-based through `src/api/client.ts`; do not introduce a parallel token persistence path.
+- Web authentication may remain cookie-based; Velora Mobile must use the backend mobile auth endpoints (`/auth/mobile/login`, `/auth/mobile/google/verify`, `/auth/mobile/refresh`, `/auth/mobile/logout`).
+- Persist only the mobile refresh token in `expo-secure-store`. Keep the access token in memory only; never persist it in SecureStore, AsyncStorage, Zustand, or other client storage.
+- Use device-bound SecureStore accessibility that remains available after first unlock because incoming-call cold-start recovery can hydrate auth while the device is locked.
+- Centralize mobile Bearer injection in `src/api/client.ts` so authenticated requests use the in-memory access token without duplicating token handling across feature code.
 - Concurrent 401 responses must share one refresh request before retrying their original requests.
-- Logout must wait for an already-running refresh and block new refresh attempts while logout is in progress.
+- Refresh rotation must replace the stored refresh token before the refresh is considered successful.
+- Logout must block new refresh attempts, wait for any already-running refresh, then revoke using the latest rotated refresh token before local credentials are cleared.
 - Never preflight logout with `/auth/me`; doing so can recreate an access session.
 - Treat hydration as versioned work. `setUser`, `clearAuth`, and explicit fresh hydration must invalidate older in-flight hydration so stale responses cannot restore an old account or profile.
-- Distinguish unauthorized hydration from network failure. Unauthorized state may clear auth; network failure must remain recoverable and must not force a false logged-out redirect.
+- On cold start, restore the mobile session from the SecureStore refresh token before `/auth/me`. Invalid or unauthorized refresh may clear credentials; network failure must preserve the stored refresh token and remain recoverable.
 - Resume push-token registration before publishing a successfully restored authenticated session.
+- Keep socket/call authentication compatible with the centralized Bearer session; `/auth/socket-token` must not depend on mobile cookies.
 - Redirect only after Expo Router has mounted enough navigation state to accept `router.replace`.
 
 ## Verify changes
