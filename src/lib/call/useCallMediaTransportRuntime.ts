@@ -30,6 +30,7 @@ import type {
   CallSocket,
   NewProducerPayload,
   ProducerCreatedPayload,
+  RemoteVideoState,
   TransportCreatedPayload,
 } from '../../types/call.types'
 import type { Device as MediasoupDevice } from 'mediasoup-client'
@@ -65,6 +66,10 @@ type MediaTransportRuntimeOptions = {
   queuedRemoteProducerMapRef: MutableRef<Map<string, NewProducerPayload>>
   handledRemoteProducerIdsRef: MutableRef<Set<string>>
   remoteVideoEnabledByProducerRef: MutableRef<Map<string, boolean>>
+  remoteVideoRevisionByProducerRef: MutableRef<Map<string, number>>
+  remoteVideoSnapshotReadyRef: MutableRef<boolean>
+  deriveRemoteVideoState: () => RemoteVideoState
+  markRemoteVideoSnapshotReady: (ready: boolean) => void
   consumingProducerIdsRef: MutableRef<Set<string>>
   retryingProducerIdsRef: MutableRef<Set<string>>
   routerRtpCapabilitiesRef: MutableRef<Record<string, unknown> | null>
@@ -113,6 +118,10 @@ export const useCallMediaTransportRuntime = ({
   queuedRemoteProducerMapRef,
   handledRemoteProducerIdsRef,
   remoteVideoEnabledByProducerRef,
+  remoteVideoRevisionByProducerRef,
+  remoteVideoSnapshotReadyRef,
+  deriveRemoteVideoState,
+  markRemoteVideoSnapshotReady,
   consumingProducerIdsRef,
   retryingProducerIdsRef,
   routerRtpCapabilitiesRef,
@@ -339,6 +348,18 @@ export const useCallMediaTransportRuntime = ({
       if (!callId || payload.callId !== callId) return
       assertCallSetupCurrent(setupToken, callId)
 
+      if (payload.kind === 'video' && payload.userId !== currentUserId) {
+        const incomingRevision = payload.revision ?? 0
+        const currentRevision = remoteVideoRevisionByProducerRef.current.get(payload.producerId)
+        if (currentRevision === undefined || incomingRevision >= currentRevision) {
+          remoteVideoRevisionByProducerRef.current.set(payload.producerId, incomingRevision)
+          remoteVideoEnabledByProducerRef.current.set(payload.producerId, payload.paused !== true)
+          if (remoteVideoSnapshotReadyRef.current) {
+            useCallStore.getState().patch({ remoteVideoState: deriveRemoteVideoState() })
+          }
+        }
+      }
+
       if (!socket || !device?.loaded || !recvTransport) {
         if (options?.propagateFailure) throw new Error('Remote consumer runtime is unavailable')
         queuedRemoteProducerMapRef.current.set(payload.producerId, payload)
@@ -414,14 +435,7 @@ export const useCallMediaTransportRuntime = ({
         queuedRemoteProducerMapRef.current.delete(payload.producerId)
 
         if (payload.kind === 'video') {
-          if (payload.paused !== undefined) {
-            remoteVideoEnabledByProducerRef.current.set(payload.producerId, !payload.paused)
-          }
-          const videoEnabled =
-            remoteVideoEnabledByProducerRef.current.get(payload.producerId) ?? !payload.paused
-          useCallStore.getState().patch({
-            remoteVideoState: videoEnabled ? 'connected' : 'off',
-          })
+          useCallStore.getState().patch({ remoteVideoState: deriveRemoteVideoState() })
           pendingConsumer = null
           return
         }
@@ -484,7 +498,7 @@ export const useCallMediaTransportRuntime = ({
             .patch(
               payload.kind === 'audio'
                 ? { remoteAudioState: 'waiting' }
-                : { remoteVideoState: 'waiting' },
+                : { remoteVideoState: deriveRemoteVideoState() },
             )
           if (!retryingProducerIdsRef.current.has(payload.producerId)) {
             retryingProducerIdsRef.current.add(payload.producerId)
@@ -500,7 +514,7 @@ export const useCallMediaTransportRuntime = ({
 
         if (options?.propagateFailure) throw error
         if (payload.kind === 'video') {
-          useCallStore.getState().patch({ remoteVideoState: 'waiting' })
+          useCallStore.getState().patch({ remoteVideoState: deriveRemoteVideoState() })
           return
         }
         await teardownOnce('consume_remote_producer', { errorMessage: 'Unable to set up the call' })
@@ -516,6 +530,7 @@ export const useCallMediaTransportRuntime = ({
       clearReconnectTimeout,
       clearRemoteAudioFallback,
       currentUserId,
+      deriveRemoteVideoState,
       deviceRef,
       getCurrentCallId,
       handledRemoteProducerIdsRef,
@@ -526,6 +541,8 @@ export const useCallMediaTransportRuntime = ({
       recvTransportRef,
       remoteStreamRef,
       remoteVideoEnabledByProducerRef,
+      remoteVideoRevisionByProducerRef,
+      remoteVideoSnapshotReadyRef,
       retryingProducerIdsRef,
       scheduleRtcStatsLog,
       socketRef,
@@ -567,6 +584,9 @@ export const useCallMediaTransportRuntime = ({
         callType === 'VIDEO' && useCallStore.getState().phase === 'connecting'
       const telemetry = telemetrySessionRef.current
       assertCallSetupCurrent(options.setupToken, callId)
+      markRemoteVideoSnapshotReady(false)
+      remoteVideoEnabledByProducerRef.current.clear()
+      remoteVideoRevisionByProducerRef.current.clear()
       const device = await ensureDeviceLoaded(payload)
       telemetry?.record('device_loaded', { outcome: 'succeeded' })
       assertCallSetupCurrent(options.setupToken, callId)
@@ -656,12 +676,14 @@ export const useCallMediaTransportRuntime = ({
             producerId: producer.producerId,
             kind: producer.kind,
             ...(producer.paused !== undefined ? { paused: producer.paused } : {}),
+            ...(producer.revision !== undefined ? { revision: producer.revision } : {}),
           },
           { propagateFailure: producer.kind === 'audio', setupToken: options.setupToken },
         )
       }
       await flushQueuedRemoteProducers({ setupToken: options.setupToken })
       assertCallSetupCurrent(options.setupToken, callId)
+      markRemoteVideoSnapshotReady(callType === 'VIDEO')
       telemetry?.recordLifecycle('audio_ready', { outcome: 'succeeded' })
       callAnsweredRef.current = true
 
@@ -678,12 +700,7 @@ export const useCallMediaTransportRuntime = ({
         remoteAudioState: consumers.some((consumer) => consumer.kind === 'audio')
           ? 'connected'
           : 'waiting',
-        remoteVideoState:
-          callType === 'VIDEO'
-            ? consumers.some((consumer) => consumer.kind === 'video')
-              ? 'connected'
-              : 'waiting'
-            : 'idle',
+        remoteVideoState: callType === 'VIDEO' ? deriveRemoteVideoState() : 'idle',
         remoteStreamUrl: remoteStreamRef.current?.toURL() ?? null,
         reconnectDeadlineMs: null,
       })
@@ -733,12 +750,16 @@ export const useCallMediaTransportRuntime = ({
       consumerMapRef,
       consumeRemoteProducer,
       createTransport,
+      deriveRemoteVideoState,
       ensureDeviceLoaded,
       flushQueuedRemoteProducers,
       isCallSetupCurrent,
       localStreamRef,
+      markRemoteVideoSnapshotReady,
       recvTransportRef,
       remoteStreamRef,
+      remoteVideoEnabledByProducerRef,
+      remoteVideoRevisionByProducerRef,
       scheduleRtcStatsLog,
       sendTransportRef,
       socketRef,

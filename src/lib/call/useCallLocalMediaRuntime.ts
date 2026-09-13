@@ -14,6 +14,7 @@ import type {
   CallSocket,
   CameraFacing,
   LocalVideoSyncState,
+  NewProducerPayload,
   VideoStateUpdatedPayload,
 } from '../../types/call.types'
 import type { Device as MediasoupDevice } from 'mediasoup-client'
@@ -34,6 +35,10 @@ type LocalMediaRuntimeOptions = {
   localVideoStateRef: MutableRef<LocalVideoSyncState>
   consumerMapRef: MutableRef<Map<string, MediasoupTypes.Consumer<Record<string, unknown>>>>
   handledRemoteProducerIdsRef: MutableRef<Set<string>>
+  queuedRemoteProducerMapRef: MutableRef<Map<string, NewProducerPayload>>
+  remoteVideoEnabledByProducerRef: MutableRef<Map<string, boolean>>
+  remoteVideoRevisionByProducerRef: MutableRef<Map<string, number>>
+  remoteVideoSnapshotReadyRef: MutableRef<boolean>
   cameraPausedByBackgroundRef: MutableRef<boolean>
   callSetupGenerationRef: MutableRef<number>
   isCallSetupCurrent: (setupToken: number, callId: string) => boolean
@@ -52,6 +57,10 @@ export const useCallLocalMediaRuntime = ({
   localVideoStateRef,
   consumerMapRef,
   handledRemoteProducerIdsRef,
+  queuedRemoteProducerMapRef,
+  remoteVideoEnabledByProducerRef,
+  remoteVideoRevisionByProducerRef,
+  remoteVideoSnapshotReadyRef,
   cameraPausedByBackgroundRef,
   callSetupGenerationRef,
   isCallSetupCurrent,
@@ -373,13 +382,29 @@ export const useCallLocalMediaRuntime = ({
         }
         consumerMapRef.current.delete(consumerId)
         handledRemoteProducerIdsRef.current.delete(consumer.producerId)
+        remoteVideoEnabledByProducerRef.current.delete(consumer.producerId)
+        remoteVideoRevisionByProducerRef.current.delete(consumer.producerId)
       }
+      remoteVideoEnabledByProducerRef.current.clear()
+      remoteVideoRevisionByProducerRef.current.clear()
+      for (const [producerId, payload] of queuedRemoteProducerMapRef.current) {
+        if (payload.kind === 'video') queuedRemoteProducerMapRef.current.delete(producerId)
+      }
+      remoteVideoSnapshotReadyRef.current = false
       useCallStore.getState().patch({
         remoteVideoState: state,
         remoteStreamUrl: remoteStream?.toURL() ?? null,
       })
     },
-    [consumerMapRef, handledRemoteProducerIdsRef, remoteStreamRef],
+    [
+      consumerMapRef,
+      handledRemoteProducerIdsRef,
+      queuedRemoteProducerMapRef,
+      remoteStreamRef,
+      remoteVideoEnabledByProducerRef,
+      remoteVideoRevisionByProducerRef,
+      remoteVideoSnapshotReadyRef,
+    ],
   )
 
   const toggleMute = useCallback(() => {
@@ -393,7 +418,8 @@ export const useCallLocalMediaRuntime = ({
   const toggleCamera = useCallback(async () => {
     const state = useCallStore.getState()
     if (state.phase !== 'active' || state.callType !== 'VIDEO') return
-    if (!state.cameraEnabled) {
+    const cameraIsDesiredOn = state.cameraEnabled || localVideoStateRef.current.desiredEnabled
+    if (!cameraIsDesiredOn) {
       try {
         await activateLocalVideo()
       } catch {
@@ -408,12 +434,30 @@ export const useCallLocalMediaRuntime = ({
       }
       return
     }
+
+    // A second tap while camera activation is still awaiting permission or a
+    // producer ACK must cancel that in-flight activation instead of starting a
+    // second capture attempt. Once a producer exists, keep it stable and only
+    // publish the versioned enabled=false state below.
+    if (!videoProducerRef.current) {
+      deactivateLocalVideo()
+      return
+    }
+
     const track = localStreamRef.current?.getVideoTracks()[0]
     if (track) track.enabled = false
     localVideoStateRef.current.desiredEnabled = false
     void emitLocalVideoState(false)
     useCallStore.getState().patch({ cameraEnabled: false })
-  }, [activateLocalVideo, emitLocalVideoState, localStreamRef, localVideoStateRef, presentError])
+  }, [
+    activateLocalVideo,
+    deactivateLocalVideo,
+    emitLocalVideoState,
+    localStreamRef,
+    localVideoStateRef,
+    presentError,
+    videoProducerRef,
+  ])
 
   const switchCamera = useCallback(async () => {
     const state = useCallStore.getState()

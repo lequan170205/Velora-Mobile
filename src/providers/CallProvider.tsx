@@ -84,6 +84,7 @@ import type {
   NewProducerPayload,
   PeerLeftPayload,
   ProducerClosedPayload,
+  RemoteVideoState,
   StartCallInput,
   UseCallValue,
   VideoStateChangedPayload,
@@ -182,6 +183,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const queuedRemoteProducerMapRef = useRef<Map<string, NewProducerPayload>>(new Map())
   const handledRemoteProducerIdsRef = useRef<Set<string>>(new Set())
   const remoteVideoEnabledByProducerRef = useRef<Map<string, boolean>>(new Map())
+  const remoteVideoRevisionByProducerRef = useRef<Map<string, number>>(new Map())
+  const remoteVideoSnapshotReadyRef = useRef(false)
   const localVideoStateRef = useRef<LocalVideoSyncState>({
     desiredEnabled: false,
     confirmedEnabled: false,
@@ -399,6 +402,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       queuedRemoteProducerMapRef.current.clear()
       handledRemoteProducerIdsRef.current.clear()
       remoteVideoEnabledByProducerRef.current.clear()
+      remoteVideoRevisionByProducerRef.current.clear()
+      remoteVideoSnapshotReadyRef.current = false
       if (!options?.preserveActiveCall) {
         localVideoStateRef.current = {
           desiredEnabled: false,
@@ -542,12 +547,48 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     consumingProducerIdsRef.current.clear()
     retryingProducerIdsRef.current.clear()
     queuedRemoteProducerMapRef.current.clear()
+    remoteVideoEnabledByProducerRef.current.clear()
+    remoteVideoRevisionByProducerRef.current.clear()
+    remoteVideoSnapshotReadyRef.current = false
     remoteStreamRef.current = null
     useCallStore.getState().patch({
       remoteStreamUrl: null,
       remoteVideoState: useCallStore.getState().callType === 'VIDEO' ? 'waiting' : 'idle',
     })
   }, [])
+
+  const deriveRemoteVideoState = useCallback((): RemoteVideoState => {
+    const state = useCallStore.getState()
+    if (state.callType !== 'VIDEO') return 'idle'
+    if (!remoteVideoSnapshotReadyRef.current) return 'waiting'
+
+    const videoEntries = [...remoteVideoEnabledByProducerRef.current.entries()]
+    if (videoEntries.length === 0) return 'off'
+
+    let hasEnabledProducer = false
+    let hasLiveConsumer = false
+    for (const [producerId, enabled] of videoEntries) {
+      if (!enabled) continue
+      hasEnabledProducer = true
+      const consumer = [...consumerMapRef.current.values()].find(
+        (candidate) => candidate.kind === 'video' && candidate.producerId === producerId,
+      )
+      if (consumer && !consumer.closed) hasLiveConsumer = true
+    }
+
+    if (hasLiveConsumer) return 'connected'
+    return hasEnabledProducer ? 'waiting' : 'off'
+  }, [])
+
+  const markRemoteVideoSnapshotReady = useCallback(
+    (ready: boolean) => {
+      remoteVideoSnapshotReadyRef.current = ready
+      if (useCallStore.getState().callType === 'VIDEO') {
+        useCallStore.getState().patch({ remoteVideoState: deriveRemoteVideoState() })
+      }
+    },
+    [deriveRemoteVideoState],
+  )
 
   const teardownOnce = useCallback(
     async (
@@ -703,6 +744,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     localVideoStateRef,
     consumerMapRef,
     handledRemoteProducerIdsRef,
+    queuedRemoteProducerMapRef,
+    remoteVideoEnabledByProducerRef,
+    remoteVideoRevisionByProducerRef,
+    remoteVideoSnapshotReadyRef,
     cameraPausedByBackgroundRef,
     callSetupGenerationRef,
     isCallSetupCurrent,
@@ -763,6 +808,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     queuedRemoteProducerMapRef,
     handledRemoteProducerIdsRef,
     remoteVideoEnabledByProducerRef,
+    remoteVideoRevisionByProducerRef,
+    remoteVideoSnapshotReadyRef,
+    deriveRemoteVideoState,
+    markRemoteVideoSnapshotReady,
     consumingProducerIdsRef,
     retryingProducerIdsRef,
     routerRtpCapabilitiesRef,
@@ -801,6 +850,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     recvTransportRef,
     videoProducerRef,
     localVideoStateRef,
+    remoteVideoEnabledByProducerRef,
+    remoteVideoRevisionByProducerRef,
+    remoteVideoSnapshotReadyRef,
+    markRemoteVideoSnapshotReady,
     connectedTransportIdsRef,
     activeCallIdRef,
     callAnsweredRef,
@@ -2257,11 +2310,18 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const handleProducerClosed = (payload: ProducerClosedPayload) => {
       if (!isCurrentCall(payload.callId)) return
       const remoteStream = remoteStreamRef.current
+      handledRemoteProducerIdsRef.current.delete(payload.producerId)
+      queuedRemoteProducerMapRef.current.delete(payload.producerId)
+      remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
+      remoteVideoRevisionByProducerRef.current.delete(payload.producerId)
       const entry = [...consumerMapRef.current.entries()].find(
         ([, consumer]) => consumer.producerId === payload.producerId,
       )
       if (!entry) {
-        if (payload.kind === 'video') useCallStore.getState().patch({ remoteVideoState: 'off' })
+        useCallStore.getState().patch({
+          remoteStreamUrl: remoteStream?.toURL() ?? null,
+          ...(payload.kind === 'video' ? { remoteVideoState: deriveRemoteVideoState() } : {}),
+        })
         return
       }
       const [consumerId, consumer] = entry
@@ -2276,11 +2336,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         // Best-effort media cleanup; the native resource may already be closed.
       }
       consumerMapRef.current.delete(consumerId)
-      handledRemoteProducerIdsRef.current.delete(payload.producerId)
-      remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
       useCallStore.getState().patch({
         remoteStreamUrl: remoteStream?.toURL() ?? null,
-        ...(payload.kind === 'video' ? { remoteVideoState: 'off' as const } : {}),
+        ...(payload.kind === 'video' ? { remoteVideoState: deriveRemoteVideoState() } : {}),
       })
     }
 
@@ -2291,6 +2349,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         callType: payload.callType,
         remoteVideoState: payload.callType === 'VIDEO' ? 'waiting' : 'idle',
       })
+      remoteVideoEnabledByProducerRef.current.clear()
+      remoteVideoRevisionByProducerRef.current.clear()
+      for (const [producerId, producer] of queuedRemoteProducerMapRef.current) {
+        if (producer.kind === 'video') queuedRemoteProducerMapRef.current.delete(producerId)
+      }
+      markRemoteVideoSnapshotReady(false)
       if (payload.callType === 'VOICE') {
         deactivateLocalVideo()
         clearRemoteVideoRuntime('idle')
@@ -2300,7 +2364,23 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const handleVideoStateChanged = (payload: VideoStateChangedPayload) => {
       if (!isCurrentCall(payload.callId) || payload.userId === currentUserId) return
 
+      const currentRevision = remoteVideoRevisionByProducerRef.current.get(payload.producerId)
+      if (payload.revision === undefined && currentRevision !== undefined && currentRevision > 0) {
+        return
+      }
+      if (
+        payload.revision !== undefined &&
+        currentRevision !== undefined &&
+        payload.revision < currentRevision
+      ) {
+        return
+      }
       remoteVideoEnabledByProducerRef.current.set(payload.producerId, payload.enabled)
+      if (payload.revision !== undefined) {
+        remoteVideoRevisionByProducerRef.current.set(payload.producerId, payload.revision)
+      } else if (currentRevision === undefined) {
+        remoteVideoRevisionByProducerRef.current.set(payload.producerId, 0)
+      }
       const videoConsumer = [...consumerMapRef.current.values()].find(
         (consumer) => consumer.producerId === payload.producerId && consumer.kind === 'video',
       )
@@ -2311,7 +2391,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
 
       useCallStore.getState().patch({
-        remoteVideoState: payload.enabled ? (videoConsumer ? 'connected' : 'waiting') : 'off',
+        remoteVideoState: deriveRemoteVideoState(),
       })
     }
 
@@ -2418,6 +2498,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     currentUserId,
     activateLocalVideo,
     clearRemoteVideoRuntime,
+    deriveRemoteVideoState,
     deactivateLocalVideo,
     beginReconnectRecovery,
     clearSocketDisconnectGraceTimeout,
@@ -2430,8 +2511,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     isAuthenticated,
     isCurrentCall,
     isLoading,
+    handledRemoteProducerIdsRef,
+    markRemoteVideoSnapshotReady,
     presentError,
+    queuedRemoteProducerMapRef,
     recoverActiveCall,
+    remoteVideoEnabledByProducerRef,
+    remoteVideoRevisionByProducerRef,
     restorePreActiveCallMembership,
     teardownOnce,
     clearPeerLeftFallback,

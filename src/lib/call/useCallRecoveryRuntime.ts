@@ -40,6 +40,10 @@ type RecoveryRuntimeOptions = {
   recvTransportRef: MutableRef<MediasoupTypes.Transport<Record<string, unknown>> | null>
   videoProducerRef: MutableRef<MediasoupTypes.Producer<Record<string, unknown>> | null>
   localVideoStateRef: MutableRef<LocalVideoSyncState>
+  remoteVideoEnabledByProducerRef: MutableRef<Map<string, boolean>>
+  remoteVideoRevisionByProducerRef: MutableRef<Map<string, number>>
+  remoteVideoSnapshotReadyRef: MutableRef<boolean>
+  markRemoteVideoSnapshotReady: (ready: boolean) => void
   connectedTransportIdsRef: MutableRef<Set<string>>
   activeCallIdRef: MutableRef<string | null>
   callAnsweredRef: MutableRef<boolean>
@@ -86,6 +90,10 @@ export const useCallRecoveryRuntime = ({
   recvTransportRef,
   videoProducerRef,
   localVideoStateRef,
+  remoteVideoEnabledByProducerRef,
+  remoteVideoRevisionByProducerRef,
+  remoteVideoSnapshotReadyRef,
+  markRemoteVideoSnapshotReady,
   connectedTransportIdsRef,
   activeCallIdRef,
   callAnsweredRef,
@@ -180,6 +188,10 @@ export const useCallRecoveryRuntime = ({
       reconnectModeRef.current = 'local'
     }
     const restartSetupToken = beginCallSetup()
+    remoteVideoSnapshotReadyRef.current = false
+    markRemoteVideoSnapshotReady(false)
+    remoteVideoEnabledByProducerRef.current.clear()
+    remoteVideoRevisionByProducerRef.current.clear()
     try {
       const rejoined = await emitAndWaitForEvent<'rejoin_call', 'call_rejoined'>(
         socket,
@@ -220,6 +232,7 @@ export const useCallRecoveryRuntime = ({
               producerId: producer.producerId,
               kind: producer.kind,
               ...(producer.paused !== undefined ? { paused: producer.paused } : {}),
+              ...(producer.revision !== undefined ? { revision: producer.revision } : {}),
             },
             {
               propagateFailure: producer.kind === 'audio',
@@ -228,6 +241,7 @@ export const useCallRecoveryRuntime = ({
           )
           assertCallSetupCurrent(restartSetupToken, rejoined.callId)
         }
+        markRemoteVideoSnapshotReady(recoveredCallType === 'VIDEO')
         if (!controlPlaneRecovery) {
           useCallStore.getState().patch({ phase: 'active' })
         }
@@ -337,6 +351,10 @@ export const useCallRecoveryRuntime = ({
     disposeMediaRuntime,
     invalidateCallSetup,
     localVideoStateRef,
+    markRemoteVideoSnapshotReady,
+    remoteVideoEnabledByProducerRef,
+    remoteVideoRevisionByProducerRef,
+    remoteVideoSnapshotReadyRef,
     postAnswerSetup,
     reconnectModeRef,
     reconnectRecoveryInFlightRef,
