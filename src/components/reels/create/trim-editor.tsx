@@ -628,6 +628,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   timelineTrack: {
+    alignSelf: 'stretch',
     backgroundColor: '#F7F2EC',
     borderColor: '#E9DED5',
     borderRadius: 14,
@@ -637,6 +638,5 @@ const styles = StyleSheet.create({
     marginTop: 12,
     overflow: 'visible',
     position: 'relative',
-    width: '100%',
   },
 })

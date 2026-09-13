@@ -72,6 +72,8 @@ test('trim editor uses bounded shared-value gestures and preserves crop state', 
   assert.match(trimEditor, /accessibilityLabel="Cancel trim changes"/)
   assert.match(trimEditor, /accessibilityLabel="Done with trim changes"/)
   assert.match(trimEditor, /TIMELINE_HORIZONTAL_MARGIN = 24/)
+  assert.match(trimEditor, /timelineTrack:[\s\S]*alignSelf: 'stretch'/)
+  assert.doesNotMatch(trimEditor, /timelineTrack:[\s\S]*width: '100%'/)
   assert.match(trimGeometry, /export const sanitizeTrim/)
   assert.match(trimGeometry, /export const getTrimPlaybackSeekTarget/)
   assert.match(trimmedReelVideo, /videoRef\.current\?\.seekTo\(loopTarget\)/)
