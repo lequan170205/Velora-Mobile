@@ -1,5 +1,4 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs'
 import { format } from 'date-fns'
 import { Image } from 'expo-image'
 import * as ImagePicker from 'expo-image-picker'
@@ -17,8 +16,9 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { getDockedTabBarHeight } from '../../src/components/navigation/CustomTabBar'
 import {
   ReelThumbnailGridSkeleton,
   ReelThumbnailTile,
@@ -136,7 +136,8 @@ function ReelsLoadingGrid({ tileSize }: { tileSize: number }) {
 export default function ProfileScreen() {
   const router = useRouter()
   const { width: windowWidth } = useWindowDimensions()
-  const tabBarHeight = useBottomTabBarHeight()
+  const insets = useSafeAreaInsets()
+  const tabBarHeight = getDockedTabBarHeight(insets.bottom)
   const tileSize = useMemo(() => Math.floor((windowWidth - 4) / 3), [windowWidth])
 
   const { user } = useAuthStore()

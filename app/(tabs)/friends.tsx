@@ -15,6 +15,7 @@ import {
 } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { getDockedTabBarHeight } from '../../src/components/navigation/CustomTabBar'
 import {
   useAcceptFriendRequest,
   useCancelFriendRequest,
@@ -331,7 +332,10 @@ export default function FriendsScreen() {
           data={items}
           keyExtractor={(item) => item.value.id}
           renderItem={renderItem}
-          contentContainerStyle={{ flexGrow: 1, paddingBottom: Math.max(insets.bottom, 20) + 20 }}
+          contentContainerStyle={{
+            flexGrow: 1,
+            paddingBottom: getDockedTabBarHeight(insets.bottom) + 20,
+          }}
           refreshControl={
             <RefreshControl
               refreshing={activeQuery.isRefetching}

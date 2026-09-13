@@ -1,6 +1,6 @@
 import { Ionicons, MaterialIcons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'
-import { ActivityIndicator, Image, Text, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, View } from 'react-native'
 import Animated, {
   ReduceMotion,
   useAnimatedStyle,
@@ -10,7 +10,8 @@ import Animated, {
 } from 'react-native-reanimated'
 
 import { colors } from '../../../constants/theme'
-import { AppPressable } from '../../base/AppPressable'
+import { AppPressable, AppText } from '../../base'
+import { ChatAvatar } from '../ChatAvatar'
 
 type CallActionButtonProps = {
   accessibilityLabel: string
@@ -32,7 +33,7 @@ function CallActionButton({
 
   return (
     <AppPressable
-      className="h-12 w-12 items-center justify-center"
+      className="h-11 w-11 items-center justify-center"
       activeOpacity={1}
       disabled={disabled}
       hitSlop={0}
@@ -56,10 +57,10 @@ function CallActionButton({
       accessibilityState={{ disabled, busy }}
     >
       <Animated.View
-        className="h-11 w-11 items-center justify-center rounded-full"
+        className="h-10 w-10 items-center justify-center rounded-full"
         style={[
           {
-            backgroundColor: busy ? colors.bubble.outgoing : colors.surface.accent,
+            backgroundColor: busy ? colors.bubble.outgoing : colors.surface.input,
           },
           animatedStyle,
         ]}
@@ -67,7 +68,7 @@ function CallActionButton({
         {busy ? (
           <ActivityIndicator color={colors.text.inverse} size="small" />
         ) : (
-          <Ionicons name={icon} size={22} color={colors.brand.tertiary} />
+          <Ionicons name={icon} size={21} color={colors.text.primary} />
         )}
       </Animated.View>
     </AppPressable>
@@ -111,60 +112,59 @@ export const ConversationHeader = ({
   onStartVideoCall,
   onStartVoiceCall,
 }: ConversationHeaderProps) => {
-  return (
-    <View className="border-b border-border-light bg-bg-primary px-4 pb-3 pt-2 z-10">
-      <View className="flex-row items-center">
-        <TouchableOpacity
-          onPress={onBack}
-          className="h-11 w-11 items-center justify-center"
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <MaterialIcons name="chevron-left" size={24} color="#161616" />
-        </TouchableOpacity>
+  const subtitleColor = groupTypingLabel
+    ? colors.brand.tertiary
+    : !isGroup && isOnline
+      ? colors.status.online
+      : colors.text.tertiary
 
-        <TouchableOpacity
-          className="ml-1.5 flex-1 flex-row items-center"
+  return (
+    <View className="z-10 border-b border-border-light bg-bg-primary px-2 pb-2.5 pt-1">
+      <View className="flex-row items-center">
+        <AppPressable
+          className="h-11 w-11 items-center justify-center rounded-full"
+          onPress={onBack}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <MaterialIcons name="chevron-left" size={26} color={colors.text.primary} />
+        </AppPressable>
+
+        <AppPressable
+          className="ml-1 flex-1 flex-row items-center"
           disabled={!isGroup}
           onPress={onOpenGroupInfo}
           activeOpacity={isGroup ? 0.72 : 1}
           accessibilityRole={isGroup ? 'button' : undefined}
           accessibilityLabel={isGroup ? 'Open group info' : undefined}
         >
-          <View className="relative">
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} className="h-11 w-11 rounded-full" />
-            ) : (
-              <View className="h-11 w-11 items-center justify-center rounded-full bg-surface-input">
-                <Text className="text-sm2 font-medium text-text-primary">
-                  {displayName.charAt(0).toUpperCase()}
-                </Text>
-              </View>
-            )}
+          <ChatAvatar
+            name={displayName}
+            picture={avatarUrl}
+            size={44}
+            isOnline={!isGroup && isOnline}
+          />
 
-            {!isGroup && isOnline ? (
-              <View className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-bg-primary bg-status-online" />
-            ) : null}
-          </View>
-
-          <View className="ml-3 flex-1 pr-4">
-            <Text className="font-semibold text-md text-text-primary" numberOfLines={1}>
+          <View className="ml-2.5 min-w-0 flex-1 pr-3">
+            <AppText className="text-md font-semibold text-text-primary" numberOfLines={1}>
               {displayName}
-            </Text>
-            {!isGroup ? (
-              <Text className="mt-0.5 text-xs2 text-text-muted" numberOfLines={1}>
-                {presenceLabel}
-              </Text>
-            ) : (
-              <Text className="mt-0.5 text-xs2 text-text-muted" numberOfLines={1}>
-                {groupTypingLabel ??
-                  `${participantCount} member${participantCount === 1 ? '' : 's'}`}
-              </Text>
-            )}
+            </AppText>
+            <AppText
+              className={groupTypingLabel ? 'text-xs2 font-medium' : 'text-xs2'}
+              style={{ color: subtitleColor }}
+              numberOfLines={1}
+            >
+              {!isGroup
+                ? presenceLabel
+                : (groupTypingLabel ??
+                  `${participantCount} member${participantCount === 1 ? '' : 's'}`)}
+            </AppText>
           </View>
-        </TouchableOpacity>
+        </AppPressable>
 
         {showCallActions ? (
-          <View className="flex-row items-center gap-2">
+          <View className="flex-row items-center gap-1">
             <CallActionButton
               onPress={onStartVideoCall}
               disabled={callActionsDisabled}
@@ -192,13 +192,13 @@ export const ConversationHeader = ({
       </View>
 
       {!isConnected ? (
-        <View className="mt-3 rounded-[20px] border border-border-light bg-surface-accent px-4 py-3">
-          <Text className="text-xs2 uppercase tracking-[1.1px] text-brand">Connection status</Text>
-          <Text className="mt-1 text-sm2 leading-5 text-text-primary">
+        <View className="mt-2.5 flex-row items-center gap-2.5 rounded-[14px] border border-brand-soft bg-surface-accent px-3.5 py-2.5">
+          <Ionicons name="cloud-offline" size={17} color={colors.brand.tertiary} />
+          <AppText className="flex-1 text-sm2 leading-[18px] text-text-primary">
             {queuedMessageCount > 0
-              ? `${queuedMessageCount} message${queuedMessageCount > 1 ? 's are' : ' is'} waiting to send when chat reconnects.`
-              : 'Chat is reconnecting. New messages will wait and send automatically.'}
-          </Text>
+              ? `Reconnecting — ${queuedMessageCount} message${queuedMessageCount > 1 ? 's are' : ' is'} waiting to send.`
+              : 'Reconnecting — new messages will send automatically.'}
+          </AppText>
         </View>
       ) : null}
     </View>

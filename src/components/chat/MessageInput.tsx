@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons'
-import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
 import * as ImagePicker from 'expo-image-picker'
 import React, { memo, useCallback, useImperativeHandle, useRef, useState } from 'react'
@@ -21,6 +20,7 @@ import Animated, {
   FadeInDown,
   FadeOut,
   interpolate,
+  interpolateColor,
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
@@ -65,14 +65,15 @@ interface ComposerIconButtonProps {
   accessibilityLabel: string
   icon: React.ComponentProps<typeof Ionicons>['name']
   onPress: () => void
-  accent?: boolean
   disabled?: boolean
 }
 
 const BRAND = '#FF6B2C'
 const BRAND_DARK = '#D85A21'
 const TEXT_PRIMARY = '#161616'
+const TEXT_SECONDARY = '#777777'
 const TEXT_MUTED = '#A6A6A6'
+const SURFACE_INPUT = '#F5F5F5'
 const ACCESSORY_SLOT_WIDTH = 164
 const VIDEO_FILE_URI_PATTERN = /\.(mp4|m4v|mov|webm)(?:[?#].*)?$/i
 
@@ -145,7 +146,6 @@ const ComposerIconButton = memo(function ComposerIconButton({
   accessibilityLabel,
   icon,
   onPress,
-  accent = false,
   disabled = false,
 }: ComposerIconButtonProps) {
   const scale = useSharedValue(1)
@@ -175,17 +175,16 @@ const ComposerIconButton = memo(function ComposerIconButton({
       <Animated.View
         style={[
           {
-            width: accent ? 40 : 38,
-            height: accent ? 40 : 38,
-            borderRadius: accent ? 20 : 21,
+            width: 38,
+            height: 38,
+            borderRadius: 19,
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: accent ? BRAND : 'transparent',
           },
           animatedStyle,
         ]}
       >
-        <Ionicons name={icon} size={accent ? 22 : 28} color={accent ? '#FFFFFF' : '#777777'} />
+        <Ionicons name={icon} size={23} color={TEXT_SECONDARY} />
       </Animated.View>
     </Pressable>
   )
@@ -451,7 +450,7 @@ const MessageInputComponent = function MessageInput(
   }, [onSendMedia, waitForKeyboardToHide])
 
   const showCharCounter = text.length > 800
-  const counterColor = text.length > 950 ? '#E11D48' : TEXT_MUTED
+  const counterColor = text.length > 950 ? '#FF3B30' : TEXT_MUTED
   const currentUserId = useAuthStore((state) => state.user?.id ?? null)
   const replyPreviewData =
     replyTo?.replyPreview && typeof replyTo.replyPreview !== 'string'
@@ -499,43 +498,23 @@ const MessageInputComponent = function MessageInput(
   )
 
   const containerStyle = useAnimatedStyle(() => ({
-    marginTop: -14,
-    paddingTop: 14,
     paddingHorizontal: 10,
+    paddingTop: 8,
     paddingBottom: dynamicPadding.value,
   }))
 
-  const bgCoverStyle = useAnimatedStyle(() => ({ height: dynamicPadding.value }))
-
-  const cornerCoverStyle = useAnimatedStyle(() => ({ bottom: dynamicPadding.value }))
-  // const inputPillStyle = useAnimatedStyle(() => ({
-  //   borderColor: interpolateColor(
-  //     inputFocusProgress.value,
-  //     [0, 1],
-  //     [BORDER_LIGHT, 'rgba(255,107,44,0.30)'],
-  //   ),
-  //   shadowOpacity: interpolate(inputFocusProgress.value, [0, 1], [0.03, 0.08]),
-  //   shadowRadius: interpolate(inputFocusProgress.value, [0, 1], [5, 9]),
-  // }))
+  // Focus ring on the pill, driven on the UI thread by the same progress the
+  // input already tracks — no extra JS state.
+  const inputPillStyle = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(
+      inputFocusProgress.value,
+      [0, 1],
+      ['rgba(0,0,0,0)', 'rgba(255,107,44,0.35)'],
+    ),
+  }))
 
   return (
-    <Animated.View style={containerStyle}>
-      <Animated.View
-        pointerEvents="none"
-        className="absolute left-0 right-0 bg-bg-primary"
-        style={[{ bottom: 0 }, bgCoverStyle]}
-      />
-      <Animated.View
-        pointerEvents="none"
-        className="absolute bg-bg-primary"
-        style={[{ left: 10, width: 24, height: 24 }, cornerCoverStyle]}
-      />
-      <Animated.View
-        pointerEvents="none"
-        className="absolute bg-bg-primary"
-        style={[{ right: 10, width: 24, height: 24 }, cornerCoverStyle]}
-      />
-
+    <Animated.View className="bg-bg-primary" style={containerStyle}>
       {replyTo ? (
         <Animated.View
           entering={FadeInDown.duration(170).withInitialValues({
@@ -559,7 +538,7 @@ const MessageInputComponent = function MessageInput(
                 height: isReplyReel ? 52 : 36,
                 borderRadius: isReplyReel ? 12 : 10,
                 overflow: 'hidden',
-                backgroundColor: isReplyVideo ? '#111111' : '#EFEFEF',
+                backgroundColor: isReplyVideo ? '#111111' : SURFACE_INPUT,
                 marginRight: 10,
               }}
             >
@@ -631,7 +610,7 @@ const MessageInputComponent = function MessageInput(
             >
               {replySenderLabel}
             </Text>
-            <Text style={{ fontSize: 13, color: '#777777', lineHeight: 17 }} numberOfLines={1}>
+            <Text style={{ fontSize: 13, color: TEXT_SECONDARY, lineHeight: 17 }} numberOfLines={1}>
               {replyPreviewText}
             </Text>
           </View>
@@ -647,100 +626,88 @@ const MessageInputComponent = function MessageInput(
               borderRadius: 14,
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: pressed ? '#DDDAD6' : '#E8E4E0',
+              backgroundColor: pressed ? '#E0E0E0' : '#ECECEC',
               marginLeft: 8,
             })}
           >
-            <Ionicons name="close" size={20} color="#888888" />
+            <Ionicons name="close" size={20} color={TEXT_SECONDARY} />
           </Pressable>
         </Animated.View>
       ) : null}
 
-      <BlurView
-        intensity={42}
-        tint="systemThinMaterialLight"
-        experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : 'none'}
-        blurReductionFactor={3}
-        style={{
-          borderRadius: 24,
-          overflow: 'hidden',
-          backgroundColor: 'rgba(245,245,245,0.58)',
-        }}
-      >
-        <Animated.View
-          style={{
+      <Animated.View
+        style={[
+          styles.composerPill,
+          inputPillStyle,
+          {
             minHeight: 48,
             maxHeight: 116,
-            borderRadius: 24,
             flexDirection: 'row',
             alignItems: 'flex-end',
-            paddingLeft: 4,
-            paddingRight: 4,
+            paddingHorizontal: 4,
             paddingVertical: 4,
-            overflow: 'hidden', // clips children to border radius — no white corners
+          },
+        ]}
+      >
+        <ComposerIconButton
+          accessibilityLabel="Open camera"
+          icon="camera"
+          onPress={() => {
+            void handleOpenCamera()
           }}
-        >
-          <ComposerIconButton
-            accessibilityLabel="Open camera"
-            icon="camera"
-            accent
-            onPress={() => {
-              void handleOpenCamera()
+        />
+
+        <View style={{ flex: 1, minHeight: 40, justifyContent: 'center' }}>
+          <TextInput
+            ref={inputRef}
+            value={text}
+            onChangeText={handleTextChange}
+            placeholder="Message"
+            placeholderTextColor={TEXT_MUTED}
+            multiline
+            scrollEnabled
+            maxLength={1000}
+            onBlur={() => {
+              inputFocusProgress.value = withTiming(0, { duration: 170 })
+              onFocusChange?.(false)
             }}
+            onFocus={() => {
+              inputFocusProgress.value = withTiming(1, { duration: 150 })
+              onFocusChange?.(true)
+            }}
+            style={[
+              styles.textInput,
+              // paddingBottom only changes when counter appears (>800 chars), not every keystroke
+              showCharCounter && styles.textInputWithCounter,
+            ]}
           />
 
-          <View style={{ flex: 1, minHeight: 40, justifyContent: 'center' }}>
-            <TextInput
-              ref={inputRef}
-              value={text}
-              onChangeText={handleTextChange}
-              placeholder="Message..."
-              placeholderTextColor={TEXT_MUTED}
-              multiline
-              scrollEnabled
-              maxLength={1000}
-              onBlur={() => {
-                inputFocusProgress.value = withTiming(0, { duration: 170 })
-                onFocusChange?.(false)
+          {showCharCounter ? (
+            <Text
+              style={{
+                position: 'absolute',
+                left: 10,
+                bottom: 1,
+                fontSize: 10,
+                fontWeight: '500',
+                color: counterColor,
               }}
-              onFocus={() => {
-                inputFocusProgress.value = withTiming(1, { duration: 150 })
-                onFocusChange?.(true)
-              }}
-              style={[
-                styles.textInput,
-                // paddingBottom only changes when counter appears (>800 chars), not every keystroke
-                showCharCounter && styles.textInputWithCounter,
-              ]}
-            />
+            >
+              {text.length} / 1000
+            </Text>
+          ) : null}
+        </View>
 
-            {showCharCounter ? (
-              <Text
-                style={{
-                  position: 'absolute',
-                  left: 10,
-                  bottom: 1,
-                  fontSize: 10,
-                  fontWeight: '500',
-                  color: counterColor,
-                }}
-              >
-                {text.length} / 1000
-              </Text>
-            ) : null}
-          </View>
-
-          <ComposerAccessorySlot
-            hasText={hasText}
-            hasTextProgress={hasTextProgress}
-            onAttach={() => {
-              void handleOpenAttachmentLauncher()
-            }}
-            onMic={handleMicPress}
-            onSend={handleSend}
-          />
-        </Animated.View>
-      </BlurView>
+        <ComposerAccessorySlot
+          hasText={hasText}
+          hasTextProgress={hasTextProgress}
+          onAttach={() => {
+            void handleOpenAttachmentLauncher()
+          }}
+          onMic={handleMicPress}
+          onSend={handleSend}
+        />
+      </Animated.View>
 
       <AttachmentLauncherSheet
         ref={attachmentSheetRef}
@@ -756,6 +723,11 @@ export const MessageInput = memo(React.forwardRef(MessageInputComponent))
 
 // Static styles extracted from render to avoid new object allocations per frame.
 const styles = StyleSheet.create({
+  composerPill: {
+    backgroundColor: SURFACE_INPUT,
+    borderRadius: 24,
+    borderWidth: 1,
+  },
   textInput: {
     color: TEXT_PRIMARY,
     fontSize: 16,

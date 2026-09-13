@@ -1,7 +1,7 @@
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useCallback, useMemo } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import {
@@ -158,23 +158,11 @@ export default function ReelContextScreen() {
         tabBarHeight={tabBarHeight}
       />
 
-      <View pointerEvents="box-none" style={styles.tabBarOverlay}>
-        <CustomTabBarSurface
-          activeIndex={isConversationReturn ? MESSAGES_TAB_INDEX : PROFILE_TAB_INDEX}
-          forceDarkTheme
-          forceDockedLayout
-          onTabSelect={handleTabSelect}
-        />
-      </View>
+      <CustomTabBarSurface
+        activeIndex={isConversationReturn ? MESSAGES_TAB_INDEX : PROFILE_TAB_INDEX}
+        forceDarkTheme
+        onTabSelect={handleTabSelect}
+      />
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  tabBarOverlay: {
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-    right: 0,
-  },
-})

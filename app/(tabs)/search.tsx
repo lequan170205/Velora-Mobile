@@ -11,9 +11,10 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { AppSearchBar } from '../../src/components/common/AppSearchBar'
+import { getDockedTabBarHeight } from '../../src/components/navigation/CustomTabBar'
 import { ReelThumbnailGrid } from '../../src/components/reels/ReelThumbnailGrid'
 import { colors } from '../../src/constants/theme'
 import { useBotChat } from '../../src/hooks/useBotChat'
@@ -617,6 +618,7 @@ function SearchResultsPanel({
 
 export default function SearchScreen() {
   const router = useRouter()
+  const insets = useSafeAreaInsets()
   const inputRef = useRef<TextInput | null>(null)
   const { width: windowWidth } = useWindowDimensions()
   const [query, setQuery] = useState('')
@@ -733,7 +735,7 @@ export default function SearchScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: getDockedTabBarHeight(insets.bottom) + 16 }}
       >
         <View className="px-4 pb-1 pt-2">
           <AppSearchBar

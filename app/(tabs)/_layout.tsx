@@ -10,7 +10,9 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarHideOnKeyboard: true,
-        freezeOnBlur: true,
+        // Fast consecutive tab presses can otherwise leave a native screen frozen
+        // before the next route has committed its view.
+        freezeOnBlur: false,
       }}
     >
       <Tabs.Screen name="index" options={{ title: 'Inbox' }} />

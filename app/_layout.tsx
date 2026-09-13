@@ -1,6 +1,12 @@
 import '../src/global.css'
 
-import { Inter_400Regular, Inter_500Medium, useFonts } from '@expo-google-fonts/inter'
+import {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+  useFonts,
+} from '@expo-google-fonts/inter'
 import { SpaceGrotesk_600SemiBold, SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk'
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet'
 import { Stack } from 'expo-router'
@@ -64,6 +70,8 @@ function RootAppShell({ hasPendingNativeCallIntent }: RootAppShellProps) {
     SpaceGrotesk_700Bold,
     Inter_400Regular,
     Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
   })
   const { isReelSavingModeHydrated, reelSavingModeEnabled } = useReelSavingMode()
   const [isReelPlaybackVideoCacheReady, setIsReelPlaybackVideoCacheReady] = useState(

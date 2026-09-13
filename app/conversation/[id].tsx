@@ -557,21 +557,21 @@ export default function ChatScreen() {
                       {
                         position: 'absolute',
                         right: 16,
-                        bottom: 120,
+                        bottom: 104,
                         zIndex: 40,
                       },
                     ]}
                   >
                     <TouchableOpacity
-                      className="h-11 w-11 items-center justify-center rounded-full bg-surface-card border border-border-light"
+                      className="h-11 w-11 items-center justify-center rounded-full border border-border-light bg-surface-card"
                       onPress={handleScrollAffordancePress}
                       activeOpacity={0.8}
                       style={{
                         borderCurve: 'continuous',
-                        boxShadow: '0 14px 26px rgba(93, 74, 53, 0.12)',
+                        boxShadow: '0 10px 24px rgba(22, 22, 22, 0.10)',
                       }}
                     >
-                      <MaterialIcons name="keyboard-arrow-down" size={24} color="#161514" />
+                      <MaterialIcons name="keyboard-arrow-down" size={24} color="#161616" />
                     </TouchableOpacity>
                   </Animated.View>
                 </View>

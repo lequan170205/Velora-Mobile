@@ -12,6 +12,7 @@ export const colors = {
     primary: '#FF6B2C',
     secondary: '#FF935B',
     tertiary: '#D85A21',
+    soft: '#FFF0E4',
     gradient: ['#FF6B2C', '#FF935B'],
   },
   // Text — Crisp neutral hierarchy

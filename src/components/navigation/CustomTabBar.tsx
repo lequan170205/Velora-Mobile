@@ -1,452 +1,285 @@
-import { MaterialIcons } from '@expo/vector-icons'
+import { Ionicons } from '@expo/vector-icons'
+import { BlurView } from 'expo-blur'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Dimensions, Platform, StyleSheet, View } from 'react-native'
-import { Gesture, GestureDetector } from 'react-native-gesture-handler'
+import { Platform, Pressable, StyleSheet, View } from 'react-native'
 import { useTheme } from 'react-native-paper'
 import Animated, {
   Easing,
-  Extrapolation,
-  type SharedValue,
-  clamp,
-  interpolate,
-  interpolateColor,
   useAnimatedStyle,
-  useDerivedValue,
+  useReducedMotion,
   useSharedValue,
   withSequence,
   withSpring,
   withTiming,
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { scheduleOnRN } from 'react-native-worklets'
 
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs'
 
 import { colors } from '../../constants/theme'
 
+import { RoundedPlayTileIcon } from './RoundedPlayTileIcon'
+
 import type { MD3Theme } from 'react-native-paper'
 
-const SCREEN_W = Dimensions.get('window').width
-const FLOATING_BAR_W = Math.min(Math.round(SCREEN_W * 0.86), 360)
-const DOCKED_BAR_W = SCREEN_W
-const PILL_H = 60
-const NUM_TABS = 5
-
-const CIRCLE_SIZE = 60
-const CIRCLE_RADIUS = CIRCLE_SIZE / 2
-const CIRCLE_TOP = 0
-const CUTOUT_GAP = 6
-const BASE_CUTOUT_RADIUS = CIRCLE_RADIUS + CUTOUT_GAP
-const FLOAT_LIFT = 14
+const BAR_H = 60
 
 const REELS_INDEX = 2
 export const MESSAGES_TAB_INDEX = 0
 export const PROFILE_TAB_INDEX = 4
 
-const DOCK_EASING = Easing.bezier(0.22, 1, 0.36, 1)
-
-const POSITION_SPRING = {
-  damping: 18,
-  stiffness: 240,
-  mass: 0.85,
-  overshootClamping: false,
+const THEME_FADE = {
+  duration: 180,
+  easing: Easing.bezier(0.22, 1, 0.36, 1),
 } as const
 
-const PRESS_SPRING = {
-  damping: 12,
-  stiffness: 260,
-  mass: 0.58,
+// Messenger/Instagram-style selection feedback: a fast dip then a crisp
+// spring settle on the icon itself. No indicator travels across the bar;
+// the glyph swap (outline -> filled) IS the active state.
+const POP_SPRING = {
+  damping: 17,
+  stiffness: 420,
+  mass: 0.6,
   overshootClamping: false,
 } as const
-
-type TrackTheme = {
-  pill: string
-  border: string
-  inactive: string
-}
-
-type CustomTabBarTokens = {
-  accent: string
-  iconOnAccent: string
-  light: TrackTheme
-  dark: TrackTheme
-}
 
 type TabMeta = {
   name: string
-  icon: keyof typeof MaterialIcons.glyphMap
+  icon: keyof typeof Ionicons.glyphMap
+  activeIcon: keyof typeof Ionicons.glyphMap
+  label: string
   size: number
-}
-
-type TabIconSlotProps = {
-  icon: keyof typeof MaterialIcons.glyphMap
-  size: number
-  slotIndex: number
-  slotWidth: SharedValue<number>
-  activeCenterX: SharedValue<number>
-  themeProgress: SharedValue<number>
-  activeIconColor: string
-  lightInactiveColor: string
-  darkInactiveColor: string
 }
 
 const TABS: TabMeta[] = [
-  { name: 'index', icon: 'chat-bubble-outline', size: 24 },
-  { name: 'search', icon: 'search', size: 26 },
-  { name: 'reels', icon: 'play-circle-outline', size: 26 },
-  { name: 'friends', icon: 'people-outline', size: 25 },
-  { name: 'profile', icon: 'person-outline', size: 25 },
+  {
+    name: 'index',
+    icon: 'chatbubble-ellipses-outline',
+    activeIcon: 'chatbubble-ellipses',
+    label: 'Chats',
+    size: 25,
+  },
+  {
+    name: 'search',
+    icon: 'search-outline',
+    activeIcon: 'search',
+    label: 'Search',
+    size: 24,
+  },
+  {
+    name: 'reels',
+    icon: 'play-outline',
+    activeIcon: 'play',
+    label: 'Reels',
+    size: 24,
+  },
+  {
+    name: 'friends',
+    icon: 'people-outline',
+    activeIcon: 'people',
+    label: 'Friends',
+    size: 24,
+  },
+  {
+    name: 'profile',
+    icon: 'person-outline',
+    activeIcon: 'person',
+    label: 'Profile',
+    size: 24,
+  },
 ]
 
-const REELS_DARK_THEME: TrackTheme = {
-  pill: '#111214',
-  border: 'transparent',
-  inactive: 'rgba(255,255,255,0.58)',
+type BarTheme = {
+  // Translucent tint layered over the blur; the blur supplies the rest.
+  overlay: string
+  activeIcon: string
+  inactiveIcon: string
 }
 
 const getTabBarBottomInset = (safeAreaBottom: number) =>
   Platform.OS === 'ios' ? Math.max(safeAreaBottom, 12) : Math.max(safeAreaBottom, 16)
 
 export const getDockedTabBarHeight = (safeAreaBottom: number) =>
-  PILL_H + getTabBarBottomInset(safeAreaBottom)
+  BAR_H + getTabBarBottomInset(safeAreaBottom)
 
-function getCustomTabBarTokens(theme: MD3Theme): CustomTabBarTokens {
+function getCustomTabBarTokens(theme: MD3Theme): { light: BarTheme; dark: BarTheme } {
   return {
-    accent: theme.colors.primary,
-    iconOnAccent: theme.colors.onPrimary,
     light: {
-      pill: theme.colors.elevation.level1,
-      border: theme.colors.outline,
-      inactive: theme.colors.onSurfaceVariant,
+      overlay: 'rgba(255, 255, 255, 0.92)',
+      activeIcon: colors.brand.tertiary,
+      inactiveIcon: theme.colors.onSurfaceVariant,
     },
-    dark: REELS_DARK_THEME,
+    dark: {
+      // Dark frost over the Reels feed; keeps the bar seamless with the
+      // full-bleed video behind it, like Instagram's reels tab bar.
+      overlay: 'rgba(5, 5, 5, 0.86)',
+      activeIcon: '#FFFFFF',
+      inactiveIcon: 'rgba(255,255,255,0.58)',
+    },
   }
 }
 
-const TabIconSlot = React.memo(function TabIconSlot({
-  icon,
-  size,
-  slotIndex,
-  slotWidth,
-  activeCenterX,
-  themeProgress,
-  activeIconColor,
-  lightInactiveColor,
-  darkInactiveColor,
-}: TabIconSlotProps) {
-  const slotCenterX = useDerivedValue(() => slotWidth.value * slotIndex + slotWidth.value / 2)
+type TabItemProps = {
+  tab: TabMeta
+  index: number
+  active: boolean
+  activeColor: string
+  inactiveColor: string
+  onSelect: (nextIndex: number) => void
+}
 
-  const smoothFocus = useDerivedValue(() => {
-    const distance = Math.abs(activeCenterX.value - slotCenterX.value)
-    const focus = interpolate(distance, [0, slotWidth.value], [1, 0], Extrapolation.CLAMP)
+const TabItem = React.memo(function TabItem({
+  tab,
+  index,
+  active,
+  activeColor,
+  inactiveColor,
+  onSelect,
+}: TabItemProps) {
+  const scale = useSharedValue(1)
+  const reduceMotion = useReducedMotion()
+  const mountedRef = useRef(false)
 
-    return focus * focus * (3 - 2 * focus)
-  })
-
-  const activeStyle = useAnimatedStyle(() => {
-    return {
-      opacity: smoothFocus.value,
-      transform: [{ scale: 0.92 + smoothFocus.value * 0.08 }],
+  useEffect(() => {
+    // Skip the pop on first mount so the initially selected tab doesn't bounce.
+    if (!mountedRef.current) {
+      mountedRef.current = true
+      return
     }
-  })
 
-  const lightInactiveStyle = useAnimatedStyle(() => {
-    const inactiveOpacity = 1 - smoothFocus.value
-    const inactiveScale = 1 - smoothFocus.value * 0.04
-
-    return {
-      opacity: inactiveOpacity * (1 - themeProgress.value),
-      transform: [{ scale: inactiveScale }],
+    if (active && !reduceMotion) {
+      scale.value = withSequence(
+        withTiming(0.86, { duration: 80, easing: Easing.out(Easing.quad) }),
+        withSpring(1, POP_SPRING),
+      )
     }
-  })
+  }, [active, reduceMotion, scale])
 
-  const darkInactiveStyle = useAnimatedStyle(() => {
-    const inactiveOpacity = 1 - smoothFocus.value
-    const inactiveScale = 1 - smoothFocus.value * 0.04
-
-    return {
-      opacity: inactiveOpacity * themeProgress.value,
-      transform: [{ scale: inactiveScale }],
-    }
-  })
+  const iconStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }))
 
   return (
-    <View style={styles.slot}>
-      <Animated.View pointerEvents="none" style={[styles.iconLayer, lightInactiveStyle]}>
-        <MaterialIcons color={lightInactiveColor} name={icon} size={size} />
+    <Pressable
+      accessibilityLabel={tab.label}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      onPressIn={() => onSelect(index)}
+      style={styles.tabSlot}
+    >
+      <Animated.View style={iconStyle}>
+        {tab.name === 'reels' ? (
+          <RoundedPlayTileIcon
+            active={active}
+            color={active ? activeColor : inactiveColor}
+            size={tab.size}
+          />
+        ) : (
+          <Ionicons
+            allowFontScaling={false}
+            color={active ? activeColor : inactiveColor}
+            name={active ? tab.activeIcon : tab.icon}
+            size={tab.size}
+          />
+        )}
       </Animated.View>
-
-      <Animated.View pointerEvents="none" style={[styles.iconLayer, darkInactiveStyle]}>
-        <MaterialIcons color={darkInactiveColor} name={icon} size={size} />
-      </Animated.View>
-
-      <Animated.View pointerEvents="none" style={[styles.iconLayer, activeStyle]}>
-        <MaterialIcons color={activeIconColor} name={icon} size={size} />
-      </Animated.View>
-    </View>
+    </Pressable>
   )
 })
 
 type CustomTabBarSurfaceProps = {
   activeIndex: number
   forceDarkTheme?: boolean
-  forceDockedLayout?: boolean
   onTabSelect: (nextIndex: number, routeName: string) => boolean | void
 }
 
 export const CustomTabBarSurface = React.memo(function CustomTabBarSurface({
   activeIndex,
   forceDarkTheme = false,
-  forceDockedLayout = false,
   onTabSelect,
 }: CustomTabBarSurfaceProps) {
   const paperTheme = useTheme<MD3Theme>()
   const insets = useSafeAreaInsets()
+
   const bottomInset = getTabBarBottomInset(insets.bottom)
+
   const tokens = useMemo(() => getCustomTabBarTokens(paperTheme), [paperTheme])
-  const accentColor = tokens.accent
-  const iconOnAccentColor = tokens.iconOnAccent
-  const lightInactiveColor = tokens.light.inactive
-  const darkInactiveColor = tokens.dark.inactive
-  const lightWrapperColor = colors.bg.primary
-  const lightPillColor = tokens.light.pill
-  const darkPillColor = tokens.dark.pill
-  const lightBorderColor = tokens.light.border
-  const darkBorderColor = tokens.dark.border
+  const lightOverlay = tokens.light.overlay
+  const darkOverlay = tokens.dark.overlay
 
-  const isReelsActive = activeIndex === REELS_INDEX
-  const shouldUseDarkTheme = forceDarkTheme || isReelsActive
-  const shouldUseDockedLayout = forceDockedLayout || isReelsActive
-  const [isDockedLayout, setIsDockedLayout] = useState(shouldUseDockedLayout)
+  const shouldUseDarkTheme = forceDarkTheme || activeIndex === REELS_INDEX
+  const activeColor = shouldUseDarkTheme ? tokens.dark.activeIcon : tokens.light.activeIcon
+  const inactiveColor = shouldUseDarkTheme ? tokens.dark.inactiveIcon : tokens.light.inactiveIcon
 
-  const wrapperHeight = PILL_H + bottomInset
+  // Optimistic selection: the active glyph follows the touch-down instantly;
+  // if navigation vetoes the change we roll back to the authoritative index.
+  const [selectedIndex, setSelectedIndex] = useState(activeIndex)
 
-  const activeIndexPosition = useSharedValue(activeIndex)
-  const pressProgress = useSharedValue(0)
-  const dockProgress = useSharedValue(shouldUseDockedLayout ? 1 : 0)
+  useEffect(() => {
+    setSelectedIndex(activeIndex)
+  }, [activeIndex])
+
   const themeProgress = useSharedValue(shouldUseDarkTheme ? 1 : 0)
 
-  const previousIndexRef = useRef(activeIndex)
-
-  const barWidth = useDerivedValue(() =>
-    interpolate(dockProgress.value, [0, 1], [FLOATING_BAR_W, DOCKED_BAR_W], Extrapolation.CLAMP),
-  )
-
-  const slotWidth = useDerivedValue(() => barWidth.value / NUM_TABS)
-
-  const activeCenterX = useDerivedValue(
-    () => activeIndexPosition.value * slotWidth.value + slotWidth.value / 2,
-  )
-
-  const cutoutRadius = useDerivedValue(
-    () =>
-      interpolate(
-        dockProgress.value,
-        [0, 1],
-        [BASE_CUTOUT_RADIUS + 1, BASE_CUTOUT_RADIUS - 2],
-        Extrapolation.CLAMP,
-      ) +
-      pressProgress.value * 2,
-  )
-
-  const barStageStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        translateY: interpolate(dockProgress.value, [0, 1], [-FLOAT_LIFT, 0], Extrapolation.CLAMP),
-      },
-    ],
-    width: barWidth.value,
-  }))
-
-  const bubbleThemeStyle = useMemo(
-    () => ({
-      backgroundColor: accentColor,
-    }),
-    [accentColor],
-  )
-
-  const bubbleStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: activeCenterX.value - CIRCLE_RADIUS },
-      { translateY: -pressProgress.value * 1.5 },
-      { scaleX: 1 - pressProgress.value * 0.04 },
-      { scaleY: 1 - pressProgress.value * 0.04 },
-    ],
-  }))
-
-  const leftSegmentStyle = useAnimatedStyle(() => {
-    const segmentEnd = clamp(activeCenterX.value - cutoutRadius.value, 0, barWidth.value)
-
-    return {
-      left: 0,
-      opacity: segmentEnd > 1 ? 1 : 0,
-      width: segmentEnd,
-    }
-  })
-
-  const rightSegmentStyle = useAnimatedStyle(() => {
-    const segmentStart = clamp(activeCenterX.value + cutoutRadius.value, 0, barWidth.value)
-    const segmentWidth = Math.max(0, barWidth.value - segmentStart)
-
-    return {
-      left: segmentStart,
-      opacity: segmentWidth > 1 ? 1 : 0,
-      width: segmentWidth,
-    }
-  })
-
-  const wrapperSurfaceStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(
-      themeProgress.value,
-      [0, 1],
-      [lightWrapperColor, darkPillColor],
-    ),
-    opacity: 1,
-  }))
-
-  const trackSegmentThemeStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(themeProgress.value, [0, 1], [lightPillColor, darkPillColor]),
-    borderColor: interpolateColor(themeProgress.value, [0, 1], [lightBorderColor, darkBorderColor]),
-  }))
-
-  const triggerPressPulse = useCallback(() => {
-    pressProgress.value = 0
-    pressProgress.value = withSequence(withTiming(1, { duration: 70 }), withSpring(0, PRESS_SPRING))
-  }, [pressProgress])
-
   useEffect(() => {
-    dockProgress.value = withTiming(isDockedLayout ? 1 : 0, {
-      duration: isDockedLayout ? 320 : 260,
-      easing: DOCK_EASING,
-    })
-  }, [dockProgress, isDockedLayout])
+    themeProgress.value = withTiming(shouldUseDarkTheme ? 1 : 0, THEME_FADE)
+  }, [shouldUseDarkTheme, themeProgress])
 
-  useEffect(() => {
-    if (shouldUseDockedLayout) {
-      setIsDockedLayout(true)
-      return
-    }
+  // Two complete frost layers (blur + tint) crossfading. Keeping a full
+  // stack per theme avoids blending a single blur's tint mid-transition.
+  const lightLayerStyle = useAnimatedStyle(() => ({
+    opacity: 1 - themeProgress.value,
+  }))
 
-    setIsDockedLayout(false)
-  }, [shouldUseDockedLayout])
+  const darkLayerStyle = useAnimatedStyle(() => ({
+    opacity: themeProgress.value,
+  }))
 
-  useEffect(() => {
-    if (previousIndexRef.current === activeIndex) {
-      themeProgress.value = withTiming(shouldUseDarkTheme ? 1 : 0, {
-        duration: 180,
-        easing: DOCK_EASING,
-      })
-      return
-    }
-
-    previousIndexRef.current = activeIndex
-    activeIndexPosition.value = withSpring(activeIndex, POSITION_SPRING)
-    themeProgress.value = withTiming(shouldUseDarkTheme ? 1 : 0, {
-      duration: 180,
-      easing: DOCK_EASING,
-    })
-    triggerPressPulse()
-  }, [activeIndex, activeIndexPosition, shouldUseDarkTheme, themeProgress, triggerPressPulse])
-
-  const prepareLayoutForIndex = useCallback(
-    (nextIndex: number) => {
-      setIsDockedLayout(forceDockedLayout || nextIndex === REELS_INDEX)
-    },
-    [forceDockedLayout],
-  )
-
-  const handleTapSelection = useCallback(
+  const handleSelect = useCallback(
     (nextIndex: number) => {
       const tab = TABS[nextIndex]
-      if (!tab || nextIndex === activeIndex) {
+      if (!tab || nextIndex === selectedIndex) {
         return
       }
 
-      prepareLayoutForIndex(nextIndex)
+      setSelectedIndex(nextIndex)
       const didSelect = onTabSelect(nextIndex, tab.name)
       if (didSelect === false) {
-        prepareLayoutForIndex(activeIndex)
-        return
+        setSelectedIndex(activeIndex)
       }
     },
-    [activeIndex, onTabSelect, prepareLayoutForIndex],
-  )
-
-  const tapGesture = useMemo(
-    () =>
-      Gesture.Tap()
-        .maxDuration(220)
-        .maxDistance(18)
-        .onEnd((event, success) => {
-          if (!success) {
-            return
-          }
-
-          const currentBarWidth = barWidth.value
-          const nextIndex = clamp(
-            Math.floor(event.x / (currentBarWidth / NUM_TABS)),
-            0,
-            NUM_TABS - 1,
-          )
-
-          activeIndexPosition.value = withSpring(nextIndex, POSITION_SPRING)
-          pressProgress.value = withSequence(
-            withTiming(1, { duration: 70 }),
-            withSpring(0, PRESS_SPRING),
-          )
-
-          if (nextIndex !== activeIndex) {
-            scheduleOnRN(handleTapSelection, nextIndex)
-          }
-        }),
-    [activeIndex, activeIndexPosition, barWidth, handleTapSelection, pressProgress],
+    [activeIndex, onTabSelect, selectedIndex],
   )
 
   return (
     <View
       pointerEvents="box-none"
-      style={[
-        styles.wrapper,
-        {
-          height: wrapperHeight,
-          marginTop: 0,
-          paddingBottom: bottomInset,
-        },
-      ]}
+      style={[styles.wrapper, { height: BAR_H + bottomInset, paddingBottom: bottomInset }]}
     >
-      <Animated.View pointerEvents="none" style={[styles.wrapperBackground, wrapperSurfaceStyle]} />
-
-      <GestureDetector gesture={tapGesture}>
-        <Animated.View style={[styles.barStage, barStageStyle]}>
-          <Animated.View style={[styles.bubble, bubbleThemeStyle, bubbleStyle]} />
-
-          <View pointerEvents="none" style={styles.trackContainer}>
-            <Animated.View
-              style={[styles.trackSegment, trackSegmentThemeStyle, leftSegmentStyle]}
-            />
-            <Animated.View
-              style={[styles.trackSegment, trackSegmentThemeStyle, rightSegmentStyle]}
-            />
-          </View>
-
-          <View pointerEvents="none" style={styles.iconsRow}>
-            {TABS.map((tab, index) => (
-              <TabIconSlot
-                key={tab.name}
-                activeCenterX={activeCenterX}
-                activeIconColor={iconOnAccentColor}
-                darkInactiveColor={darkInactiveColor}
-                icon={tab.icon}
-                lightInactiveColor={lightInactiveColor}
-                size={tab.size}
-                slotIndex={index}
-                slotWidth={slotWidth}
-                themeProgress={themeProgress}
-              />
-            ))}
-          </View>
+      <Animated.View pointerEvents="none" style={styles.surface}>
+        <Animated.View pointerEvents="none" style={[styles.layer, lightLayerStyle]}>
+          <BlurView intensity={28} style={styles.layerFill} tint="light" />
+          <View style={[styles.layerFill, { backgroundColor: lightOverlay }]} />
         </Animated.View>
-      </GestureDetector>
+        <Animated.View pointerEvents="none" style={[styles.layer, darkLayerStyle]}>
+          <BlurView intensity={22} style={styles.layerFill} tint="dark" />
+          <View style={[styles.layerFill, { backgroundColor: darkOverlay }]} />
+        </Animated.View>
+      </Animated.View>
+
+      <View style={styles.row}>
+        {TABS.map((tab, index) => (
+          <TabItem
+            key={tab.name}
+            active={index === selectedIndex}
+            activeColor={activeColor}
+            inactiveColor={inactiveColor}
+            index={index}
+            onSelect={handleSelect}
+            tab={tab}
+          />
+        ))}
+      </View>
     </View>
   )
 })
@@ -480,53 +313,37 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 
 export default React.memo(CustomTabBar)
 
+// The bar overlays screen content so the frosted background can blur
+// whatever scrolls behind it; the navigator reserves no space for it.
 const styles = StyleSheet.create({
-  barStage: {
-    height: PILL_H,
-    overflow: 'visible',
-  },
-  bubble: {
-    borderRadius: CIRCLE_RADIUS,
-    height: CIRCLE_SIZE,
-    left: 0,
-    position: 'absolute',
-    top: CIRCLE_TOP,
-    width: CIRCLE_SIZE,
-  },
-  iconLayer: {
+  layer: {
     ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  iconsRow: {
+  layerFill: {
     ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    flexDirection: 'row',
   },
-  slot: {
-    alignItems: 'center',
+  row: {
+    alignSelf: 'center',
     flex: 1,
-    height: PILL_H,
-    justifyContent: 'center',
-  },
-  trackContainer: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  trackSegment: {
-    borderRadius: PILL_H / 2,
-    borderWidth: StyleSheet.hairlineWidth,
-    height: PILL_H,
-    position: 'absolute',
-    top: 0,
-  },
-  wrapper: {
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    overflow: 'visible',
-    position: 'relative',
+    flexDirection: 'row',
+    // Pull the icon group inward so the outer tabs keep breathing room from
+    // the screen edge; the surface behind stays full-width.
+    maxWidth: 420,
+    paddingHorizontal: 16,
     width: '100%',
   },
-  wrapperBackground: {
+  surface: {
     ...StyleSheet.absoluteFillObject,
+  },
+  tabSlot: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+  },
+  wrapper: {
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
   },
 })

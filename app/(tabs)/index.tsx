@@ -3,14 +3,25 @@ import { useIsFocused } from '@react-navigation/native'
 import { useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'expo-router'
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, AppState, FlatList, Image, ScrollView, View } from 'react-native'
-import Animated, { FadeInDown, ReduceMotion } from 'react-native-reanimated'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { AppState, FlatList, ScrollView, View } from 'react-native'
+import Animated, {
+  FadeInDown,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { AppPressable, AppText } from '../../src/components/base'
+import { ChatAvatar } from '../../src/components/chat/ChatAvatar'
 import { ConversationItem } from '../../src/components/chat/ConversationItem'
 import { AppSearchBar } from '../../src/components/common/AppSearchBar'
 import { SafeTouchableOpacity } from '../../src/components/common/SafeTouchableOpacity'
+import { getDockedTabBarHeight } from '../../src/components/navigation/CustomTabBar'
 import { useConversationNavigation } from '../../src/hooks/useConversationNavigation'
 import { useConversations } from '../../src/hooks/useConversations'
 import {
@@ -40,29 +51,63 @@ function ConversationsHeader({ onCreateGroup }: { onCreateGroup: () => void }) {
   return (
     <Animated.View
       entering={SECTION_ENTERING}
-      className="flex-row items-center justify-between bg-bg-primary px-5 pb-2 pt-1"
+      className="flex-row items-end justify-between bg-bg-primary px-5 pb-3 pt-2"
     >
       <View>
-        <AppText
-          className="text-xs2 font-bold uppercase tracking-[1.8px]"
-          style={{ color: '#C2410C' }}
-        >
+        <AppText className="text-xs2 font-semibold uppercase tracking-[1.8px] text-brand-dark">
           Velora
         </AppText>
-        <AppText className="font-heading text-[28px] font-bold tracking-[-0.7px] text-text-primary">
+        <AppText className="font-display text-[28px] leading-[34px] tracking-[-0.7px] text-text-primary">
           Messages
         </AppText>
       </View>
       <SafeTouchableOpacity
-        className="h-12 w-12 items-center justify-center overflow-hidden rounded-[18px] border border-[#F2DED0] bg-[#FFFBF8]"
+        className="h-12 w-12 items-center justify-center overflow-hidden rounded-[18px] border border-brand-soft bg-surface-accent"
         onPress={onCreateGroup}
         activeOpacity={0.75}
         accessibilityRole="button"
         accessibilityLabel="Create group chat"
       >
-        <MaterialIcons name="group-add" size={22} color="#D85A21" />
+        <MaterialIcons name="group-add" size={21} color="#D85A21" />
       </SafeTouchableOpacity>
     </Animated.View>
+  )
+}
+
+const SkeletonRow = React.memo(function SkeletonRow({ delay }: { delay: number }) {
+  const opacity = useSharedValue(1)
+
+  useEffect(() => {
+    opacity.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(withTiming(0.45, { duration: 640 }), withTiming(1, { duration: 640 })),
+        -1,
+        true,
+      ),
+    )
+  }, [delay, opacity])
+
+  const style = useAnimatedStyle(() => ({ opacity: opacity.value }))
+
+  return (
+    <Animated.View style={style} className="flex-row items-center px-3 py-2.5">
+      <View className="h-[52px] w-[52px] rounded-[18px] bg-bg-secondary" />
+      <View className="ml-3 flex-1 gap-2.5 overflow-hidden">
+        <View className="h-3.5 w-2/5 rounded-full bg-bg-secondary" />
+        <View className="h-3 w-3/5 rounded-full bg-bg-secondary" />
+      </View>
+    </Animated.View>
+  )
+})
+
+function ConversationListSkeleton() {
+  return (
+    <View className="mx-2 px-3" pointerEvents="none">
+      {[0, 1, 2, 3, 4, 5].map((row) => (
+        <SkeletonRow key={row} delay={row * 90} />
+      ))}
+    </View>
   )
 }
 
@@ -95,6 +140,7 @@ export default function ConversationsScreen() {
   const queryClient = useQueryClient()
   const router = useRouter()
   const isFocused = useIsFocused()
+  const insets = useSafeAreaInsets()
   const { data: conversations, isLoading, isError, refetch } = useConversations()
   const { isConnected, requestPresence } = useSocket()
   const { openConversation, prefetchConversation } = useConversationNavigation()
@@ -257,30 +303,29 @@ export default function ConversationsScreen() {
 
   if (isLoading) {
     return (
-      <SafeAreaView className="flex-1 bg-bg-primary">
+      <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
         <ConversationsHeader onCreateGroup={openNewGroup} />
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator
-            color="#FF6B2C"
-            size="large"
-            accessibilityLabel="Loading conversations"
-          />
-        </View>
+        <ConversationListSkeleton />
       </SafeAreaView>
     )
   }
 
   if (isError) {
     return (
-      <SafeAreaView className="flex-1 bg-bg-primary">
+      <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
         <ConversationsHeader onCreateGroup={openNewGroup} />
         <View className="flex-1 items-center justify-center px-6">
-          <AppText className="text-center text-base2 text-text-secondary">
-            We couldn&apos;t load your conversations.
+          <View className="h-12 w-12 items-center justify-center rounded-[18px] bg-surface-accent">
+            <MaterialIcons name="cloud-off" size={22} color="#D85A21" />
+          </View>
+          <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
+            We couldn&apos;t load your conversations
+          </AppText>
+          <AppText className="mt-1.5 text-center text-base2 text-text-secondary">
+            Check your connection and try again.
           </AppText>
           <AppPressable
-            className="mt-4 min-h-11 justify-center overflow-hidden rounded-[16px] px-5"
-            style={{ backgroundColor: '#C2410C' }}
+            className="mt-6 h-11 items-center justify-center overflow-hidden rounded-full bg-brand px-6"
             onPress={() => {
               refetch()
             }}
@@ -288,7 +333,7 @@ export default function ConversationsScreen() {
             accessibilityRole="button"
             accessibilityLabel="Try loading conversations again"
           >
-            <AppText className="font-medium text-white">Try again</AppText>
+            <AppText className="text-base2 font-semibold text-white">Try again</AppText>
           </AppPressable>
         </View>
       </SafeAreaView>
@@ -296,7 +341,7 @@ export default function ConversationsScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-bg-primary">
+    <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
       <ConversationsHeader onCreateGroup={openNewGroup} />
       <FlatList
         data={filteredConversations}
@@ -306,11 +351,18 @@ export default function ConversationsScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{
+          // The tab bar overlays the list (frosted glass), so clear content
+          // past it. SafeAreaView already pads the bottom inset slice.
+          paddingBottom: getDockedTabBarHeight(insets.bottom) - insets.bottom + 16,
+        }}
         ListHeaderComponent={
-          <View className="pb-2">
+          <View className="pb-1">
             {matches.length > 0 ? (
-              <Animated.View entering={SECTION_ENTERING.delay(40)} className="pt-1">
+              <Animated.View entering={SECTION_ENTERING.delay(40)}>
+                <AppText className="px-5 pb-1 pt-1 text-xs2 font-semibold uppercase tracking-[1.4px] text-text-muted">
+                  Matches
+                </AppText>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -330,22 +382,7 @@ export default function ConversationsScreen() {
                       accessibilityRole="button"
                       accessibilityLabel={`Open conversation with ${match.name}`}
                     >
-                      {match.picture ? (
-                        <Image
-                          source={{ uri: match.picture }}
-                          className="h-16 w-16 rounded-[22px] bg-surface-input"
-                          resizeMode="cover"
-                        />
-                      ) : (
-                        <View className="h-16 w-16 items-center justify-center rounded-[22px] bg-brand-soft">
-                          <AppText
-                            className="font-heading text-xl font-semibold"
-                            style={{ color: '#C2410C' }}
-                          >
-                            {match.name.charAt(0).toUpperCase()}
-                          </AppText>
-                        </View>
-                      )}
+                      <ChatAvatar name={match.name} picture={match.picture} size={60} />
 
                       <AppText
                         className="mt-2 text-sm2 font-medium text-text-primary"
@@ -361,29 +398,25 @@ export default function ConversationsScreen() {
               </Animated.View>
             ) : null}
 
-            <Animated.View entering={SECTION_ENTERING.delay(80)} className="px-5 pt-3">
+            <Animated.View entering={SECTION_ENTERING.delay(80)} className="px-5 pt-2">
               <AppSearchBar
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 onClear={() => setSearchQuery('')}
                 placeholder="Search conversations"
-                placeholderTextColor="#6F6C6A"
-                iconColor="#D85A21"
                 iconPlacement="left"
                 size="compact"
-                containerClassName="h-[52px] rounded-[19px] border border-[#F2DED0] bg-[#FFFBF8] px-4 py-0"
+                containerClassName="h-[52px] rounded-full px-4 py-0"
                 accessibilityLabel="Search conversations"
               />
             </Animated.View>
 
             <Animated.View
               entering={SECTION_ENTERING.delay(120)}
-              className="flex-row items-center justify-between px-5 pb-1 pt-5"
+              className="flex-row items-center justify-between px-5 pb-1.5 pt-5"
             >
-              <AppText className="font-heading text-[18px] font-semibold text-text-primary">
-                Recent
-              </AppText>
-              <AppText className="text-sm2 font-medium text-text-secondary">
+              <AppText className="font-heading text-lg text-text-primary">Recent</AppText>
+              <AppText className="text-sm2 text-text-muted">
                 {filteredConversations.length}{' '}
                 {filteredConversations.length === 1 ? 'chat' : 'chats'}
               </AppText>
@@ -391,15 +424,15 @@ export default function ConversationsScreen() {
           </View>
         }
         ListEmptyComponent={
-          <View className="mx-5 mt-5 items-center rounded-[24px] border border-[#F2DED0] bg-[#FFFBF8] px-6 py-9">
-            <View className="h-12 w-12 items-center justify-center rounded-[18px] bg-brand-soft">
+          <View className="mx-5 mt-4 items-center rounded-[24px] border border-brand-soft bg-surface-accent px-6 py-9">
+            <View className="h-12 w-12 items-center justify-center rounded-[18px] border border-brand-soft bg-bg-primary">
               <MaterialIcons
                 name={deferredSearchQuery.trim() ? 'search-off' : 'chat-bubble-outline'}
-                size={23}
+                size={22}
                 color="#D85A21"
               />
             </View>
-            <AppText className="mt-4 text-center font-heading text-[18px] font-semibold text-text-primary">
+            <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
               {deferredSearchQuery.trim() ? 'No conversations found' : 'Your inbox is ready'}
             </AppText>
             <AppText className="mt-1.5 text-center text-base2 leading-5 text-text-secondary">
@@ -409,8 +442,7 @@ export default function ConversationsScreen() {
             </AppText>
             {deferredSearchQuery.trim() ? (
               <AppPressable
-                className="mt-5 min-h-11 items-center justify-center overflow-hidden rounded-[16px] px-5"
-                style={{ backgroundColor: '#C2410C' }}
+                className="mt-6 h-11 items-center justify-center overflow-hidden rounded-full bg-brand px-6"
                 activeOpacity={0.82}
                 onPress={() => setSearchQuery('')}
                 accessibilityRole="button"
@@ -420,8 +452,7 @@ export default function ConversationsScreen() {
               </AppPressable>
             ) : (
               <AppPressable
-                className="mt-5 min-h-11 flex-row items-center justify-center overflow-hidden rounded-[16px] px-5"
-                style={{ backgroundColor: '#C2410C' }}
+                className="mt-6 h-11 flex-row items-center justify-center overflow-hidden rounded-full bg-brand px-6"
                 activeOpacity={0.82}
                 onPress={openNewGroup}
                 accessibilityRole="button"
