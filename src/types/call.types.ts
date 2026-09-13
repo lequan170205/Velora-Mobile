@@ -94,6 +94,7 @@ export interface ProducePayload {
   transportId: string
   kind: 'audio' | 'video'
   rtpParameters: Record<string, unknown>
+  requestId?: string
 }
 
 export interface ConsumePayload {
@@ -224,6 +225,15 @@ export interface NewProducerPayload {
   paused?: boolean
 }
 
+export interface ProducerCreatedPayload {
+  callId: string
+  userId: string
+  producerId: string
+  transportId: string
+  kind: 'audio' | 'video'
+  requestId?: string
+}
+
 export interface ProducerClosedPayload {
   callId: string
   producerId: string
@@ -310,6 +320,10 @@ export interface CallSocketReadyPayload {
 export interface SocketExceptionPayload {
   status: string
   message: string
+  code?: string
+  event?: string
+  callId?: string
+  requestId?: string
 }
 
 export interface CallServerEvents {
@@ -322,6 +336,7 @@ export interface CallServerEvents {
   transport_created: (payload: TransportCreatedPayload) => void
   transport_connected: (payload: TransportConnectedPayload) => void
   new_producer: (payload: NewProducerPayload) => void
+  producer_created: (payload: ProducerCreatedPayload) => void
   producer_closed: (payload: ProducerClosedPayload) => void
   consumer_created: (payload: ConsumerCreatedPayload) => void
   consumer_resumed: (payload: ConsumerResumedPayload) => void

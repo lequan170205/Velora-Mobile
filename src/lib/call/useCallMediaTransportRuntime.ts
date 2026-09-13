@@ -13,8 +13,8 @@ import {
   TRANSPORT_CREATED_TIMEOUT_MS,
   VOICE_OPUS_CODEC_OPTIONS,
 } from './callConstants'
-import { cameraConstraints, stableJson } from './callPolicies'
-import { emitAndWaitForEvent } from './callSocket'
+import { stableJson } from './callPolicies'
+import { createCallRequestId, emitAndWaitForEvent } from './callSocket'
 import {
   createMediasoupDevice,
   ensureMediasoupGlobalsRegistered,
@@ -29,6 +29,7 @@ import type {
   CallRejoinedPayload,
   CallSocket,
   NewProducerPayload,
+  ProducerCreatedPayload,
   TransportCreatedPayload,
 } from '../../types/call.types'
 import type { Device as MediasoupDevice } from 'mediasoup-client'
@@ -58,7 +59,6 @@ type MediaTransportRuntimeOptions = {
   localStreamRef: MutableRef<MediaStream | null>
   remoteStreamRef: MutableRef<MediaStream | null>
   audioProducerRef: MutableRef<MediasoupTypes.Producer<Record<string, unknown>> | null>
-  videoProducerRef: MutableRef<MediasoupTypes.Producer<Record<string, unknown>> | null>
   cachedDeviceRef: MutableRef<CachedMediasoupDevice | null>
   consumerMapRef: MutableRef<Map<string, MediasoupTypes.Consumer<Record<string, unknown>>>>
   connectedTransportIdsRef: MutableRef<Set<string>>
@@ -94,6 +94,7 @@ type MediaTransportRuntimeOptions = {
   ) => Promise<void>
   stopRingingPreview: () => void
   armRemoteAudioFallback: () => void
+  ensureLocalVideoProducer: (options?: { requestPermission?: boolean }) => Promise<boolean>
 }
 
 export const useCallMediaTransportRuntime = ({
@@ -106,7 +107,6 @@ export const useCallMediaTransportRuntime = ({
   localStreamRef,
   remoteStreamRef,
   audioProducerRef,
-  videoProducerRef,
   cachedDeviceRef,
   consumerMapRef,
   connectedTransportIdsRef,
@@ -133,6 +133,7 @@ export const useCallMediaTransportRuntime = ({
   teardownOnce,
   stopRingingPreview,
   armRemoteAudioFallback,
+  ensureLocalVideoProducer,
 }: MediaTransportRuntimeOptions) => {
   const ensureDeviceLoaded = useCallback(
     async (payload: CallJoinedPayload) => {
@@ -259,11 +260,12 @@ export const useCallMediaTransportRuntime = ({
         transport.on('produce', ({ kind, rtpParameters }, callback, errback) => {
           void (async () => {
             try {
+              const requestId = createCallRequestId('produce')
               debugCall(
                 '[Call] Producing local media',
                 JSON.stringify({ callId, transportId: transport.id, kind }),
               )
-              const produced = await emitAndWaitForEvent<'produce', 'new_producer'>(
+              const produced = await emitAndWaitForEvent<'produce', 'producer_created'>(
                 socket,
                 'produce',
                 {
@@ -271,15 +273,19 @@ export const useCallMediaTransportRuntime = ({
                   transportId: transport.id,
                   kind: kind as 'audio' | 'video',
                   rtpParameters: rtpParameters as unknown as Record<string, unknown>,
+                  requestId,
                 },
                 {
-                  event: 'new_producer',
+                  event: 'producer_created',
                   timeoutMs: REMOTE_PRODUCER_TIMEOUT_MS,
                   registry: waitRegistryRef.current,
-                  filter: (payload) =>
+                  requestId,
+                  filter: (payload: ProducerCreatedPayload) =>
                     payload.callId === callId &&
                     payload.userId === currentUserId &&
-                    payload.kind === kind,
+                    payload.kind === kind &&
+                    payload.transportId === transport.id &&
+                    payload.requestId === requestId,
                 },
               )
 
@@ -564,7 +570,6 @@ export const useCallMediaTransportRuntime = ({
       assertCallSetupCurrent(options.setupToken, callId)
 
       stopRingingPreview()
-      const stateBeforeMedia = useCallStore.getState()
       // Establish the audio path independently from video. On a cold start,
       // camera initialization can take noticeably longer than the microphone;
       // coupling the two meant a video call sounded silent until camera setup
@@ -690,55 +695,15 @@ export const useCallMediaTransportRuntime = ({
         return
       }
 
-      // Keep this enrichment detached from the audio-ready critical path.
-      // `activateLocalVideo` handles later user retries; this first attempt is
-      // best-effort after the camera permission check that happened pre-accept.
+      // Keep this enrichment detached from the audio-ready critical path. The
+      // local-media runtime owns the single-flight activation promise shared by
+      // this automatic attempt, manual camera toggles, and resume handling.
       void (async () => {
         try {
           telemetry?.recordLifecycle('media_enhancing', { outcome: 'started' })
-          if (!device.canProduce('video')) throw new Error('Device cannot produce video')
-
-          const videoCapture = await mediaDevices.getUserMedia({
-            audio: false,
-            video: cameraConstraints(stateBeforeMedia.cameraFacing),
-          })
-          const capturedVideoTrack = videoCapture.getVideoTracks()[0]
-          if (!capturedVideoTrack) {
-            videoCapture.getTracks().forEach((track) => track.stop())
-            throw new Error('No local video track available')
-          }
-          if (!isCallSetupCurrent(options.setupToken, callId)) {
-            videoCapture.getTracks().forEach((track) => track.stop())
-            return
-          }
-
-          capturedVideoTrack.enabled = true
-          localStream.addTrack(capturedVideoTrack as unknown as MediaStreamTrack)
-          try {
-            const videoProducer = await sendTransport.produce({
-              track: capturedVideoTrack as never,
-              stopTracks: false,
-            })
-            if (!isCallSetupCurrent(options.setupToken, callId)) {
-              videoProducer.close()
-              localStream.removeTrack(capturedVideoTrack as unknown as MediaStreamTrack)
-              capturedVideoTrack.stop()
-              return
-            }
-            videoProducerRef.current = videoProducer
+          const activated = await ensureLocalVideoProducer({ requestPermission: false })
+          if (activated && isCallSetupCurrent(options.setupToken, callId)) {
             telemetry?.record('video_producer_ready', { outcome: 'succeeded' })
-            useCallStore.getState().patch({
-              cameraEnabled: true,
-              localStreamUrl: localStream.toURL(),
-            })
-          } catch (error) {
-            try {
-              localStream.removeTrack(capturedVideoTrack as unknown as MediaStreamTrack)
-            } catch {
-              // The call teardown may already have removed the track.
-            }
-            capturedVideoTrack.stop()
-            throw error
           }
         } catch (error) {
           const currentState = useCallStore.getState()
@@ -778,7 +743,7 @@ export const useCallMediaTransportRuntime = ({
       startTimer,
       stopRingingPreview,
       telemetrySessionRef,
-      videoProducerRef,
+      ensureLocalVideoProducer,
     ],
   )
 

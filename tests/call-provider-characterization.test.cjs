@@ -139,18 +139,21 @@ test('a cleared prewarm cannot repopulate a socket credential after logout', asy
   const firstRequest = new Promise((resolve) => {
     resolveFirstRequest = resolve
   })
-  const scopedCallSocketModule = loadTypeScriptModule(path.join(root, 'src/lib/call/callSocket.ts'), {
-    'socket.io-client': { io: () => new FakeSocket() },
-    '../../api/auth.api': {
-      authApi: {
-        getSocketToken: () => {
-          requestCount += 1
-          if (requestCount === 1) return firstRequest
-          return Promise.resolve({ accessToken: 'fresh-session-token' })
+  const scopedCallSocketModule = loadTypeScriptModule(
+    path.join(root, 'src/lib/call/callSocket.ts'),
+    {
+      'socket.io-client': { io: () => new FakeSocket() },
+      '../../api/auth.api': {
+        authApi: {
+          getSocketToken: () => {
+            requestCount += 1
+            if (requestCount === 1) return firstRequest
+            return Promise.resolve({ accessToken: 'fresh-session-token' })
+          },
         },
       },
     },
-  })
+  )
 
   const stalePrewarm = scopedCallSocketModule.prewarmCallSocketCredentials('user-a')
   scopedCallSocketModule.clearPrewarmedCallSocketCredentials('user-a')
@@ -208,7 +211,7 @@ test('teardown cancellation is classified as expected setup cancellation', async
 test('an End during a native accept terminalizes both sides of the accept race', () => {
   const acceptSource = sliceBetween(
     providerSource,
-    "let acceptance: IncomingCallAcceptancePayload | null = null",
+    'let acceptance: IncomingCallAcceptancePayload | null = null',
     'joinedCall = true',
   )
   const endSource = sliceBetween(
@@ -261,11 +264,14 @@ test('an accept ACK timeout aborts an uncertain server commit instead of leaving
       'else if (acceptRequestSent)',
       'const abortUncertainAccept = (connectedSocket: CallSocket) =>',
       'emitIncomingAcceptTerminalIntent(connectedSocket, callId, endReason)',
-      'await teardownOnce(\'accept_incoming_call_failed\'',
+      "await teardownOnce('accept_incoming_call_failed'",
     ],
     'uncertain accept cleanup order',
   )
-  assert.match(incomingSource, /ensureCallSocketConnected\(callId\)[\s\S]*?abortUncertainAccept\(connectedSocket\)/)
+  assert.match(
+    incomingSource,
+    /ensureCallSocketConnected\(callId\)[\s\S]*?abortUncertainAccept\(connectedSocket\)/,
+  )
 })
 
 test('the legacy answer flow is a baked rollback mode, never an automatic atomic retry fallback', () => {
@@ -290,15 +296,19 @@ test('the legacy answer flow is a baked rollback mode, never an automatic atomic
     ],
     'atomic accept rollback ordering',
   )
-  assert.match(
-    incomingSource, /'answer_call',[\s\S]*?\{ callId, actionId: incomingActionId \}/)
+  assert.match(incomingSource, /'answer_call',[\s\S]*?\{ callId, actionId: incomingActionId \}/)
 })
 
 test('socket exceptions reject emit/wait operations and release every waiter resource', async () => {
   const socket = new FakeSocket()
   const registry = new Set()
-  socket.onClientEmit = () => {
-    socket.serverEmit('exception', { status: 'error', message: 'server rejected join' })
+  socket.onClientEmit = (event, payload) => {
+    assert.equal(event, 'join_call')
+    socket.serverEmit('exception', {
+      status: 'error',
+      message: 'server rejected join',
+      requestId: payload.requestId,
+    })
   }
 
   await assert.rejects(
@@ -315,6 +325,54 @@ test('socket exceptions reject emit/wait operations and release every waiter res
     /server rejected join/,
   )
   assert.equal(socket.listenerCount('call_joined'), 0)
+  assert.equal(socket.listenerCount('exception'), 0)
+  assert.equal(registry.size, 0)
+})
+
+test('socket exceptions stay scoped to the matching request', async () => {
+  const socket = new FakeSocket()
+  const registry = new Set()
+  const requestIds = new Map()
+  socket.onClientEmit = (event, payload) => {
+    requestIds.set(event, payload.requestId)
+  }
+
+  const joinWait = callSocketModule.emitAndWaitForEvent(
+    socket,
+    'join_call',
+    { callId: 'call-1' },
+    {
+      event: 'call_joined',
+      timeoutMs: 100,
+      registry,
+    },
+  )
+  const transportWait = callSocketModule.emitAndWaitForEvent(
+    socket,
+    'create_transport',
+    { callId: 'call-1', direction: 'send' },
+    {
+      event: 'transport_created',
+      timeoutMs: 100,
+      registry,
+    },
+  )
+
+  await Promise.resolve()
+  socket.serverEmit('exception', {
+    status: 'error',
+    message: 'join rejected',
+    requestId: requestIds.get('join_call'),
+  })
+  socket.serverEmit('transport_created', {
+    callId: 'call-1',
+    transportId: 'transport-1',
+    direction: 'send',
+    requestId: requestIds.get('create_transport'),
+  })
+
+  await assert.rejects(joinWait, /join rejected/)
+  await assert.doesNotReject(transportWait)
   assert.equal(socket.listenerCount('exception'), 0)
   assert.equal(registry.size, 0)
 })
@@ -355,7 +413,10 @@ test('unrecoverable media failure is reported to native call UI as failed', () =
 
   assert.match(teardownSource, /terminalLifecycleState === 'failed'/)
   assert.match(teardownSource, /veloraSystemCalls\.reportCallFailed\(endingCallId\)/)
-  assert.match(systemCalls, /reportCallFailed: \(callId: string\) => Promise<CallKitTransactionResult>/)
+  assert.match(
+    systemCalls,
+    /reportCallFailed: \(callId: string\) => Promise<CallKitTransactionResult>/,
+  )
   assert.match(systemCalls, /reportCallFailed\(callId: string\)/)
   assert.match(iosModule, /AsyncFunction\("reportCallFailed"\)/)
   assert.match(iosModule, /func reportCallFailed\(callId: String/)
@@ -376,7 +437,6 @@ test('post-answer setup makes audio usable before progressive video enrichment',
       'assertCallSetupCurrent(options.setupToken, callId)',
       'await ensureDeviceLoaded(payload)',
       'await Promise.allSettled([',
-      'if (!isCallSetupCurrent(options.setupToken, callId))',
       "if (!localAudioTrack) throw new Error('No local audio track available')",
       'const audioProducer = await sendTransport.produce({',
       'audioProducerRef.current = audioProducer',
@@ -387,10 +447,9 @@ test('post-answer setup makes audio usable before progressive video enrichment',
       'armRemoteAudioFallback()',
       'void (async () => {',
       "telemetry?.recordLifecycle('media_enhancing'",
-      'const videoCapture = await mediaDevices.getUserMedia({',
-      'const videoProducer = await sendTransport.produce({',
-      'if (!isCallSetupCurrent(options.setupToken, callId))',
-      'videoProducerRef.current = videoProducer',
+      'const activated = await ensureLocalVideoProducer({ requestPermission: false })',
+      'if (activated && isCallSetupCurrent(options.setupToken, callId))',
+      "telemetry?.record('video_producer_ready'",
       "telemetry?.record('video_producer_failed'",
       'cameraEnabled: false',
     ],
@@ -543,7 +602,11 @@ test('a crash after server acceptance resumes with rejoin instead of replaying a
   assert.match(nativeActions, /callState\.status !== 'active'/)
   assert.match(nativeActions, /await resumeAcceptedCall\(callState\)/)
   assert.doesNotMatch(
-    sliceBetween(nativeActions, "if (action.action === 'resume')", "if (action.action === 'answer')"),
+    sliceBetween(
+      nativeActions,
+      "if (action.action === 'resume')",
+      "if (action.action === 'answer')",
+    ),
     /acceptIncomingCall\('native'/,
   )
   assert.match(provider, /const resumeAcceptedCall = useCallback/)
@@ -766,7 +829,9 @@ test('a native terminal update clears its CallKit surface before auth hydration'
     'const processPendingNativeCallAction = useCallback(',
   )
   const terminalIndex = nativeActionSource.indexOf("if (action.action === 'remote_end')")
-  const authGateIndex = nativeActionSource.indexOf('if (isLoading || !isAuthenticated || !currentUserId)')
+  const authGateIndex = nativeActionSource.indexOf(
+    'if (isLoading || !isAuthenticated || !currentUserId)',
+  )
 
   assert.ok(terminalIndex >= 0, 'remote terminal action branch must exist')
   assert.ok(authGateIndex >= 0, 'native actions must retain the auth gate for non-terminal actions')

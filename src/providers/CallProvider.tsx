@@ -739,7 +739,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     localStreamRef,
     remoteStreamRef,
     audioProducerRef,
-    videoProducerRef,
     cachedDeviceRef,
     consumerMapRef,
     connectedTransportIdsRef,
@@ -766,6 +765,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     teardownOnce,
     stopRingingPreview,
     armRemoteAudioFallback,
+    ensureLocalVideoProducer: activateLocalVideo,
   })
 
   const {

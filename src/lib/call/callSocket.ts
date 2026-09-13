@@ -7,6 +7,14 @@ import type { CallClientEvents, CallServerEvents, CallSocket } from '../../types
 type EventCleanup = (error?: Error) => void
 export type CallWaitRegistry = Set<EventCleanup>
 
+let requestSequence = 0
+
+export const createCallRequestId = (prefix = 'call') => {
+  requestSequence += 1
+  const entropy = Math.random().toString(36).slice(2, 10)
+  return `${prefix}-${Date.now().toString(36)}-${requestSequence.toString(36)}-${entropy}`
+}
+
 export class CallWaitCancelledError extends Error {
   constructor() {
     super('Call socket wait was cancelled')
@@ -23,6 +31,7 @@ interface WaitForEventOptions<TPayload> {
   registry: CallWaitRegistry
   filter?: (payload: TPayload) => boolean
   rejectOnException?: boolean
+  requestId?: string
 }
 
 const DEFAULT_SOCKET_PATH = '/call/socket.io'
@@ -208,6 +217,7 @@ export const waitForEvent = <TEvent extends keyof CallServerEvents>(
     }
 
     const exceptionListener = (payload: Parameters<CallServerEvents['exception']>[0]) => {
+      if (options.requestId && payload.requestId !== options.requestId) return
       settle({
         status: 'rejected',
         error: new Error(
@@ -248,13 +258,19 @@ export const emitAndWaitForEvent = <
   emitPayload: Parameters<CallClientEvents[TEmit]>[0],
   options: WaitForEventOptions<Parameters<CallServerEvents[TEvent]>[0]> & { event: TEvent },
 ) => {
+  const requestId = options.requestId ?? createCallRequestId(String(emitEvent))
   const waiter = waitForEvent(socket, options.event, {
     ...options,
+    requestId,
     rejectOnException: options.rejectOnException ?? true,
   })
+  const payload =
+    emitPayload && typeof emitPayload === 'object'
+      ? ({ ...emitPayload, requestId } as Parameters<CallClientEvents[TEmit]>[0])
+      : emitPayload
   ;(socket.emit as (event: TEmit, payload: Parameters<CallClientEvents[TEmit]>[0]) => void)(
     emitEvent,
-    emitPayload,
+    payload,
   )
   return waiter
 }
