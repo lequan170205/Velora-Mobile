@@ -44,6 +44,7 @@ type RecoveryRuntimeOptions = {
   remoteVideoRevisionByProducerRef: MutableRef<Map<string, number>>
   remoteVideoSnapshotReadyRef: MutableRef<boolean>
   markRemoteVideoSnapshotReady: (ready: boolean) => void
+  reconcileRemoteVideoSnapshot: (activeProducerIds: Set<string>) => void
   connectedTransportIdsRef: MutableRef<Set<string>>
   activeCallIdRef: MutableRef<string | null>
   callAnsweredRef: MutableRef<boolean>
@@ -94,6 +95,7 @@ export const useCallRecoveryRuntime = ({
   remoteVideoRevisionByProducerRef,
   remoteVideoSnapshotReadyRef,
   markRemoteVideoSnapshotReady,
+  reconcileRemoteVideoSnapshot,
   connectedTransportIdsRef,
   activeCallIdRef,
   callAnsweredRef,
@@ -210,13 +212,11 @@ export const useCallRecoveryRuntime = ({
       callAnsweredRef.current = true
       telemetrySessionRef.current?.attachCall(rejoined.telemetryToken)
       const recoveredCallType = rejoined.session.callType
-      if (!controlPlaneRecovery) {
-        useCallStore.getState().patch({
-          callType: recoveredCallType,
-          remoteVideoState: recoveredCallType === 'VIDEO' ? 'waiting' : 'idle',
-        })
-      }
-      if (!controlPlaneRecovery && recoveredCallType === 'VOICE') {
+      useCallStore.getState().patch({
+        callType: recoveredCallType,
+        remoteVideoState: recoveredCallType === 'VIDEO' ? 'waiting' : 'idle',
+      })
+      if (recoveredCallType === 'VOICE') {
         deactivateLocalVideo()
         clearRemoteVideoRuntime('idle')
       }
@@ -224,6 +224,13 @@ export const useCallRecoveryRuntime = ({
         await restartConnectedTransports(socket, rejoined.callId)
         assertCallSetupCurrent(restartSetupToken, rejoined.callId)
         reconnectModeRef.current = null
+        reconcileRemoteVideoSnapshot(
+          new Set(
+            (rejoined.activeProducers ?? [])
+              .filter((producer) => producer.kind === 'video' && producer.userId !== currentUserId)
+              .map((producer) => producer.producerId),
+          ),
+        )
         for (const producer of rejoined.activeProducers ?? []) {
           await consumeRemoteProducer(
             {
@@ -242,9 +249,7 @@ export const useCallRecoveryRuntime = ({
           assertCallSetupCurrent(restartSetupToken, rejoined.callId)
         }
         markRemoteVideoSnapshotReady(recoveredCallType === 'VIDEO')
-        if (!controlPlaneRecovery) {
-          useCallStore.getState().patch({ phase: 'active' })
-        }
+        useCallStore.getState().patch({ phase: 'active' })
         if (
           recoveredCallType === 'VIDEO' &&
           useCallStore.getState().hasCameraPermission === true &&
@@ -301,6 +306,14 @@ export const useCallRecoveryRuntime = ({
       assertCallSetupCurrent(setupToken, rejoined.callId)
       if (
         rejoined.session.callType === 'VIDEO' &&
+        !videoProducerRef.current &&
+        useCallStore.getState().hasCameraPermission === true &&
+        localVideoStateRef.current.desiredEnabled
+      ) {
+        await activateLocalVideo({ requestPermission: false })
+        assertCallSetupCurrent(setupToken, rejoined.callId)
+      } else if (
+        rejoined.session.callType === 'VIDEO' &&
         videoProducerRef.current &&
         synchronizeLocalVideoState
       ) {
@@ -347,11 +360,13 @@ export const useCallRecoveryRuntime = ({
     clearReconnectTimeout,
     clearRemoteVideoRuntime,
     consumeRemoteProducer,
+    currentUserId,
     deactivateLocalVideo,
     disposeMediaRuntime,
     invalidateCallSetup,
     localVideoStateRef,
     markRemoteVideoSnapshotReady,
+    reconcileRemoteVideoSnapshot,
     remoteVideoEnabledByProducerRef,
     remoteVideoRevisionByProducerRef,
     remoteVideoSnapshotReadyRef,

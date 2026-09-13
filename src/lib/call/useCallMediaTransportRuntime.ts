@@ -70,6 +70,7 @@ type MediaTransportRuntimeOptions = {
   remoteVideoSnapshotReadyRef: MutableRef<boolean>
   deriveRemoteVideoState: () => RemoteVideoState
   markRemoteVideoSnapshotReady: (ready: boolean) => void
+  reconcileRemoteVideoSnapshot: (activeProducerIds: Set<string>) => void
   consumingProducerIdsRef: MutableRef<Set<string>>
   retryingProducerIdsRef: MutableRef<Set<string>>
   routerRtpCapabilitiesRef: MutableRef<Record<string, unknown> | null>
@@ -122,6 +123,7 @@ export const useCallMediaTransportRuntime = ({
   remoteVideoSnapshotReadyRef,
   deriveRemoteVideoState,
   markRemoteVideoSnapshotReady,
+  reconcileRemoteVideoSnapshot,
   consumingProducerIdsRef,
   retryingProducerIdsRef,
   routerRtpCapabilitiesRef,
@@ -668,6 +670,13 @@ export const useCallMediaTransportRuntime = ({
       const activeProducers = [...(payload.activeProducers ?? [])].sort(
         (left, right) => Number(right.kind === 'audio') - Number(left.kind === 'audio'),
       )
+      reconcileRemoteVideoSnapshot(
+        new Set(
+          activeProducers
+            .filter((producer) => producer.kind === 'video' && producer.userId !== currentUserId)
+            .map((producer) => producer.producerId),
+        ),
+      )
       for (const producer of activeProducers) {
         await consumeRemoteProducer(
           {
@@ -750,12 +759,14 @@ export const useCallMediaTransportRuntime = ({
       consumerMapRef,
       consumeRemoteProducer,
       createTransport,
+      currentUserId,
       deriveRemoteVideoState,
       ensureDeviceLoaded,
       flushQueuedRemoteProducers,
       isCallSetupCurrent,
       localStreamRef,
       markRemoteVideoSnapshotReady,
+      reconcileRemoteVideoSnapshot,
       recvTransportRef,
       remoteStreamRef,
       remoteVideoEnabledByProducerRef,

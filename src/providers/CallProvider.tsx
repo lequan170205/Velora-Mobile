@@ -590,6 +590,55 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     [deriveRemoteVideoState],
   )
 
+  const reconcileRemoteVideoSnapshot = useCallback(
+    (activeProducerIds: Set<string>) => {
+      const remoteStream = remoteStreamRef.current
+      for (const [consumerId, consumer] of consumerMapRef.current.entries()) {
+        if (consumer.kind !== 'video' || activeProducerIds.has(consumer.producerId)) continue
+        try {
+          remoteStream?.removeTrack(consumer.track as unknown as MediaStreamTrack)
+        } catch {
+          // Best-effort media cleanup; the native resource may already be closed.
+        }
+        try {
+          consumer.close()
+        } catch {
+          // Best-effort media cleanup; the native resource may already be closed.
+        }
+        consumerMapRef.current.delete(consumerId)
+        handledRemoteProducerIdsRef.current.delete(consumer.producerId)
+      }
+      for (const producerId of remoteVideoEnabledByProducerRef.current.keys()) {
+        if (!activeProducerIds.has(producerId)) {
+          remoteVideoEnabledByProducerRef.current.delete(producerId)
+          remoteVideoRevisionByProducerRef.current.delete(producerId)
+        }
+      }
+      for (const [producerId, payload] of queuedRemoteProducerMapRef.current) {
+        if (payload.kind === 'video' && !activeProducerIds.has(producerId)) {
+          queuedRemoteProducerMapRef.current.delete(producerId)
+        }
+      }
+      for (const producerId of activeProducerIds) {
+        for (const [consumerId, consumer] of consumerMapRef.current.entries()) {
+          if (consumer.kind === 'video' && consumer.producerId === producerId && consumer.closed) {
+            consumerMapRef.current.delete(consumerId)
+          }
+        }
+        const liveConsumer = [...consumerMapRef.current.values()].some(
+          (consumer) =>
+            consumer.kind === 'video' && consumer.producerId === producerId && !consumer.closed,
+        )
+        if (!liveConsumer) handledRemoteProducerIdsRef.current.delete(producerId)
+      }
+      useCallStore.getState().patch({
+        remoteStreamUrl: remoteStream?.toURL() ?? null,
+        remoteVideoState: deriveRemoteVideoState(),
+      })
+    },
+    [deriveRemoteVideoState],
+  )
+
   const teardownOnce = useCallback(
     async (
       reason: string,
@@ -812,6 +861,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     remoteVideoSnapshotReadyRef,
     deriveRemoteVideoState,
     markRemoteVideoSnapshotReady,
+    reconcileRemoteVideoSnapshot,
     consumingProducerIdsRef,
     retryingProducerIdsRef,
     routerRtpCapabilitiesRef,
@@ -854,6 +904,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     remoteVideoRevisionByProducerRef,
     remoteVideoSnapshotReadyRef,
     markRemoteVideoSnapshotReady,
+    reconcileRemoteVideoSnapshot,
     connectedTransportIdsRef,
     activeCallIdRef,
     callAnsweredRef,
@@ -2203,7 +2254,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         (useCallStore.getState().phase === 'reconnecting' && reconnectModeRef.current === 'local')
       ) {
         clearSocketDisconnectGraceTimeout()
-        void recoverActiveCall()
+        // `connect` fires before the namespace authentication handshake can
+        // deliver `call_socket_ready`. The recovery is started by the
+        // authenticated ensure-call-socket promise; only use this fast path
+        // when the ready marker has already arrived.
+        if (callSocketAuthenticatedRef.current) void recoverActiveCall()
       }
     }
 
@@ -2354,7 +2409,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       for (const [producerId, producer] of queuedRemoteProducerMapRef.current) {
         if (producer.kind === 'video') queuedRemoteProducerMapRef.current.delete(producerId)
       }
-      markRemoteVideoSnapshotReady(false)
+      // A live call-type transition is itself an authoritative boundary. The
+      // old producer set has been discarded above, so VIDEO can immediately
+      // derive from the next producer/state event without waiting for a
+      // rejoin-only snapshot that will never arrive on this path.
+      markRemoteVideoSnapshotReady(payload.callType === 'VIDEO')
       if (payload.callType === 'VOICE') {
         deactivateLocalVideo()
         clearRemoteVideoRuntime('idle')
