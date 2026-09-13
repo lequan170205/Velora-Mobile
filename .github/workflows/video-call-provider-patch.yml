@@ -57,28 +57,6 @@ jobs:
             src/providers/CallProvider.tsx \
             tests/video-call-1to1-contract.test.cjs > /tmp/feature-lint.log 2>&1
           FEATURE_LINT=$?
-          {
-            echo '# Video Call CI Result'
-            echo
-            echo "- Typecheck exit: $TYPECHECK"
-            echo "- Tests exit: $TEST"
-            echo "- Feature lint exit: $FEATURE_LINT"
-            echo
-            echo '## Typecheck'
-            echo '```text'
-            tail -n 160 /tmp/typecheck.log
-            echo '```'
-            echo
-            echo '## Tests'
-            echo '```text'
-            tail -n 260 /tmp/test.log
-            echo '```'
-            echo
-            echo '## Feature lint'
-            echo '```text'
-            tail -n 180 /tmp/feature-lint.log
-            echo '```'
-          } > VIDEO_CALL_CI_RESULT.md
           if [ "$TEST" -ne 0 ] || [ "$FEATURE_LINT" -ne 0 ]; then
             exit 1
           fi
@@ -91,8 +69,7 @@ jobs:
             'app/call/[id].tsx' \
             src/lib/systemCalls/veloraSystemCalls.ts \
             src/providers/CallProvider.tsx \
-            tests/video-call-1to1-contract.test.cjs \
-            VIDEO_CALL_CI_RESULT.md
+            tests/video-call-1to1-contract.test.cjs
           if git diff --cached --quiet; then
             exit 0
           fi
