@@ -1,5 +1,6 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React, { useEffect, useRef } from 'react'
+import { AppState, Platform } from 'react-native'
 
 import { queryKeys } from '../constants/queryKeys'
 import {
@@ -11,6 +12,7 @@ import { removeRecommendationQueriesForUser } from '../lib/recommendationCache'
 import { useAuthStore } from '../stores/authStore'
 
 import type { ReactNode } from 'react'
+import type { AppStateStatus } from 'react-native'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,9 +34,22 @@ export const clearAccountScopedQueryCaches = (client: QueryClient, viewerId: str
   client.removeQueries({ queryKey: queryKeys.reels.all })
 }
 
+const syncQueryFocusWithAppState = (status: AppStateStatus) => {
+  if (Platform.OS !== 'web') {
+    focusManager.setFocused(status === 'active')
+  }
+}
+
 export function QueryProvider({ children }: { children: ReactNode }) {
   const userId = useAuthStore((state) => state.user?.id)
   const previousUserIdRef = useRef<string | undefined>(userId)
+
+  useEffect(() => {
+    syncQueryFocusWithAppState(AppState.currentState)
+    const subscription = AppState.addEventListener('change', syncQueryFocusWithAppState)
+
+    return () => subscription.remove()
+  }, [])
 
   useEffect(() => {
     const previousUserId = previousUserIdRef.current

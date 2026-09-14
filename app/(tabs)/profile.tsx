@@ -1,8 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import { format } from 'date-fns'
 import { Image } from 'expo-image'
 import * as ImagePicker from 'expo-image-picker'
-import { LinearGradient } from 'expo-linear-gradient'
 import { useRouter } from 'expo-router'
 import React, { useCallback, useMemo, useState } from 'react'
 import {
@@ -11,13 +9,13 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
-  Share,
-  Text,
   View,
   useWindowDimensions,
 } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { AppPressable, AppText } from '../../src/components/base'
+import { SafeTouchableOpacity } from '../../src/components/common/SafeTouchableOpacity'
 import { getDockedTabBarHeight } from '../../src/components/navigation/CustomTabBar'
 import {
   ReelThumbnailGridSkeleton,
@@ -35,58 +33,52 @@ import type { Reel, ReelVisibility } from '../../src/types/reel.types'
 const PROFILE_REELS_LIMIT = 24
 const RFC_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-const getMemberSince = (createdAt?: string) => {
-  if (!createdAt) return 'Recently joined'
-
-  try {
-    return format(new Date(createdAt), 'MMM yyyy')
-  } catch {
-    return 'Recently joined'
-  }
-}
-
 const isRfcUuid = (value?: string | null) => {
   return Boolean(value && RFC_UUID_REGEX.test(value))
 }
 
 function FriendHighlight({ friend, onPress }: { friend: FriendSummary; onPress: () => void }) {
   return (
-    <Pressable className="mr-4 items-center" onPress={onPress}>
-      <View
-        className="h-[76px] w-[76px] items-center justify-center rounded-full border border-border-light bg-white"
-        style={{
-          shadowColor: 'rgba(22, 22, 22, 0.06)',
-          shadowOffset: { width: 0, height: 10 },
-          shadowOpacity: 1,
-          shadowRadius: 20,
-          elevation: 2,
-        }}
-      >
+    <SafeTouchableOpacity
+      className="mr-[14px] items-center"
+      style={{ width: 64 }}
+      hitSlop={0}
+      onPress={onPress}
+      activeOpacity={0.8}
+      accessibilityRole="button"
+      accessibilityLabel={`Open @${friend.user.username}'s profile`}
+    >
+      <View className="h-[60px] w-[60px] items-center justify-center overflow-hidden rounded-[20px] bg-surface-muted">
         {friend.user.picture ? (
           <Image
             source={{ uri: friend.user.picture }}
-            style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: '#F5F5F5' }}
+            style={{ width: 60, height: 60, borderRadius: 20, backgroundColor: '#F5F5F5' }}
           />
         ) : (
-          <View className="h-[68px] w-[68px] items-center justify-center rounded-full bg-surface-muted">
-            <Text className="font-heading text-lg text-text-primary">
+          <View className="h-[60px] w-[60px] items-center justify-center rounded-[20px] bg-surface-muted">
+            <AppText className="font-heading text-lg text-text-primary">
               {getInitials(friend.user.fullName)}
-            </Text>
+            </AppText>
           </View>
         )}
       </View>
-      <Text className="mt-2 max-w-[78px] text-center text-sm2 text-text-primary" numberOfLines={1}>
+      <AppText
+        className="mt-2 text-center text-sm2 font-medium text-text-primary"
+        numberOfLines={1}
+        ellipsizeMode="tail"
+        style={{ width: 64 }}
+      >
         @{friend.user.username}
-      </Text>
-    </Pressable>
+      </AppText>
+    </SafeTouchableOpacity>
   )
 }
 
 function FriendSkeleton() {
   return (
-    <View className="mr-4 items-center">
-      <View className="h-[76px] w-[76px] rounded-full bg-surface-muted" />
-      <View className="mt-2 h-3 w-14 rounded-full bg-surface-muted" />
+    <View className="mr-[14px] items-center" style={{ width: 64 }}>
+      <View className="h-[60px] w-[60px] rounded-[20px] bg-surface-muted" />
+      <View className="mt-2 h-3 w-12 rounded-full bg-surface-muted" />
     </View>
   )
 }
@@ -101,30 +93,27 @@ function EmptyReelsState({
   const isPrivate = visibility === 'private'
 
   return (
-    <View className="px-5 pt-8">
-      <View
-        className="items-center rounded-[28px] border border-dashed border-border-default bg-surface-card px-6 py-10"
-        style={{ borderCurve: 'continuous' }}
-      >
-        <View className="h-14 w-14 items-center justify-center rounded-full bg-brand-soft">
-          <MaterialIcons name="play-circle-outline" size={28} color="#D85A21" />
-        </View>
-        <Text className="mt-4 font-heading text-xl text-text-primary">
-          {isPrivate ? 'No private reels yet' : 'No public reels yet'}
-        </Text>
-        <Text className="mt-2 text-center text-base2 text-text-secondary">
-          {isPrivate
-            ? 'Private reels are visible only to you from this profile.'
-            : 'Publish a public reel to start building the grid.'}
-        </Text>
-        <Pressable
-          className="mt-5 rounded-full bg-brand px-5 py-3"
-          onPress={onCreate}
-          android_ripple={{ color: 'rgba(255,255,255,0.16)', borderless: false }}
-        >
-          <Text className="font-medium text-white">Create reel</Text>
-        </Pressable>
+    <View className="items-center px-5 pb-2 pt-7">
+      <View className="h-12 w-12 items-center justify-center rounded-[18px] border border-brand-soft bg-surface-accent">
+        <MaterialIcons name="play-circle-outline" size={24} color="#D85A21" />
       </View>
+      <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
+        {isPrivate ? 'No private reels yet' : 'No public reels yet'}
+      </AppText>
+      <AppText className="mt-1.5 text-center text-base2 leading-5 text-text-secondary">
+        {isPrivate
+          ? 'Private reels are visible only to you from this profile.'
+          : 'Publish a public reel to start building your grid.'}
+      </AppText>
+      <AppPressable
+        className="mt-5 h-11 items-center justify-center overflow-hidden rounded-full bg-brand px-6"
+        onPress={onCreate}
+        activeOpacity={0.82}
+        accessibilityRole="button"
+        accessibilityLabel="Create reel"
+      >
+        <AppText className="text-base2 font-semibold text-white">Create reel</AppText>
+      </AppPressable>
     </View>
   )
 }
@@ -198,8 +187,6 @@ export default function ProfileScreen() {
     fullName: user?.fullName,
     lastName: user?.lastName,
   })
-  const memberSinceLabel = getMemberSince(user?.createdAt)
-
   const handleCreateReel = useCallback(() => {
     router.push('/reels/create')
   }, [router])
@@ -233,17 +220,6 @@ export default function ProfileScreen() {
       updateAvatar(result.assets[0].uri)
     }
   }, [updateAvatar])
-
-  const handleShareProfile = useCallback(async () => {
-    try {
-      await Share.share({
-        title: displayName,
-        message: `${displayName}\n@${profileHandle}\n${user?.email ?? ''}`,
-      })
-    } catch (error) {
-      console.error(error)
-    }
-  }, [displayName, profileHandle, user?.email])
 
   const handleRefresh = useCallback(() => {
     void Promise.all([refetchFriends(), refetchReels()])
@@ -296,145 +272,106 @@ export default function ProfileScreen() {
           />
         }
         ListHeaderComponent={
-          <View className="px-5 pb-6 pt-2">
-            <View className="flex-row items-center justify-between">
+          <View className="px-5 pb-5 pt-2">
+            <View className="flex-row items-end justify-between pb-3">
               <View>
-                <Text className="text-xs2 uppercase tracking-[1.2px] text-text-muted">Profile</Text>
-                <Text className="mt-1 font-heading text-xl text-text-primary">
-                  @{profileHandle}
-                </Text>
+                <AppText className="text-xs2 font-semibold uppercase tracking-[1.8px] text-brand-dark">
+                  Velora
+                </AppText>
+                <AppText className="font-display text-[28px] leading-[34px] tracking-[-0.7px] text-text-primary">
+                  Profile
+                </AppText>
               </View>
 
-              <Pressable
-                className="h-11 w-11 items-center justify-center rounded-full border border-border-light bg-surface-card"
+              <SafeTouchableOpacity
+                className="h-12 w-12 items-center justify-center overflow-hidden rounded-[18px] border border-brand-soft bg-surface-accent"
                 onPress={handleSettingsPress}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel="Open profile settings"
               >
-                <MaterialIcons name="menu" size={22} color="#161616" />
-              </Pressable>
+                <MaterialIcons name="menu" size={21} color="#D85A21" />
+              </SafeTouchableOpacity>
             </View>
 
-            <View
-              className="mt-5 rounded-[34px]"
-              style={{
-                shadowColor: 'rgba(22, 22, 22, 0.08)',
-                shadowOffset: { width: 0, height: 18 },
-                shadowOpacity: 1,
-                shadowRadius: 30,
-                elevation: 4,
-              }}
-            >
-              <View className="overflow-hidden rounded-[34px] border border-border-light">
-                <LinearGradient
-                  colors={['#FFF7EF', '#FFFFFF']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  className="absolute inset-0"
-                />
-
-                <View
-                  pointerEvents="none"
-                  className="absolute -right-7 -top-9 h-28 w-28 rounded-full"
-                  style={{ backgroundColor: 'rgba(255, 107, 44, 0.10)' }}
-                />
-                <View
-                  pointerEvents="none"
-                  className="absolute -left-7 bottom-4 h-20 w-20 rounded-full"
-                  style={{ backgroundColor: 'rgba(255, 107, 44, 0.06)' }}
-                />
-
-                <View className="px-5 py-5">
-                  <View className="flex-row items-center">
-                    <Pressable onPress={handlePickImage} className="relative">
-                      {user.picture ? (
-                        <Image
-                          source={{ uri: user.picture }}
-                          style={{
-                            width: 96,
-                            height: 96,
-                            borderRadius: 48,
-                            backgroundColor: '#F5F5F5',
-                          }}
-                        />
-                      ) : (
-                        <View className="h-24 w-24 items-center justify-center rounded-full bg-surface-muted">
-                          <Text className="font-heading text-[30px] text-text-primary">
-                            {getInitials(displayName)}
-                          </Text>
-                        </View>
-                      )}
-
-                      <View className="absolute bottom-0 right-0 h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-brand">
-                        {isUpdatingAvatar ? (
-                          <ActivityIndicator color="#FFFFFF" size="small" />
-                        ) : (
-                          <MaterialIcons name="photo-camera" size={16} color="#FFFFFF" />
-                        )}
-                      </View>
-                    </Pressable>
-
-                    <View className="ml-4 flex-1">
-                      <Text className="font-heading text-[30px] leading-[34px] text-text-primary">
-                        {displayName}
-                      </Text>
-                      <View className="mt-2 flex-row flex-wrap items-center">
-                        <View className="rounded-full border border-border-light bg-white px-3 py-1.5">
-                          <Text className="text-xs2 uppercase tracking-[1.1px] text-text-secondary">
-                            @{profileHandle}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
+            <View className="mt-3 flex-row items-center">
+              <SafeTouchableOpacity
+                className="relative"
+                onPress={handlePickImage}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Edit profile photo"
+              >
+                {user.picture ? (
+                  <Image
+                    source={{ uri: user.picture }}
+                    style={{
+                      width: 88,
+                      height: 88,
+                      borderRadius: 28,
+                      backgroundColor: '#F5F5F5',
+                    }}
+                  />
+                ) : (
+                  <View className="h-[88px] w-[88px] items-center justify-center rounded-[28px] bg-surface-muted">
+                    <AppText className="font-heading text-[28px] text-text-primary">
+                      {getInitials(displayName)}
+                    </AppText>
                   </View>
+                )}
 
-                  <View className="mt-5">
-                    <Text className="text-base2 leading-6 text-text-secondary">
-                      Velora member since {memberSinceLabel}
-                    </Text>
-                  </View>
-
-                  <View className="mt-5 flex-row">
-                    <Pressable
-                      className="mr-3 flex-1 rounded-full border border-border-light bg-white py-3"
-                      onPress={handlePickImage}
-                    >
-                      <Text className="text-center font-medium text-text-primary">
-                        {isUpdatingAvatar ? 'Updating...' : 'Edit photo'}
-                      </Text>
-                    </Pressable>
-
-                    <Pressable
-                      className="flex-1 rounded-full border border-border-light bg-surface-card py-3"
-                      onPress={handleShareProfile}
-                    >
-                      <Text className="text-center font-medium text-text-primary">Share</Text>
-                    </Pressable>
-                  </View>
+                <View className="absolute -bottom-1 -right-1 h-8 w-8 items-center justify-center rounded-[12px] border-2 border-bg-primary bg-brand">
+                  {isUpdatingAvatar ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <MaterialIcons name="photo-camera" size={15} color="#FFFFFF" />
+                  )}
                 </View>
+              </SafeTouchableOpacity>
+
+              <View className="ml-4 min-w-0 flex-1">
+                <AppText
+                  className="font-heading text-[26px] leading-[30px] text-text-primary"
+                  numberOfLines={1}
+                >
+                  {displayName}
+                </AppText>
+                <AppText
+                  className="mt-1 text-sm2 font-medium text-text-secondary"
+                  numberOfLines={1}
+                >
+                  @{profileHandle}
+                </AppText>
               </View>
             </View>
 
-            <View className="mt-5">
+            <View className="mt-6">
               <View className="flex-row items-center justify-between">
-                <Pressable
-                  className="flex-row items-center"
+                <AppPressable
+                  className="flex-row items-center py-1"
                   onPress={() => router.push('/friends')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open friends"
                 >
-                  <Text className="font-heading text-lg text-text-primary">Friends</Text>
-                  <View className="ml-2 rounded-full bg-surface-muted px-3 py-1.5">
-                    <Text className="text-xs2 uppercase tracking-[1px] text-text-secondary">
-                      {friendsValue}
-                    </Text>
-                  </View>
-                </Pressable>
-                <Pressable onPress={() => router.push('/friends')}>
-                  <Text className="font-medium text-sm2 text-brand">Manage</Text>
-                </Pressable>
+                  <AppText className="text-xs2 font-semibold uppercase tracking-[1.4px] text-text-muted">
+                    Friends
+                  </AppText>
+                  <AppText className="ml-2 text-xs2 text-text-muted">{friendsValue}</AppText>
+                </AppPressable>
+                <AppPressable
+                  className="py-1"
+                  onPress={() => router.push('/friends')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Manage friends"
+                >
+                  <AppText className="text-sm2 font-semibold text-brand">Manage</AppText>
+                </AppPressable>
               </View>
 
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingTop: 16, paddingRight: 20 }}
+                contentContainerStyle={{ paddingTop: 10, paddingRight: 20 }}
               >
                 {isFriendsPending && friends.length === 0 ? (
                   Array.from({ length: 4 }).map((_, index) => (
@@ -451,31 +388,39 @@ export default function ProfileScreen() {
                     ))}
 
                     {extraFriendsCount > 0 ? (
-                      <View className="mr-4 items-center">
-                        <View className="h-[76px] w-[76px] items-center justify-center rounded-full border border-dashed border-border-strong bg-white">
-                          <Text className="font-heading text-lg text-text-primary">
+                      <View className="mr-[14px] items-center" style={{ width: 64 }}>
+                        <View className="h-[60px] w-[60px] items-center justify-center rounded-[20px] bg-surface-muted">
+                          <AppText className="font-heading text-base2 text-text-primary">
                             +{extraFriendsCount}
-                          </Text>
+                          </AppText>
                         </View>
-                        <Text className="mt-2 text-sm2 text-text-secondary">More</Text>
+                        <AppText className="mt-2 text-sm2 text-text-secondary">More</AppText>
                       </View>
                     ) : null}
                   </>
                 ) : (
-                  <View
-                    className="rounded-[24px] border border-dashed border-border-default bg-surface-card px-5 py-4"
-                    style={{ borderCurve: 'continuous' }}
-                  >
-                    <Text className="font-medium text-text-primary">No friends yet</Text>
-                    <Text className="mt-1 text-sm2 text-text-secondary">
+                  <View className="rounded-[18px] bg-surface-accent px-4 py-3">
+                    <AppText className="text-sm2 font-medium text-text-primary">
+                      No friends yet
+                    </AppText>
+                    <AppText className="mt-0.5 text-sm2 text-text-secondary">
                       Friends you add will appear here.
-                    </Text>
+                    </AppText>
                   </View>
                 )}
               </ScrollView>
             </View>
 
-            <View className="mt-6 rounded-[24px] border border-border-light bg-surface-muted p-1">
+            <View className="mt-6 flex-row items-center justify-between">
+              <AppText className="text-xs2 font-semibold uppercase tracking-[1.4px] text-text-muted">
+                Reels
+              </AppText>
+              <AppText className="text-sm2 text-text-muted">
+                {profileReels.length} {profileReels.length === 1 ? 'reel' : 'reels'}
+              </AppText>
+            </View>
+
+            <View className="mt-2 rounded-full border border-border-light bg-bg-primary p-1">
               <View className="flex-row gap-1">
                 {(
                   [
@@ -488,36 +433,32 @@ export default function ProfileScreen() {
                   return (
                     <Pressable
                       key={tab.value}
-                      className={`flex-1 flex-row items-center justify-center rounded-[20px] px-3 py-3 ${
-                        isActive ? 'bg-white' : ''
-                      }`}
+                      className="h-11 flex-1 flex-row items-center justify-center rounded-full px-3"
                       onPress={() => {
                         setActiveReelsVisibility(tab.value)
                       }}
-                      style={
-                        isActive
-                          ? {
-                              shadowColor: 'rgba(22, 22, 22, 0.08)',
-                              shadowOffset: { width: 0, height: 8 },
-                              shadowOpacity: 1,
-                              shadowRadius: 16,
-                              elevation: 2,
-                            }
-                          : undefined
-                      }
+                      collapsable={false}
+                      style={({ pressed }) => ({
+                        backgroundColor: isActive ? '#FFF4EC' : '#F5F5F5',
+                        borderColor: isActive ? '#FFF0E4' : '#F4F4F4',
+                        borderWidth: 1,
+                        opacity: pressed ? 0.76 : 1,
+                      })}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected: isActive }}
+                      accessibilityLabel={`${tab.label} reels`}
                     >
                       <MaterialIcons
                         name={tab.icon}
-                        size={19}
-                        color={isActive ? '#161616' : '#8A8379'}
+                        size={18}
+                        color={isActive ? '#D85A21' : '#6F6861'}
                       />
-                      <Text
-                        className={`ml-2 text-sm2 font-bold ${
-                          isActive ? 'text-text-primary' : 'text-text-secondary'
-                        }`}
+                      <AppText
+                        className="ml-2 text-sm2 font-semibold"
+                        style={{ color: isActive ? '#D85A21' : '#777777' }}
                       >
                         {tab.label}
-                      </Text>
+                      </AppText>
                     </Pressable>
                   )
                 })}

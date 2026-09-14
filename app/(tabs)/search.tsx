@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { Image } from 'expo-image'
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
@@ -45,6 +45,14 @@ const SEARCH_LIMITS: Record<GlobalSearchType, number> = {
 }
 
 type SearchTabKey = 'all' | 'reels' | 'contacts'
+
+const getSearchTabParam = (value?: string | string[]): SearchTabKey | null => {
+  const normalizedValue = Array.isArray(value) ? value[0] : value
+
+  return normalizedValue === 'all' || normalizedValue === 'reels' || normalizedValue === 'contacts'
+    ? normalizedValue
+    : null
+}
 
 const getHandleLabel = (username?: string | null) => {
   const normalizedUsername = username?.trim().replace(/^@+/, '')
@@ -618,12 +626,14 @@ function SearchResultsPanel({
 
 export default function SearchScreen() {
   const router = useRouter()
+  const { tab: tabParam } = useLocalSearchParams<{ tab?: string | string[] }>()
+  const routeTab = getSearchTabParam(tabParam)
   const insets = useSafeAreaInsets()
   const inputRef = useRef<TextInput | null>(null)
   const { width: windowWidth } = useWindowDimensions()
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
-  const [selectedTab, setSelectedTab] = useState<SearchTabKey>('all')
+  const [selectedTab, setSelectedTab] = useState<SearchTabKey>(() => routeTab ?? 'all')
   const { mutateAsync: startBotChat, isPending: isBotLoading } = useBotChat()
   const { runConversationEntry } = useConversationNavigation()
 
@@ -673,6 +683,12 @@ export default function SearchScreen() {
   const isSearchTyping = normalizedQuery.length > 0 && normalizedQuery !== debouncedQuery.trim()
 
   useEffect(() => {
+    if (routeTab) {
+      setSelectedTab(routeTab)
+    }
+  }, [routeTab])
+
+  useEffect(() => {
     const timeoutId = setTimeout(() => {
       setDebouncedQuery(normalizedQuery)
     }, SEARCH_DEBOUNCE_MS)
@@ -680,15 +696,22 @@ export default function SearchScreen() {
     return () => clearTimeout(timeoutId)
   }, [normalizedQuery])
 
-  const handleSuggestionPress = useCallback((value: string) => {
-    setSelectedTab('all')
-    setQuery(value)
-    inputRef.current?.focus()
-  }, [])
+  const handleSwitchSearchTab = useCallback(
+    (tab: SearchTabKey) => {
+      setSelectedTab(tab)
+      router.setParams({ tab })
+    },
+    [router],
+  )
 
-  const handleSwitchSearchTab = useCallback((tab: SearchTabKey) => {
-    setSelectedTab(tab)
-  }, [])
+  const handleSuggestionPress = useCallback(
+    (value: string) => {
+      handleSwitchSearchTab('all')
+      setQuery(value)
+      inputRef.current?.focus()
+    },
+    [handleSwitchSearchTab],
+  )
 
   const handleUserPress = useCallback(
     (user: PublicUserProfile) => {
@@ -756,17 +779,17 @@ export default function SearchScreen() {
             <SearchTabButton
               active={selectedTab === 'all'}
               label="All"
-              onPress={() => setSelectedTab('all')}
+              onPress={() => handleSwitchSearchTab('all')}
             />
             <SearchTabButton
               active={selectedTab === 'reels'}
               label="Reels"
-              onPress={() => setSelectedTab('reels')}
+              onPress={() => handleSwitchSearchTab('reels')}
             />
             <SearchTabButton
               active={selectedTab === 'contacts'}
               label="Contacts"
-              onPress={() => setSelectedTab('contacts')}
+              onPress={() => handleSwitchSearchTab('contacts')}
             />
             <SearchTabButton
               active={false}

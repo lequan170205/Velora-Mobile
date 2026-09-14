@@ -1,23 +1,19 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useFocusEffect } from '@react-navigation/native'
 import { formatDistanceToNow } from 'date-fns'
-import { Image } from 'expo-image'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Pressable,
-  RefreshControl,
-  Text,
-  View,
-} from 'react-native'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, View } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { AppPressable, AppText } from '../../src/components/base'
+import { ChatAvatar } from '../../src/components/chat/ChatAvatar'
+import { AnimatedActionSheet } from '../../src/components/common/AnimatedActionSheet'
+import { SafeTouchableOpacity } from '../../src/components/common/SafeTouchableOpacity'
 import { getDockedTabBarHeight } from '../../src/components/navigation/CustomTabBar'
 import {
   useAcceptFriendRequest,
+  useBlockUser,
   useCancelFriendRequest,
   useRejectFriendRequest,
   useRemoveFriend,
@@ -27,17 +23,16 @@ import {
   useIncomingFriendRequests,
   useOutgoingFriendRequests,
 } from '../../src/hooks/useFriends'
-import { getInitials } from '../../src/lib/profile'
 
-import type {
-  FriendRequestSummary,
-  FriendSummary,
-  PublicFriendProfile,
-} from '../../src/types/friend.types'
+import type { FriendRequestSummary, FriendSummary } from '../../src/types/friend.types'
 
 type Section = 'friends' | 'received' | 'sent'
 type Item =
-  { kind: 'friend'; value: FriendSummary } | { kind: 'request'; value: FriendRequestSummary }
+  | { kind: 'friend'; value: FriendSummary }
+  | {
+      kind: 'request'
+      value: FriendRequestSummary
+    }
 
 const EMPTY_FRIENDS: FriendSummary[] = []
 
@@ -49,16 +44,6 @@ const getRelativeDate = (date: string) => {
   }
 }
 
-function Avatar({ user }: { user: PublicFriendProfile }) {
-  return user.picture ? (
-    <Image source={{ uri: user.picture }} style={{ width: 48, height: 48, borderRadius: 24 }} />
-  ) : (
-    <View className="h-12 w-12 items-center justify-center rounded-full bg-surface-muted">
-      <Text className="font-heading text-sm2 text-text-primary">{getInitials(user.fullName)}</Text>
-    </View>
-  )
-}
-
 function Action({
   disabled,
   label,
@@ -68,49 +53,299 @@ function Action({
   disabled: boolean
   label: string
   onPress: () => void
-  tone: 'primary' | 'secondary' | 'danger'
+  tone: 'primary' | 'secondary'
 }) {
-  const className =
-    tone === 'primary'
-      ? 'bg-brand'
-      : tone === 'danger'
-        ? 'bg-[#FFF2F0]'
-        : 'border border-border-light bg-surface-card'
-  const textClassName =
-    tone === 'primary'
-      ? 'text-white'
-      : tone === 'danger'
-        ? 'text-status-error'
-        : 'text-text-primary'
-
   return (
-    <Pressable
-      className={`min-w-[80px] items-center rounded-full px-3 py-2 ${className}`}
+    <AppPressable
+      className={`h-9 min-w-[72px] items-center justify-center overflow-hidden rounded-full px-3 ${
+        tone === 'primary' ? 'bg-brand' : 'border border-border-light bg-bg-primary'
+      }`}
       disabled={disabled}
       onPress={onPress}
-      style={{ opacity: disabled ? 0.65 : 1 }}
+      activeOpacity={0.8}
+      style={{ opacity: disabled ? 0.6 : 1 }}
+      accessibilityRole="button"
+      accessibilityLabel={label}
     >
-      <Text className={`font-medium text-sm2 ${textClassName}`}>{label}</Text>
-    </Pressable>
+      <AppText
+        className={`text-sm2 font-semibold ${
+          tone === 'primary' ? 'text-white' : 'text-text-primary'
+        }`}
+      >
+        {label}
+      </AppText>
+    </AppPressable>
   )
 }
 
-function EmptyState({ section }: { section: Section }) {
+function FriendRowSkeleton() {
+  return (
+    <View className="flex-row items-center px-5 py-3.5">
+      <View className="h-[52px] w-[52px] rounded-[18px] bg-surface-muted" />
+      <View className="ml-3 flex-1 gap-2.5">
+        <View className="h-3.5 w-2/5 rounded-full bg-surface-muted" />
+        <View className="h-3 w-1/3 rounded-full bg-surface-muted" />
+      </View>
+      <View className="h-9 w-[72px] rounded-full bg-surface-muted" />
+    </View>
+  )
+}
+
+function FriendsListSkeleton() {
+  return (
+    <View pointerEvents="none">
+      {[0, 1, 2, 3, 4, 5].map((row) => (
+        <FriendRowSkeleton key={row} />
+      ))}
+    </View>
+  )
+}
+
+function EmptyState({ section, onFindPeople }: { section: Section; onFindPeople: () => void }) {
+  const iconName: React.ComponentProps<typeof MaterialIcons>['name'] =
+    section === 'friends'
+      ? 'people-outline'
+      : section === 'received'
+        ? 'person-add-alt-1'
+        : 'schedule'
   const content =
     section === 'friends'
-      ? ['No friends yet', 'People you add will appear here.']
+      ? ['No friends yet', 'Find people you know and start connecting.']
       : section === 'received'
         ? ['No new requests', 'Friend requests sent to you will appear here.']
         : ['No sent requests', 'Requests you send will stay here until answered.']
 
   return (
-    <View className="items-center px-8 pt-20">
-      <View className="h-14 w-14 items-center justify-center rounded-full bg-brand-soft">
-        <MaterialIcons name="people-outline" size={28} color="#D85A21" />
+    <View className="items-center px-8 pb-6 pt-16">
+      <View className="h-12 w-12 items-center justify-center rounded-[18px] border border-brand-soft bg-surface-accent">
+        <MaterialIcons name={iconName} size={22} color="#D85A21" />
       </View>
-      <Text className="mt-4 font-heading text-lg text-text-primary">{content[0]}</Text>
-      <Text className="mt-2 text-center text-sm2 text-text-secondary">{content[1]}</Text>
+      <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
+        {content[0]}
+      </AppText>
+      <AppText className="mt-1.5 text-center text-base2 leading-5 text-text-secondary">
+        {content[1]}
+      </AppText>
+      {section === 'friends' ? (
+        <AppPressable
+          className="mt-5 h-11 items-center justify-center overflow-hidden rounded-full bg-brand px-6"
+          onPress={onFindPeople}
+          activeOpacity={0.82}
+          accessibilityRole="button"
+          accessibilityLabel="Find people"
+        >
+          <AppText className="text-base2 font-semibold text-white">Find people</AppText>
+        </AppPressable>
+      ) : null}
     </View>
+  )
+}
+
+export function FriendActionsSheet({
+  friend,
+  isBlocking,
+  isRemoving,
+  onBlock,
+  onClose,
+  onRemove,
+  onViewProfile,
+}: {
+  friend: FriendSummary | null
+  isBlocking: boolean
+  isRemoving: boolean
+  onBlock: (friend: FriendSummary, onSuccess: () => void) => void
+  onClose: () => void
+  onRemove: (friend: FriendSummary, onSuccess: () => void) => void
+  onViewProfile: (friend: FriendSummary) => void
+}) {
+  const [confirmation, setConfirmation] = useState<'block' | 'remove' | null>(null)
+  const isActionPending = isBlocking || isRemoving
+
+  useEffect(() => {
+    if (!friend) {
+      setConfirmation(null)
+    }
+  }, [friend])
+
+  const handleClosed = useCallback(() => {
+    setConfirmation(null)
+    onClose()
+  }, [onClose])
+
+  if (!friend) return null
+
+  const { user } = friend
+  const confirmationTitle =
+    confirmation === 'remove'
+      ? 'Remove friend?'
+      : confirmation === 'block'
+        ? 'Block account?'
+        : user.fullName
+
+  return (
+    <AnimatedActionSheet
+      visible={Boolean(friend)}
+      onClose={handleClosed}
+      disabled={isActionPending}
+      backdropAccessibilityLabel="Close friend options"
+    >
+      {({ close, isClosing }) => {
+        const actionsDisabled = isActionPending || isClosing
+        const isConfirmationPending =
+          (confirmation === 'remove' && isRemoving) || (confirmation === 'block' && isBlocking)
+        const confirmDestructiveAction = () => {
+          if (!confirmation || actionsDisabled) return
+
+          const closeAfterSuccess = () => close(undefined, { force: true })
+          if (confirmation === 'remove') {
+            onRemove(friend, closeAfterSuccess)
+          } else {
+            onBlock(friend, closeAfterSuccess)
+          }
+        }
+
+        return (
+          <>
+            <View className="mt-3 flex-row items-start justify-between">
+              <View className="min-w-0 flex-1 flex-row items-center pr-4">
+                <ChatAvatar name={user.fullName} picture={user.picture} size={52} />
+                <View className="ml-3 min-w-0 flex-1">
+                  <AppText className="font-heading text-xl text-text-primary" numberOfLines={1}>
+                    {confirmationTitle}
+                  </AppText>
+                  <AppText className="mt-1 text-base2 text-text-secondary" numberOfLines={1}>
+                    @{user.username}
+                  </AppText>
+                </View>
+              </View>
+
+              <AppPressable
+                accessibilityLabel="Close friend options"
+                accessibilityRole="button"
+                className="h-11 w-11 items-center justify-center rounded-full bg-surface-muted"
+                disabled={actionsDisabled}
+                onPress={() => close()}
+              >
+                <MaterialIcons name="close" size={20} color="#161616" />
+              </AppPressable>
+            </View>
+
+            {confirmation ? (
+              <>
+                <AppText className="mt-5 text-base2 leading-6 text-text-secondary">
+                  {confirmation === 'remove'
+                    ? `${user.fullName} will be removed from your friends list. You can add @${user.username} again later.`
+                    : `${user.fullName} will be blocked. You will no longer see content from this account.`}
+                </AppText>
+                <View className="mt-6 flex-row gap-3">
+                  <AppPressable
+                    accessibilityLabel={
+                      confirmation === 'remove'
+                        ? 'Cancel removing friend'
+                        : `Cancel blocking ${user.fullName}`
+                    }
+                    accessibilityRole="button"
+                    className="h-12 flex-1 items-center justify-center rounded-full border border-border-light bg-surface-muted"
+                    disabled={actionsDisabled}
+                    onPress={() => setConfirmation(null)}
+                  >
+                    <AppText className="font-semibold text-text-primary">Cancel</AppText>
+                  </AppPressable>
+                  <AppPressable
+                    accessibilityLabel={
+                      confirmation === 'remove'
+                        ? `Remove ${user.fullName} from friends`
+                        : `Block ${user.fullName}`
+                    }
+                    accessibilityRole="button"
+                    className="h-12 flex-1 items-center justify-center rounded-full bg-[#FF3B30]"
+                    disabled={actionsDisabled}
+                    onPress={confirmDestructiveAction}
+                    style={{ opacity: actionsDisabled ? 0.7 : 1 }}
+                  >
+                    {isConfirmationPending ? (
+                      <ActivityIndicator color="#FFFFFF" size="small" />
+                    ) : (
+                      <AppText className="font-semibold text-white">
+                        {confirmation === 'remove' ? 'Remove' : 'Block'}
+                      </AppText>
+                    )}
+                  </AppPressable>
+                </View>
+              </>
+            ) : (
+              <View className="mt-5 gap-3">
+                <AppPressable
+                  accessibilityHint="Opens this friend's public profile"
+                  accessibilityLabel={`View ${user.fullName}'s profile`}
+                  accessibilityRole="button"
+                  className="flex-row items-center rounded-[24px] bg-surface-muted px-4 py-4"
+                  disabled={actionsDisabled}
+                  onPress={() => close(() => onViewProfile(friend))}
+                >
+                  <View className="h-12 w-12 items-center justify-center rounded-full bg-bg-primary">
+                    <MaterialIcons name="person-outline" size={21} color="#161616" />
+                  </View>
+                  <View className="ml-3 flex-1">
+                    <AppText className="font-semibold text-md text-text-primary">
+                      View profile
+                    </AppText>
+                    <AppText className="mt-1 text-sm2 text-text-secondary">
+                      See posts and profile details
+                    </AppText>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={20} color="#8A8379" />
+                </AppPressable>
+
+                <AppPressable
+                  accessibilityHint="Opens a confirmation before removing this friend"
+                  accessibilityLabel={`Remove ${user.fullName} from friends`}
+                  accessibilityRole="button"
+                  className="flex-row items-center rounded-[24px] bg-surface-muted px-4 py-4"
+                  disabled={actionsDisabled}
+                  onPress={() => setConfirmation('remove')}
+                >
+                  <View className="h-12 w-12 items-center justify-center rounded-full bg-surface-error">
+                    <MaterialIcons name="person-remove" size={21} color="#E5483B" />
+                  </View>
+                  <View className="ml-3 flex-1">
+                    <AppText className="font-semibold text-md text-status-error">
+                      Remove friend
+                    </AppText>
+                    <AppText className="mt-1 text-sm2 text-text-secondary">
+                      Stop showing this account as a friend
+                    </AppText>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={20} color="#8A8379" />
+                </AppPressable>
+
+                <AppPressable
+                  accessibilityHint="Opens a confirmation before blocking this account"
+                  accessibilityLabel={`Block ${user.fullName}`}
+                  accessibilityRole="button"
+                  className="flex-row items-center rounded-[24px] bg-surface-muted px-4 py-4"
+                  disabled={actionsDisabled}
+                  onPress={() => setConfirmation('block')}
+                >
+                  <View className="h-12 w-12 items-center justify-center rounded-full bg-surface-error">
+                    <MaterialIcons name="block" size={21} color="#E5483B" />
+                  </View>
+                  <View className="ml-3 flex-1">
+                    <AppText className="font-semibold text-md text-status-error">
+                      Block account
+                    </AppText>
+                    <AppText className="mt-1 text-sm2 text-text-secondary">
+                      Stop this account from interacting with you
+                    </AppText>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={20} color="#8A8379" />
+                </AppPressable>
+              </View>
+            )}
+          </>
+        )
+      }}
+    </AnimatedActionSheet>
   )
 }
 
@@ -119,29 +354,49 @@ export default function FriendsScreen() {
   const { section: sectionParam } = useLocalSearchParams<{ section?: Section }>()
   const insets = useSafeAreaInsets()
   const [section, setSection] = useState<Section>('friends')
+  const [selectedFriend, setSelectedFriend] = useState<FriendSummary | null>(null)
+  const friendActionStartedRef = useRef(false)
 
   useEffect(() => {
     if (sectionParam === 'received' || sectionParam === 'sent' || sectionParam === 'friends') {
       setSection(sectionParam)
     }
   }, [sectionParam])
+
   const friendsQuery = useFriends()
   const incomingQuery = useIncomingFriendRequests()
-  const outgoingQuery = useOutgoingFriendRequests()
+  const outgoingQuery = useOutgoingFriendRequests({ enabled: section === 'sent' })
   const { refetch: refetchFriends } = friendsQuery
   const { refetch: refetchIncoming } = incomingQuery
   const { refetch: refetchOutgoing } = outgoingQuery
+  const staleQueriesRef = useRef({ friends: false, incoming: false, outgoing: false })
+
+  staleQueriesRef.current = {
+    friends: friendsQuery.data !== undefined && friendsQuery.isStale,
+    incoming: incomingQuery.data !== undefined && incomingQuery.isStale,
+    outgoing: outgoingQuery.data !== undefined && outgoingQuery.isStale,
+  }
 
   useFocusEffect(
     useCallback(() => {
-      void Promise.all([refetchFriends(), refetchIncoming(), refetchOutgoing()])
-    }, [refetchFriends, refetchIncoming, refetchOutgoing]),
+      const requests: Promise<unknown>[] = []
+
+      if (staleQueriesRef.current.friends) requests.push(refetchFriends())
+      if (staleQueriesRef.current.incoming) requests.push(refetchIncoming())
+      if (section === 'sent' && staleQueriesRef.current.outgoing) requests.push(refetchOutgoing())
+
+      if (requests.length > 0) {
+        void Promise.all(requests)
+      }
+    }, [refetchFriends, refetchIncoming, refetchOutgoing, section]),
   )
 
   const accept = useAcceptFriendRequest()
   const reject = useRejectFriendRequest()
   const cancel = useCancelFriendRequest()
   const remove = useRemoveFriend()
+  const block = useBlockUser()
+  const friendActionPending = remove.isPending || block.isPending
   const friends = friendsQuery.data ?? EMPTY_FRIENDS
   const incoming = useMemo(
     () => incomingQuery.data?.pages.flatMap((page) => page.items) ?? [],
@@ -162,8 +417,17 @@ export default function FriendsScreen() {
     section === 'friends' ? friendsQuery : section === 'received' ? incomingQuery : outgoingQuery
   const isLoading = activeQuery.isLoading && items.length === 0
   const isFetchingNext =
-    section === 'received' ? incomingQuery.isFetchingNextPage : outgoingQuery.isFetchingNextPage
-  const hasNextPage = section === 'received' ? incomingQuery.hasNextPage : outgoingQuery.hasNextPage
+    section === 'received'
+      ? incomingQuery.isFetchingNextPage
+      : section === 'sent'
+        ? outgoingQuery.isFetchingNextPage
+        : false
+  const hasNextPage =
+    section === 'received'
+      ? incomingQuery.hasNextPage
+      : section === 'sent'
+        ? outgoingQuery.hasNextPage
+        : false
   const isPendingRequest = useCallback(
     (requestId: string) =>
       (accept.isPending && accept.variables?.requestId === requestId) ||
@@ -180,22 +444,58 @@ export default function FriendsScreen() {
       void incomingQuery.fetchNextPage()
       return
     }
-    void outgoingQuery.fetchNextPage()
+    if (section === 'sent') {
+      void outgoingQuery.fetchNextPage()
+    }
   }, [hasNextPage, incomingQuery, isFetchingNext, outgoingQuery, section])
   const openProfile = useCallback((username: string) => router.push(`/users/${username}`), [router])
-  const confirmRemoval = useCallback(
-    (friend: FriendSummary) => {
-      if (remove.isPending) return
-      Alert.alert(
-        'Remove friend?',
-        `${friend.user.fullName} will be removed from your friends list.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Remove', style: 'destructive', onPress: () => remove.mutate(friend.user.id) },
-        ],
-      )
+  const openContactsSearch = useCallback(
+    () => router.push({ pathname: '/(tabs)/search', params: { tab: 'contacts' } }),
+    [router],
+  )
+  const closeFriendActions = useCallback(() => {
+    setSelectedFriend(null)
+  }, [])
+  const removeSelectedFriend = useCallback(
+    (friend: FriendSummary, onSuccess: () => void) => {
+      if (friendActionStartedRef.current || remove.isPending || block.isPending) return
+
+      friendActionStartedRef.current = true
+      remove.mutate(friend.user.id, {
+        onSuccess,
+        onSettled: () => {
+          friendActionStartedRef.current = false
+        },
+      })
     },
-    [remove],
+    [block.isPending, remove],
+  )
+  const blockSelectedFriend = useCallback(
+    (friend: FriendSummary, onSuccess: () => void) => {
+      if (friendActionStartedRef.current || remove.isPending || block.isPending) return
+
+      friendActionStartedRef.current = true
+      block.mutate(friend.user.id, {
+        onSuccess,
+        onSettled: () => {
+          friendActionStartedRef.current = false
+        },
+      })
+    },
+    [block, remove.isPending],
+  )
+  const openFriendActions = useCallback(
+    (friend: FriendSummary) => {
+      if (friendActionStartedRef.current || friendActionPending) return
+      setSelectedFriend(friend)
+    },
+    [friendActionPending],
+  )
+  const viewSelectedFriendProfile = useCallback(
+    (friend: FriendSummary) => {
+      openProfile(friend.user.username)
+    },
+    [openProfile],
   )
   const renderItem = useCallback(
     ({ item }: { item: Item }) => {
@@ -204,39 +504,51 @@ export default function FriendsScreen() {
       const removing = item.kind === 'friend' && remove.isPending && remove.variables === user.id
 
       return (
-        <View className="border-b border-border-light px-5 py-4">
+        <View className="px-5 py-3.5">
           <View className="flex-row items-center">
-            <Pressable
-              className="flex-1 flex-row items-center"
+            <AppPressable
+              className="min-w-0 flex-1 flex-row items-center"
               onPress={() => openProfile(user.username)}
+              activeOpacity={0.82}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${user.fullName}'s profile`}
             >
-              <Avatar user={user} />
-              <View className="ml-3 flex-1 pr-3">
-                <Text className="font-medium text-md text-text-primary" numberOfLines={1}>
+              <ChatAvatar name={user.fullName} picture={user.picture} size={52} />
+              <View className="ml-3 min-w-0 flex-1 pr-3">
+                <AppText className="font-medium text-md text-text-primary" numberOfLines={1}>
                   {user.fullName}
-                </Text>
-                <Text className="mt-0.5 text-sm2 text-text-secondary" numberOfLines={1}>
+                </AppText>
+                <AppText className="mt-0.5 text-sm2 text-text-secondary" numberOfLines={1}>
                   @{user.username}
-                </Text>
+                </AppText>
                 {item.kind === 'request' ? (
-                  <Text className="mt-1 text-xs2 text-text-muted">
+                  <AppText className="mt-1 text-xs2 text-text-muted">
                     {getRelativeDate(item.value.requestedAt)}
-                  </Text>
+                  </AppText>
                 ) : null}
               </View>
-            </Pressable>
+            </AppPressable>
+
             {item.kind === 'friend' ? (
-              <Action
+              <SafeTouchableOpacity
+                className="h-11 w-11 items-center justify-center overflow-hidden rounded-[16px] bg-surface-muted"
+                onPress={() => openFriendActions(item.value)}
+                activeOpacity={0.75}
                 disabled={removing}
-                label={removing ? 'Removing...' : 'Remove'}
-                onPress={() => confirmRemoval(item.value)}
-                tone="danger"
-              />
+                accessibilityRole="button"
+                accessibilityLabel={`Actions for ${user.fullName}`}
+              >
+                {removing ? (
+                  <ActivityIndicator color="#8A8379" size="small" />
+                ) : (
+                  <MaterialIcons name="more-horiz" size={20} color="#6F6861" />
+                )}
+              </SafeTouchableOpacity>
             ) : section === 'received' ? (
               <View className="flex-row gap-2">
                 <Action
                   disabled={requestPending}
-                  label={requestPending ? 'Working...' : 'Accept'}
+                  label={requestPending ? '...' : 'Accept'}
                   onPress={() =>
                     accept.mutate({
                       requestId: item.value.id,
@@ -255,112 +567,169 @@ export default function FriendsScreen() {
                 />
               </View>
             ) : (
-              <Action
-                disabled={requestPending}
-                label={requestPending ? 'Working...' : 'Cancel'}
-                onPress={() => cancel.mutate({ requestId: item.value.id, userId: user.id })}
-                tone="secondary"
-              />
+              <View className="items-end gap-1.5">
+                <AppText className="text-xs2 font-medium text-text-muted">Pending</AppText>
+                <Action
+                  disabled={requestPending}
+                  label={requestPending ? '...' : 'Cancel'}
+                  onPress={() => cancel.mutate({ requestId: item.value.id, userId: user.id })}
+                  tone="secondary"
+                />
+              </View>
             )}
           </View>
         </View>
       )
     },
-    [accept, cancel, confirmRemoval, isPendingRequest, openProfile, reject, remove, section],
+    [accept, cancel, isPendingRequest, openFriendActions, openProfile, reject, remove, section],
   )
+
+  const sectionTitle =
+    section === 'friends' ? 'Your friends' : section === 'received' ? 'Requests' : 'Sent requests'
+  const sectionCountLabel =
+    section === 'friends'
+      ? `${items.length} ${items.length === 1 ? 'friend' : 'friends'}`
+      : `${items.length} ${items.length === 1 ? 'request' : 'requests'}`
 
   return (
     <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
-      <View className="px-5 pb-4 pt-2">
-        <Text className="text-xs2 uppercase tracking-[1.2px] text-text-muted">Community</Text>
-        <View className="mt-1 flex-row items-center justify-between">
-          <Text className="font-heading text-[30px] text-text-primary">Friends</Text>
-          {incoming.length > 0 ? (
-            <Pressable
-              className="flex-row items-center rounded-full bg-brand-soft px-3 py-2"
-              onPress={() => setSection('received')}
-            >
-              <MaterialIcons name="person-add-alt-1" size={16} color="#D85A21" />
-              <Text className="ml-1.5 font-medium text-sm2 text-brand">{incoming.length} new</Text>
-            </Pressable>
-          ) : null}
+      <View className="flex-row items-end justify-between px-5 pb-3 pt-2">
+        <View>
+          <AppText className="text-xs2 font-semibold uppercase tracking-[1.8px] text-brand-dark">
+            Velora
+          </AppText>
+          <AppText className="font-display text-[28px] leading-[34px] tracking-[-0.7px] text-text-primary">
+            Friends
+          </AppText>
         </View>
-        <Text className="mt-1 text-base2 text-text-secondary">
-          Manage your friendships and requests.
-        </Text>
+        <View className="relative">
+          <SafeTouchableOpacity
+            className="h-12 w-12 items-center justify-center overflow-hidden rounded-[18px] border border-brand-soft bg-surface-accent"
+            onPress={openContactsSearch}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel="Find people in contacts"
+          >
+            <MaterialIcons name="person-add-alt-1" size={21} color="#D85A21" />
+          </SafeTouchableOpacity>
+        </View>
       </View>
 
-      <View className="mx-5 flex-row rounded-[20px] bg-surface-muted p-1">
+      <View className="mx-5 mt-1 flex-row rounded-full bg-surface-muted p-1">
         {(
           [
             ['friends', 'Friends'],
-            ['received', 'Received'],
+            ['received', 'Requests'],
             ['sent', 'Sent'],
           ] as const
-        ).map(([value, label]) => (
-          <Pressable
-            key={value}
-            className={`flex-1 rounded-[16px] px-2 py-2.5 ${section === value ? 'bg-white' : ''}`}
-            onPress={() => setSection(value)}
-          >
-            <Text
-              className={`text-center font-medium text-sm2 ${
-                section === value ? 'text-text-primary' : 'text-text-secondary'
-              }`}
+        ).map(([value, label]) => {
+          const isActive = section === value
+          const count =
+            value === 'friends' ? friends.length : value === 'received' ? incoming.length : null
+
+          return (
+            <Pressable
+              key={value}
+              className="h-11 flex-1 flex-row items-center justify-center rounded-full px-2"
+              onPress={() => setSection(value)}
+              collapsable={false}
+              style={({ pressed }) => ({
+                backgroundColor: isActive ? '#FFFFFF' : 'transparent',
+                borderColor: '#F4F4F4',
+                borderWidth: isActive ? 1 : 0,
+                opacity: pressed ? 0.76 : 1,
+              })}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isActive }}
+              accessibilityLabel={`${label} section`}
             >
-              {label}
-            </Text>
-          </Pressable>
-        ))}
+              <AppText
+                className="text-sm2 font-semibold"
+                style={{ color: isActive ? '#161616' : '#777777' }}
+              >
+                {label}
+              </AppText>
+              {count !== null && count > 0 ? (
+                <AppText className="ml-1.5 text-xs2" style={{ color: '#A6A6A6' }}>
+                  {count}
+                </AppText>
+              ) : null}
+            </Pressable>
+          )
+        })}
+      </View>
+
+      <View className="flex-row items-center justify-between px-5 pb-1.5 pt-5">
+        <AppText className="font-heading text-lg text-text-primary">{sectionTitle}</AppText>
+        <AppText className="text-sm2 text-text-muted">{sectionCountLabel}</AppText>
       </View>
 
       {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#D85A21" size="large" />
-        </View>
+        <FriendsListSkeleton />
       ) : activeQuery.isError && items.length === 0 ? (
-        <View className="flex-1 items-center justify-center px-8">
-          <Text className="text-center font-medium text-md text-text-primary">
+        <View className="mx-5 mt-4 items-center rounded-[24px] border border-brand-soft bg-surface-accent px-6 py-9">
+          <View className="h-12 w-12 items-center justify-center rounded-[18px] border border-brand-soft bg-bg-primary">
+            <MaterialIcons name="cloud-off" size={22} color="#D85A21" />
+          </View>
+          <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
             Could not load friends
-          </Text>
-          <Pressable className="mt-4 rounded-full bg-brand px-4 py-2.5" onPress={refresh}>
-            <Text className="font-medium text-sm2 text-white">Retry</Text>
-          </Pressable>
+          </AppText>
+          <AppText className="mt-1.5 text-center text-base2 leading-5 text-text-secondary">
+            Check your connection and try again.
+          </AppText>
+          <AppPressable
+            className="mt-5 h-11 items-center justify-center overflow-hidden rounded-full bg-brand px-6"
+            onPress={refresh}
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading friends"
+          >
+            <AppText className="text-base2 font-semibold text-white">Try again</AppText>
+          </AppPressable>
         </View>
       ) : (
         <FlatList
           data={items}
           keyExtractor={(item) => item.value.id}
           renderItem={renderItem}
+          showsVerticalScrollIndicator={false}
           contentContainerStyle={{
             flexGrow: 1,
             paddingBottom: getDockedTabBarHeight(insets.bottom) + 20,
           }}
           refreshControl={
             <RefreshControl
-              refreshing={activeQuery.isRefetching}
+              refreshing={activeQuery.isRefetching && !isFetchingNext}
               onRefresh={refresh}
               colors={['#D85A21']}
+              tintColor="#D85A21"
             />
           }
-          ListEmptyComponent={<EmptyState section={section} />}
+          ListEmptyComponent={<EmptyState section={section} onFindPeople={openContactsSearch} />}
           ListFooterComponent={
-            hasNextPage ? (
-              <Pressable
-                className="mx-5 my-5 items-center rounded-full border border-border-light bg-surface-card py-3"
-                disabled={isFetchingNext}
-                onPress={loadMore}
-              >
-                {isFetchingNext ? (
-                  <ActivityIndicator color="#D85A21" size="small" />
-                ) : (
-                  <Text className="font-medium text-sm2 text-text-primary">Load more</Text>
-                )}
-              </Pressable>
+            isFetchingNext ? (
+              <View className="py-5">
+                <ActivityIndicator color="#D85A21" size="small" />
+              </View>
             ) : null
           }
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.35}
         />
       )}
+
+      <FriendActionsSheet
+        friend={selectedFriend}
+        isBlocking={block.isPending}
+        isRemoving={
+          Boolean(selectedFriend) &&
+          remove.isPending &&
+          remove.variables === selectedFriend?.user.id
+        }
+        onBlock={blockSelectedFriend}
+        onClose={closeFriendActions}
+        onRemove={removeSelectedFriend}
+        onViewProfile={viewSelectedFriendProfile}
+      />
     </SafeAreaView>
   )
 }

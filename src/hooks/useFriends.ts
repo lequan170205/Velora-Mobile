@@ -95,9 +95,12 @@ export function useIncomingFriendRequests() {
   return useInfiniteQuery(getIncomingFriendRequestsInfiniteQueryOptions(viewerId))
 }
 
-export function useOutgoingFriendRequests() {
+export function useOutgoingFriendRequests(options: { enabled?: boolean } = {}) {
   const viewerId = useAuthStore((state) => state.user?.id) ?? ''
-  return useInfiniteQuery(getOutgoingFriendRequestsInfiniteQueryOptions(viewerId))
+  return useInfiniteQuery({
+    ...getOutgoingFriendRequestsInfiniteQueryOptions(viewerId),
+    enabled: Boolean(viewerId) && (options.enabled ?? true),
+  })
 }
 
 export function useBlockedUsersInfiniteQuery(options: { enabled?: boolean } = {}) {

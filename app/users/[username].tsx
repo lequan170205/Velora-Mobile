@@ -1,7 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { Image } from 'expo-image'
-import { LinearGradient } from 'expo-linear-gradient'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -25,6 +24,8 @@ import Animated, {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { conversationApi } from '../../src/api/conversation.api'
+import { AppText } from '../../src/components/base'
+import { SafeTouchableOpacity } from '../../src/components/common/SafeTouchableOpacity'
 import { ProfileActionsMenu } from '../../src/components/profile/ProfileActionsMenu'
 import {
   ReelThumbnailGridSkeleton,
@@ -138,16 +139,16 @@ function ActionButton({
 
 function EmptyReelsState() {
   return (
-    <View className="px-5 pt-8">
-      <View
-        className="items-center rounded-[28px] border border-dashed border-border-default bg-surface-card px-6 py-10"
-        style={{ borderCurve: 'continuous' }}
-      >
-        <View className="h-14 w-14 items-center justify-center rounded-full bg-brand-soft">
-          <MaterialIcons name="play-circle-outline" size={28} color="#D85A21" />
-        </View>
-        <Text className="mt-4 font-heading text-xl text-text-primary">No reels yet</Text>
+    <View className="items-center px-5 pb-2 pt-7">
+      <View className="h-12 w-12 items-center justify-center rounded-[18px] border border-brand-soft bg-surface-accent">
+        <MaterialIcons name="play-circle-outline" size={24} color="#D85A21" />
       </View>
+      <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
+        No public reels yet
+      </AppText>
+      <AppText className="mt-1.5 text-center text-base2 leading-5 text-text-secondary">
+        Public reels from this profile will appear here.
+      </AppText>
     </View>
   )
 }
@@ -158,42 +159,46 @@ function ReelsLoadingGrid({ tileSize }: { tileSize: number }) {
 
 function FriendHighlight({ friend, onPress }: { friend: FriendSummary; onPress: () => void }) {
   return (
-    <Pressable className="mr-4 items-center" onPress={onPress}>
-      <View
-        className="h-[76px] w-[76px] items-center justify-center rounded-full border border-border-light bg-white"
-        style={{
-          shadowColor: 'rgba(22, 22, 22, 0.06)',
-          shadowOffset: { width: 0, height: 10 },
-          shadowOpacity: 1,
-          shadowRadius: 20,
-          elevation: 2,
-        }}
-      >
+    <SafeTouchableOpacity
+      className="mr-[14px] items-center"
+      style={{ width: 64 }}
+      hitSlop={0}
+      onPress={onPress}
+      activeOpacity={0.8}
+      accessibilityRole="button"
+      accessibilityLabel={`Open @${friend.user.username}'s profile`}
+    >
+      <View className="h-[60px] w-[60px] items-center justify-center overflow-hidden rounded-[20px] bg-surface-muted">
         {friend.user.picture ? (
           <Image
             source={{ uri: friend.user.picture }}
-            style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: '#F5F5F5' }}
+            style={{ width: 60, height: 60, borderRadius: 20, backgroundColor: '#F5F5F5' }}
           />
         ) : (
-          <View className="h-[68px] w-[68px] items-center justify-center rounded-full bg-surface-muted">
-            <Text className="font-heading text-lg text-text-primary">
+          <View className="h-[60px] w-[60px] items-center justify-center rounded-[20px] bg-surface-muted">
+            <AppText className="font-heading text-lg text-text-primary">
               {getInitials(friend.user.fullName)}
-            </Text>
+            </AppText>
           </View>
         )}
       </View>
-      <Text className="mt-2 max-w-[78px] text-center text-sm2 text-text-primary" numberOfLines={1}>
+      <AppText
+        className="mt-2 text-center text-sm2 font-medium text-text-primary"
+        numberOfLines={1}
+        ellipsizeMode="tail"
+        style={{ width: 64 }}
+      >
         @{friend.user.username}
-      </Text>
-    </Pressable>
+      </AppText>
+    </SafeTouchableOpacity>
   )
 }
 
 function FriendSkeleton() {
   return (
-    <View className="mr-4 items-center">
-      <View className="h-[76px] w-[76px] rounded-full bg-surface-muted" />
-      <View className="mt-2 h-3 w-14 rounded-full bg-surface-muted" />
+    <View className="mr-[14px] items-center" style={{ width: 64 }}>
+      <View className="h-[60px] w-[60px] rounded-[20px] bg-surface-muted" />
+      <View className="mt-2 h-3 w-12 rounded-full bg-surface-muted" />
     </View>
   )
 }
@@ -538,181 +543,142 @@ export default function PublicProfileScreen() {
           />
         }
         ListHeaderComponent={
-          <View className="px-5 pb-6 pt-2">
-            <View className="flex-row items-center">
-              <Pressable
+          <View className="px-5 pb-5 pt-2">
+            <View className="flex-row items-center justify-between pb-3">
+              <SafeTouchableOpacity
                 accessibilityLabel="Go back"
                 accessibilityRole="button"
-                className="h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border-light bg-surface-card"
+                activeOpacity={0.75}
+                className="h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[18px] bg-surface-muted"
                 onPress={() => router.back()}
               >
                 <MaterialIcons name="arrow-back" size={22} color={colors.text.primary} />
-              </Pressable>
+              </SafeTouchableOpacity>
 
-              <View className="min-w-0 flex-1 items-center px-2">
-                <Text
-                  className="font-heading text-xl text-text-primary"
-                  ellipsizeMode="tail"
-                  numberOfLines={1}
-                >
-                  {getHandleLabel(profile.username)}
-                </Text>
+              <View className="min-w-0 flex-1 items-center px-3">
+                <AppText className="font-heading text-lg text-text-primary">Profile</AppText>
               </View>
 
               {!isOwnProfile ? (
-                <Pressable
+                <SafeTouchableOpacity
                   accessibilityLabel={`More options for ${getHandleLabel(profile.username)}`}
                   accessibilityRole="button"
-                  className="h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border-light bg-surface-card"
+                  activeOpacity={0.75}
+                  className="h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[18px] border border-brand-soft bg-surface-accent"
                   disabled={blockUser.isPending}
                   onPress={handleOpenProfileActions}
                   style={{ opacity: blockUser.isPending ? 0.65 : 1 }}
                 >
-                  <MaterialIcons name="more-horiz" size={24} color={colors.text.primary} />
-                </Pressable>
+                  <MaterialIcons name="more-horiz" size={22} color="#D85A21" />
+                </SafeTouchableOpacity>
               ) : (
-                <View className="h-11 w-11 shrink-0" />
+                <View className="h-12 w-12 shrink-0" />
               )}
             </View>
 
-            <LinearGradient
-              colors={['#FFF7EF', '#FFFFFF']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              className="mt-5 overflow-hidden rounded-[34px] border border-border-light px-5 py-5"
-              style={{
-                borderCurve: 'continuous',
-                shadowColor: 'rgba(22, 22, 22, 0.08)',
-                shadowOffset: { width: 0, height: 18 },
-                shadowOpacity: 1,
-                shadowRadius: 30,
-                elevation: 4,
-              }}
-            >
-              <View
-                pointerEvents="none"
-                className="absolute -right-7 -top-9 h-28 w-28 rounded-full"
-                style={{ backgroundColor: 'rgba(255, 107, 44, 0.10)' }}
-              />
-              <View
-                pointerEvents="none"
-                className="absolute -left-7 bottom-4 h-20 w-20 rounded-full"
-                style={{ backgroundColor: 'rgba(255, 107, 44, 0.06)' }}
-              />
+            <View className="mt-3 flex-row items-center">
+              {profile.picture ? (
+                <Image
+                  source={{ uri: profile.picture }}
+                  style={{
+                    width: 88,
+                    height: 88,
+                    borderRadius: 28,
+                    backgroundColor: '#F5F5F5',
+                  }}
+                />
+              ) : (
+                <View className="h-[88px] w-[88px] items-center justify-center rounded-[28px] bg-surface-muted">
+                  <AppText className="font-heading text-[28px] text-text-primary">
+                    {getInitials(profile.fullName)}
+                  </AppText>
+                </View>
+              )}
 
-              <View className="flex-row items-center">
-                {profile.picture ? (
-                  <Image
-                    source={{ uri: profile.picture }}
-                    style={{
-                      width: 96,
-                      height: 96,
-                      borderRadius: 48,
-                      backgroundColor: '#F5F5F5',
-                    }}
-                  />
-                ) : (
-                  <View className="h-24 w-24 items-center justify-center rounded-full bg-surface-muted">
-                    <Text className="font-heading text-[30px] text-text-primary">
-                      {getInitials(profile.fullName)}
-                    </Text>
+              <View className="ml-4 min-w-0 flex-1">
+                <AppText
+                  className="font-heading text-[26px] leading-[30px] text-text-primary"
+                  numberOfLines={1}
+                >
+                  {profile.fullName}
+                </AppText>
+                <AppText
+                  className="mt-1 text-sm2 font-medium text-text-secondary"
+                  numberOfLines={1}
+                >
+                  {getHandleLabel(profile.username)}
+                </AppText>
+              </View>
+            </View>
+
+            {!isOwnProfile ? (
+              <View className="mt-5">
+                {status === 'friends' ? (
+                  <View className="flex-row gap-3">
+                    <View className="flex-1">
+                      <ActionButton
+                        disabled={isPending || isStatusLoading || isStatusFetching}
+                        isPending={pendingAction === 'message'}
+                        label="Message"
+                        onPress={handleMessage}
+                        variant="secondary"
+                      />
+                    </View>
+                    <View className="flex-1">
+                      <ActionButton
+                        disabled={isPending || isStatusLoading || isStatusFetching}
+                        isPending={false}
+                        label="Friends"
+                        onPress={handleOpenRemoveSheet}
+                        variant="secondary"
+                      />
+                    </View>
                   </View>
+                ) : status === 'request_received' ? (
+                  <ActionButton
+                    disabled={isStatusLoading || isStatusFetching}
+                    isPending={false}
+                    label="Respond in Friend Requests"
+                    onPress={openFriendRequests}
+                    variant="secondary"
+                  />
+                ) : status === 'request_sent' ? (
+                  <View className="items-center rounded-full border border-border-light bg-surface-card px-5 py-3">
+                    <Text className="font-medium text-text-secondary">Request sent</Text>
+                  </View>
+                ) : (
+                  <ActionButton
+                    disabled={isPending || isStatusLoading || isStatusFetching || !profile.id}
+                    isPending={sendFriendRequest.isPending}
+                    label="Add friend"
+                    onPress={() => sendFriendRequest.mutate(profile.id)}
+                    variant="primary"
+                  />
                 )}
 
-                <View className="ml-4 flex-1">
-                  <Text className="font-heading text-[30px] leading-[34px] text-text-primary">
-                    {profile.fullName}
-                  </Text>
-                  <View className="mt-2 flex-row flex-wrap items-center">
-                    <View className="rounded-full border border-border-light bg-white px-3 py-1.5">
-                      <Text className="text-xs2 uppercase tracking-[1.1px] text-text-secondary">
-                        {getHandleLabel(profile.username)}
-                      </Text>
-                    </View>
+                {actionErrorMessage ? (
+                  <View className="mt-3 flex-row rounded-[22px] border border-[#FFD9D5] bg-[#FFF5F3] px-4 py-3">
+                    <MaterialIcons name="error-outline" size={18} color="#E5483B" />
+                    <Text className="ml-2 flex-1 text-sm2 leading-5 text-[#B2453C]">
+                      {actionErrorMessage}
+                    </Text>
                   </View>
-                </View>
+                ) : null}
               </View>
+            ) : null}
 
-              {!isOwnProfile ? (
-                <View className="mt-5">
-                  {status === 'friends' ? (
-                    <View className="flex-row gap-3">
-                      <View className="flex-1">
-                        <ActionButton
-                          disabled={isPending || isStatusLoading || isStatusFetching}
-                          isPending={pendingAction === 'message'}
-                          label="Message"
-                          onPress={handleMessage}
-                          variant="secondary"
-                        />
-                      </View>
-                      <View className="flex-1">
-                        <ActionButton
-                          disabled={isPending || isStatusLoading || isStatusFetching}
-                          isPending={false}
-                          label="Friends"
-                          onPress={() => {
-                            Alert.alert('Friends', undefined, [
-                              { text: 'Cancel', style: 'cancel' },
-                              {
-                                text: 'Remove friend',
-                                style: 'destructive',
-                                onPress: handleOpenRemoveSheet,
-                              },
-                            ])
-                          }}
-                          variant="secondary"
-                        />
-                      </View>
-                    </View>
-                  ) : status === 'request_received' ? (
-                    <ActionButton
-                      disabled={isStatusLoading || isStatusFetching}
-                      isPending={false}
-                      label="Respond in Friend Requests"
-                      onPress={openFriendRequests}
-                      variant="secondary"
-                    />
-                  ) : status === 'request_sent' ? (
-                    <View className="items-center rounded-full border border-border-light bg-surface-card px-5 py-3">
-                      <Text className="font-medium text-text-secondary">Request sent</Text>
-                    </View>
-                  ) : (
-                    <ActionButton
-                      disabled={isPending || isStatusLoading || isStatusFetching || !profile.id}
-                      isPending={sendFriendRequest.isPending}
-                      label="Add friend"
-                      onPress={() => sendFriendRequest.mutate(profile.id)}
-                      variant="primary"
-                    />
-                  )}
-
-                  {actionErrorMessage ? (
-                    <View className="mt-3 flex-row rounded-[22px] border border-[#FFD9D5] bg-[#FFF5F3] px-4 py-3">
-                      <MaterialIcons name="error-outline" size={18} color="#E5483B" />
-                      <Text className="ml-2 flex-1 text-sm2 leading-5 text-[#B2453C]">
-                        {actionErrorMessage}
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-              ) : null}
-            </LinearGradient>
-
-            <View className="mt-5">
-              <View className="flex-row items-center">
-                <Text className="font-heading text-lg text-text-primary">Friends</Text>
-                <View className="ml-2 rounded-full bg-surface-muted px-3 py-1.5">
-                  <Text className="text-xs2 uppercase tracking-[1px] text-text-secondary">
-                    {friendsValue}
-                  </Text>
-                </View>
+            <View className="mt-6">
+              <View className="flex-row items-center justify-between">
+                <AppText className="text-xs2 font-semibold uppercase tracking-[1.4px] text-text-muted">
+                  Friends
+                </AppText>
+                <AppText className="text-sm2 text-text-muted">{friendsValue}</AppText>
               </View>
 
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingTop: 16, paddingRight: 20 }}
+                contentContainerStyle={{ paddingTop: 10, paddingRight: 20 }}
               >
                 {isFriendsPending && friends.length === 0 ? (
                   Array.from({ length: 4 }).map((_, index) => (
@@ -729,38 +695,36 @@ export default function PublicProfileScreen() {
                     ))}
 
                     {extraFriendsCount > 0 ? (
-                      <View className="mr-4 items-center">
-                        <View className="h-[76px] w-[76px] items-center justify-center rounded-full border border-dashed border-border-strong bg-white">
-                          <Text className="font-heading text-lg text-text-primary">
+                      <View className="mr-[14px] items-center" style={{ width: 64 }}>
+                        <View className="h-[60px] w-[60px] items-center justify-center rounded-[20px] bg-surface-muted">
+                          <AppText className="font-heading text-base2 text-text-primary">
                             +{extraFriendsCount}
-                          </Text>
+                          </AppText>
                         </View>
-                        <Text className="mt-2 text-sm2 text-text-secondary">More</Text>
+                        <AppText className="mt-2 text-sm2 text-text-secondary">More</AppText>
                       </View>
                     ) : null}
                   </>
                 ) : (
-                  <View
-                    className="rounded-[24px] border border-dashed border-border-default bg-surface-card px-5 py-4"
-                    style={{ borderCurve: 'continuous' }}
-                  >
-                    <Text className="font-medium text-text-primary">No friends yet</Text>
-                    <Text className="mt-1 text-sm2 text-text-secondary">
+                  <View className="rounded-[18px] bg-surface-accent px-4 py-3">
+                    <AppText className="text-sm2 font-medium text-text-primary">
+                      No friends yet
+                    </AppText>
+                    <AppText className="mt-0.5 text-sm2 text-text-secondary">
                       This profile has no friends to show yet.
-                    </Text>
+                    </AppText>
                   </View>
                 )}
               </ScrollView>
             </View>
 
-            <View className="mt-6 border-y border-border-light">
-              <View className="items-center py-3">
-                <View
-                  className="absolute top-0 h-[2px] w-14 bg-brand"
-                  style={{ alignSelf: 'center' }}
-                />
-                <MaterialIcons name="grid-on" size={20} color="#161616" />
-              </View>
+            <View className="mt-6 flex-row items-center justify-between">
+              <AppText className="text-xs2 font-semibold uppercase tracking-[1.4px] text-text-muted">
+                Public reels
+              </AppText>
+              <AppText className="text-sm2 text-text-muted">
+                {publicReels.length} {publicReels.length === 1 ? 'reel' : 'reels'}
+              </AppText>
             </View>
           </View>
         }
