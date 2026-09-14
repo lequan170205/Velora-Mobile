@@ -37,11 +37,16 @@ candidates, not the earlier pre-merge test SHAs.
   and CD run `34819572841` passed, including image build and promotion.
 - `homelab-deploy` later advanced to the docs-only descendant
   `b5fa5821b67e1f5b7515a33a625b119427496d60`; the running call-service image
-  remains pinned to the functional candidate above.
+  remained pinned to the functional candidate above until the subsequent
+  master promotion `3889f134f2a6838c513e09d489dcc25bf2f8b0e4`.
 - The deployment receipt
   `20260914T075755Z-11bd4341b61e-success.json` reports a successful 72-second
-  transition to the candidate. `deployed-sha` and the running call-service
-  image report the candidate, with 33 GB root-disk headroom after deployment.
+  transition to the candidate. The subsequent docs-only receipt
+  `20260914T082100Z-b5fa5821b67e-success.json` advanced `deployed-sha` without
+  restarting call-service. The subsequent master promotion receipt
+  `20260914T083222Z-3889f134f2a6-success.json` completed successfully; the
+  running call-service image is now tagged
+  `3889f134f2a6838c513e09d489dcc25bf2f8b0e4`, with 42 GB root-disk headroom.
 - Public Socket.IO handshake is healthy (`HTTP 200`, `pingInterval=25000`,
   `pingTimeout=20000`). The call-service metrics endpoint exposes the new
   disconnect-reason and reconnect-duration series.
