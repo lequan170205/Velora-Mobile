@@ -9,24 +9,23 @@ than inferred.
 
 | Item | Baseline before this fix | Candidate after this fix |
 | --- | --- | --- |
-| Backend | `87688b2942c3383cffcc5929907b1a2e90210c81` | `3cb70df6e9bd3b20bb7ad4f74c3de8902086f012` |
+| Backend | `87688b2942c3383cffcc5929907b1a2e90210c81` | `11bd4341b61e0412b12c83507374792c0d97c122` |
 | Mobile | `0e7722076857e3e79625afc376dfd57b1a1b1207` | `f6b0b1fa2f6409cca4c821e69071ff6169ef574d` |
 | Captured at | 2026-09-14, Asia/Ho_Chi_Minh | 2026-09-14, Asia/Ho_Chi_Minh |
 
 The baseline runtime scenarios were **not captured** in this source audit. The
-paired physical iPhone was available earlier, but the manual matrix has not
-been executed; an iOS simulator cannot prove CallKit/PushKit behavior. The
-final source tips above are the merged release candidates, not the earlier
-pre-merge test SHAs.
+manual matrix has not been executed; an iOS simulator cannot prove
+CallKit/PushKit behavior. The final source tips above are the merged release
+candidates, not the earlier pre-merge test SHAs.
 
 ## Candidate build evidence
 
 - The final merged iPhone 17 simulator candidate built, installed and launched
   successfully with `npx expo run:ios --device "iPhone 17" --no-bundler`.
-- The final merged Debug `iphoneos` candidate built successfully with Xcode.
-  A final reinstall was not completed because CoreDevice reported the paired
-  iPhone as unavailable; the earlier pre-merge install is not counted as final
-  evidence.
+- The final merged Debug `iphoneos` candidate built successfully with Xcode and
+  was installed on the connected iPhone 12
+  (`DA46320E-FC2F-5BF4-B97E-D2E485B6DDC3`). Launch was deferred because the
+  device was locked; no call result is inferred from the install alone.
 - These are compile/install checks only. No call, network-loss, camera-toggle
   or CallKit measurements are inferred from them; the physical matrix below
   remains pending.
@@ -34,11 +33,15 @@ pre-merge test SHAs.
 ## Backend deployment gate
 
 - The compatible backend source candidate is
-  `3cb70df6e9bd3b20bb7ad4f74c3de8902086f012`; its Homelab CI/CD validation and
-  promotion completed successfully.
-- The server has not restarted the call-service container because its disk
-  guard reports 14–15 GB free and requires at least 20 GB. Runtime evidence
-  must therefore wait until the container reports the candidate SHA.
+  `11bd4341b61e0412b12c83507374792c0d97c122`; Homelab CI run `34819110593`
+  and CD run `34819572841` passed, including image build and promotion.
+- The deployment receipt
+  `20260914T075755Z-11bd4341b61e-success.json` reports a successful 72-second
+  transition to the candidate. `deployed-sha` and the running call-service
+  image report the candidate, with 33 GB root-disk headroom after deployment.
+- Public Socket.IO handshake is healthy (`HTTP 200`, `pingInterval=25000`,
+  `pingTimeout=20000`). The call-service metrics endpoint exposes the new
+  disconnect-reason and reconnect-duration series.
 
 ## Safe diagnostic contract
 
