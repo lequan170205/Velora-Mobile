@@ -13,10 +13,10 @@ than inferred.
 | Mobile | `0e7722076857e3e79625afc376dfd57b1a1b1207` | `07942a7436712241a6bf93a79f50d4d5c188f5f3` |
 | Captured at | 2026-09-14, Asia/Ho_Chi_Minh | 2026-09-14, Asia/Ho_Chi_Minh |
 
-The baseline runtime scenarios were **not captured** in this audit: the only
-paired physical iPhone was offline and an iOS simulator cannot prove
-CallKit/PushKit behavior. Simulator results therefore cannot close the
-physical-device gate.
+The baseline runtime scenarios were **not captured** in this source audit. The
+paired physical iPhone is now available, but the manual matrix has not been
+executed; an iOS simulator cannot prove CallKit/PushKit behavior. Simulator
+results therefore cannot close the physical-device gate.
 
 ## Safe diagnostic contract
 
@@ -30,7 +30,7 @@ messages or media content.
 
 | Scenario | Required evidence | Status |
 | --- | --- | --- |
-| iPhone ↔ simulator video call | build IDs, disconnects, ICE restarts, media rebuilds | not captured — physical iPhone unavailable |
+| iPhone ↔ simulator video call | build IDs, disconnects, ICE restarts, media rebuilds | not captured — manual physical-device matrix pending |
 | 20 camera toggles | command/revision sequence and peer convergence | not captured |
 | inactive → active | producer/consumer count and camera revision | not captured |
 | 3–5 second network loss | no CoreAudio/media teardown during control-plane recovery | not captured |
