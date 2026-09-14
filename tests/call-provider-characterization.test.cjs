@@ -617,6 +617,21 @@ test('a crash after server acceptance resumes with rejoin instead of replaying a
   assert.match(recovery, /markNativeCallActive\(rejoined\.callId\)/)
 })
 
+test('a journaled resume does not rebuild a call already being accepted', () => {
+  const nativeActions = read('src/lib/call/useNativeCallActions.ts')
+  const resumeSource = sliceBetween(
+    nativeActions,
+    "if (action.action === 'resume')",
+    "if (action.action === 'answer')",
+  )
+
+  assert.match(nativeActions, /const hasCurrentCallSetup = \(\) =>/)
+  assert.match(resumeSource, /if \(hasCurrentCallSetup\(\)\)/)
+  assert.match(resumeSource, /resume_ignored_existing_setup/)
+  assert.match(resumeSource, /completeNativeCallAction\(action.actionId\)/)
+  assert.doesNotMatch(resumeSource, /await resumeAcceptedCall\(callState\)[\s\S]*hasCurrentCallSetup/)
+})
+
 test('a delayed incoming rejection cannot teardown a newer call', () => {
   const rejectionSource = sliceBetween(
     providerSource,

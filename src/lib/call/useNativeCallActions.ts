@@ -155,7 +155,35 @@ export const useNativeCallActions = ({
           )
         }
 
+        const hasCurrentCallSetup = () => {
+          const activeState = useCallStore.getState()
+          return (
+            activeState.callId === action.callId &&
+            (activeState.phase === 'connecting' ||
+              activeState.phase === 'active' ||
+              activeState.phase === 'reconnecting' ||
+              activeState.phase === 'ending')
+          )
+        }
+
         if (action.action === 'resume') {
+          // CallKit may journal `resume` immediately after `answer` during a
+          // cold launch. The answer path already owns media setup for this
+          // call; starting a second rejoin here races transport creation and
+          // can replace the local video producer. A live setup/recovery also
+          // has its own lifecycle handling, so this resume is redundant.
+          if (hasCurrentCallSetup()) {
+            debugCall(
+              '[Call] resume_ignored_existing_setup',
+              JSON.stringify({
+                callId: shortCallId(action.callId),
+                actionId: shortCallId(action.actionId),
+              }),
+            )
+            completeNativeCallAction(action.actionId)
+            return
+          }
+
           if (hasConflictingCall()) {
             veloraSystemCalls.dismissIncomingCall(action.callId)
             completeNativeCallAction(action.actionId)
