@@ -10,7 +10,7 @@ than inferred.
 | Item | Baseline before this fix | Candidate after this fix |
 | --- | --- | --- |
 | Backend | `87688b2942c3383cffcc5929907b1a2e90210c81` | `6b3353d064bb92322988dc8b0e02df000e7701fc` |
-| Mobile | `0e7722076857e3e79625afc376dfd57b1a1b1207` | `c4a5b6a0cf4f9fe9fe329c2e8e823dd7a099efea` |
+| Mobile | `0e7722076857e3e79625afc376dfd57b1a1b1207` | `70763af9736c87e881f444257b3c9f6c66029e04` |
 | Captured at | 2026-09-14, Asia/Ho_Chi_Minh | 2026-09-14, Asia/Ho_Chi_Minh |
 
 The baseline runtime scenarios were **not captured** in this audit: the only
