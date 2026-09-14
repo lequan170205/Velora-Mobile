@@ -79,6 +79,14 @@ export const useAuthStore = create<AuthState>((set) => ({
           set({ isLoading: true })
         }
 
+        const hasSession = await authApi.restoreSession()
+        if (hydrationVersion !== authHydrationVersion) return
+
+        if (!hasSession) {
+          set({ user: null, isAuthenticated: false, isLoading: false, authHydrationError: null })
+          return
+        }
+
         const data = await authApi.me()
         if (hydrationVersion !== authHydrationVersion) return
 

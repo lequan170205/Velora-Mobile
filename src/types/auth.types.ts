@@ -31,7 +31,12 @@ export interface UsernameAvailabilityResponse {
   available: boolean
 }
 
-export type LoginResponse = AuthMessageResponse
+export interface MobileAuthTokenPair {
+  accessToken: string
+  refreshToken: string
+}
+
+export type LoginResponse = MobileAuthTokenPair
 export type MeResponse = AuthIdentityResponse
 
 export interface SocketTokenResponse {

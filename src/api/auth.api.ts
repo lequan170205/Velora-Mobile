@@ -1,4 +1,6 @@
-import { apiClient, beginLogout, endLogout } from './client'
+import { authTokenSession } from '../lib/auth/tokenSession'
+
+import { apiClient, beginLogout, endLogout, refreshAccessToken } from './client'
 
 import type {
   AuthIdentityResponse,
@@ -57,24 +59,48 @@ export const authApi = {
     return response.data
   },
   login: async (data: Record<string, unknown>) => {
-    const response = await apiClient.post<LoginResponse>('/auth/login', data)
+    const response = await apiClient.post<LoginResponse>('/auth/mobile/login', data)
+    await authTokenSession.installTokenPair(response.data)
     return response.data
   },
   logout: async (data?: { pushToken?: string; pushTokens?: LogoutPushToken[] }) => {
     await beginLogout()
 
     try {
-      const response = await apiClient.post<MessageResponse>('/auth/logout', data, {
-        timeout: 5000,
-      })
+      const refreshToken = await authTokenSession.getRefreshToken()
+
+      if (!refreshToken) {
+        throw new Error('Cannot logout without a refresh token')
+      }
+
+      const response = await apiClient.post<MessageResponse>(
+        '/auth/mobile/logout',
+        { ...data, refreshToken },
+        {
+          timeout: 5000,
+        },
+      )
+
+      await authTokenSession.clear()
       return response.data
     } finally {
       endLogout()
     }
   },
-  refresh: async () => {
-    const response = await apiClient.post<LoginResponse>('/auth/refresh')
-    return response.data
+  refresh: () => refreshAccessToken(),
+  /**
+   * Restores the in-memory bearer session on cold start when needed.
+   *
+   * If an access token is already installed, this is a no-op so profile hydration does not rotate
+   * refresh credentials unnecessarily. Otherwise it refreshes from SecureStore. Network failures
+   * propagate without deleting the stored refresh token; definitive 401/403 refresh failures clear
+   * the local token session before propagating the auth error.
+   */
+  restoreSession: async (): Promise<boolean> => {
+    if (authTokenSession.hasAccessToken()) return true
+
+    const restoredSession = await refreshAccessToken()
+    return Boolean(restoredSession)
   },
   me: async () => {
     const response = await apiClient.get<MeResponse>('/auth/me')
@@ -99,7 +125,8 @@ export const authApi = {
     return response.data
   },
   verifyGoogleToken: async (data: { idToken: string }) => {
-    const response = await apiClient.post<MessageResponse>('/auth/google/verify', data)
+    const response = await apiClient.post<LoginResponse>('/auth/mobile/google/verify', data)
+    await authTokenSession.installTokenPair(response.data)
     return response.data
   },
   resendVerificationEmail: async (email: string) => {
