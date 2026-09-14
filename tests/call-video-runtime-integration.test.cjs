@@ -262,6 +262,27 @@ test('automatic and user video activation share one capture and one producer', a
   assert.equal(harness.state.cameraEnabled, true)
 })
 
+test('twenty concurrent video activations share one capture and one producer', async () => {
+  const harness = createRuntime()
+
+  const activations = Array.from({ length: 20 }, () =>
+    harness.runtime.activateLocalVideo({
+      requestPermission: false,
+      source: 'user',
+    }),
+  )
+  const results = await Promise.all(activations)
+
+  assert.deepEqual(
+    results,
+    Array.from({ length: 20 }, () => true),
+  )
+  assert.equal(harness.capturedTracks.length, 1)
+  assert.equal(harness.produced.length, 1)
+  assert.equal(harness.cameraCommands.length, 1)
+  assert.equal(harness.state.cameraEnabled, true)
+})
+
 test('a user cancellation during automatic capture closes the stale track without producing video', async () => {
   const captureReady = createDeferred()
   const harness = createRuntime({ deferredVideoCapture: captureReady.promise })
