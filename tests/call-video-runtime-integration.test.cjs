@@ -93,7 +93,11 @@ const createDeferred = () => {
   return { promise, resolve, reject }
 }
 
-const createRuntime = ({ deferredVideoCapture = null, deferredCameraAck = null } = {}) => {
+const createRuntime = ({
+  deferredVideoCapture = null,
+  deferredCameraAck = null,
+  cameraAckResponder = null,
+} = {}) => {
   const state = {
     phase: 'active',
     callType: 'VIDEO',
@@ -156,7 +160,11 @@ const createRuntime = ({ deferredVideoCapture = null, deferredCameraAck = null }
         throw new Error(`unexpected event ${event}`)
       }
       cameraCommands.push(payload)
-      if (deferredCameraAck) await deferredCameraAck.promise
+      if (cameraAckResponder) {
+        await cameraAckResponder(payload)
+      } else if (deferredCameraAck) {
+        await deferredCameraAck.promise
+      }
       return {
         callId: payload.callId,
         producerId: payload.producerId,
@@ -369,6 +377,45 @@ test('camera off/on while disconnected preserves desired intent and reconciles a
   assert.equal(harness.refs.localVideoStateRef.current.confirmedEnabled, true)
   assert.equal(harness.refs.localVideoStateRef.current.desiredEnabled, true)
   assert.equal(harness.produced.length, 1)
+})
+
+test('a late camera ACK cannot roll the native track back behind the newest revision', async () => {
+  const ackResolvers = new Map()
+  const harness = createRuntime({
+    cameraAckResponder: async (payload) => {
+      if (payload.revision === 1) return
+      await new Promise((resolve) => ackResolvers.set(payload.revision, resolve))
+    },
+  })
+
+  assert.equal(
+    await harness.runtime.activateLocalVideo({ requestPermission: false, source: 'user' }),
+    true,
+  )
+  const track = harness.capturedTracks[0]
+
+  const cameraOff = harness.runtime.toggleCamera()
+  for (let attempt = 0; attempt < 10 && !ackResolvers.has(2); attempt += 1) {
+    await Promise.resolve()
+  }
+  assert.equal(ackResolvers.has(2), true)
+
+  const cameraOn = harness.runtime.toggleCamera()
+  for (let attempt = 0; attempt < 10 && !ackResolvers.has(3); attempt += 1) {
+    await Promise.resolve()
+  }
+  assert.equal(ackResolvers.has(3), true)
+
+  ackResolvers.get(3)()
+  await Promise.resolve()
+  assert.equal(track.enabled, true)
+  ackResolvers.get(2)()
+
+  await Promise.all([cameraOff, cameraOn])
+  assert.equal(track.enabled, true)
+  assert.equal(harness.state.cameraEnabled, true)
+  assert.equal(harness.refs.localVideoStateRef.current.revision, 3)
+  assert.equal(harness.refs.localVideoStateRef.current.confirmedEnabled, true)
 })
 
 const createRecoveryRuntime = ({ rejoinPayload, rejoinDeferred = null } = {}) => {
