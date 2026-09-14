@@ -17,6 +17,10 @@ import {
   REMOTE_AUDIO_WAIT_FALLBACK_MS,
   RTC_QUALITY_SAMPLE_INTERVAL_MS,
   SOCKET_DISCONNECT_GRACE_MS,
+  VIDEO_STATE_MAX_ATTEMPTS,
+  VIDEO_STATE_RETRY_DELAY_MAX_MS,
+  VIDEO_STATE_RETRY_DELAY_MS,
+  VIDEO_STATE_UPDATED_TIMEOUT_MS,
 } from '../lib/call/callConstants'
 import { safeCallErrorCode, shortCallId } from '../lib/call/callDebug'
 import {
@@ -28,6 +32,7 @@ import {
   getRemoteSetupFailureReason,
   isBusyPhase,
   isCallSetupCancelledError,
+  isTerminalRemoteMediaError,
   toAudioRouteTelemetry,
   toNativeIncomingCallPayload,
 } from '../lib/call/callPolicies'
@@ -39,6 +44,7 @@ import {
 import {
   clearPrewarmedCallSocketCredentials,
   clearWaitRegistry,
+  createCallRequestId,
   createCallSocket,
   emitAndWaitForEvent,
   isCallWaitCancelledError,
@@ -48,6 +54,7 @@ import {
 import { CallTelemetrySession, flushCallTelemetry } from '../lib/call/callTelemetry'
 import {
   deriveRemoteVideoStateFromRegistry,
+  boundedRetryDelay,
   isRemoteVideoProducerCurrent,
   reconcileRemoteVideoProducerTombstones,
   shouldApplyRemoteVideoRevision,
@@ -94,6 +101,7 @@ import type {
   NewProducerPayload,
   PeerLeftPayload,
   ProducerClosedPayload,
+  ProducerClosedAckPayload,
   RemoteVideoState,
   StartCallInput,
   UseCallValue,
@@ -106,6 +114,11 @@ import type { MediaStreamTrack, MediaStream } from 'react-native-webrtc'
 type CachedMediasoupDevice = {
   device: MediasoupDevice
   rtpCapabilitiesKey: string
+}
+
+type PendingLocalVideoProducerClosure = {
+  callId: string
+  producerId: string
 }
 
 const debugCall = (...args: Parameters<typeof console.warn>) => {
@@ -185,6 +198,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const remoteStreamRef = useRef<MediaStream | null>(null)
   const audioProducerRef = useRef<MediasoupTypes.Producer<Record<string, unknown>> | null>(null)
   const videoProducerRef = useRef<MediasoupTypes.Producer<Record<string, unknown>> | null>(null)
+  const pendingLocalVideoProducerClosuresRef = useRef(
+    new Map<string, PendingLocalVideoProducerClosure>(),
+  )
+  const inFlightLocalVideoProducerClosuresRef = useRef(new Set<string>())
   const cachedDeviceRef = useRef<CachedMediasoupDevice | null>(null)
   const consumerMapRef = useRef<Map<string, MediasoupTypes.Consumer<Record<string, unknown>>>>(
     new Map(),
@@ -418,6 +435,106 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     useCallStore.getState().patch({ error: message })
   }, [])
 
+  const flushPendingLocalVideoProducerClosures = useCallback(() => {
+    const socket = socketRef.current
+    if (!socket?.connected) return
+
+    for (const [key, entry] of pendingLocalVideoProducerClosuresRef.current) {
+      if (inFlightLocalVideoProducerClosuresRef.current.has(key)) continue
+      // Remove before emitting so repeated reconnect/render callbacks cannot
+      // issue duplicate cleanup commands. A disconnected socket puts the
+      // entry back for the next authenticated socket generation.
+      pendingLocalVideoProducerClosuresRef.current.delete(key)
+      inFlightLocalVideoProducerClosuresRef.current.add(key)
+      void (async () => {
+        for (let attempt = 0; attempt < VIDEO_STATE_MAX_ATTEMPTS; attempt += 1) {
+          if (!socket.connected || teardownInProgressRef.current) {
+            if (!socket.connected) {
+              pendingLocalVideoProducerClosuresRef.current.set(key, entry)
+            }
+            return
+          }
+
+          const requestId = createCallRequestId('close_producer')
+          try {
+            await emitAndWaitForEvent<'close_producer', 'producer_closed_ack'>(
+              socket,
+              'close_producer',
+              {
+                callId: entry.callId,
+                producerId: entry.producerId,
+                kind: 'video',
+                requestId,
+              },
+              {
+                event: 'producer_closed_ack',
+                timeoutMs: VIDEO_STATE_UPDATED_TIMEOUT_MS,
+                registry: waitRegistryRef.current,
+                requestId,
+                filter: (payload: ProducerClosedAckPayload) =>
+                  payload.callId === entry.callId &&
+                  payload.producerId === entry.producerId &&
+                  payload.kind === 'video' &&
+                  payload.requestId === requestId,
+              },
+            )
+            pendingLocalVideoProducerClosuresRef.current.delete(key)
+            return
+          } catch (error) {
+            if (isTerminalRemoteMediaError(error) || !socket.connected) {
+              if (!socket.connected) {
+                pendingLocalVideoProducerClosuresRef.current.set(key, entry)
+              }
+              return
+            }
+            if (teardownInProgressRef.current) return
+            if (attempt === VIDEO_STATE_MAX_ATTEMPTS - 1) {
+              debugCall(
+                '[Call] local_video_producer_close_failed',
+                JSON.stringify({
+                  callId: shortCallId(entry.callId),
+                  producerId: shortCallId(entry.producerId),
+                  socketGeneration: socketGenerationRef.current,
+                  errorCode: safeCallErrorCode(error),
+                  attempt: attempt + 1,
+                }),
+              )
+              return
+            }
+            await new Promise<void>((resolve) =>
+              setTimeout(
+                resolve,
+                boundedRetryDelay(
+                  attempt,
+                  VIDEO_STATE_RETRY_DELAY_MS,
+                  VIDEO_STATE_RETRY_DELAY_MAX_MS,
+                ),
+              ),
+            )
+          }
+        }
+      })().finally(() => {
+        inFlightLocalVideoProducerClosuresRef.current.delete(key)
+      })
+    }
+  }, [
+    inFlightLocalVideoProducerClosuresRef,
+    pendingLocalVideoProducerClosuresRef,
+    socketGenerationRef,
+    socketRef,
+    teardownInProgressRef,
+    waitRegistryRef,
+  ])
+
+  const requestCloseLocalVideoProducer = useCallback(
+    (callId: string, producerId: string) => {
+      const key = `${callId}:${producerId}`
+      pendingLocalVideoProducerClosuresRef.current.set(key, { callId, producerId })
+      flushPendingLocalVideoProducerClosures()
+    },
+    [flushPendingLocalVideoProducerClosures, pendingLocalVideoProducerClosuresRef],
+  )
+
   const resetRuntimeRefs = useCallback(
     (options?: { preserveActiveCall?: boolean }) => {
       clearAudioFlowConfirmation()
@@ -453,6 +570,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           revision: 0,
           pendingActionId: null,
         }
+        pendingLocalVideoProducerClosuresRef.current.clear()
+        inFlightLocalVideoProducerClosuresRef.current.clear()
       }
       consumingProducerIdsRef.current.clear()
       clearRemoteConsumerRetryState()
@@ -503,6 +622,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const currentRecvTransport = recvTransportRef.current
       const localStream = localStreamRef.current
       const remoteStream = remoteStreamRef.current
+
+      if (currentVideoProducer) {
+        const endingCallId = activeCallIdRef.current ?? useCallStore.getState().callId
+        if (endingCallId) {
+          requestCloseLocalVideoProducer(endingCallId, currentVideoProducer.id)
+        }
+      }
 
       currentConsumers.forEach((consumer) => {
         try {
@@ -562,7 +688,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       resetRuntimeRefs(options)
     },
-    [resetRuntimeRefs],
+    [requestCloseLocalVideoProducer, resetRuntimeRefs],
   )
 
   const resetRemoteConsumerRuntime = useCallback(() => {
@@ -873,6 +999,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     cameraPausedByBackgroundRef,
     callSetupGenerationRef,
     isCallSetupCurrent,
+    closeLocalVideoProducer: requestCloseLocalVideoProducer,
     presentError,
   })
 
@@ -2404,6 +2531,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
     const handleSocketReady = (payload?: CallSocketReadyPayload) => {
       callSocketAuthenticatedRef.current = true
+      flushPendingLocalVideoProducerClosures()
       ;(payload?.recentTerminalCalls ?? []).forEach((terminalCall) => {
         handleTerminalCall(terminalCall, 'socket_ready_replay')
       })
@@ -2757,6 +2885,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     clearRemoteVideoRuntime,
     deriveRemoteVideoState,
     deactivateLocalVideo,
+    flushPendingLocalVideoProducerClosures,
     beginReconnectRecovery,
     clearSocketDisconnectGraceTimeout,
     controlPlaneRecoveringRef,

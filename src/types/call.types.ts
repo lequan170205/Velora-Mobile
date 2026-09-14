@@ -106,6 +106,13 @@ export interface ProducePayload {
   requestId?: string
 }
 
+export interface CloseProducerPayload {
+  callId: string
+  producerId: string
+  kind: 'audio' | 'video'
+  requestId?: string
+}
+
 export interface ConsumePayload {
   callId: string
   transportId: string
@@ -250,6 +257,14 @@ export interface ProducerCreatedPayload {
   requestId?: string
 }
 
+export interface ProducerClosedAckPayload {
+  callId: string
+  producerId: string
+  kind: 'audio' | 'video'
+  status: 'closed' | 'already_closed'
+  requestId?: string
+}
+
 export interface ProducerClosedPayload {
   callId: string
   producerId: string
@@ -366,6 +381,7 @@ export interface CallServerEvents {
   transport_connected: (payload: TransportConnectedPayload) => void
   new_producer: (payload: NewProducerPayload) => void
   producer_created: (payload: ProducerCreatedPayload) => void
+  producer_closed_ack: (payload: ProducerClosedAckPayload) => void
   producer_closed: (payload: ProducerClosedPayload) => void
   consumer_created: (payload: ConsumerCreatedPayload) => void
   consumer_resumed: (payload: ConsumerResumedPayload) => void
@@ -394,6 +410,7 @@ export interface CallClientEvents {
   create_transport: (payload: CreateTransportPayload) => void
   connect_transport: (payload: ConnectTransportPayload) => void
   produce: (payload: ProducePayload) => void
+  close_producer: (payload: CloseProducerPayload) => void
   consume: (payload: ConsumePayload) => void
   resume_consumer: (payload: ResumeConsumerPayload) => void
   restart_ice: (payload: RestartIcePayload) => void

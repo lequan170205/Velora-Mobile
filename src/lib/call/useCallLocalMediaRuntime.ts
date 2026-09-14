@@ -63,6 +63,7 @@ type LocalMediaRuntimeOptions = {
   cameraPausedByBackgroundRef: MutableRef<boolean>
   callSetupGenerationRef: MutableRef<number>
   isCallSetupCurrent: (setupToken: number, callId: string) => boolean
+  closeLocalVideoProducer: (callId: string, producerId: string) => void
   presentError: (message: string) => void
 }
 
@@ -86,6 +87,7 @@ export const useCallLocalMediaRuntime = ({
   cameraPausedByBackgroundRef,
   callSetupGenerationRef,
   isCallSetupCurrent,
+  closeLocalVideoProducer,
   presentError,
 }: LocalMediaRuntimeOptions) => {
   const videoActivationGenerationRef = useRef(0)
@@ -315,8 +317,16 @@ export const useCallLocalMediaRuntime = ({
 
   const deactivateLocalVideo = useCallback(() => {
     videoActivationGenerationRef.current += 1
+    const callId = useCallStore.getState().callId
+    const currentVideoProducer = videoProducerRef.current
+    if (callId && currentVideoProducer) {
+      // mediasoup-client Producer.close() only tears down the local sender.
+      // Signal the server before dropping the reference so a cancelled
+      // activation cannot leave an unowned producer in the call room.
+      closeLocalVideoProducer(callId, currentVideoProducer.id)
+    }
     try {
-      videoProducerRef.current?.close()
+      currentVideoProducer?.close()
     } catch {
       // The server may already have closed the producer during a downgrade.
     }
@@ -345,7 +355,13 @@ export const useCallLocalMediaRuntime = ({
       cameraEnabled: false,
       localStreamUrl: localStream?.toURL() ?? null,
     })
-  }, [cameraPausedByBackgroundRef, localStreamRef, localVideoStateRef, videoProducerRef])
+  }, [
+    cameraPausedByBackgroundRef,
+    closeLocalVideoProducer,
+    localStreamRef,
+    localVideoStateRef,
+    videoProducerRef,
+  ])
 
   const activateLocalVideo = useCallback(
     async (options?: { requestPermission?: boolean; source?: LocalVideoActivationSource }) => {
@@ -473,6 +489,7 @@ export const useCallLocalMediaRuntime = ({
             sendTransportRef.current !== sendTransport ||
             localStreamRef.current !== targetStream
           ) {
+            closeLocalVideoProducer(callId, producer.id)
             producer.close()
             targetStream.removeTrack(track as unknown as MediaStreamTrack)
             track.stop()
@@ -483,6 +500,7 @@ export const useCallLocalMediaRuntime = ({
           const stateApplied = await emitLocalVideoState(true)
           if (!isActivationCurrent()) {
             videoProducerRef.current = null
+            closeLocalVideoProducer(callId, producer.id)
             producer.close()
             targetStream.removeTrack(track as unknown as MediaStreamTrack)
             track.stop()
@@ -514,6 +532,16 @@ export const useCallLocalMediaRuntime = ({
           })
           return true
         } catch (error) {
+          const currentProducer = videoProducerRef.current
+          if (currentProducer) {
+            videoProducerRef.current = null
+            closeLocalVideoProducer(callId, currentProducer.id)
+            try {
+              currentProducer.close()
+            } catch {
+              // Best-effort cleanup after a failed producer command.
+            }
+          }
           try {
             targetStream.removeTrack(track as unknown as MediaStreamTrack)
           } catch {
@@ -551,6 +579,7 @@ export const useCallLocalMediaRuntime = ({
     },
     [
       callSetupGenerationRef,
+      closeLocalVideoProducer,
       deviceRef,
       emitLocalVideoState,
       ensureCameraPermission,
