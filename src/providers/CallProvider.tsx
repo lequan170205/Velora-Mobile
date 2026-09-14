@@ -2237,7 +2237,16 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
               return
             }
             localVideoTrack.enabled = false
-            localVideoStateRef.current.desiredEnabled = false
+            // A foreground transition can race a short socket outage. Keep
+            // the newest desired intent so the next authenticated rejoin can
+            // reconcile it; only clear it when a connected command actually
+            // failed or the call is no longer current.
+            if (socketRef.current?.connected) {
+              localVideoStateRef.current.desiredEnabled = false
+            } else {
+              localVideoStateRef.current.desiredEnabled = true
+              cameraPausedByBackgroundRef.current = true
+            }
           })
         } else {
           void activateLocalVideo({ requestPermission: false, source: 'foreground' })
@@ -2246,7 +2255,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             })
             .catch(() => {
               const currentState = useCallStore.getState()
-              if (currentState.phase === 'active' && currentState.callType === 'VIDEO') {
+              if (
+                socketRef.current?.connected &&
+                currentState.phase === 'active' &&
+                currentState.callType === 'VIDEO'
+              ) {
                 presentError('Unable to restore video')
               }
             })
@@ -2284,7 +2297,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     return () => {
       subscription.remove()
     }
-  }, [activateLocalVideo, emitLocalVideoState, presentError, processPendingNativeCallAction])
+  }, [
+    activateLocalVideo,
+    emitLocalVideoState,
+    presentError,
+    processPendingNativeCallAction,
+    socketRef,
+  ])
 
   useEffect(() => {
     void flushCallTelemetry()
@@ -2601,7 +2620,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
       if (
         payload.revision !== undefined &&
-        !shouldApplyRemoteVideoRevision(currentRevision, payload.revision)
+        !shouldApplyRemoteVideoRevision(
+          currentRevision,
+          payload.revision,
+          remoteVideoEnabledByProducerRef.current.get(payload.producerId),
+          payload.enabled,
+        )
       ) {
         return
       }

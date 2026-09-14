@@ -14,6 +14,50 @@ export type RemoteVideoProducerEntry = {
 
 export type RemoteVideoRegistry = Map<string, RemoteVideoProducerEntry>
 
+export type LocalVideoToggleIntent = 'activate' | 'deactivate' | 'cancel_activation'
+
+/**
+ * Resolve a camera tap from the local state machine rather than from the
+ * optimistic UI bit alone. In particular, a failed automatic activation may
+ * leave desiredEnabled=true while cameraEnabled is still false; that must be
+ * a fresh activation attempt once the user taps again, not an implicit
+ * camera-off command. An in-flight activation is cancellable and must never
+ * start a second capture/producer path.
+ */
+export const resolveLocalVideoToggleIntent = ({
+  phase,
+  callType,
+  cameraEnabled,
+  desiredEnabled,
+  confirmedEnabled,
+  hasProducer,
+  activationInFlight,
+  socketConnected,
+}: {
+  phase: string
+  callType: CallType | null
+  cameraEnabled: boolean
+  desiredEnabled: boolean
+  confirmedEnabled: boolean
+  hasProducer: boolean
+  activationInFlight: boolean
+  socketConnected: boolean
+}): LocalVideoToggleIntent | 'noop' => {
+  if (phase !== 'active' || callType !== 'VIDEO') return 'noop'
+  if (activationInFlight && !cameraEnabled) return 'cancel_activation'
+  if (!hasProducer) return 'activate'
+
+  // If the last enable command never received an ACK while the socket is
+  // healthy, the user is looking at an off UI and the tap should retry enable.
+  // During a socket outage, however, the newest tap is an explicit off intent
+  // that must be retained for reconnect reconciliation.
+  if (desiredEnabled && !confirmedEnabled && !cameraEnabled && socketConnected) {
+    return 'activate'
+  }
+  if (cameraEnabled || desiredEnabled) return 'deactivate'
+  return 'activate'
+}
+
 /**
  * Producer ids are unique for the lifetime of a mediasoup producer. Keep a
  * tombstone after producer_closed so a delayed video_state_changed event for
@@ -44,7 +88,21 @@ export const reconcileRemoteVideoProducerTombstones = (
 export const shouldApplyRemoteVideoRevision = (
   currentRevision: number | undefined,
   incomingRevision: number,
-) => currentRevision === undefined || incomingRevision >= currentRevision
+  currentEnabled?: boolean,
+  incomingEnabled?: boolean,
+) => {
+  if (currentRevision === undefined || incomingRevision > currentRevision) return true
+  if (incomingRevision < currentRevision) return false
+
+  // Equal revisions are safe duplicates only when they carry the same
+  // authoritative value. A conflicting tie is invalid/stale and must not
+  // revive the old last-event-wins behaviour.
+  return (
+    currentEnabled === undefined ||
+    incomingEnabled === undefined ||
+    currentEnabled === incomingEnabled
+  )
+}
 
 export const deriveRemoteVideoStateFromRegistry = ({
   callType,

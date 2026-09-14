@@ -18,7 +18,11 @@ import {
   isTerminalRemoteMediaError,
 } from './callPolicies'
 import { createCallRequestId, emitAndWaitForEvent, isCallWaitCancelledError } from './callSocket'
-import { applyLocalVideoAck, boundedRetryDelay } from './callVideoState'
+import {
+  applyLocalVideoAck,
+  boundedRetryDelay,
+  resolveLocalVideoToggleIntent,
+} from './callVideoState'
 
 import type { CallWaitRegistry } from './callSocket'
 import type {
@@ -221,6 +225,13 @@ export const useCallLocalMediaRuntime = ({
           )
           Object.assign(localVideoState, appliedAck.state)
 
+          // Keep the capture track aligned with the authoritative server bit
+          // even when the command was sent during reconnect reconciliation.
+          // `cameraEnabled` remains ACK-driven below; the native track can be
+          // prepared before the UI flips back to on.
+          const localVideoTrack = localStreamRef.current?.getVideoTracks()[0]
+          if (localVideoTrack) localVideoTrack.enabled = acknowledgement.enabled
+
           debugCall(
             '[Call] camera_state_ack',
             JSON.stringify({
@@ -237,6 +248,13 @@ export const useCallLocalMediaRuntime = ({
           if (appliedAck.staleAuthoritativeEnabled !== undefined) {
             useCallStore.getState().patch({
               cameraEnabled: appliedAck.staleAuthoritativeEnabled,
+            })
+          } else if (appliedAck.isLatestAction) {
+            // Recovery reconciliation also uses this path, without going
+            // through activateLocalVideo's optimistic UI update. Keep the
+            // visible bit tied to the ACKed state in both cases.
+            useCallStore.getState().patch({
+              cameraEnabled: appliedAck.state.confirmedEnabled,
             })
           }
           return appliedAck.accepted
@@ -282,6 +300,7 @@ export const useCallLocalMediaRuntime = ({
       callSetupGenerationRef,
       isCallSetupCurrent,
       localVideoStateRef,
+      localStreamRef,
       socketRef,
       socketGenerationRef,
       videoProducerRef,
@@ -347,9 +366,18 @@ export const useCallLocalMediaRuntime = ({
         return existingActivation.promise
       }
 
+      // A disconnected control plane cannot acknowledge a newly created
+      // producer. Preserve the user's desired state and let rejoin/recovery
+      // reconcile it instead of capturing camera media that cannot be
+      // published yet.
+      if (!socketRef.current?.connected && !videoProducerRef.current) {
+        return false
+      }
+
       const resetUserIntentAfterFailure = () => {
         if (
           source === 'user' &&
+          socketRef.current?.connected &&
           activationGeneration === videoActivationGenerationRef.current &&
           isCallSetupCurrent(setupToken, callId)
         ) {
@@ -386,6 +414,12 @@ export const useCallLocalMediaRuntime = ({
           const stateApplied = await emitLocalVideoState(true)
           if (!isActivationCurrent()) return false
           if (!stateApplied) {
+            if (!socketRef.current?.connected) {
+              // Keep the capture ready for recovery. The UI remains off until
+              // the reconnect ACK arrives, but the desired intent is not lost.
+              existingTrack.enabled = true
+              return false
+            }
             existingTrack.enabled = false
             // The command did not become authoritative. Leave the producer
             // reusable, but reset the desired bit so the next user tap is an
@@ -455,6 +489,17 @@ export const useCallLocalMediaRuntime = ({
             return false
           }
           if (!stateApplied) {
+            if (!socketRef.current?.connected) {
+              // The producer was accepted, but the camera command could not
+              // be acknowledged while the socket was down. Keep both refs so
+              // reconnect reconciliation can send the retained desired bit.
+              track.enabled = true
+              useCallStore.getState().patch({
+                cameraEnabled: false,
+                localStreamUrl: targetStream.toURL(),
+              })
+              return false
+            }
             track.enabled = false
             localVideoStateRef.current.desiredEnabled = false
             useCallStore.getState().patch({
@@ -514,6 +559,7 @@ export const useCallLocalMediaRuntime = ({
       localStreamRef,
       presentError,
       sendTransportRef,
+      socketRef,
       videoProducerRef,
     ],
   )
@@ -571,8 +617,25 @@ export const useCallLocalMediaRuntime = ({
   const toggleCamera = useCallback(async () => {
     const state = useCallStore.getState()
     if (state.phase !== 'active' || state.callType !== 'VIDEO') return
-    const cameraIsDesiredOn = state.cameraEnabled || localVideoStateRef.current.desiredEnabled
-    if (!cameraIsDesiredOn) {
+    const activation = videoActivationRef.current
+    const intent = resolveLocalVideoToggleIntent({
+      phase: state.phase,
+      callType: state.callType,
+      cameraEnabled: state.cameraEnabled,
+      desiredEnabled: localVideoStateRef.current.desiredEnabled,
+      confirmedEnabled: localVideoStateRef.current.confirmedEnabled,
+      hasProducer: Boolean(videoProducerRef.current),
+      activationInFlight: Boolean(
+        activation &&
+        activation.callId === state.callId &&
+        activation.setupToken === callSetupGenerationRef.current &&
+        activation.generation === videoActivationGenerationRef.current,
+      ),
+      socketConnected: Boolean(socketRef.current?.connected),
+    })
+
+    if (intent === 'noop') return
+    if (intent === 'activate') {
       try {
         await activateLocalVideo({ source: 'user' })
       } catch {
@@ -582,7 +645,7 @@ export const useCallLocalMediaRuntime = ({
           currentState.callId === state.callId &&
           currentState.callType === 'VIDEO'
         ) {
-          presentError('Unable to enable video')
+          if (socketRef.current?.connected) presentError('Unable to enable video')
         }
       }
       return
@@ -592,7 +655,7 @@ export const useCallLocalMediaRuntime = ({
     // producer ACK must cancel that in-flight activation instead of starting a
     // second capture attempt. Once a producer exists, keep it stable and only
     // publish the versioned enabled=false state below.
-    if (!videoProducerRef.current) {
+    if (intent === 'cancel_activation' || !videoProducerRef.current) {
       deactivateLocalVideo()
       return
     }
@@ -606,9 +669,13 @@ export const useCallLocalMediaRuntime = ({
     activateLocalVideo,
     deactivateLocalVideo,
     emitLocalVideoState,
+    callSetupGenerationRef,
     localStreamRef,
     localVideoStateRef,
     presentError,
+    socketRef,
+    videoActivationGenerationRef,
+    videoActivationRef,
     videoProducerRef,
   ])
 

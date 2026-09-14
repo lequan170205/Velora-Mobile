@@ -244,7 +244,13 @@ export const useCallRecoveryRuntime = ({
               .map((producer) => producer.producerId),
           ),
         )
-        for (const producer of rejoined.activeProducers ?? []) {
+        // Restore the control/audio path before optional remote video. A
+        // snapshot is authoritative, but its array order must not let a slow
+        // video consumer postpone audible recovery.
+        const recoveredProducers = [...(rejoined.activeProducers ?? [])].sort(
+          (left, right) => Number(right.kind === 'audio') - Number(left.kind === 'audio'),
+        )
+        for (const producer of recoveredProducers) {
           await consumeRemoteProducer(
             {
               callId: rejoined.callId,
