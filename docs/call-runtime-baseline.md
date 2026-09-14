@@ -9,25 +9,36 @@ than inferred.
 
 | Item | Baseline before this fix | Candidate after this fix |
 | --- | --- | --- |
-| Backend | `87688b2942c3383cffcc5929907b1a2e90210c81` | `d2eab4282bae4d7ed881071b0b4e6ed91106e70e` |
-| Mobile | `0e7722076857e3e79625afc376dfd57b1a1b1207` | `2054abc9a55193646b484ad360d06016697c1c3a` |
+| Backend | `87688b2942c3383cffcc5929907b1a2e90210c81` | `3cb70df6e9bd3b20bb7ad4f74c3de8902086f012` |
+| Mobile | `0e7722076857e3e79625afc376dfd57b1a1b1207` | `b20d769a4ff25cf2105721c9bff80566dea1c95c` |
 | Captured at | 2026-09-14, Asia/Ho_Chi_Minh | 2026-09-14, Asia/Ho_Chi_Minh |
 
 The baseline runtime scenarios were **not captured** in this source audit. The
-paired physical iPhone is now available, but the manual matrix has not been
-executed; an iOS simulator cannot prove CallKit/PushKit behavior. Simulator
-results therefore cannot close the physical-device gate.
+paired physical iPhone was available earlier, but the manual matrix has not
+been executed; an iOS simulator cannot prove CallKit/PushKit behavior. The
+final source tips above are the merged release candidates, not the earlier
+pre-merge test SHAs.
 
 ## Candidate build evidence
 
-- The iPhone 17 simulator candidate built, installed and launched successfully
-  with `npx expo run:ios --device "iPhone 17" --no-bundler`.
-- The Debug `iphoneos` candidate built successfully with Xcode, and the same
-  `com.quan.velora.dev` app installed and launched on the paired physical
-  iPhone.
+- The final merged iPhone 17 simulator candidate built, installed and launched
+  successfully with `npx expo run:ios --device "iPhone 17" --no-bundler`.
+- The final merged Debug `iphoneos` candidate built successfully with Xcode.
+  A final reinstall was not completed because CoreDevice reported the paired
+  iPhone as unavailable; the earlier pre-merge install is not counted as final
+  evidence.
 - These are compile/install checks only. No call, network-loss, camera-toggle
   or CallKit measurements are inferred from them; the physical matrix below
   remains pending.
+
+## Backend deployment gate
+
+- The compatible backend source candidate is
+  `3cb70df6e9bd3b20bb7ad4f74c3de8902086f012`; its Homelab CI/CD validation and
+  promotion completed successfully.
+- The server has not restarted the call-service container because its disk
+  guard reports 14–15 GB free and requires at least 20 GB. Runtime evidence
+  must therefore wait until the container reports the candidate SHA.
 
 ## Safe diagnostic contract
 
