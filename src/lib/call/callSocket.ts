@@ -22,6 +22,34 @@ export class CallWaitCancelledError extends Error {
   }
 }
 
+export type CallSocketExceptionDetails = {
+  code?: string
+  event?: string
+  callId?: string
+  requestId?: string
+}
+
+/**
+ * Keeps the server's command context attached to a rejected waiter. Recovery
+ * policies can therefore distinguish a terminal stale-media error from a
+ * transient timeout without parsing or logging raw SDK payloads.
+ */
+export class CallSocketExceptionError extends Error {
+  readonly code: string | undefined
+  readonly event: string | undefined
+  readonly callId: string | undefined
+  readonly requestId: string | undefined
+
+  constructor(message: string, details: CallSocketExceptionDetails = {}) {
+    super(message)
+    this.name = 'CallSocketExceptionError'
+    this.code = details.code
+    this.event = details.event
+    this.callId = details.callId
+    this.requestId = details.requestId
+  }
+}
+
 export const isCallWaitCancelledError = (error: unknown) =>
   error instanceof CallWaitCancelledError ||
   (error instanceof Error && error.name === 'CallWaitCancelledError')
@@ -220,8 +248,14 @@ export const waitForEvent = <TEvent extends keyof CallServerEvents>(
       if (options.requestId && payload.requestId !== options.requestId) return
       settle({
         status: 'rejected',
-        error: new Error(
+        error: new CallSocketExceptionError(
           payload.message || `Call socket exception while waiting for ${String(event)}`,
+          {
+            ...(payload.code ? { code: payload.code } : {}),
+            ...(payload.event ? { event: payload.event } : {}),
+            ...(payload.callId ? { callId: payload.callId } : {}),
+            ...(payload.requestId ? { requestId: payload.requestId } : {}),
+          },
         ),
       })
     }

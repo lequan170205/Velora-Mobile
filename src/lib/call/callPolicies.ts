@@ -5,7 +5,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { queryKeys } from '../../constants/queryKeys'
 
 import { CALL_SETUP_CANCELLED_ERROR, TRANSPORT_CONNECTED_TIMEOUT_MS } from './callConstants'
-import { isCallWaitCancelledError } from './callSocket'
+import { CallSocketExceptionError, isCallWaitCancelledError } from './callSocket'
 
 import type { CallTelemetryAudioRoute } from './callTelemetry'
 import type { CallStateResponse } from '../../api/call.api'
@@ -181,6 +181,29 @@ export const getCallRejectedMessage = (payload: CallRejectedPayload) => {
 
 export const isWaitTimeoutError = (error: unknown) =>
   error instanceof Error && error.message.startsWith('Timed out')
+
+/**
+ * Media operations become stale when the call room or producer has already
+ * reached a terminal state. Retrying these errors only amplifies reconnect
+ * churn and can make a healthy command appear to fail through cross-talk.
+ */
+export const isTerminalRemoteMediaError = (error: unknown) => {
+  if (!(error instanceof Error)) return false
+
+  const code = error instanceof CallSocketExceptionError ? (error.code ?? '') : ''
+  const message = error.message
+  if (
+    /^(http_(404|410)|room_not_found|producer_not_found|call_not_found|call_ended|terminal)$/i.test(
+      code,
+    )
+  ) {
+    return true
+  }
+
+  return /(?:room|call|producer)\s+(?:not\s+found|is\s+(?:closed|ended|terminal))|(?:call|room)\s+already\s+ended|terminal(?:\s+call)?/i.test(
+    message,
+  )
+}
 
 export const isRetryableCallStateError = (error: unknown) => {
   if (!isAxiosError(error)) return true

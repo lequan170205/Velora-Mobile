@@ -11,7 +11,10 @@ export const INCOMING_ACCEPT_ACK_TIMEOUT_MS = 6_000
 export const INCOMING_ACCEPT_MAX_ATTEMPTS = 2
 export const INCOMING_ACCEPT_RETRY_DELAY_MS = 250
 export const SOCKET_CONNECT_TIMEOUT_MS = 10_000
-export const SOCKET_DISCONNECT_GRACE_MS = 10_000
+// Keep the control-plane grace longer than the backend's default reconnect
+// window. A short Socket.IO interruption must not tear down CoreAudio or the
+// existing mediasoup transports before the client has had a chance to rejoin.
+export const SOCKET_DISCONNECT_GRACE_MS = 20_000
 export const IOS_AUDIO_SESSION_READY_TIMEOUT_MS = 15_000
 export const IOS_AUDIO_SESSION_SNAPSHOT_POLL_MS = 250
 export const TRANSPORT_CREATED_TIMEOUT_MS = 10_000
@@ -33,6 +36,17 @@ export const MEDIA_TRANSPORT_DISCONNECT_GRACE_MS = 3_000
 export const DEFAULT_RECONNECT_GRACE_MS = 15_000
 export const AUDIO_BITRATE_UPDATE_TIMEOUT_MS = 5_000
 export const VIDEO_STATE_UPDATED_TIMEOUT_MS = 5_000
+// Camera state is a control-plane command. Keep retries short and bounded so
+// a lost acknowledgement never triggers a media transport rebuild or an
+// unbounded command storm.
+export const VIDEO_STATE_MAX_ATTEMPTS = 3
+export const VIDEO_STATE_RETRY_DELAY_MS = 250
+export const VIDEO_STATE_RETRY_DELAY_MAX_MS = 2_000
+// A remote consumer can be recreated while the peer is recovering, but only
+// for a finite window. Terminal room/producer errors are filtered separately.
+export const REMOTE_CONSUMER_MAX_RETRY_ATTEMPTS = 4
+export const REMOTE_CONSUMER_RETRY_DELAY_MS = 250
+export const REMOTE_CONSUMER_RETRY_DELAY_MAX_MS = 4_000
 export const AUDIO_BITRATE_RETRY_DELAY_MS = 30_000
 export const AUDIO_QUALITY_DEGRADED_PACKET_LOSS_RATE = 0.05
 export const AUDIO_QUALITY_HEALTHY_PACKET_LOSS_RATE = 0.02

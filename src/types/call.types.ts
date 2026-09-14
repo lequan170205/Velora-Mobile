@@ -14,6 +14,7 @@ export type CallType = 'VOICE' | 'VIDEO'
 export type RemoteAudioState = 'idle' | 'waiting' | 'connected'
 export type RemoteVideoState = 'idle' | 'waiting' | 'connected' | 'off'
 export type CameraFacing = 'user' | 'environment'
+export type LocalVideoActivationSource = 'post_answer' | 'user' | 'foreground' | 'recovery'
 export type AudioBitrateProfile = 'normal' | 'constrained'
 export type VideoStateUpdateStatus = 'applied' | 'stale' | 'already_applied'
 
