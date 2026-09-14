@@ -306,6 +306,20 @@ export const useCallLocalMediaRuntime = ({
 
       if (localVideoState.pendingActionId === actionId) {
         localVideoState.pendingActionId = null
+        if (
+          socketRef.current === socket &&
+          socket.connected &&
+          isCallSetupCurrent(setupToken, callId)
+        ) {
+          // The UI may optimistically flip during a camera tap, but a
+          // timeout/transport error is not an authoritative state change. Put
+          // the native track and visible bit back on the last confirmed value;
+          // a later user tap can then issue a fresh command.
+          const confirmedEnabled = localVideoState.confirmedEnabled
+          const localVideoTrack = localStreamRef.current?.getVideoTracks()[0]
+          if (localVideoTrack) localVideoTrack.enabled = confirmedEnabled
+          useCallStore.getState().patch({ cameraEnabled: confirmedEnabled })
+        }
       }
       return false
     },

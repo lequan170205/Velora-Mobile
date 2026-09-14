@@ -473,6 +473,31 @@ test('a late camera ACK cannot roll the native track back behind the newest revi
   assert.equal(harness.refs.localVideoStateRef.current.confirmedEnabled, true)
 })
 
+test('a failed camera command restores the last confirmed local state', async () => {
+  const harness = createRuntime({
+    cameraAckResponder: async (payload) => {
+      if (payload.revision === 2) throw new Error('camera_timeout')
+    },
+  })
+
+  assert.equal(
+    await harness.runtime.activateLocalVideo({ requestPermission: false, source: 'user' }),
+    true,
+  )
+  const track = harness.capturedTracks[0]
+
+  await harness.runtime.toggleCamera()
+  for (let attempt = 0; attempt < 10 && harness.cameraCommands.length < 2; attempt += 1) {
+    await Promise.resolve()
+  }
+  await Promise.resolve()
+
+  assert.equal(track.enabled, true)
+  assert.equal(harness.state.cameraEnabled, true)
+  assert.equal(harness.refs.localVideoStateRef.current.desiredEnabled, false)
+  assert.equal(harness.refs.localVideoStateRef.current.confirmedEnabled, true)
+})
+
 const createRecoveryRuntime = ({ rejoinPayload, rejoinDeferred = null } = {}) => {
   const state = {
     phase: 'active',
