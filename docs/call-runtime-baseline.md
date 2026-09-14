@@ -35,6 +35,9 @@ candidates, not the earlier pre-merge test SHAs.
 - The compatible backend source candidate is
   `11bd4341b61e0412b12c83507374792c0d97c122`; Homelab CI run `34819110593`
   and CD run `34819572841` passed, including image build and promotion.
+- `homelab-deploy` later advanced to the docs-only descendant
+  `b5fa5821b67e1f5b7515a33a625b119427496d60`; the running call-service image
+  remains pinned to the functional candidate above.
 - The deployment receipt
   `20260914T075755Z-11bd4341b61e-success.json` reports a successful 72-second
   transition to the candidate. `deployed-sha` and the running call-service
