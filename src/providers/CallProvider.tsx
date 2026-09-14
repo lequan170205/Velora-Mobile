@@ -202,6 +202,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     new Map<string, PendingLocalVideoProducerClosure>(),
   )
   const inFlightLocalVideoProducerClosuresRef = useRef(new Set<string>())
+  const localVideoProducerClosurePromisesRef = useRef(new Map<string, Promise<void>>())
   const cachedDeviceRef = useRef<CachedMediasoupDevice | null>(null)
   const consumerMapRef = useRef<Map<string, MediasoupTypes.Consumer<Record<string, unknown>>>>(
     new Map(),
@@ -435,18 +436,25 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     useCallStore.getState().patch({ error: message })
   }, [])
 
-  const flushPendingLocalVideoProducerClosures = useCallback(() => {
+  const flushPendingLocalVideoProducerClosures = useCallback((): Promise<void> => {
     const socket = socketRef.current
-    if (!socket?.connected) return
+    if (!socket?.connected) return Promise.resolve()
+
+    const tasks: Promise<void>[] = []
 
     for (const [key, entry] of pendingLocalVideoProducerClosuresRef.current) {
+      const existingTask = localVideoProducerClosurePromisesRef.current.get(key)
+      if (existingTask) {
+        tasks.push(existingTask)
+        continue
+      }
       if (inFlightLocalVideoProducerClosuresRef.current.has(key)) continue
       // Remove before emitting so repeated reconnect/render callbacks cannot
       // issue duplicate cleanup commands. A disconnected socket puts the
       // entry back for the next authenticated socket generation.
       pendingLocalVideoProducerClosuresRef.current.delete(key)
       inFlightLocalVideoProducerClosuresRef.current.add(key)
-      void (async () => {
+      const task = (async () => {
         for (let attempt = 0; attempt < VIDEO_STATE_MAX_ATTEMPTS; attempt += 1) {
           if (!socket.connected || teardownInProgressRef.current) {
             if (!socket.connected) {
@@ -489,6 +497,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             }
             if (teardownInProgressRef.current) return
             if (attempt === VIDEO_STATE_MAX_ATTEMPTS - 1) {
+              // Keep a transiently failed cleanup queued. A later authenticated
+              // socket generation must get another chance before a new local
+              // producer is allowed to use the same call/kind slot.
+              pendingLocalVideoProducerClosuresRef.current.set(key, entry)
               debugCall(
                 '[Call] local_video_producer_close_failed',
                 JSON.stringify({
@@ -513,12 +525,29 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             )
           }
         }
-      })().finally(() => {
-        inFlightLocalVideoProducerClosuresRef.current.delete(key)
-      })
+      })()
+      localVideoProducerClosurePromisesRef.current.set(key, task)
+      task.then(
+        () => {
+          inFlightLocalVideoProducerClosuresRef.current.delete(key)
+          if (localVideoProducerClosurePromisesRef.current.get(key) === task) {
+            localVideoProducerClosurePromisesRef.current.delete(key)
+          }
+        },
+        () => {
+          inFlightLocalVideoProducerClosuresRef.current.delete(key)
+          if (localVideoProducerClosurePromisesRef.current.get(key) === task) {
+            localVideoProducerClosurePromisesRef.current.delete(key)
+          }
+        },
+      )
+      tasks.push(task)
     }
+
+    return Promise.all(tasks).then(() => undefined)
   }, [
     inFlightLocalVideoProducerClosuresRef,
+    localVideoProducerClosurePromisesRef,
     pendingLocalVideoProducerClosuresRef,
     socketGenerationRef,
     socketRef,
@@ -526,13 +555,35 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     waitRegistryRef,
   ])
 
+  const waitForLocalVideoProducerClosures = useCallback(
+    async (callId: string): Promise<boolean> => {
+      await flushPendingLocalVideoProducerClosures()
+      const prefix = `${callId}:`
+      const tasks = [...localVideoProducerClosurePromisesRef.current.entries()]
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([, task]) => task)
+      if (tasks.length > 0) {
+        await Promise.allSettled(tasks)
+      }
+      return ![...pendingLocalVideoProducerClosuresRef.current.keys()].some((key) =>
+        key.startsWith(prefix),
+      )
+    },
+    [flushPendingLocalVideoProducerClosures, localVideoProducerClosurePromisesRef],
+  )
+
   const requestCloseLocalVideoProducer = useCallback(
-    (callId: string, producerId: string) => {
+    (callId: string, producerId: string): Promise<void> => {
       const key = `${callId}:${producerId}`
       pendingLocalVideoProducerClosuresRef.current.set(key, { callId, producerId })
-      flushPendingLocalVideoProducerClosures()
+      void flushPendingLocalVideoProducerClosures()
+      return localVideoProducerClosurePromisesRef.current.get(key) ?? Promise.resolve()
     },
-    [flushPendingLocalVideoProducerClosures, pendingLocalVideoProducerClosuresRef],
+    [
+      flushPendingLocalVideoProducerClosures,
+      localVideoProducerClosurePromisesRef,
+      pendingLocalVideoProducerClosuresRef,
+    ],
   )
 
   const resetRuntimeRefs = useCallback(
@@ -572,6 +623,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
         pendingLocalVideoProducerClosuresRef.current.clear()
         inFlightLocalVideoProducerClosuresRef.current.clear()
+        localVideoProducerClosurePromisesRef.current.clear()
       }
       consumingProducerIdsRef.current.clear()
       clearRemoteConsumerRetryState()
@@ -609,6 +661,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       clearReconnectTimeout,
       clearRemoteAudioFallback,
       clearRemoteConsumerRetryState,
+      localVideoProducerClosurePromisesRef,
     ],
   )
 
@@ -1000,6 +1053,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     callSetupGenerationRef,
     isCallSetupCurrent,
     closeLocalVideoProducer: requestCloseLocalVideoProducer,
+    waitForLocalVideoProducerClosures,
     presentError,
   })
 

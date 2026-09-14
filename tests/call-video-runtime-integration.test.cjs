@@ -97,6 +97,7 @@ const createRuntime = ({
   deferredVideoCapture = null,
   deferredCameraAck = null,
   cameraAckResponder = null,
+  deferredProducerClosure = null,
 } = {}) => {
   const state = {
     phase: 'active',
@@ -241,9 +242,11 @@ const createRuntime = ({
     cameraPausedByBackgroundRef: { current: false },
     callSetupGenerationRef: { current: 1 },
     isCallSetupCurrent: () => true,
-    closeLocalVideoProducer: (callId, producerId) => {
+    closeLocalVideoProducer: async (callId, producerId) => {
       closedProducerRequests.push({ callId, producerId })
+      if (deferredProducerClosure) await deferredProducerClosure.promise
     },
+    waitForLocalVideoProducerClosures: async () => true,
     presentError: () => undefined,
   }
 
@@ -305,6 +308,23 @@ test('twenty concurrent video activations share one capture and one producer', a
   assert.equal(harness.state.cameraEnabled, true)
 })
 
+test('does not create a second producer when the existing native track has ended', async () => {
+  const harness = createRuntime()
+
+  assert.equal(
+    await harness.runtime.activateLocalVideo({ requestPermission: false, source: 'user' }),
+    true,
+  )
+  harness.capturedTracks[0].readyState = 'ended'
+
+  assert.equal(
+    await harness.runtime.activateLocalVideo({ requestPermission: false, source: 'recovery' }),
+    false,
+  )
+  assert.equal(harness.capturedTracks.length, 1)
+  assert.equal(harness.produced.length, 1)
+})
+
 test('a user cancellation during automatic capture closes the stale track without producing video', async () => {
   const captureReady = createDeferred()
   const harness = createRuntime({ deferredVideoCapture: captureReady.promise })
@@ -347,6 +367,41 @@ test('cancellation after server produce closes the local producer exactly once',
   ])
   assert.equal(harness.produced[0].closed, true)
   assert.equal(harness.refs.videoProducerRef.current, null)
+})
+
+test('reactivation waits for cancelled producer cleanup before producing again', async () => {
+  const cameraAck = createDeferred()
+  const producerClosure = createDeferred()
+  const harness = createRuntime({
+    deferredCameraAck: cameraAck,
+    deferredProducerClosure: producerClosure,
+  })
+
+  const firstActivation = harness.runtime.activateLocalVideo({
+    requestPermission: false,
+    source: 'post_answer',
+  })
+  for (let attempt = 0; attempt < 10 && harness.produced.length === 0; attempt += 1) {
+    await Promise.resolve()
+  }
+  assert.equal(harness.produced.length, 1)
+
+  await harness.runtime.toggleCamera()
+  cameraAck.resolve()
+  const reactivation = harness.runtime.activateLocalVideo({
+    requestPermission: false,
+    source: 'user',
+  })
+  await Promise.resolve()
+  assert.equal(harness.produced.length, 1)
+
+  producerClosure.resolve()
+  assert.equal(await firstActivation, false)
+  assert.equal(await reactivation, true)
+  assert.equal(harness.produced.length, 2)
+  assert.deepEqual(harness.closedProducerRequests, [
+    { callId: 'call-runtime-1', producerId: 'producer-1' },
+  ])
 })
 
 test('camera off/on while disconnected preserves desired intent and reconciles after reconnect', async () => {

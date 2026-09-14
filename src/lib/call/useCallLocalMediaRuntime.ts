@@ -63,7 +63,8 @@ type LocalMediaRuntimeOptions = {
   cameraPausedByBackgroundRef: MutableRef<boolean>
   callSetupGenerationRef: MutableRef<number>
   isCallSetupCurrent: (setupToken: number, callId: string) => boolean
-  closeLocalVideoProducer: (callId: string, producerId: string) => void
+  closeLocalVideoProducer: (callId: string, producerId: string) => void | Promise<void>
+  waitForLocalVideoProducerClosures: (callId: string) => Promise<boolean>
   presentError: (message: string) => void
 }
 
@@ -88,6 +89,7 @@ export const useCallLocalMediaRuntime = ({
   callSetupGenerationRef,
   isCallSetupCurrent,
   closeLocalVideoProducer,
+  waitForLocalVideoProducerClosures,
   presentError,
 }: LocalMediaRuntimeOptions) => {
   const videoActivationGenerationRef = useRef(0)
@@ -390,6 +392,18 @@ export const useCallLocalMediaRuntime = ({
       ) {
         return existingActivation.promise
       }
+      if (
+        existingActivation?.callId === callId &&
+        existingActivation.setupToken === setupToken &&
+        existingActivation.generation !== activationGeneration
+      ) {
+        // Cancellation invalidates the old generation, but getUserMedia and
+        // mediasoup cannot be synchronously aborted. Wait for that stale
+        // activation to release its native track/producer before starting a
+        // fresh capture for the same call.
+        await existingActivation.promise.catch(() => false)
+        if (activationGeneration !== videoActivationGenerationRef.current) return false
+      }
 
       // A disconnected control plane cannot acknowledge a newly created
       // producer. Preserve the user's desired state and let rejoin/recovery
@@ -422,6 +436,12 @@ export const useCallLocalMediaRuntime = ({
             AppState.currentState === 'active'
           )
         }
+
+        // A cancelled activation may have already reached the server before
+        // its local promise was invalidated. Wait for the corresponding
+        // close_producer ACK (or a terminal cleanup result) before opening a
+        // new producer slot for this call.
+        if (!(await waitForLocalVideoProducerClosures(callId))) return false
 
         if (shouldRequestPermission && state.hasCameraPermission !== true) {
           const granted = await ensureCameraPermission()
@@ -460,6 +480,19 @@ export const useCallLocalMediaRuntime = ({
           return true
         }
 
+        const existingProducer = videoProducerRef.current
+        if (existingProducer) {
+          // A live producer owns the participant/kind slot on the server. Do
+          // not create a second producer if the native track ended underneath
+          // us; media recovery will replace it through the controlled rebuild
+          // path. A closed local object can safely be discarded here.
+          if ((existingProducer as unknown as { closed?: boolean }).closed !== true) {
+            presentError('Video is unavailable on this call')
+            return false
+          }
+          videoProducerRef.current = null
+        }
+
         const sendTransport = sendTransportRef.current
         const device = deviceRef.current
         if (!sendTransport || !device?.loaded || !device.canProduce('video')) {
@@ -492,13 +525,18 @@ export const useCallLocalMediaRuntime = ({
         targetStream.addTrack(track as unknown as MediaStreamTrack)
 
         try {
+          if (videoProducerRef.current) {
+            targetStream.removeTrack(track as unknown as MediaStreamTrack)
+            track.stop()
+            return false
+          }
           const producer = await sendTransport.produce({ track: track as never, stopTracks: false })
           if (
             !isActivationCurrent() ||
             sendTransportRef.current !== sendTransport ||
             localStreamRef.current !== targetStream
           ) {
-            closeLocalVideoProducer(callId, producer.id)
+            await Promise.resolve(closeLocalVideoProducer(callId, producer.id))
             producer.close()
             targetStream.removeTrack(track as unknown as MediaStreamTrack)
             track.stop()
@@ -509,7 +547,7 @@ export const useCallLocalMediaRuntime = ({
           const stateApplied = await emitLocalVideoState(true)
           if (!isActivationCurrent()) {
             videoProducerRef.current = null
-            closeLocalVideoProducer(callId, producer.id)
+            await Promise.resolve(closeLocalVideoProducer(callId, producer.id))
             producer.close()
             targetStream.removeTrack(track as unknown as MediaStreamTrack)
             track.stop()
@@ -544,7 +582,7 @@ export const useCallLocalMediaRuntime = ({
           const currentProducer = videoProducerRef.current
           if (currentProducer) {
             videoProducerRef.current = null
-            closeLocalVideoProducer(callId, currentProducer.id)
+            await Promise.resolve(closeLocalVideoProducer(callId, currentProducer.id))
             try {
               currentProducer.close()
             } catch {
@@ -598,6 +636,7 @@ export const useCallLocalMediaRuntime = ({
       presentError,
       sendTransportRef,
       socketRef,
+      waitForLocalVideoProducerClosures,
       videoProducerRef,
     ],
   )
