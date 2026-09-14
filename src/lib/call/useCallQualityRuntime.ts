@@ -14,6 +14,7 @@ import {
   AUDIO_QUALITY_RECOVER_SAMPLE_COUNT,
   RTC_STATS_LOG_DELAY_MS,
 } from './callConstants'
+import { safeCallErrorCode, shortCallId } from './callDebug'
 import { emitAndWaitForEvent, isCallWaitCancelledError } from './callSocket'
 import {
   getRtcQualityCounters,
@@ -90,8 +91,8 @@ export const useCallQualityRuntime = ({
             console.warn(
               `[Call] ${label} stats`,
               JSON.stringify({
-                callId,
-                mediaId,
+                callId: shortCallId(callId),
+                mediaId: shortCallId(mediaId),
                 at: new Date().toISOString(),
                 timestampMs: Date.now(),
                 summary: summarizeRtcStatsReport(stats),
@@ -101,9 +102,9 @@ export const useCallQualityRuntime = ({
             console.warn(
               `[Call] Failed to read ${label} stats`,
               JSON.stringify({
-                callId,
-                mediaId,
-                error: error instanceof Error ? error.message : 'unknown_error',
+                callId: shortCallId(callId),
+                mediaId: shortCallId(mediaId),
+                errorCode: safeCallErrorCode(error),
               }),
             )
           }
@@ -171,10 +172,10 @@ export const useCallQualityRuntime = ({
         debugCall(
           '[Call] Failed to update incoming audio bitrate',
           JSON.stringify({
-            callId,
-            transportId,
+            callId: shortCallId(callId),
+            transportId: shortCallId(transportId),
             profile,
-            error: error instanceof Error ? error.message : 'unknown_error',
+            errorCode: safeCallErrorCode(error),
           }),
         )
       } finally {

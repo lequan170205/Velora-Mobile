@@ -4,6 +4,7 @@ import { useAuthStore } from '../../stores/authStore'
 import { useCallStore } from '../../stores/callStore'
 
 import { CALL_JOINED_TIMEOUT_MS, SOCKET_CONNECT_TIMEOUT_MS } from './callConstants'
+import { shortCallId } from './callDebug'
 import { authenticateCallSocket, createCallSocket, emitAndWaitForEvent } from './callSocket'
 
 import type { CallWaitRegistry } from './callSocket'
@@ -14,6 +15,7 @@ type MutableRef<T> = { current: T }
 
 type CallSocketRuntimeOptions = {
   socketRef: MutableRef<CallSocket | null>
+  socketGenerationRef: MutableRef<number>
   waitRegistryRef: MutableRef<CallWaitRegistry>
   activeCallIdRef: MutableRef<string | null>
   telemetrySessionRef: MutableRef<CallTelemetrySession | null>
@@ -31,6 +33,7 @@ const debugCall = (...args: Parameters<typeof console.warn>) => {
 
 export const useCallSocketRuntime = ({
   socketRef,
+  socketGenerationRef,
   waitRegistryRef,
   activeCallIdRef,
   telemetrySessionRef,
@@ -45,7 +48,7 @@ export const useCallSocketRuntime = ({
     async (callId: string) => {
       const currentAuth = useAuthStore.getState()
       telemetrySessionRef.current?.record('auth_restore_started', { outcome: 'started' })
-      debugCall('[Call] auth_restore_started', JSON.stringify({ callId }))
+      debugCall('[Call] auth_restore_started', JSON.stringify({ callId: shortCallId(callId) }))
 
       if (currentAuth.isAuthenticated && currentAuth.user?.id) {
         telemetrySessionRef.current?.record('auth_restore_succeeded', { outcome: 'succeeded' })
@@ -64,7 +67,7 @@ export const useCallSocketRuntime = ({
       try {
         await authRestorePromiseRef.current
         telemetrySessionRef.current?.record('auth_restore_succeeded', { outcome: 'succeeded' })
-        debugCall('[Call] auth_restore_succeeded', JSON.stringify({ callId }))
+        debugCall('[Call] auth_restore_succeeded', JSON.stringify({ callId: shortCallId(callId) }))
       } catch (error) {
         const errorCode =
           useAuthStore.getState().authHydrationError === 'network'
@@ -75,7 +78,10 @@ export const useCallSocketRuntime = ({
           error,
           errorCode,
         })
-        debugCall('[Call] auth_restore_failed', JSON.stringify({ callId, errorCode }))
+        debugCall(
+          '[Call] auth_restore_failed',
+          JSON.stringify({ callId: shortCallId(callId), errorCode }),
+        )
         throw new Error(errorCode)
       } finally {
         authRestorePromiseRef.current = null
@@ -105,7 +111,13 @@ export const useCallSocketRuntime = ({
 
           callSocketAuthenticatedRef.current = false
           telemetrySessionRef.current?.record('socket_connect_started', { outcome: 'started' })
-          debugCall('[Call] socket_connect_started', JSON.stringify({ callId }))
+          debugCall(
+            '[Call] socket_connect_started',
+            JSON.stringify({
+              callId: shortCallId(callId),
+              socketGeneration: socketGenerationRef.current,
+            }),
+          )
           await authenticateCallSocket(socket, useAuthStore.getState().user?.id)
 
           await new Promise<void>((resolve, reject) => {
@@ -126,7 +138,13 @@ export const useCallSocketRuntime = ({
               telemetrySessionRef.current?.record('socket_authenticated', {
                 outcome: 'succeeded',
               })
-              debugCall('[Call] socket_authenticated', JSON.stringify({ callId }))
+              debugCall(
+                '[Call] socket_authenticated',
+                JSON.stringify({
+                  callId: shortCallId(callId),
+                  socketGeneration: socketGenerationRef.current,
+                }),
+              )
 
               const recentTerminalCalls = payload?.recentTerminalCalls ?? []
               recentTerminalCalls.forEach((terminalCall) => {
@@ -143,7 +161,13 @@ export const useCallSocketRuntime = ({
             }
             const handleConnect = () => {
               telemetrySessionRef.current?.record('socket_connected', { outcome: 'succeeded' })
-              debugCall('[Call] socket_connected', JSON.stringify({ callId }))
+              debugCall(
+                '[Call] socket_connected',
+                JSON.stringify({
+                  callId: shortCallId(callId),
+                  socketGeneration: socketGenerationRef.current,
+                }),
+              )
             }
             const handleConnectError = () => settle(new Error('network_unavailable'))
             const handleDisconnect = (reason: string) => {
@@ -195,6 +219,7 @@ export const useCallSocketRuntime = ({
       handleTerminalCall,
       socketConnectPromiseRef,
       socketRef,
+      socketGenerationRef,
       telemetrySessionRef,
     ],
   )
@@ -228,11 +253,15 @@ export const useCallSocketRuntime = ({
       )
       debugCall(
         '[Call] setup_call_membership_restored',
-        JSON.stringify({ callId, phase: state.phase }),
+        JSON.stringify({
+          callId: shortCallId(callId),
+          phase: state.phase,
+          socketGeneration: socketGenerationRef.current,
+        }),
       )
       telemetrySessionRef.current?.record('socket_rejoin_succeeded', { outcome: 'succeeded' })
     },
-    [acceptingIncomingCallIdRef, telemetrySessionRef, waitRegistryRef],
+    [acceptingIncomingCallIdRef, socketGenerationRef, telemetrySessionRef, waitRegistryRef],
   )
 
   return {

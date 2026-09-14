@@ -8,13 +8,18 @@ import {
   CALL_SETUP_CANCELLED_ERROR,
   CONSUMER_CREATED_TIMEOUT_MS,
   CONSUMER_RESUMED_TIMEOUT_MS,
+  REMOTE_CONSUMER_MAX_RETRY_ATTEMPTS,
+  REMOTE_CONSUMER_RETRY_DELAY_MAX_MS,
+  REMOTE_CONSUMER_RETRY_DELAY_MS,
   REMOTE_PRODUCER_TIMEOUT_MS,
   TRANSPORT_CONNECTED_TIMEOUT_MS,
   TRANSPORT_CREATED_TIMEOUT_MS,
   VOICE_OPUS_CODEC_OPTIONS,
 } from './callConstants'
-import { stableJson } from './callPolicies'
+import { safeCallErrorCode, shortCallId } from './callDebug'
+import { isCallSetupCancelledError, isTerminalRemoteMediaError, stableJson } from './callPolicies'
 import { createCallRequestId, emitAndWaitForEvent } from './callSocket'
+import { boundedRetryDelay } from './callVideoState'
 import {
   createMediasoupDevice,
   ensureMediasoupGlobalsRegistered,
@@ -28,6 +33,7 @@ import type {
   CallJoinedPayload,
   CallRejoinedPayload,
   CallSocket,
+  LocalVideoActivationSource,
   NewProducerPayload,
   ProducerCreatedPayload,
   RemoteVideoState,
@@ -46,6 +52,12 @@ type StatsLogInput = {
   getStats: () => Promise<RTCStatsReport>
 }
 
+export type RemoteConsumerRetryState = {
+  attempt: number
+  setupToken: number
+  timeoutId: ReturnType<typeof setTimeout>
+}
+
 const debugCall = (...args: Parameters<typeof console.warn>) => {
   if (__DEV__) console.warn(...args)
 }
@@ -53,6 +65,7 @@ const debugCall = (...args: Parameters<typeof console.warn>) => {
 type MediaTransportRuntimeOptions = {
   currentUserId: string | null
   socketRef: MutableRef<CallSocket | null>
+  socketGenerationRef: MutableRef<number>
   waitRegistryRef: MutableRef<CallWaitRegistry>
   deviceRef: MutableRef<MediasoupDevice | null>
   sendTransportRef: MutableRef<MediasoupTypes.Transport<Record<string, unknown>> | null>
@@ -73,6 +86,7 @@ type MediaTransportRuntimeOptions = {
   reconcileRemoteVideoSnapshot: (activeProducerIds: Set<string>) => void
   consumingProducerIdsRef: MutableRef<Set<string>>
   retryingProducerIdsRef: MutableRef<Set<string>>
+  remoteConsumerRetryStateRef: MutableRef<Map<string, RemoteConsumerRetryState>>
   routerRtpCapabilitiesRef: MutableRef<Record<string, unknown> | null>
   reconnectModeRef: MutableRef<'local' | 'peer' | null>
   cameraPausedByBackgroundRef: MutableRef<boolean>
@@ -100,12 +114,16 @@ type MediaTransportRuntimeOptions = {
   ) => Promise<void>
   stopRingingPreview: () => void
   armRemoteAudioFallback: () => void
-  ensureLocalVideoProducer: (options?: { requestPermission?: boolean }) => Promise<boolean>
+  ensureLocalVideoProducer: (options?: {
+    requestPermission?: boolean
+    source?: LocalVideoActivationSource
+  }) => Promise<boolean>
 }
 
 export const useCallMediaTransportRuntime = ({
   currentUserId,
   socketRef,
+  socketGenerationRef,
   waitRegistryRef,
   deviceRef,
   sendTransportRef,
@@ -126,6 +144,7 @@ export const useCallMediaTransportRuntime = ({
   reconcileRemoteVideoSnapshot,
   consumingProducerIdsRef,
   retryingProducerIdsRef,
+  remoteConsumerRetryStateRef,
   routerRtpCapabilitiesRef,
   reconnectModeRef,
   cameraPausedByBackgroundRef,
@@ -211,7 +230,12 @@ export const useCallMediaTransportRuntime = ({
       transport.on('connectionstatechange', (state) => {
         debugCall(
           `[Call] ${direction} transport connection state changed`,
-          JSON.stringify({ callId, transportId: transport.id, state }),
+          JSON.stringify({
+            callId: shortCallId(callId),
+            transportId: shortCallId(transport.id),
+            socketGeneration: socketGenerationRef.current,
+            state,
+          }),
         )
         mediaTransportStateHandlerRef.current?.({
           callId,
@@ -225,7 +249,11 @@ export const useCallMediaTransportRuntime = ({
           try {
             debugCall(
               `[Call] Connecting ${direction} transport`,
-              JSON.stringify({ callId, transportId: transport.id }),
+              JSON.stringify({
+                callId: shortCallId(callId),
+                transportId: shortCallId(transport.id),
+                socketGeneration: socketGenerationRef.current,
+              }),
             )
             await emitAndWaitForEvent<'connect_transport', 'transport_connected'>(
               socket,
@@ -250,16 +278,20 @@ export const useCallMediaTransportRuntime = ({
             })
             debugCall(
               `[Call] ${direction} transport connected`,
-              JSON.stringify({ callId, transportId: transport.id }),
+              JSON.stringify({
+                callId: shortCallId(callId),
+                transportId: shortCallId(transport.id),
+                socketGeneration: socketGenerationRef.current,
+              }),
             )
             callback()
           } catch (error) {
             console.warn(
               `[Call] Failed to connect ${direction} transport`,
               JSON.stringify({
-                callId,
-                transportId: transport.id,
-                error: error instanceof Error ? error.message : 'unknown_error',
+                callId: shortCallId(callId),
+                transportId: shortCallId(transport.id),
+                errorCode: safeCallErrorCode(error),
               }),
             )
             errback(error instanceof Error ? error : new Error('Failed to connect transport'))
@@ -274,7 +306,13 @@ export const useCallMediaTransportRuntime = ({
               const requestId = createCallRequestId('produce')
               debugCall(
                 '[Call] Producing local media',
-                JSON.stringify({ callId, transportId: transport.id, kind }),
+                JSON.stringify({
+                  callId: shortCallId(callId),
+                  transportId: shortCallId(transport.id),
+                  socketGeneration: socketGenerationRef.current,
+                  kind,
+                  requestId: shortCallId(requestId),
+                }),
               )
               const produced = await emitAndWaitForEvent<'produce', 'producer_created'>(
                 socket,
@@ -303,9 +341,10 @@ export const useCallMediaTransportRuntime = ({
               debugCall(
                 '[Call] Local producer announced',
                 JSON.stringify({
-                  callId,
-                  transportId: transport.id,
-                  producerId: produced.producerId,
+                  callId: shortCallId(callId),
+                  transportId: shortCallId(transport.id),
+                  socketGeneration: socketGenerationRef.current,
+                  producerId: shortCallId(produced.producerId),
                   kind: produced.kind,
                 }),
               )
@@ -314,9 +353,10 @@ export const useCallMediaTransportRuntime = ({
               console.warn(
                 '[Call] Failed to produce local media',
                 JSON.stringify({
-                  callId,
-                  transportId: transport.id,
-                  error: error instanceof Error ? error.message : 'unknown_error',
+                  callId: shortCallId(callId),
+                  transportId: shortCallId(transport.id),
+                  socketGeneration: socketGenerationRef.current,
+                  errorCode: safeCallErrorCode(error),
                 }),
               )
               errback(error instanceof Error ? error : new Error('Failed to produce local media'))
@@ -331,6 +371,7 @@ export const useCallMediaTransportRuntime = ({
       connectedTransportIdsRef,
       currentUserId,
       mediaTransportStateHandlerRef,
+      socketGenerationRef,
       telemetrySessionRef,
       waitRegistryRef,
     ],
@@ -339,7 +380,12 @@ export const useCallMediaTransportRuntime = ({
   const consumeRemoteProducer = useCallback(
     async (
       payload: NewProducerPayload,
-      options?: { propagateFailure?: boolean; setupToken?: number },
+      options?: {
+        propagateFailure?: boolean
+        retryOnFailure?: boolean
+        retryAttempt?: number
+        setupToken?: number
+      },
     ) => {
       const socket = socketRef.current
       const callId = getCurrentCallId()
@@ -371,7 +417,8 @@ export const useCallMediaTransportRuntime = ({
       if (
         payload.userId === currentUserId ||
         handledRemoteProducerIdsRef.current.has(payload.producerId) ||
-        consumingProducerIdsRef.current.has(payload.producerId)
+        consumingProducerIdsRef.current.has(payload.producerId) ||
+        retryingProducerIdsRef.current.has(payload.producerId)
       ) {
         return
       }
@@ -435,6 +482,10 @@ export const useCallMediaTransportRuntime = ({
 
         handledRemoteProducerIdsRef.current.add(payload.producerId)
         queuedRemoteProducerMapRef.current.delete(payload.producerId)
+        const completedRetry = remoteConsumerRetryStateRef.current.get(payload.producerId)
+        if (completedRetry) clearTimeout(completedRetry.timeoutId)
+        remoteConsumerRetryStateRef.current.delete(payload.producerId)
+        retryingProducerIdsRef.current.delete(payload.producerId)
 
         if (payload.kind === 'video') {
           useCallStore.getState().patch({ remoteVideoState: deriveRemoteVideoState() })
@@ -493,7 +544,29 @@ export const useCallMediaTransportRuntime = ({
           return
         }
 
-        if (reconnectModeRef.current) {
+        const isRecoveryConsume =
+          reconnectModeRef.current !== null || options?.retryOnFailure === true
+        if (isRecoveryConsume) {
+          if (isTerminalRemoteMediaError(error)) {
+            queuedRemoteProducerMapRef.current.delete(payload.producerId)
+            const retryState = remoteConsumerRetryStateRef.current.get(payload.producerId)
+            if (retryState) clearTimeout(retryState.timeoutId)
+            remoteConsumerRetryStateRef.current.delete(payload.producerId)
+            retryingProducerIdsRef.current.delete(payload.producerId)
+
+            if (options?.propagateFailure) throw error
+            if (payload.kind === 'video') {
+              useCallStore.getState().patch({ remoteVideoState: deriveRemoteVideoState() })
+              return
+            }
+            await teardownOnce('consume_remote_producer_terminal', {
+              errorMessage: 'The call is no longer available',
+              telemetryError: error,
+              telemetryErrorCode: 'remote_media_terminal',
+            })
+            return
+          }
+
           queuedRemoteProducerMapRef.current.set(payload.producerId, payload)
           useCallStore
             .getState()
@@ -502,15 +575,70 @@ export const useCallMediaTransportRuntime = ({
                 ? { remoteAudioState: 'waiting' }
                 : { remoteVideoState: deriveRemoteVideoState() },
             )
-          if (!retryingProducerIdsRef.current.has(payload.producerId)) {
-            retryingProducerIdsRef.current.add(payload.producerId)
-            setTimeout(() => {
-              retryingProducerIdsRef.current.delete(payload.producerId)
-              const queuedPayload = queuedRemoteProducerMapRef.current.get(payload.producerId)
-              if (queuedPayload && reconnectModeRef.current)
-                void consumeRemoteProducer(queuedPayload)
-            }, 750)
+          const previousRetry = remoteConsumerRetryStateRef.current.get(payload.producerId)
+          const attempt = options?.retryAttempt ?? previousRetry?.attempt ?? 0
+          if (attempt >= REMOTE_CONSUMER_MAX_RETRY_ATTEMPTS) {
+            if (previousRetry) clearTimeout(previousRetry.timeoutId)
+            remoteConsumerRetryStateRef.current.delete(payload.producerId)
+            retryingProducerIdsRef.current.delete(payload.producerId)
+            if (options?.propagateFailure) throw error
+            if (payload.kind === 'video') {
+              useCallStore.getState().patch({ remoteVideoState: deriveRemoteVideoState() })
+              return
+            }
+            await teardownOnce('consume_remote_producer_retry_exhausted', {
+              errorMessage: 'Unable to restore call media',
+              telemetryError: error,
+              telemetryErrorCode: 'remote_media_retry_exhausted',
+            })
+            return
           }
+
+          const nextAttempt = attempt + 1
+          const retryDelay = boundedRetryDelay(
+            attempt,
+            REMOTE_CONSUMER_RETRY_DELAY_MS,
+            REMOTE_CONSUMER_RETRY_DELAY_MAX_MS,
+          )
+          if (previousRetry) clearTimeout(previousRetry.timeoutId)
+          retryingProducerIdsRef.current.add(payload.producerId)
+          const retryState = {
+            attempt: nextAttempt,
+            setupToken,
+            timeoutId: undefined as unknown as ReturnType<typeof setTimeout>,
+          }
+          retryState.timeoutId = setTimeout(() => {
+            if (remoteConsumerRetryStateRef.current.get(payload.producerId) !== retryState) return
+            remoteConsumerRetryStateRef.current.delete(payload.producerId)
+            retryingProducerIdsRef.current.delete(payload.producerId)
+            if (
+              !isCallSetupCurrent(retryState.setupToken, payload.callId) ||
+              !socketRef.current?.connected
+            ) {
+              return
+            }
+            const queuedPayload = queuedRemoteProducerMapRef.current.get(payload.producerId)
+            if (!queuedPayload) return
+            void consumeRemoteProducer(queuedPayload, {
+              ...options,
+              retryOnFailure: true,
+              retryAttempt: retryState.attempt,
+              setupToken: retryState.setupToken,
+            }).catch((retryError) => {
+              if (isCallSetupCancelledError(retryError)) return
+              // The retry path is detached from the original event handler.
+              // Terminal audio failures and exhausted retries still need one
+              // deterministic teardown instead of an unhandled rejection.
+              void teardownOnce('consume_remote_producer_retry_failed', {
+                errorMessage: 'Unable to restore call media',
+                telemetryError: retryError,
+                telemetryErrorCode: isTerminalRemoteMediaError(retryError)
+                  ? 'remote_media_terminal'
+                  : 'remote_media_retry_failed',
+              })
+            })
+          }, retryDelay)
+          remoteConsumerRetryStateRef.current.set(payload.producerId, retryState)
           return
         }
 
@@ -546,6 +674,7 @@ export const useCallMediaTransportRuntime = ({
       remoteVideoRevisionByProducerRef,
       remoteVideoSnapshotReadyRef,
       retryingProducerIdsRef,
+      remoteConsumerRetryStateRef,
       scheduleRtcStatsLog,
       socketRef,
       startTimer,
@@ -556,7 +685,7 @@ export const useCallMediaTransportRuntime = ({
   )
 
   const flushQueuedRemoteProducers = useCallback(
-    async (options: { setupToken: number }) => {
+    async (options: { retryOnFailure?: boolean; setupToken: number }) => {
       const queuedProducers = [...queuedRemoteProducerMapRef.current.values()].sort(
         (left, right) => Number(right.kind === 'audio') - Number(left.kind === 'audio'),
       )
@@ -564,6 +693,7 @@ export const useCallMediaTransportRuntime = ({
       for (const payload of queuedProducers) {
         await consumeRemoteProducer(payload, {
           propagateFailure: payload.kind === 'audio',
+          retryOnFailure: options.retryOnFailure === true,
           setupToken: options.setupToken,
         })
       }
@@ -574,7 +704,7 @@ export const useCallMediaTransportRuntime = ({
   const postAnswerSetup = useCallback(
     async (
       payload: CallJoinedPayload | CallRejoinedPayload,
-      options: { resumeDurationSec?: number; setupToken: number },
+      options: { recovery?: boolean; resumeDurationSec?: number; setupToken: number },
     ) => {
       const socket = socketRef.current
       if (!socket) throw new Error('Call socket is not connected')
@@ -687,10 +817,17 @@ export const useCallMediaTransportRuntime = ({
             ...(producer.paused !== undefined ? { paused: producer.paused } : {}),
             ...(producer.revision !== undefined ? { revision: producer.revision } : {}),
           },
-          { propagateFailure: producer.kind === 'audio', setupToken: options.setupToken },
+          {
+            propagateFailure: producer.kind === 'audio',
+            retryOnFailure: options.recovery === true,
+            setupToken: options.setupToken,
+          },
         )
       }
-      await flushQueuedRemoteProducers({ setupToken: options.setupToken })
+      await flushQueuedRemoteProducers({
+        retryOnFailure: options.recovery === true,
+        setupToken: options.setupToken,
+      })
       assertCallSetupCurrent(options.setupToken, callId)
       markRemoteVideoSnapshotReady(callType === 'VIDEO')
       telemetry?.recordLifecycle('audio_ready', { outcome: 'succeeded' })
@@ -729,7 +866,10 @@ export const useCallMediaTransportRuntime = ({
       void (async () => {
         try {
           telemetry?.recordLifecycle('media_enhancing', { outcome: 'started' })
-          const activated = await ensureLocalVideoProducer({ requestPermission: false })
+          const activated = await ensureLocalVideoProducer({
+            requestPermission: false,
+            source: 'post_answer',
+          })
           if (activated && isCallSetupCurrent(options.setupToken, callId)) {
             telemetry?.record('video_producer_ready', { outcome: 'succeeded' })
           }

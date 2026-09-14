@@ -43,7 +43,7 @@ test('camera off/on is signaled without replacing the video producer', () => {
   assert.match(localMedia, /event: 'video_state_updated'/)
   assert.match(provider, /remoteVideoEnabledByProducerRef/)
   assert.match(provider, /remoteVideoRevisionByProducerRef/)
-  assert.match(provider, /payload\.revision < currentRevision/)
+  assert.match(provider, /shouldApplyRemoteVideoRevision\(currentRevision, payload\.revision\)/)
   assert.match(provider, /if \(payload\.enabled\) videoConsumer\.resume\(\)/)
   assert.match(provider, /else videoConsumer\.pause\(\)/)
   assert.match(mediaTransport, /markRemoteVideoSnapshotReady\(false\)/)
@@ -66,7 +66,7 @@ test('native VIDEO answer defers camera capture without silently downgrading', (
     mediaTransport,
     /cameraEnabled: false,[\s\S]*if \(shouldDeferLocalVideo\) \{[\s\S]*cameraPausedByBackgroundRef\.current = true/,
   )
-  assert.match(source, /activateLocalVideo\(\{ requestPermission: false \}\)/)
+  assert.match(source, /activateLocalVideo\(\{ requestPermission: false, source: 'foreground' \}\)/)
 })
 
 test('active call screen renders RTC video and both conversion directions', () => {

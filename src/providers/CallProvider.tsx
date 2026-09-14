@@ -18,6 +18,7 @@ import {
   RTC_QUALITY_SAMPLE_INTERVAL_MS,
   SOCKET_DISCONNECT_GRACE_MS,
 } from '../lib/call/callConstants'
+import { safeCallErrorCode, shortCallId } from '../lib/call/callDebug'
 import {
   cameraConstraints,
   getAcceptIncomingCallFailureCode,
@@ -45,9 +46,18 @@ import {
   waitForEventWhere,
 } from '../lib/call/callSocket'
 import { CallTelemetrySession, flushCallTelemetry } from '../lib/call/callTelemetry'
+import {
+  deriveRemoteVideoStateFromRegistry,
+  isRemoteVideoProducerCurrent,
+  reconcileRemoteVideoProducerTombstones,
+  shouldApplyRemoteVideoRevision,
+} from '../lib/call/callVideoState'
 import { type RtcQualityCounters, type RtcQualityStreak } from '../lib/call/rtcStats'
 import { useCallLocalMediaRuntime } from '../lib/call/useCallLocalMediaRuntime'
-import { useCallMediaTransportRuntime } from '../lib/call/useCallMediaTransportRuntime'
+import {
+  useCallMediaTransportRuntime,
+  type RemoteConsumerRetryState,
+} from '../lib/call/useCallMediaTransportRuntime'
 import { useCallQualityRuntime } from '../lib/call/useCallQualityRuntime'
 import { useCallRecoveryRuntime } from '../lib/call/useCallRecoveryRuntime'
 import { useCallSocketRuntime } from '../lib/call/useCallSocketRuntime'
@@ -184,6 +194,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const handledRemoteProducerIdsRef = useRef<Set<string>>(new Set())
   const remoteVideoEnabledByProducerRef = useRef<Map<string, boolean>>(new Map())
   const remoteVideoRevisionByProducerRef = useRef<Map<string, number>>(new Map())
+  // Prevent delayed events from a closed producer from recreating remote
+  // video state. Tombstones live until a snapshot/new_producer proves the id
+  // is current again.
+  const closedRemoteVideoProducerIdsRef = useRef<Set<string>>(new Set())
   const remoteVideoSnapshotReadyRef = useRef(false)
   const localVideoStateRef = useRef<LocalVideoSyncState>({
     desiredEnabled: false,
@@ -193,6 +207,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   })
   const consumingProducerIdsRef = useRef<Set<string>>(new Set())
   const retryingProducerIdsRef = useRef<Set<string>>(new Set())
+  const remoteConsumerRetryStateRef = useRef<Map<string, RemoteConsumerRetryState>>(new Map())
   const activeCallIdRef = useRef<string | null>(null)
   const telemetrySessionRef = useRef<CallTelemetrySession | null>(null)
   const rtcQualityCountersRef = useRef<RtcQualityCounters | null>(null)
@@ -205,6 +220,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const audioFlowingRef = useRef(false)
   const audioFlowConfirmationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const callSetupGenerationRef = useRef(0)
+  // Monotonic connection epoch used only for correlating safe diagnostics.
+  // A reconnect on the same Socket.IO object is still a new generation.
+  const socketGenerationRef = useRef(0)
   const incomingAnswerActionRef = useRef<{ callId: string; actionId: string } | null>(null)
   const outgoingStartInFlightRef = useRef(false)
   const teardownInProgressRef = useRef(false)
@@ -253,14 +271,24 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     clearTimeoutMap(mediaTransportDisconnectTimeoutsRef.current)
   }, [])
 
-  const beginCallSetup = useCallback(() => {
-    callSetupGenerationRef.current += 1
-    return callSetupGenerationRef.current
+  const clearRemoteConsumerRetryState = useCallback(() => {
+    for (const retry of remoteConsumerRetryStateRef.current.values()) {
+      clearTimeout(retry.timeoutId)
+    }
+    remoteConsumerRetryStateRef.current.clear()
+    retryingProducerIdsRef.current.clear()
   }, [])
 
-  const invalidateCallSetup = useCallback(() => {
+  const beginCallSetup = useCallback(() => {
+    clearRemoteConsumerRetryState()
     callSetupGenerationRef.current += 1
-  }, [])
+    return callSetupGenerationRef.current
+  }, [clearRemoteConsumerRetryState])
+
+  const invalidateCallSetup = useCallback(() => {
+    clearRemoteConsumerRetryState()
+    callSetupGenerationRef.current += 1
+  }, [clearRemoteConsumerRetryState])
 
   const isCallSetupCurrent = useCallback((setupToken: number, expectedCallId: string) => {
     const currentCallId = activeCallIdRef.current ?? useCallStore.getState().callId
@@ -399,6 +427,20 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       clearMediaTransportDisconnectTimeouts()
       clearWaitRegistry(waitRegistryRef.current)
       connectedTransportIdsRef.current.clear()
+      if (options?.preserveActiveCall) {
+        reconcileRemoteVideoProducerTombstones(
+          closedRemoteVideoProducerIdsRef.current,
+          [
+            ...remoteVideoEnabledByProducerRef.current.keys(),
+            ...[...consumerMapRef.current.values()]
+              .filter((consumer) => consumer.kind === 'video')
+              .map((consumer) => consumer.producerId),
+          ],
+          new Set(),
+        )
+      } else {
+        closedRemoteVideoProducerIdsRef.current.clear()
+      }
       queuedRemoteProducerMapRef.current.clear()
       handledRemoteProducerIdsRef.current.clear()
       remoteVideoEnabledByProducerRef.current.clear()
@@ -413,7 +455,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
       }
       consumingProducerIdsRef.current.clear()
-      retryingProducerIdsRef.current.clear()
+      clearRemoteConsumerRetryState()
       audioFlowingRef.current = false
       rtcQualityCountersRef.current = null
       rtcQualityStreakRef.current = { degraded: 0, healthy: 0 }
@@ -447,6 +489,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       clearPeerLeftFallback,
       clearReconnectTimeout,
       clearRemoteAudioFallback,
+      clearRemoteConsumerRetryState,
     ],
   )
 
@@ -526,6 +569,22 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const currentConsumers = [...consumerMapRef.current.values()]
     const remoteStream = remoteStreamRef.current
 
+    // Recovery intentionally discards media consumers. Remember every video
+    // producer that was present before the discard so a delayed event from
+    // the old generation cannot repopulate the registry while rejoin is in
+    // flight. The authoritative rejoin snapshot/new_producer handler clears
+    // tombstones for producers that are current again.
+    reconcileRemoteVideoProducerTombstones(
+      closedRemoteVideoProducerIdsRef.current,
+      [
+        ...remoteVideoEnabledByProducerRef.current.keys(),
+        ...currentConsumers
+          .filter((consumer) => consumer.kind === 'video')
+          .map((consumer) => consumer.producerId),
+      ],
+      new Set(),
+    )
+
     currentConsumers.forEach((consumer) => {
       try {
         consumer.close()
@@ -545,7 +604,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     consumerMapRef.current.clear()
     handledRemoteProducerIdsRef.current.clear()
     consumingProducerIdsRef.current.clear()
-    retryingProducerIdsRef.current.clear()
+    clearRemoteConsumerRetryState()
     queuedRemoteProducerMapRef.current.clear()
     remoteVideoEnabledByProducerRef.current.clear()
     remoteVideoRevisionByProducerRef.current.clear()
@@ -555,29 +614,28 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       remoteStreamUrl: null,
       remoteVideoState: useCallStore.getState().callType === 'VIDEO' ? 'waiting' : 'idle',
     })
-  }, [])
+  }, [clearRemoteConsumerRetryState])
 
   const deriveRemoteVideoState = useCallback((): RemoteVideoState => {
     const state = useCallStore.getState()
     if (state.callType !== 'VIDEO') return 'idle'
     if (!remoteVideoSnapshotReadyRef.current) return 'waiting'
 
-    const videoEntries = [...remoteVideoEnabledByProducerRef.current.entries()]
-    if (videoEntries.length === 0) return 'off'
-
-    let hasEnabledProducer = false
-    let hasLiveConsumer = false
-    for (const [producerId, enabled] of videoEntries) {
-      if (!enabled) continue
-      hasEnabledProducer = true
-      const consumer = [...consumerMapRef.current.values()].find(
-        (candidate) => candidate.kind === 'video' && candidate.producerId === producerId,
-      )
-      if (consumer && !consumer.closed) hasLiveConsumer = true
-    }
-
-    if (hasLiveConsumer) return 'connected'
-    return hasEnabledProducer ? 'waiting' : 'off'
+    return deriveRemoteVideoStateFromRegistry({
+      callType: state.callType,
+      snapshotReady: remoteVideoSnapshotReadyRef.current,
+      registry: [...remoteVideoEnabledByProducerRef.current.entries()].map(
+        ([producerId, enabled]) => ({
+          enabled,
+          revision: remoteVideoRevisionByProducerRef.current.get(producerId) ?? 0,
+          consumerReady: [...consumerMapRef.current.values()].some(
+            (consumer) =>
+              consumer.kind === 'video' && consumer.producerId === producerId && !consumer.closed,
+          ),
+          closed: false,
+        }),
+      ),
+    })
   }, [])
 
   const markRemoteVideoSnapshotReady = useCallback(
@@ -593,6 +651,19 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const reconcileRemoteVideoSnapshot = useCallback(
     (activeProducerIds: Set<string>) => {
       const remoteStream = remoteStreamRef.current
+      reconcileRemoteVideoProducerTombstones(
+        closedRemoteVideoProducerIdsRef.current,
+        [
+          ...remoteVideoEnabledByProducerRef.current.keys(),
+          ...[...consumerMapRef.current.values()]
+            .filter((consumer) => consumer.kind === 'video')
+            .map((consumer) => consumer.producerId),
+          ...[...queuedRemoteProducerMapRef.current.entries()]
+            .filter(([, payload]) => payload.kind === 'video')
+            .map(([producerId]) => producerId),
+        ],
+        activeProducerIds,
+      )
       for (const [consumerId, consumer] of consumerMapRef.current.entries()) {
         if (consumer.kind !== 'video' || activeProducerIds.has(consumer.producerId)) continue
         try {
@@ -659,9 +730,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       debugCall(
         '[Call] teardown_requested',
         JSON.stringify({
-          callId: endingCallId,
+          callId: shortCallId(endingCallId),
           source: reason,
           reason: options?.telemetryErrorCode ?? reason,
+          socketGeneration: socketGenerationRef.current,
         }),
       )
       telemetrySessionRef.current?.record('teardown_requested', {
@@ -783,6 +855,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     synchronizeLocalVideoState,
   } = useCallLocalMediaRuntime({
     socketRef,
+    socketGenerationRef,
     waitRegistryRef,
     deviceRef,
     sendTransportRef,
@@ -812,7 +885,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (!isCurrentCall(payload.callId)) {
         debugCall(
           '[Call] terminal_call_dismissed_without_js_state',
-          JSON.stringify({ callId: payload.callId, reason: payload.reason, source }),
+          JSON.stringify({
+            callId: shortCallId(payload.callId),
+            reason: payload.reason,
+            source,
+            socketGeneration: socketGenerationRef.current,
+          }),
         )
         return
       }
@@ -824,12 +902,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         telemetryErrorCode: payload.reason,
       })
     },
-    [clearPeerLeftFallback, isCurrentCall, teardownOnce],
+    [clearPeerLeftFallback, isCurrentCall, socketGenerationRef, teardownOnce],
   )
 
   const { ensureCallSocketConnected, ensureSocketConnected, restorePreActiveCallMembership } =
     useCallSocketRuntime({
       socketRef,
+      socketGenerationRef,
       waitRegistryRef,
       activeCallIdRef,
       telemetrySessionRef,
@@ -844,6 +923,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const { consumeRemoteProducer, postAnswerSetup } = useCallMediaTransportRuntime({
     currentUserId,
     socketRef,
+    socketGenerationRef,
     waitRegistryRef,
     deviceRef,
     sendTransportRef,
@@ -864,6 +944,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     reconcileRemoteVideoSnapshot,
     consumingProducerIdsRef,
     retryingProducerIdsRef,
+    remoteConsumerRetryStateRef,
     routerRtpCapabilitiesRef,
     reconnectModeRef,
     cameraPausedByBackgroundRef,
@@ -895,6 +976,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     isAuthenticated,
     currentUserId,
     socketRef,
+    socketGenerationRef,
     waitRegistryRef,
     sendTransportRef,
     recvTransportRef,
@@ -1267,11 +1349,20 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         const nativeAudioState = await veloraSystemCalls.getNativeAudioSessionState()
         debugCall(
           '[Call] audio_snapshot_loaded',
-          JSON.stringify({ callId, source, nativeAudioState }),
+          JSON.stringify({
+            callId: shortCallId(callId),
+            source,
+            activated: nativeAudioState.isActivated === true,
+            audioEnabled: nativeAudioState.isAudioEnabled === true,
+            hasError: Boolean(nativeAudioState.errorCode),
+          }),
         )
         telemetry.record('audio_snapshot_loaded', { outcome: 'succeeded' })
         if (nativeAudioState.isActivated && nativeAudioState.isAudioEnabled) {
-          debugCall('[Call] audio_already_active', JSON.stringify({ callId, source }))
+          debugCall(
+            '[Call] audio_already_active',
+            JSON.stringify({ callId: shortCallId(callId), source }),
+          )
           telemetry.record('audio_already_active', { outcome: 'succeeded' })
         } else {
           telemetry.record('waiting_for_audio_activation', { outcome: 'started' })
@@ -1310,7 +1401,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         completeNativeAnswer(false, errorCode)
         telemetry.record('socket_connected', { outcome: 'failed', error })
         telemetry.record('accept_call_failed', { outcome: 'failed', error, errorCode })
-        debugCall('[Call] accept_call_failed', JSON.stringify({ callId, errorCode }))
+        debugCall(
+          '[Call] accept_call_failed',
+          JSON.stringify({ callId: shortCallId(callId), errorCode }),
+        )
         await teardownOnce('accept_incoming_call_socket_failed', {
           errorMessage: 'Unable to set up the call',
           telemetryError: error,
@@ -1541,12 +1635,18 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         telemetry.record('server_accept_ack', { outcome: 'succeeded' })
         telemetry.record('call_joined', { outcome: 'succeeded' })
         telemetry.record('accept_call_started', { outcome: 'started' })
-        debugCall('[Call] accept_call_started', JSON.stringify({ callId, source }))
+        debugCall(
+          '[Call] accept_call_started',
+          JSON.stringify({ callId: shortCallId(callId), source }),
+        )
 
         callAnsweredRef.current = true
         telemetry.record('accept_call_succeeded', { outcome: 'succeeded' })
         telemetry.recordLifecycle('active', { outcome: 'succeeded' })
-        debugCall('[Call] accept_call_succeeded', JSON.stringify({ callId, source }))
+        debugCall(
+          '[Call] accept_call_succeeded',
+          JSON.stringify({ callId: shortCallId(callId), source }),
+        )
 
         useCallStore.getState().patch({
           phase: 'connecting',
@@ -1607,9 +1707,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         debugCall(
           '[Call] accept_call_failed',
           JSON.stringify({
-            callId,
+            callId: shortCallId(callId),
             errorCode,
-            error: error instanceof Error ? error.message : 'unknown_error',
+            errorCodeDetail: safeCallErrorCode(error),
           }),
         )
         if (joinedCall && socket?.connected) {
@@ -1984,7 +2084,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       })
       if (nextCallType === 'VIDEO') {
         try {
-          await activateLocalVideo({ requestPermission: false })
+          await activateLocalVideo({ requestPermission: false, source: 'user' })
         } catch {
           if (isCallTypeSwitchCurrent()) presentError('Unable to enable video')
           return
@@ -2050,7 +2150,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const subscription = veloraSystemCalls.addAudioSessionActivatedListener(
       (event: AudioSessionActivatedEvent) => {
-        debugCall('[Call] Native audio session activated', JSON.stringify(event))
+        debugCall(
+          '[Call] Native audio session activated',
+          JSON.stringify({
+            at: event.at,
+            timestampMs: event.timestampMs,
+            category: event.category,
+            mode: event.mode,
+          }),
+        )
       },
     )
 
@@ -2062,7 +2170,22 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const subscription = veloraSystemCalls.addAudioSessionConfiguredListener(
       (event: AudioSessionConfiguredEvent) => {
-        debugCall('[Call] Native audio session configured', JSON.stringify(event))
+        debugCall(
+          '[Call] Native audio session configured',
+          JSON.stringify({
+            at: event.at,
+            timestampMs: event.timestampMs,
+            category: event.category,
+            mode: event.mode,
+            outputRouteTypes: event.outputRouteTypes,
+            inputRouteTypes: event.inputRouteTypes,
+            forcedSpeaker: event.forcedSpeaker,
+            errorCode: event.errorCode ? safeCallErrorCode({ code: event.errorCode }) : undefined,
+            routeErrorCode: event.routeErrorCode
+              ? safeCallErrorCode({ code: event.routeErrorCode })
+              : undefined,
+          }),
+        )
       },
     )
 
@@ -2101,10 +2224,22 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       ) {
         if (localVideoTrack) {
           localVideoTrack.enabled = true
-          void emitLocalVideoState(true)
-          cameraPausedByBackgroundRef.current = false
+          void emitLocalVideoState(true).then((applied) => {
+            const currentState = useCallStore.getState()
+            if (
+              applied &&
+              currentState.phase === 'active' &&
+              currentState.callType === 'VIDEO' &&
+              currentState.callId === callState.callId
+            ) {
+              cameraPausedByBackgroundRef.current = false
+              return
+            }
+            localVideoTrack.enabled = false
+            localVideoStateRef.current.desiredEnabled = false
+          })
         } else {
-          void activateLocalVideo({ requestPermission: false })
+          void activateLocalVideo({ requestPermission: false, source: 'foreground' })
             .then((activated) => {
               if (activated) cameraPausedByBackgroundRef.current = false
             })
@@ -2132,7 +2267,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         .then((state) => {
           debugCall(
             '[Call] audio_snapshot_loaded',
-            JSON.stringify({ callId: resumedCallId, source: 'app_resume', state }),
+            JSON.stringify({
+              callId: shortCallId(resumedCallId),
+              source: 'app_resume',
+              activated: state.isActivated === true,
+              audioEnabled: state.isAudioEnabled === true,
+              hasError: Boolean(state.errorCode),
+            }),
           )
           telemetrySessionRef.current?.record('audio_snapshot_loaded', { outcome: 'succeeded' })
         })
@@ -2249,6 +2390,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
 
     const handleConnect = () => {
+      socketGenerationRef.current += 1
       if (
         controlPlaneRecoveringRef.current ||
         (useCallStore.getState().phase === 'reconnecting' && reconnectModeRef.current === 'local')
@@ -2268,7 +2410,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       callSocketAuthenticatedRef.current = false
       debugCall(
         '[Call] socket_disconnected',
-        JSON.stringify({ callId: disconnectedCallId, reason }),
+        JSON.stringify({
+          callId: shortCallId(disconnectedCallId),
+          reason,
+          socketGeneration: socketGenerationRef.current,
+        }),
       )
       telemetrySessionRef.current?.record('socket_disconnected', {
         outcome: 'failed',
@@ -2296,7 +2442,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       telemetrySessionRef.current?.record('socket_reconnect_started', { outcome: 'started' })
       debugCall(
         '[Call] socket_reconnect_started',
-        JSON.stringify({ callId: disconnectedCallId, reason }),
+        JSON.stringify({
+          callId: shortCallId(disconnectedCallId),
+          reason,
+          socketGeneration: socketGenerationRef.current,
+        }),
       )
       clearSocketDisconnectGraceTimeout()
       socketDisconnectGraceTimeoutRef.current = setTimeout(() => {
@@ -2328,7 +2478,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           })
           debugCall(
             '[Call] socket_reconnect_succeeded',
-            JSON.stringify({ callId: disconnectedCallId }),
+            JSON.stringify({
+              callId: shortCallId(disconnectedCallId),
+              socketGeneration: socketGenerationRef.current,
+            }),
           )
           if (
             controlPlaneRecoveringRef.current ||
@@ -2365,6 +2518,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const handleProducerClosed = (payload: ProducerClosedPayload) => {
       if (!isCurrentCall(payload.callId)) return
       const remoteStream = remoteStreamRef.current
+      if (payload.kind === 'video') {
+        closedRemoteVideoProducerIdsRef.current.add(payload.producerId)
+      }
       handledRemoteProducerIdsRef.current.delete(payload.producerId)
       queuedRemoteProducerMapRef.current.delete(payload.producerId)
       remoteVideoEnabledByProducerRef.current.delete(payload.producerId)
@@ -2404,6 +2560,16 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         callType: payload.callType,
         remoteVideoState: payload.callType === 'VIDEO' ? 'waiting' : 'idle',
       })
+      reconcileRemoteVideoProducerTombstones(
+        closedRemoteVideoProducerIdsRef.current,
+        [
+          ...remoteVideoEnabledByProducerRef.current.keys(),
+          ...[...consumerMapRef.current.values()]
+            .filter((consumer) => consumer.kind === 'video')
+            .map((consumer) => consumer.producerId),
+        ],
+        new Set(),
+      )
       remoteVideoEnabledByProducerRef.current.clear()
       remoteVideoRevisionByProducerRef.current.clear()
       for (const [producerId, producer] of queuedRemoteProducerMapRef.current) {
@@ -2422,6 +2588,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
     const handleVideoStateChanged = (payload: VideoStateChangedPayload) => {
       if (!isCurrentCall(payload.callId) || payload.userId === currentUserId) return
+      if (
+        !isRemoteVideoProducerCurrent(closedRemoteVideoProducerIdsRef.current, payload.producerId)
+      ) {
+        return
+      }
 
       const currentRevision = remoteVideoRevisionByProducerRef.current.get(payload.producerId)
       if (payload.revision === undefined && currentRevision !== undefined && currentRevision > 0) {
@@ -2429,8 +2600,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
       if (
         payload.revision !== undefined &&
-        currentRevision !== undefined &&
-        payload.revision < currentRevision
+        !shouldApplyRemoteVideoRevision(currentRevision, payload.revision)
       ) {
         return
       }
@@ -2472,6 +2642,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
 
     const handleNewProducer = (payload: NewProducerPayload) => {
+      if (payload.kind === 'video') {
+        closedRemoteVideoProducerIdsRef.current.delete(payload.producerId)
+      }
       void consumeRemoteProducer(payload)
     }
 

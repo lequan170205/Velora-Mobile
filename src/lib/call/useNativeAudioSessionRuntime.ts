@@ -9,6 +9,7 @@ import {
   IOS_AUDIO_SESSION_READY_TIMEOUT_MS,
   IOS_AUDIO_SESSION_SNAPSHOT_POLL_MS,
 } from './callConstants'
+import { safeCallErrorCode, shortCallId } from './callDebug'
 import { shouldDefaultVideoToSpeaker } from './callPolicies'
 
 import type { AudioSessionConfiguration } from './callPolicies'
@@ -89,7 +90,16 @@ export const useNativeAudioSessionRuntime = ({
             .getNativeAudioSessionState()
             .then((state) => {
               if (settled) return
-              debugCall('[Call] audio_snapshot_loaded', JSON.stringify({ callId, source, state }))
+              debugCall(
+                '[Call] audio_snapshot_loaded',
+                JSON.stringify({
+                  callId: shortCallId(callId),
+                  source,
+                  activated: state.isActivated === true,
+                  audioEnabled: state.isAudioEnabled === true,
+                  hasError: Boolean(state.errorCode),
+                }),
+              )
               telemetrySessionRef.current?.record('audio_snapshot_loaded', {
                 outcome: 'succeeded',
               })
@@ -98,7 +108,10 @@ export const useNativeAudioSessionRuntime = ({
                 return
               }
               if (state.isActivated && state.isAudioEnabled) {
-                debugCall('[Call] audio_already_active', JSON.stringify({ callId, source }))
+                debugCall(
+                  '[Call] audio_already_active',
+                  JSON.stringify({ callId: shortCallId(callId), source }),
+                )
                 telemetrySessionRef.current?.record('audio_already_active', {
                   outcome: 'succeeded',
                 })
@@ -110,7 +123,11 @@ export const useNativeAudioSessionRuntime = ({
               // PushKit cold starts can expose CallKit audio before the Expo bridge is ready.
               debugCall(
                 '[Call] audio_snapshot_load_failed',
-                JSON.stringify({ callId, source, error: String(error) }),
+                JSON.stringify({
+                  callId: shortCallId(callId),
+                  source,
+                  errorCode: safeCallErrorCode(error),
+                }),
               )
               telemetrySessionRef.current?.record('audio_snapshot_loaded', {
                 outcome: 'failed',
@@ -131,7 +148,10 @@ export const useNativeAudioSessionRuntime = ({
           settle(event, event.errorCode ? new Error(event.errorCode) : undefined)
         })
         activatedSubscription = veloraSystemCalls.addAudioSessionActivatedListener(() => {
-          debugCall('[Call] audio_activation_event_received', JSON.stringify({ callId }))
+          debugCall(
+            '[Call] audio_activation_event_received',
+            JSON.stringify({ callId: shortCallId(callId) }),
+          )
           telemetrySessionRef.current?.record('audio_activation_event_received', {
             outcome: 'succeeded',
           })
@@ -142,7 +162,11 @@ export const useNativeAudioSessionRuntime = ({
         })
         debugCall(
           '[Call] waiting_for_audio_activation',
-          JSON.stringify({ callId, timeoutMs, snapshotPollMs: IOS_AUDIO_SESSION_SNAPSHOT_POLL_MS }),
+          JSON.stringify({
+            callId: shortCallId(callId),
+            timeoutMs,
+            snapshotPollMs: IOS_AUDIO_SESSION_SNAPSHOT_POLL_MS,
+          }),
         )
         telemetrySessionRef.current?.record('waiting_for_audio_activation', {
           outcome: 'started',

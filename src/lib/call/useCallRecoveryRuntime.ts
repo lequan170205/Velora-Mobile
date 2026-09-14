@@ -8,9 +8,11 @@ import {
   RECONNECT_RECOVERY_TIMEOUT_MS,
   TRANSPORT_CONNECTED_TIMEOUT_MS,
 } from './callConstants'
+import { safeCallErrorCode, shortCallId } from './callDebug'
 import {
   isCallSetupCancelledError,
   isConnectedTransportState,
+  isTerminalRemoteMediaError,
   isWaitTimeoutError,
   waitForTransportConnection,
 } from './callPolicies'
@@ -23,6 +25,7 @@ import type {
   CallSocket,
   IceRestartedPayload,
   LocalVideoSyncState,
+  LocalVideoActivationSource,
   NewProducerPayload,
   PeerReconnectedPayload,
   PeerReconnectingPayload,
@@ -35,6 +38,7 @@ type RecoveryRuntimeOptions = {
   isAuthenticated: boolean
   currentUserId: string | null
   socketRef: MutableRef<CallSocket | null>
+  socketGenerationRef: MutableRef<number>
   waitRegistryRef: MutableRef<CallWaitRegistry>
   sendTransportRef: MutableRef<MediasoupTypes.Transport<Record<string, unknown>> | null>
   recvTransportRef: MutableRef<MediasoupTypes.Transport<Record<string, unknown>> | null>
@@ -54,20 +58,28 @@ type RecoveryRuntimeOptions = {
   reconnectModeRef: MutableRef<'local' | 'peer' | null>
   teardownInProgressRef: MutableRef<boolean>
   mediaTransportDisconnectTimeoutsRef: MutableRef<Map<string, ReturnType<typeof setTimeout>>>
-  activateLocalVideo: (options?: { requestPermission?: boolean }) => Promise<boolean>
+  activateLocalVideo: (options?: {
+    requestPermission?: boolean
+    source?: LocalVideoActivationSource
+  }) => Promise<boolean>
   synchronizeLocalVideoState?: () => Promise<boolean>
   deactivateLocalVideo: () => void
   clearRemoteVideoRuntime: (state?: 'idle' | 'off') => void
   consumeRemoteProducer: (
     payload: NewProducerPayload,
-    options?: { propagateFailure?: boolean; setupToken?: number },
+    options?: {
+      propagateFailure?: boolean
+      retryOnFailure?: boolean
+      retryAttempt?: number
+      setupToken?: number
+    },
   ) => Promise<void>
   invalidateCallSetup: () => void
   disposeMediaRuntime: (options?: { preserveActiveCall?: boolean }) => void
   beginCallSetup: () => number
   postAnswerSetup: (
     payload: CallRejoinedPayload,
-    options: { resumeDurationSec?: number; setupToken: number },
+    options: { resumeDurationSec?: number; recovery?: boolean; setupToken: number },
   ) => Promise<void>
   assertCallSetupCurrent: (setupToken: number, callId: string) => void
   clearReconnectTimeout: () => void
@@ -86,6 +98,7 @@ export const useCallRecoveryRuntime = ({
   isAuthenticated,
   currentUserId,
   socketRef,
+  socketGenerationRef,
   waitRegistryRef,
   sendTransportRef,
   recvTransportRef,
@@ -243,6 +256,7 @@ export const useCallRecoveryRuntime = ({
             },
             {
               propagateFailure: producer.kind === 'audio',
+              retryOnFailure: true,
               setupToken: restartSetupToken,
             },
           )
@@ -256,7 +270,7 @@ export const useCallRecoveryRuntime = ({
           !videoProducerRef.current &&
           localVideoStateRef.current.desiredEnabled
         ) {
-          await activateLocalVideo({ requestPermission: false })
+          await activateLocalVideo({ requestPermission: false, source: 'recovery' })
           assertCallSetupCurrent(restartSetupToken, rejoined.callId)
         }
         if (
@@ -281,11 +295,18 @@ export const useCallRecoveryRuntime = ({
         return
       } catch (error) {
         assertCallSetupCurrent(restartSetupToken, rejoined.callId)
+        if (isTerminalRemoteMediaError(error)) {
+          // A terminal room/producer response is not an ICE failure. Do not
+          // rebuild media or retry it; the outer recovery handler performs one
+          // deterministic terminal teardown for the stale call.
+          throw error
+        }
         console.warn(
           '[Call] ICE restart failed; rebuilding media runtime',
           JSON.stringify({
-            callId: rejoined.callId,
-            error: error instanceof Error ? error.message : 'unknown_error',
+            callId: shortCallId(rejoined.callId),
+            socketGeneration: socketGenerationRef.current,
+            errorCode: safeCallErrorCode(error),
           }),
         )
       }
@@ -300,6 +321,7 @@ export const useCallRecoveryRuntime = ({
       armReconnectTimeout('recover_rebuild_timeout')
       const setupToken = beginCallSetup()
       await postAnswerSetup(rejoined, {
+        recovery: true,
         resumeDurationSec: useCallStore.getState().durationSec,
         setupToken,
       })
@@ -310,7 +332,7 @@ export const useCallRecoveryRuntime = ({
         useCallStore.getState().hasCameraPermission === true &&
         localVideoStateRef.current.desiredEnabled
       ) {
-        await activateLocalVideo({ requestPermission: false })
+        await activateLocalVideo({ requestPermission: false, source: 'recovery' })
         assertCallSetupCurrent(setupToken, rejoined.callId)
       } else if (
         rejoined.session.callType === 'VIDEO' &&
@@ -339,8 +361,9 @@ export const useCallRecoveryRuntime = ({
         console.warn(
           '[Call] Recovery helper timed out before reconnect grace window expired',
           JSON.stringify({
-            callId: state.callId,
-            error: error instanceof Error ? error.message : 'unknown_error',
+            callId: shortCallId(state.callId),
+            socketGeneration: socketGenerationRef.current,
+            errorCode: safeCallErrorCode(error),
           }),
         )
         return
@@ -376,6 +399,7 @@ export const useCallRecoveryRuntime = ({
     restartConnectedTransports,
     markNativeCallActive,
     socketRef,
+    socketGenerationRef,
     startTimer,
     synchronizeLocalVideoState,
     teardownRecoveryFailure,

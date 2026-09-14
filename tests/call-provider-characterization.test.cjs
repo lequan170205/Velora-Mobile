@@ -440,14 +440,14 @@ test('post-answer setup makes audio usable before progressive video enrichment',
       "if (!localAudioTrack) throw new Error('No local audio track available')",
       'const audioProducer = await sendTransport.produce({',
       'audioProducerRef.current = audioProducer',
-      'await flushQueuedRemoteProducers({ setupToken: options.setupToken })',
+      'await flushQueuedRemoteProducers({',
       "telemetry?.recordLifecycle('audio_ready'",
       "phase: 'active'",
       'startTimer(options.resumeDurationSec ?? 0)',
       'armRemoteAudioFallback()',
       'void (async () => {',
       "telemetry?.recordLifecycle('media_enhancing'",
-      'const activated = await ensureLocalVideoProducer({ requestPermission: false })',
+      'const activated = await ensureLocalVideoProducer({',
       'if (activated && isCallSetupCurrent(options.setupToken, callId))',
       "telemetry?.record('video_producer_ready'",
       "telemetry?.record('video_producer_failed'",
@@ -482,7 +482,7 @@ test('remote consumer setup rolls back partially published media before retrying
       'remoteStream?.removeTrack(consumer.track',
       'consumer.close()',
       'consumerMapRef.current.delete(consumer.id)',
-      'if (reconnectModeRef.current)',
+      'const isRecoveryConsume =',
     ],
     'partial consumer rollback order',
   )
@@ -665,6 +665,7 @@ test('local video activation is single-flight and discards stale media resources
       'const isActivationCurrent = () =>',
       'activationGeneration === videoActivationGenerationRef.current',
       "AppState.currentState === 'active'",
+      'const resetUserIntentAfterFailure = () =>',
       'await mediaDevices.getUserMedia({',
       'if (!isActivationCurrent()) return false',
       'if (!isActivationCurrent() || sendTransportRef.current !== sendTransport)',
@@ -675,6 +676,7 @@ test('local video activation is single-flight and discards stale media resources
       'videoProducerRef.current = producer',
       'videoActivationRef.current = activation',
       'if (videoActivationRef.current === activation)',
+      'if (!activated) resetUserIntentAfterFailure()',
     ],
     'local video activation cancellation order',
   )
@@ -697,7 +699,7 @@ test('rapid camera taps cancel pending activation and keep the producer stable',
     [
       'const cameraIsDesiredOn =',
       'if (!cameraIsDesiredOn)',
-      'await activateLocalVideo()',
+      "await activateLocalVideo({ source: 'user' })",
       'if (!videoProducerRef.current)',
       'deactivateLocalVideo()',
       'emitLocalVideoState(false)',
@@ -712,7 +714,8 @@ test('remote video state is rebuilt from a revisioned producer snapshot after re
   const recovery = read('src/lib/call/useCallRecoveryRuntime.ts')
 
   assert.match(provider, /const deriveRemoteVideoState = useCallback/)
-  assert.match(provider, /hasLiveConsumer/)
+  assert.match(provider, /consumerReady/)
+  assert.match(provider, /deriveRemoteVideoStateFromRegistry/)
   assert.match(provider, /remoteVideoSnapshotReadyRef\.current = false/)
   assert.match(mediaTransport, /remoteVideoRevisionByProducerRef\.current\.set/)
   assert.match(mediaTransport, /markRemoteVideoSnapshotReady\(callType === 'VIDEO'\)/)
@@ -743,7 +746,7 @@ test('call type and camera facing changes publish only into their originating se
       'await emitAndWaitForEvent(',
       "presentError('Unable to change call type')",
       'if (!isCallTypeSwitchCurrent()) return',
-      'await activateLocalVideo({ requestPermission: false })',
+      "await activateLocalVideo({ requestPermission: false, source: 'user' })",
       'if (!isCallTypeSwitchCurrent()) return',
       '.getNativeAudioSessionState()',
       'if (!isCallTypeSwitchCurrent()) return',
@@ -789,7 +792,7 @@ test('local reconnect prefers ICE restart and rebuilds media only after restart 
       'setupToken: restartSetupToken',
       'assertCallSetupCurrent(restartSetupToken, rejoined.callId)',
       "phase: 'active'",
-      'await activateLocalVideo({ requestPermission: false })',
+      "await activateLocalVideo({ requestPermission: false, source: 'recovery' })",
       'assertCallSetupCurrent(restartSetupToken, rejoined.callId)',
       'clearReconnectTimeout()',
       'startTimer(useCallStore.getState().durationSec)',
@@ -1014,7 +1017,7 @@ test('background video pauses signaling intent and restores or recreates the tra
       "previousState !== 'active'",
       'localVideoTrack.enabled = true',
       'emitLocalVideoState(true)',
-      'activateLocalVideo({ requestPermission: false })',
+      "activateLocalVideo({ requestPermission: false, source: 'foreground' })",
       '.catch(() =>',
       "processPendingNativeCallAction('app_resume')",
     ],
@@ -1032,7 +1035,12 @@ test('camera toggle owns activation failures because the call screen discards it
 
   assertOrdered(
     toggleSource,
-    ['try {', 'await activateLocalVideo()', 'catch', "presentError('Unable to enable video')"],
+    [
+      'try {',
+      "await activateLocalVideo({ source: 'user' })",
+      'catch',
+      "presentError('Unable to enable video')",
+    ],
     'camera toggle rejection handling',
   )
 })

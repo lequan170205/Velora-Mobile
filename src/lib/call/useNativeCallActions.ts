@@ -5,6 +5,7 @@ import { useAuthStore } from '../../stores/authStore'
 import { useCallStore } from '../../stores/callStore'
 import { veloraSystemCalls } from '../systemCalls/veloraSystemCalls'
 
+import { safeCallErrorCode, shortCallId } from './callDebug'
 import { isBusyPhase, isRetryableCallStateError } from './callPolicies'
 
 import type { CallSocket } from '../../types/call.types'
@@ -314,10 +315,10 @@ export const useNativeCallActions = ({
         console.warn(
           '[Call] Failed to process native call action',
           JSON.stringify({
-            callId: action.callId,
+            callId: shortCallId(action.callId),
             action: action.action,
-            actionId: action.actionId,
-            error: error instanceof Error ? error.message : 'unknown_error',
+            actionId: shortCallId(action.actionId),
+            errorCode: safeCallErrorCode(error),
           }),
         )
         if (action.action === 'answer') {
@@ -360,9 +361,9 @@ export const useNativeCallActions = ({
         '[Call] pending_native_action_replayed',
         JSON.stringify({
           source,
-          callId: pendingAction.callId,
+          callId: shortCallId(pendingAction.callId),
           action: pendingAction.action,
-          actionId: pendingAction.actionId,
+          actionId: shortCallId(pendingAction.actionId),
         }),
       )
       void processNativeCallAction(pendingAction)
