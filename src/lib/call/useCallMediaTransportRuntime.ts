@@ -19,7 +19,7 @@ import {
 import { safeCallErrorCode, shortCallId } from './callDebug'
 import { isCallSetupCancelledError, isTerminalRemoteMediaError, stableJson } from './callPolicies'
 import { createCallRequestId, emitAndWaitForEvent } from './callSocket'
-import { boundedRetryDelay } from './callVideoState'
+import { boundedRetryDelay, shouldApplyRemoteVideoRevision } from './callVideoState'
 import {
   createMediasoupDevice,
   ensureMediasoupGlobalsRegistered,
@@ -408,9 +408,22 @@ export const useCallMediaTransportRuntime = ({
       if (payload.kind === 'video' && payload.userId !== currentUserId) {
         const incomingRevision = payload.revision ?? 0
         const currentRevision = remoteVideoRevisionByProducerRef.current.get(payload.producerId)
-        if (currentRevision === undefined || incomingRevision >= currentRevision) {
+        const incomingEnabled = payload.paused === undefined ? undefined : payload.paused !== true
+        if (
+          shouldApplyRemoteVideoRevision(
+            currentRevision,
+            incomingRevision,
+            remoteVideoEnabledByProducerRef.current.get(payload.producerId),
+            incomingEnabled,
+          )
+        ) {
           remoteVideoRevisionByProducerRef.current.set(payload.producerId, incomingRevision)
-          remoteVideoEnabledByProducerRef.current.set(payload.producerId, payload.paused !== true)
+          remoteVideoEnabledByProducerRef.current.set(
+            payload.producerId,
+            incomingEnabled ??
+              remoteVideoEnabledByProducerRef.current.get(payload.producerId) ??
+              true,
+          )
           if (remoteVideoSnapshotReadyRef.current) {
             useCallStore.getState().patch({ remoteVideoState: deriveRemoteVideoState() })
           }
