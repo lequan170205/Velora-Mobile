@@ -29,12 +29,16 @@ explicit task requirements
 
 ## Executors
 
-Use the actual available executors:
+Use the executor selected during planning. Do not silently substitute one executor for another.
 
 - **Codex (`codex`)** — use Codex's native subagent tools exposed by the current host (`spawn_agent`, `wait_agent`, `close_agent`, or their namespaced equivalents). Do not launch a nested `codex` CLI process.
-- **Antigravity (`agy`)** — use for independent UI-oriented work, focused tests, or secondary implementation/review when useful. Check `command -v agy` before assigning it.
+- **Antigravity (`agy`)** — use for independent UI-oriented work, focused tests, secondary implementation, or review when useful. Antigravity runs through the host-side runner started from the user's normal terminal, not inside the Codex/Web sandbox.
 
-If native Codex subagent tools are unavailable, assign Codex work to `agy` when available. If neither native Codex subagents nor `agy` are available, report that repository orchestration cannot run instead of inventing another execution path.
+Before assigning any `agy` task, require `agent-harness agy status` to report the host runner as running. If it is unavailable, do not start or repair it from inside the orchestrator. Report that the user should run `agent-harness agy start` from a normal terminal, or build the plan without `agy` when that does not reduce correctness.
+
+For write-capable `agy` tasks, set `approval: "yolo"` only because the runner executes inside a disposable isolated task worktree. Never use this mode against the caller checkout.
+
+A failed or slow Codex task stays a Codex task. A failed or slow `agy` task stays an `agy` task. Do not cross-fallback between executors.
 
 `codex-web-gpt` is only the parent ChatGPT Web transport. Never launch or repair it as a worker.
 
@@ -66,15 +70,17 @@ If implementation was requested:
 2. run `agent-harness orchestrate prepare <plan.json>` and capture the run id
 3. run `agent-harness orchestrate ready <run-id>`
 4. for each ready `codex` task, run `agent-harness orchestrate task <run-id> <task-id>`, then pass the printed task packet to a native Codex subagent
-5. for each ready `agy` task, run `agent-harness orchestrate agy <run-id> <task-id>`
+5. for each ready `agy` task, run `agent-harness orchestrate agy <run-id> <task-id>`; this submits the task to the host-side runner and waits for its durable result
 6. wait for native Codex subagents; when one completes, run `agent-harness orchestrate complete <run-id> <task-id>`; if it errors, run `agent-harness orchestrate fail <run-id> <task-id> <reason>`
-7. close completed native subagents so they do not consume the host concurrency limit
+7. close completed native Codex subagents so they do not consume the host concurrency limit
 8. repeat `ready` until every implementation task is successful or the run is blocked
 9. run final review
 10. after review passes, run `agent-harness orchestrate deliver <run-id>`
 11. inspect the applied caller-worktree diff and report the result
 
 The helper snapshots the caller's current committed, modified, deleted, and untracked non-ignored files into a temporary shadow repository. Every task gets an isolated worktree from that shadow repository. Deterministic verification and integration are performed by the helper, not trusted from an agent self-report.
+
+If a Web tool window expires while `agent-harness orchestrate agy ...` is waiting, do not create another worker or switch executors. The host runner keeps the job alive. Re-run the exact same orchestration command; the job is idempotent for that task/worktree and the harness will reuse its existing result.
 
 ## Native Codex task rules
 
@@ -93,6 +99,12 @@ Use `send_input`/follow-up messaging only when a running subagent genuinely need
 
 After reconnecting to a Codex/Web session, inspect existing live agents and `agent-harness orchestrate status latest` before spawning anything new.
 
+## Antigravity task rules
+
+`agy` is not launched directly by the Web/Codex sandbox. `agent-harness orchestrate agy ...` submits the task packet and isolated worktree path to the host-side runner through a private per-user queue under the system temporary directory. The runner was started from the normal terminal and therefore keeps the user's ordinary Antigravity authentication, filesystem environment, language-server runtime, localhost sockets, and device access.
+
+The host runner invokes `agy --print ... --output-format stream-json` and returns only durable job status/output to the orchestrator. Do not run `agy` directly as a fallback from the parent session.
+
 ## Final review
 
 If the plan review agent is `codex`:
@@ -103,7 +115,7 @@ If the plan review agent is `codex`:
 4. record it with `agent-harness orchestrate review <run-id> PASS|BLOCK`
 5. close the reviewer subagent
 
-If the review agent is `agy`, run `agent-harness orchestrate review-agy <run-id>`.
+If the review agent is `agy`, run `agent-harness orchestrate review-agy <run-id>` through the same host runner.
 
 Deliver only after all tasks succeeded and final review returned `PASS`.
 
@@ -116,11 +128,13 @@ Ponytail and agentmemory are host integrations; do not create setup tasks for th
 - let agents query shared memory selectively when useful
 - save only concise, durable, verified lessons after meaningful work
 
-If device/emulator validation is blocked by the outer sandbox, report that limitation after completing deterministic checks that are available. Do not change harness infrastructure or bypass orchestration to work around it.
+The Antigravity host runner may use capabilities unavailable to the outer Codex sandbox (for example its local language server or ADB). Harness verification commands still run in the orchestration helper's own execution context, so report any environment-limited verification separately rather than pretending it ran.
 
 ## Never do these
 
 - launch nested `codex exec` workers
+- launch `agy` directly from the Codex/Web sandbox
+- silently fall back from Codex to `agy` or from `agy` to Codex
 - use native subagents without isolated harness worktrees for implementation
 - use `codex-web-gpt` as a worker
 - create temporary compatibility wrappers or patch harness internals during a product task

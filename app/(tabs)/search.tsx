@@ -1,5 +1,4 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import { Image } from 'expo-image'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -7,15 +6,20 @@ import {
   Alert,
   Pressable,
   ScrollView,
-  Text,
   View,
   useWindowDimensions,
 } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { AppPressable, AppText } from '../../src/components/base'
+import { ChatAvatar } from '../../src/components/chat/ChatAvatar'
 import { AppSearchBar } from '../../src/components/common/AppSearchBar'
+import { SafeTouchableOpacity } from '../../src/components/common/SafeTouchableOpacity'
 import { getDockedTabBarHeight } from '../../src/components/navigation/CustomTabBar'
-import { ReelThumbnailGrid } from '../../src/components/reels/ReelThumbnailGrid'
+import {
+  ReelThumbnailGrid,
+  ReelThumbnailGridSkeleton,
+} from '../../src/components/reels/ReelThumbnailGrid'
 import { colors } from '../../src/constants/theme'
 import { useBotChat } from '../../src/hooks/useBotChat'
 import { useConversationNavigation } from '../../src/hooks/useConversationNavigation'
@@ -24,8 +28,6 @@ import { useGlobalSearch } from '../../src/hooks/useGlobalSearch'
 import { useRecommendedUsers } from '../../src/hooks/useRecommendedUsers'
 import { useRecommendedReelsFeed } from '../../src/hooks/useReels'
 import { useSearchSuggestions } from '../../src/hooks/useSearchSuggestions'
-import { cn } from '../../src/lib/cn'
-import { getInitials } from '../../src/lib/profile'
 import { flattenRecommendedReelPages } from '../../src/lib/recommendationFeed'
 import { useNetworkStatus } from '../../src/providers/NetworkProvider'
 
@@ -93,33 +95,69 @@ const getErrorMessage = (error: unknown, fallback: string) => {
   return fallback
 }
 
+function SearchHeader({
+  isBotLoading,
+  onBotChat,
+}: {
+  isBotLoading: boolean
+  onBotChat: () => void
+}) {
+  return (
+    <View className="flex-row items-end justify-between px-5 pb-3 pt-2">
+      <View>
+        <AppText className="text-xs2 font-semibold uppercase tracking-[1.8px] text-brand-dark">
+          Velora
+        </AppText>
+        <AppText className="font-display text-[28px] leading-[34px] tracking-[-0.7px] text-text-primary">
+          Search
+        </AppText>
+      </View>
+
+      <SafeTouchableOpacity
+        className="h-12 w-12 items-center justify-center overflow-hidden rounded-[18px] border border-brand-soft bg-surface-accent"
+        onPress={onBotChat}
+        activeOpacity={0.75}
+        accessibilityRole="button"
+        accessibilityLabel="Open Velora AI"
+        accessibilityHint="Start a chat with Velora AI"
+      >
+        {isBotLoading ? (
+          <ActivityIndicator color={colors.brand.tertiary} size="small" />
+        ) : (
+          <MaterialIcons name="auto-awesome" size={21} color="#D85A21" />
+        )}
+      </SafeTouchableOpacity>
+    </View>
+  )
+}
+
 function SearchTabButton({
   active,
   label,
-  loading = false,
   onPress,
 }: {
   active: boolean
   label: string
-  loading?: boolean
   onPress: () => void
 }) {
   return (
-    <Pressable className="flex-1 items-center justify-center px-1 py-2" onPress={onPress}>
-      {loading ? (
-        <ActivityIndicator color={colors.brand.tertiary} size="small" />
-      ) : (
-        <Text
-          className={cn(
-            'font-medium text-sm2',
-            active ? 'text-text-primary' : 'text-text-secondary',
-          )}
-        >
-          {label}
-        </Text>
-      )}
-
-      <View className={cn('mt-2 h-0.5 w-8 rounded-full', active ? 'bg-brand' : 'bg-transparent')} />
+    <Pressable
+      className="h-11 flex-1 flex-row items-center justify-center rounded-full px-2"
+      onPress={onPress}
+      collapsable={false}
+      style={({ pressed }) => ({
+        backgroundColor: active ? '#FFFFFF' : 'transparent',
+        borderColor: '#F4F4F4',
+        borderWidth: active ? 1 : 0,
+        opacity: pressed ? 0.76 : 1,
+      })}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      accessibilityLabel={`${label} search results`}
+    >
+      <AppText className="text-sm2 font-semibold" style={{ color: active ? '#161616' : '#777777' }}>
+        {label}
+      </AppText>
     </Pressable>
   )
 }
@@ -132,15 +170,20 @@ function SearchSectionHeader({
   title: string
 }) {
   return (
-    <View className="flex-row items-center justify-between px-4 pb-2 pt-5">
-      <Text className="font-medium text-sm2 uppercase tracking-[0.8px] text-text-muted">
+    <View className="flex-row items-center justify-between px-5 pb-2 pt-6">
+      <AppText className="font-heading text-lg text-text-primary" selectable>
         {title}
-      </Text>
+      </AppText>
 
       {onSeeAll ? (
-        <Pressable onPress={onSeeAll}>
-          <Text className="font-medium text-sm2 text-brand">See all</Text>
-        </Pressable>
+        <AppPressable
+          className="min-h-11 justify-center"
+          onPress={onSeeAll}
+          accessibilityRole="button"
+          accessibilityLabel={`See all ${title.toLowerCase()}`}
+        >
+          <AppText className="font-medium text-sm2 text-brand">See all</AppText>
+        </AppPressable>
       ) : null}
     </View>
   )
@@ -149,26 +192,40 @@ function SearchSectionHeader({
 function SearchMessageState({
   actionLabel,
   description,
+  icon = 'search-off',
   onPress,
   title,
 }: {
   actionLabel?: string
   description?: string
+  icon?: React.ComponentProps<typeof MaterialIcons>['name']
   onPress?: (() => void) | undefined
   title: string
 }) {
   return (
-    <View className="items-center px-8 pt-16">
-      <Text className="text-center font-medium text-md text-text-primary">{title}</Text>
+    <View className="mx-5 mt-5 items-center rounded-[24px] border border-brand-soft bg-surface-accent px-6 py-9">
+      <View className="h-12 w-12 items-center justify-center rounded-[18px] border border-brand-soft bg-bg-primary">
+        <MaterialIcons name={icon} size={22} color="#D85A21" />
+      </View>
+      <AppText className="mt-4 text-center font-heading text-lg text-text-primary" selectable>
+        {title}
+      </AppText>
 
       {description ? (
-        <Text className="mt-2 text-center text-sm2 text-text-secondary">{description}</Text>
+        <AppText className="mt-1.5 text-center text-base2 leading-5 text-text-secondary" selectable>
+          {description}
+        </AppText>
       ) : null}
 
       {actionLabel && onPress ? (
-        <Pressable className="mt-5 rounded-full bg-brand px-4 py-2.5" onPress={onPress}>
-          <Text className="font-medium text-sm2 text-white">{actionLabel}</Text>
-        </Pressable>
+        <AppPressable
+          className="mt-5 h-11 items-center justify-center overflow-hidden rounded-full bg-brand px-6"
+          onPress={onPress}
+          accessibilityRole="button"
+          accessibilityLabel={actionLabel}
+        >
+          <AppText className="text-base2 font-semibold text-white">{actionLabel}</AppText>
+        </AppPressable>
       ) : null}
     </View>
   )
@@ -176,13 +233,19 @@ function SearchMessageState({
 
 function SuggestionChip({ label, onPress }: { label: string; onPress: () => void }) {
   return (
-    <Pressable
-      className="mb-2 mr-2 rounded-full border border-border-light bg-surface-muted px-4 py-2"
+    <AppPressable
+      className="mb-2 mr-2 min-h-11 items-center justify-center rounded-full border border-brand-soft bg-bg-primary px-4"
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Search for ${label}`}
     >
-      <Text className="font-medium text-sm2 text-text-primary">{label}</Text>
-    </Pressable>
+      <AppText className="font-medium text-sm2 text-text-primary">{label}</AppText>
+    </AppPressable>
   )
+}
+
+function SuggestionChipSkeleton({ width }: { width: number }) {
+  return <View className="mb-2 mr-2 h-11 rounded-full bg-bg-primary" style={{ width }} />
 }
 
 function EmptyQueryState({
@@ -202,13 +265,25 @@ function EmptyQueryState({
     return null
   }
 
-  const chips = showSuggestions && hasResolvedSuggestions ? suggestions : []
+  const chips = hasResolvedSuggestions ? suggestions : []
 
   return (
-    <View className="px-4 pt-5">
-      <Text className="font-medium text-md text-text-primary">Search reels, contacts, topics</Text>
+    <View className="mx-5 mt-5 rounded-[24px] border border-brand-soft bg-surface-accent px-4 py-5">
+      <View className="flex-row items-start">
+        <View className="h-11 w-11 items-center justify-center rounded-[16px] border border-brand-soft bg-bg-primary">
+          <MaterialIcons name="explore" size={21} color="#D85A21" />
+        </View>
+        <View className="ml-3 min-w-0 flex-1">
+          <AppText className="font-heading text-lg text-text-primary" selectable>
+            Explore
+          </AppText>
+          <AppText className="mt-1 text-base2 leading-5 text-text-secondary" selectable>
+            Search reels, contacts, or topics
+          </AppText>
+        </View>
+      </View>
 
-      <View className="mt-4 flex-row flex-wrap">
+      <View className="mt-5 flex-row flex-wrap">
         {chips.map((chip) => (
           <SuggestionChip
             key={`${chip.query}:${chip.label}`}
@@ -217,10 +292,16 @@ function EmptyQueryState({
           />
         ))}
 
-        {showSuggestions && isLoadingSuggestions ? (
-          <View className="mb-2 mr-2 rounded-full border border-border-light bg-surface-muted px-4 py-2">
-            <Text className="font-medium text-sm2 text-text-secondary">Loading…</Text>
-          </View>
+        {isLoadingSuggestions ? (
+          <>
+            <SuggestionChipSkeleton width={96} />
+            <SuggestionChipSkeleton width={124} />
+            <SuggestionChipSkeleton width={104} />
+          </>
+        ) : chips.length === 0 ? (
+          <AppText className="text-sm2 text-text-secondary" selectable>
+            Try a name, a topic, or a reel title to get started.
+          </AppText>
         ) : null}
       </View>
     </View>
@@ -252,60 +333,55 @@ function ContactRow({
   const statusLabel = getFriendshipStatusLabel(status)
 
   return (
-    <Pressable className="px-4 py-3" disabled={!onPress} onPress={onPress}>
-      <View className="flex-row items-center">
-        <View
-          className="h-12 w-12 items-center justify-center rounded-full bg-surface-muted"
-          style={{ overflow: 'hidden' }}
-        >
-          {user.picture ? (
-            <Image
-              source={{ uri: user.picture }}
-              style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#F1E9E1' }}
-            />
-          ) : (
-            <Text className="font-heading text-sm2 text-text-primary">
-              {getInitials(user.fullName)}
-            </Text>
-          )}
-        </View>
+    <AppPressable
+      className="flex-row items-center px-5 py-3.5"
+      disabled={!onPress}
+      onPress={onPress}
+      activeOpacity={0.82}
+      accessibilityRole="button"
+      accessibilityLabel={onPress ? `Open ${user.fullName}'s profile` : user.fullName}
+    >
+      <ChatAvatar name={user.fullName} picture={user.picture} size={52} />
 
-        <View className="ml-3 flex-1">
-          <Text className="font-medium text-md text-text-primary" numberOfLines={1}>
-            {user.fullName}
-          </Text>
+      <View className="ml-3 min-w-0 flex-1 pr-3">
+        <AppText className="font-medium text-md text-text-primary" numberOfLines={1}>
+          {user.fullName}
+        </AppText>
 
-          {user.username ? (
-            <Text className="mt-0.5 text-sm2 text-text-secondary" numberOfLines={1}>
-              {getHandleLabel(user.username)}
-            </Text>
-          ) : null}
+        {user.username ? (
+          <AppText className="mt-0.5 text-sm2 text-text-secondary" numberOfLines={1}>
+            {getHandleLabel(user.username)}
+          </AppText>
+        ) : null}
 
-          {mutualFriendLabel ? (
-            <Text className="mt-0.5 text-xs2 text-text-muted" numberOfLines={1}>
-              {mutualFriendLabel}
-            </Text>
-          ) : null}
-        </View>
-
-        <View className="items-end">
-          {statusLabel ? (
-            status === 'request_received' ? (
-              <Pressable
-                accessibilityLabel="Open Friend Requests"
-                accessibilityRole="button"
-                onPress={onFriendRequestsPress}
-              >
-                <Text className="text-right text-xs2 text-brand">{statusLabel}</Text>
-              </Pressable>
-            ) : (
-              <Text className="text-right text-xs2 text-text-muted">{statusLabel}</Text>
-            )
-          ) : null}
-          {onPress ? <MaterialIcons color="#9B958C" name="chevron-right" size={18} /> : null}
-        </View>
+        {mutualFriendLabel ? (
+          <AppText className="mt-1 text-xs2 text-text-muted" numberOfLines={1}>
+            {mutualFriendLabel}
+          </AppText>
+        ) : null}
       </View>
-    </Pressable>
+
+      <View className="items-end">
+        {statusLabel ? (
+          status === 'request_received' ? (
+            <AppPressable
+              className="min-h-11 min-w-[44px] items-end justify-center"
+              accessibilityLabel="Open Friend Requests"
+              accessibilityRole="button"
+              accessibilityHint="Review incoming friend requests"
+              onPress={onFriendRequestsPress}
+            >
+              <AppText className="text-right text-xs2 text-brand">{statusLabel}</AppText>
+            </AppPressable>
+          ) : (
+            <AppText className="text-right text-xs2 text-text-muted" selectable>
+              {statusLabel}
+            </AppText>
+          )
+        ) : null}
+        {onPress ? <MaterialIcons color="#9B958C" name="chevron-right" size={20} /> : null}
+      </View>
+    </AppPressable>
   )
 }
 
@@ -398,10 +474,73 @@ function ContactResultsList({
                 onPress={normalizedUsername ? () => onUserPress(user) : undefined}
               />
             )}
-            {index < users.length - 1 ? <View className="mx-4 h-px bg-border-light" /> : null}
+            {index < users.length - 1 ? <View className="mx-5 h-px bg-border-light" /> : null}
           </View>
         )
       })}
+    </View>
+  )
+}
+
+function ContactRowSkeleton() {
+  return (
+    <View className="flex-row items-center px-5 py-3.5" pointerEvents="none">
+      <View className="h-[52px] w-[52px] rounded-[18px] bg-surface-muted" />
+      <View className="ml-3 flex-1 gap-2.5 overflow-hidden">
+        <View className="h-3.5 w-2/5 rounded-full bg-surface-muted" />
+        <View className="h-3 w-3/5 rounded-full bg-surface-muted" />
+      </View>
+      <View className="h-11 w-11 rounded-[16px] bg-surface-muted" />
+    </View>
+  )
+}
+
+function ContactResultsSkeleton({ count = 5 }: { count?: number }) {
+  return (
+    <View pointerEvents="none">
+      {Array.from({ length: count }).map((_, index) => (
+        <View key={`contact-skeleton-${index}`}>
+          <ContactRowSkeleton />
+          {index < count - 1 ? <View className="mx-5 h-px bg-border-light" /> : null}
+        </View>
+      ))}
+    </View>
+  )
+}
+
+function SearchResultsSkeleton({
+  selectedTab,
+  tileSize,
+  title,
+}: {
+  selectedTab: SearchTabKey
+  tileSize: number
+  title?: string
+}) {
+  if (selectedTab === 'contacts') {
+    return (
+      <View>
+        <SearchSectionHeader title={title ?? 'Contacts'} />
+        <ContactResultsSkeleton />
+      </View>
+    )
+  }
+
+  if (selectedTab === 'reels') {
+    return (
+      <View>
+        <SearchSectionHeader title={title ?? 'Reels'} />
+        <ReelThumbnailGridSkeleton tileSize={tileSize} />
+      </View>
+    )
+  }
+
+  return (
+    <View>
+      <SearchSectionHeader title="Contacts" />
+      <ContactResultsSkeleton count={3} />
+      <SearchSectionHeader title="Reels" />
+      <ReelThumbnailGridSkeleton tileSize={tileSize} />
     </View>
   )
 }
@@ -413,6 +552,7 @@ function SearchResultsPanel({
   isLoadingSuggestions,
   onReelPress,
   onFriendRequestsPress,
+  onClearQuery,
   onSuggestionPress,
   onRecommendedUsersRetry,
   onSwitchTab,
@@ -437,6 +577,7 @@ function SearchResultsPanel({
   isRecommendedUsersLoading: boolean
   onReelPress: (reel: ReelFeedListItem) => void
   onFriendRequestsPress: () => void
+  onClearQuery: () => void
   onRecommendedUsersRetry: () => void
   onSuggestionPress: (value: string) => void
   onSwitchTab: (tab: SearchTabKey) => void
@@ -462,15 +603,23 @@ function SearchResultsPanel({
     if (selectedTab === 'reels') {
       if (isRecommendedReelsLoading && recommendedReels.length === 0) {
         return (
-          <View className="items-center px-4 pt-12">
-            <ActivityIndicator color={colors.brand.tertiary} size="small" />
-          </View>
+          <SearchResultsSkeleton
+            selectedTab="reels"
+            tileSize={tileSize}
+            title="Recommended reels"
+          />
         )
       }
 
       if (recommendedReels.length === 0) {
         return (
-          <SearchMessageState title="No recommended reels yet" description="Check back later" />
+          <SearchMessageState
+            actionLabel="Explore suggestions"
+            description="Explore a topic and come back for new picks."
+            icon="movie-filter"
+            onPress={() => onSwitchTab('all')}
+            title="No recommended reels yet"
+          />
         )
       }
 
@@ -489,9 +638,11 @@ function SearchResultsPanel({
     if (selectedTab === 'contacts') {
       if (isRecommendedUsersLoading && recommendedUsers.length === 0) {
         return (
-          <View className="items-center px-4 pt-12">
-            <ActivityIndicator color={colors.brand.tertiary} size="small" />
-          </View>
+          <SearchResultsSkeleton
+            selectedTab="contacts"
+            tileSize={tileSize}
+            title="Suggested contacts"
+          />
         )
       }
 
@@ -499,6 +650,8 @@ function SearchResultsPanel({
         return (
           <SearchMessageState
             title="Couldn’t load suggestions"
+            description="Check your connection and try again."
+            icon="cloud-off"
             actionLabel="Retry"
             onPress={onRecommendedUsersRetry}
           />
@@ -508,6 +661,7 @@ function SearchResultsPanel({
       if (recommendedUsers.length === 0) {
         return (
           <SearchMessageState
+            icon="people-outline"
             title="No contact suggestions yet"
             description="Try searching for someone"
           />
@@ -540,22 +694,24 @@ function SearchResultsPanel({
 
   if (isNetworkResolved && !isOnline) {
     return (
-      <SearchMessageState title="No internet connection. Connect to the internet and try again." />
+      <SearchMessageState
+        description="No internet connection. Connect to the internet and try again."
+        icon="cloud-off"
+        title="You’re offline"
+      />
     )
   }
 
   if (normalizedQuery !== normalizedDebouncedQuery || (isLoading && !data)) {
-    return (
-      <View className="items-center px-4 pt-12">
-        <ActivityIndicator color={colors.brand.tertiary} size="small" />
-      </View>
-    )
+    return <SearchResultsSkeleton selectedTab={selectedTab} tileSize={tileSize} />
   }
 
   if (isError && !data) {
     return (
       <SearchMessageState
         title="Something went wrong"
+        description="Check your connection and try again."
+        icon="cloud-off"
         actionLabel="Retry"
         onPress={() => {
           void refetch()
@@ -576,22 +732,37 @@ function SearchResultsPanel({
         : reels.length > 0
 
   if (!hasResults) {
-    return <SearchMessageState title="No results found" description="Try another keyword" />
-  }
-
-  if (selectedTab === 'contacts') {
     return (
-      <ContactResultsList
-        mode="search"
-        onFriendRequestsPress={onFriendRequestsPress}
-        onUserPress={onUserPress}
-        users={contacts}
+      <SearchMessageState
+        actionLabel="Clear search"
+        description="Try another keyword"
+        onPress={onClearQuery}
+        title="No results found"
       />
     )
   }
 
+  if (selectedTab === 'contacts') {
+    return (
+      <View>
+        <SearchSectionHeader title="Contacts" />
+        <ContactResultsList
+          mode="search"
+          onFriendRequestsPress={onFriendRequestsPress}
+          onUserPress={onUserPress}
+          users={contacts}
+        />
+      </View>
+    )
+  }
+
   if (selectedTab === 'reels') {
-    return <ReelThumbnailGrid onReelPress={onReelPress} reels={reels} tileSize={tileSize} />
+    return (
+      <View>
+        <SearchSectionHeader title="Reels" />
+        <ReelThumbnailGrid onReelPress={onReelPress} reels={reels} tileSize={tileSize} />
+      </View>
+    )
   }
 
   return (
@@ -616,8 +787,9 @@ function SearchResultsPanel({
       ) : null}
 
       {isFetching ? (
-        <View className="items-center px-4 pb-2 pt-4">
+        <View className="flex-row items-center justify-center gap-2 px-4 pb-2 pt-4">
           <ActivityIndicator color={colors.brand.tertiary} size="small" />
+          <AppText className="text-sm2 text-text-muted">Updating results…</AppText>
         </View>
       ) : null}
     </View>
@@ -760,7 +932,9 @@ export default function SearchScreen() {
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{ paddingBottom: getDockedTabBarHeight(insets.bottom) + 16 }}
       >
-        <View className="px-4 pb-1 pt-2">
+        <SearchHeader isBotLoading={isBotLoading} onBotChat={handleBotChat} />
+
+        <View className="px-5 pt-1">
           <AppSearchBar
             ref={inputRef}
             value={query}
@@ -772,32 +946,27 @@ export default function SearchScreen() {
             isLoading={isSearchTyping}
             loadingColor={colors.brand.primary}
             onClear={() => setQuery('')}
+            containerClassName="h-[52px] rounded-full px-4 py-0"
             size="compact"
           />
+        </View>
 
-          <View className="mt-2 flex-row border-b border-border-light">
-            <SearchTabButton
-              active={selectedTab === 'all'}
-              label="All"
-              onPress={() => handleSwitchSearchTab('all')}
-            />
-            <SearchTabButton
-              active={selectedTab === 'reels'}
-              label="Reels"
-              onPress={() => handleSwitchSearchTab('reels')}
-            />
-            <SearchTabButton
-              active={selectedTab === 'contacts'}
-              label="Contacts"
-              onPress={() => handleSwitchSearchTab('contacts')}
-            />
-            <SearchTabButton
-              active={false}
-              label="Velora AI"
-              loading={isBotLoading}
-              onPress={handleBotChat}
-            />
-          </View>
+        <View className="mx-5 mt-3 flex-row rounded-full bg-surface-muted p-1">
+          <SearchTabButton
+            active={selectedTab === 'all'}
+            label="All"
+            onPress={() => handleSwitchSearchTab('all')}
+          />
+          <SearchTabButton
+            active={selectedTab === 'reels'}
+            label="Reels"
+            onPress={() => handleSwitchSearchTab('reels')}
+          />
+          <SearchTabButton
+            active={selectedTab === 'contacts'}
+            label="Contacts"
+            onPress={() => handleSwitchSearchTab('contacts')}
+          />
         </View>
 
         <SearchResultsPanel
@@ -810,6 +979,7 @@ export default function SearchScreen() {
           isRecommendedUsersLoading={isRecommendedUsersLoading}
           onReelPress={handleReelPress}
           onFriendRequestsPress={handleFriendRequestsPress}
+          onClearQuery={() => setQuery('')}
           onRecommendedUsersRetry={() => {
             void refetchRecommendedUsers()
           }}

@@ -368,47 +368,49 @@ export default function ProfileScreen() {
                 </AppPressable>
               </View>
 
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingTop: 10, paddingRight: 20 }}
-              >
-                {isFriendsPending && friends.length === 0 ? (
-                  Array.from({ length: 4 }).map((_, index) => (
-                    <FriendSkeleton key={`friend-skeleton-${index}`} />
-                  ))
-                ) : friendHighlights.length > 0 ? (
-                  <>
-                    {friendHighlights.map((friend) => (
-                      <FriendHighlight
-                        key={friend.id}
-                        friend={friend}
-                        onPress={() => handleFriendPress(friend.user.username)}
-                      />
-                    ))}
+              {isFriendsPending || friendHighlights.length > 0 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingTop: 10, paddingRight: 20 }}
+                >
+                  {isFriendsPending && friends.length === 0 ? (
+                    Array.from({ length: 4 }).map((_, index) => (
+                      <FriendSkeleton key={`friend-skeleton-${index}`} />
+                    ))
+                  ) : (
+                    <>
+                      {friendHighlights.map((friend) => (
+                        <FriendHighlight
+                          key={friend.id}
+                          friend={friend}
+                          onPress={() => handleFriendPress(friend.user.username)}
+                        />
+                      ))}
 
-                    {extraFriendsCount > 0 ? (
-                      <View className="mr-[14px] items-center" style={{ width: 64 }}>
-                        <View className="h-[60px] w-[60px] items-center justify-center rounded-[20px] bg-surface-muted">
-                          <AppText className="font-heading text-base2 text-text-primary">
-                            +{extraFriendsCount}
-                          </AppText>
+                      {extraFriendsCount > 0 ? (
+                        <View className="mr-[14px] items-center" style={{ width: 64 }}>
+                          <View className="h-[60px] w-[60px] items-center justify-center rounded-[20px] bg-surface-muted">
+                            <AppText className="font-heading text-base2 text-text-primary">
+                              +{extraFriendsCount}
+                            </AppText>
+                          </View>
+                          <AppText className="mt-2 text-sm2 text-text-secondary">More</AppText>
                         </View>
-                        <AppText className="mt-2 text-sm2 text-text-secondary">More</AppText>
-                      </View>
-                    ) : null}
-                  </>
-                ) : (
-                  <View className="rounded-[18px] bg-surface-accent px-4 py-3">
-                    <AppText className="text-sm2 font-medium text-text-primary">
-                      No friends yet
-                    </AppText>
-                    <AppText className="mt-0.5 text-sm2 text-text-secondary">
-                      Friends you add will appear here.
-                    </AppText>
-                  </View>
-                )}
-              </ScrollView>
+                      ) : null}
+                    </>
+                  )}
+                </ScrollView>
+              ) : (
+                <View className="min-h-16 items-center justify-center px-4 py-3">
+                  <AppText className="text-center text-sm2 font-semibold text-text-primary">
+                    No friends yet
+                  </AppText>
+                  <AppText className="mt-1 text-center text-sm2 text-text-secondary">
+                    Friends you add will appear here.
+                  </AppText>
+                </View>
+              )}
             </View>
 
             <View className="mt-6 flex-row items-center justify-between">

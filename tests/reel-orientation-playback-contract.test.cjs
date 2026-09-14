@@ -54,3 +54,23 @@ test('feed fit follows explicit edit framing before legacy poster detection', ()
   )
   assert.doesNotMatch(reelFeedItem, /playbackPresentation === 'PORTRAIT_COVER'/)
 })
+
+test('contained feed reels keep contain foreground and add a poster immersive background', () => {
+  assert.match(reelFeedItem, /const isContainedPlayback = playbackContentFit === 'contain'/)
+  assert.match(
+    reelFeedItem,
+    /const shouldRenderImmersiveBackground = isContainedPlayback && Boolean\(posterUri\)/,
+  )
+  assert.match(
+    reelFeedItem,
+    /contentFit="cover"\s+blurRadius=\{24\}\s+style=\{styles\.immersiveBackground\}/,
+  )
+  assert.match(reelFeedItem, /<View pointerEvents="none" style=\{styles\.immersiveBackgroundDim\}/)
+  assert.match(reelFeedItem, /contentFit=\{playbackContentFit\}/)
+  assert.match(
+    reelFeedItem,
+    /styles\.containedMediaFrame, \{ aspectRatio: containedMediaAspectRatio \}/,
+  )
+  assert.match(reelFeedItem, /style=\{styles\.mediaStage\}/)
+  assert.doesNotMatch(reelFeedItem, /foregroundMediaStyle/)
+})

@@ -1,5 +1,4 @@
-import { Ionicons, MaterialIcons } from '@expo/vector-icons'
-import { format } from 'date-fns'
+import { Ionicons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'
 import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -13,6 +12,7 @@ import Animated, {
   interpolate,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withTiming,
 } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
@@ -74,7 +74,7 @@ type ReelWithLocalThumbnail = Reel & {
 }
 
 const SCRUBBER_TOUCH_ZONE_HEIGHT = 40
-const METADATA_GAP_ABOVE_SCRUB_RAIL = 34
+const METADATA_GAP_ABOVE_SCRUB_RAIL = 24
 const TIMELINE_ACTIVE_HEIGHT = 10
 const TIMELINE_CHIP_WIDTH = 74
 const TIMELINE_CHIP_BOTTOM_OFFSET = 4
@@ -94,8 +94,25 @@ const formatPlaybackTime = (value: number) => {
 }
 
 const styles = StyleSheet.create({
+  containedMediaFrame: {
+    overflow: 'hidden',
+    width: '100%',
+  },
   fill: {
     ...StyleSheet.absoluteFillObject,
+  },
+  immersiveBackground: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.8,
+  },
+  immersiveBackgroundDim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(5, 5, 5, 0.34)',
+  },
+  mediaStage: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   video: {
     backgroundColor: '#050505',
@@ -165,17 +182,6 @@ const getAuthorHandle = (username?: string | null) => {
   return normalized || null
 }
 
-const normalizeAuthorLabel = (value?: string | null) =>
-  value?.trim().replace(/^@+/, '').toLowerCase() ?? ''
-
-const getCreatedAtLabel = (value: string) => {
-  try {
-    return format(new Date(value), 'MMM d')
-  } catch {
-    return 'Recently'
-  }
-}
-
 const ReelFeedItemComponent = function ReelFeedItem({
   description,
   reel,
@@ -212,6 +218,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const [scrubPosition, setScrubPosition] = useState(0)
   const [scrubberWidth, setScrubberWidth] = useState(0)
   const [showActionsMenu, setShowActionsMenu] = useState(false)
+  const [isCaptionExpanded, setIsCaptionExpanded] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showShareSheet, setShowShareSheet] = useState(false)
   const { data: processingStatus } = useReelProcessingStatus(reel, {
@@ -283,6 +290,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const scrubReleaseHandled = useSharedValue(0)
   const timelineInteractionProgress = useSharedValue(0)
   const timelinePreviewRatio = useSharedValue(0)
+  const uploadRailShimmerProgress = useSharedValue(0)
   const setIsPausedByUser = useCallback(
     (paused: boolean) => {
       isPausedByUserRef.current = paused
@@ -302,7 +310,6 @@ const ReelFeedItemComponent = function ReelFeedItem({
   )
   const descriptionText = displayReel.description?.trim() || description?.trim()
   const titleText = displayReel.title?.trim()
-  const metaLine = getCreatedAtLabel(displayReel.createdAt)
   const effectiveAuthor =
     displayReel.author ||
     (user && displayReel.userId === user.id
@@ -318,20 +325,17 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const authorDisplayName = effectiveAuthor?.displayName?.trim() || authorHandle || 'Creator'
   const authorNameLine =
     effectiveAuthor?.displayName?.trim() || (authorHandle ? `@${authorHandle}` : 'Creator')
-  const authorUsernameLine =
-    authorHandle && normalizeAuthorLabel(authorNameLine) !== normalizeAuthorLabel(authorHandle)
-      ? `@${authorHandle}`
-      : null
+  const authorUsernameLine = authorHandle ? `@${authorHandle}` : authorNameLine
   const canOpenAuthorProfile = Boolean(authorHandle) || displayReel.userId === user?.id
   const captionText = hideCaption ? '' : descriptionText || titleText || 'Shared a new reel.'
   const hashtagLine = hideCaption
     ? ''
     : displayReel.tags
-        .slice(0, 4)
         .map((tag) => tag.trim().replace(/^#/, ''))
         .filter(Boolean)
         .map((tag) => `#${tag}`)
         .join(' ')
+  const canExpandMetadata = captionText.length > 44 || hashtagLine.length > 40
   const avatarInitials = getInitials(authorDisplayName)
   const pendingSeekPosition =
     pendingSeekRatio !== null && durationSeconds > 0 ? pendingSeekRatio * durationSeconds : null
@@ -358,16 +362,64 @@ const ReelFeedItemComponent = function ReelFeedItem({
     displayReel.progress ?? displayReel.processingProgress,
   )
   const isFailed = isReelMediaFailed(displayReel)
+  const shouldAnimateUploadRail =
+    typeof processingProgress === 'number' && !isFailed && !hasPlaybackError
   const canManageReel = user?.id === displayReel.userId
   const posterUri =
     offlineVideoSource.posterUri ?? displayReel.thumbnailUrl ?? displayReel.localThumbnailUri
   const stablePlaybackContentFit = getStablePlaybackContentFit(displayReel)
   const playbackContentFit = stablePlaybackContentFit ?? 'cover'
+  const isContainedPlayback = playbackContentFit === 'contain'
+  const shouldRenderImmersiveBackground = isContainedPlayback && Boolean(posterUri)
+  const containedMediaAspectRatio =
+    typeof displayReel.sourceAspectRatio === 'number' &&
+    Number.isFinite(displayReel.sourceAspectRatio) &&
+    displayReel.sourceAspectRatio > 0
+      ? displayReel.sourceAspectRatio
+      : displayReel.sourceOrientation === 'LANDSCAPE'
+        ? 16 / 9
+        : 1
   const shouldShowVideoLayer = isActive || isReady || playbackPosition > 0
 
   const triggerScrubStartHaptic = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined)
   }, [])
+
+  useEffect(() => {
+    cancelAnimation(uploadRailShimmerProgress)
+
+    if (!shouldAnimateUploadRail) {
+      uploadRailShimmerProgress.value = 0
+      return
+    }
+
+    uploadRailShimmerProgress.value = 0
+    uploadRailShimmerProgress.value = withRepeat(
+      withTiming(1, {
+        duration: 1050,
+        easing: Easing.linear,
+      }),
+      -1,
+      false,
+    )
+
+    return () => {
+      cancelAnimation(uploadRailShimmerProgress)
+    }
+  }, [shouldAnimateUploadRail, uploadRailShimmerProgress])
+
+  const uploadRailShimmerStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      uploadRailShimmerProgress.value,
+      [0, 0.08, 0.5, 0.92, 1],
+      [0, 0.68, 0.4, 0.68, 0],
+    ),
+    transform: [
+      {
+        translateX: interpolate(uploadRailShimmerProgress.value, [0, 1], [-56, 280]),
+      },
+    ],
+  }))
 
   const triggerScrubSettleHaptic = useCallback(() => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
@@ -710,72 +762,99 @@ const ReelFeedItemComponent = function ReelFeedItem({
   return (
     <View className="flex-1 overflow-hidden bg-[#050505]" style={{ height }}>
       <View className="flex-1 overflow-hidden bg-[#050505]">
-        {posterUri ? (
-          <Image source={{ uri: posterUri }} contentFit={playbackContentFit} style={styles.video} />
-        ) : (
-          <View style={styles.video} />
-        )}
-
-        {shouldRenderVideo ? (
-          <ReelVideo
-            ref={setVideoRef}
-            uri={offlineVideoSource.uri}
-            {...(posterUri ? { posterUri } : {})}
-            shouldPlay={isActive && !isPausedByUser && !hasPlaybackError}
-            loop
-            muted={isMuted || !isActive}
-            contentFit={playbackContentFit}
-            disableOrientationAwareContentFit={stablePlaybackContentFit !== null}
-            resetOnPause={false}
-            externallyManagedPlayback
-            onReady={() => {
-              if (
-                !isCurrentReelPlayerCallback(
-                  displayReel.id,
-                  playerGeneration,
-                  playerIdentityRef.current,
-                )
-              ) {
-                return
-              }
-
-              setIsReady(true)
-            }}
-            onError={() => {
-              if (
-                !isCurrentReelPlayerCallback(
-                  displayReel.id,
-                  playerGeneration,
-                  playerIdentityRef.current,
-                )
-              ) {
-                return
-              }
-
-              setHasPlaybackError(true)
-            }}
-            {...(isActive
-              ? {
-                  onProgress: (progress: ReelVideoProgress) => {
-                    if (
-                      isCurrentReelPlayerCallback(
-                        displayReel.id,
-                        playerGeneration,
-                        playerIdentityRef.current,
-                      )
-                    ) {
-                      handleProgress(progress)
-                    }
-                  },
-                }
-              : {})}
-            style={[styles.videoOverlay, { opacity: shouldShowVideoLayer ? 1 : 0 }]}
-          />
+        {shouldRenderImmersiveBackground && posterUri ? (
+          <>
+            <Image
+              pointerEvents="none"
+              source={{ uri: posterUri }}
+              contentFit="cover"
+              blurRadius={24}
+              style={styles.immersiveBackground}
+            />
+            <View pointerEvents="none" style={styles.immersiveBackgroundDim} />
+          </>
         ) : null}
 
+        <View pointerEvents="none" style={styles.mediaStage}>
+          <View
+            style={
+              isContainedPlayback
+                ? [styles.containedMediaFrame, { aspectRatio: containedMediaAspectRatio }]
+                : styles.fill
+            }
+          >
+            {posterUri ? (
+              <Image
+                source={{ uri: posterUri }}
+                contentFit={playbackContentFit}
+                style={styles.video}
+              />
+            ) : (
+              <View style={styles.video} />
+            )}
+
+            {shouldRenderVideo ? (
+              <ReelVideo
+                ref={setVideoRef}
+                uri={offlineVideoSource.uri}
+                {...(posterUri ? { posterUri } : {})}
+                shouldPlay={isActive && !isPausedByUser && !hasPlaybackError}
+                loop
+                muted={isMuted || !isActive}
+                contentFit={playbackContentFit}
+                disableOrientationAwareContentFit={stablePlaybackContentFit !== null}
+                resetOnPause={false}
+                externallyManagedPlayback
+                onReady={() => {
+                  if (
+                    !isCurrentReelPlayerCallback(
+                      displayReel.id,
+                      playerGeneration,
+                      playerIdentityRef.current,
+                    )
+                  ) {
+                    return
+                  }
+
+                  setIsReady(true)
+                }}
+                onError={() => {
+                  if (
+                    !isCurrentReelPlayerCallback(
+                      displayReel.id,
+                      playerGeneration,
+                      playerIdentityRef.current,
+                    )
+                  ) {
+                    return
+                  }
+
+                  setHasPlaybackError(true)
+                }}
+                {...(isActive
+                  ? {
+                      onProgress: (progress: ReelVideoProgress) => {
+                        if (
+                          isCurrentReelPlayerCallback(
+                            displayReel.id,
+                            playerGeneration,
+                            playerIdentityRef.current,
+                          )
+                        ) {
+                          handleProgress(progress)
+                        }
+                      },
+                    }
+                  : {})}
+                style={[styles.videoOverlay, { opacity: shouldShowVideoLayer ? 1 : 0 }]}
+              />
+            ) : null}
+          </View>
+        </View>
+
         <LinearGradient
-          colors={['rgba(0,0,0,0.16)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.76)']}
-          locations={[0, 0.36, 1]}
+          colors={['rgba(0,0,0,0.10)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.92)']}
+          locations={[0, 0.48, 1]}
           pointerEvents="none"
           style={styles.fill}
         />
@@ -900,26 +979,34 @@ const ReelFeedItemComponent = function ReelFeedItem({
             pointerEvents={isFailed ? 'auto' : 'none'}
             className="absolute inset-0 items-center justify-center px-8"
           >
-            <View className="w-full max-w-[280px] rounded-[28px] bg-black/68 px-6 py-5">
+            <View className="w-full max-w-[300px] items-center rounded-[28px] bg-black/58 px-6 py-6">
               {hasPlaybackError ? (
                 <>
+                  <View className="mb-3 h-12 w-12 items-center justify-center rounded-full bg-white/10">
+                    <Ionicons name="alert-circle-outline" size={26} color="#FF935B" />
+                  </View>
                   <Text className="text-center font-heading text-xl text-white">
                     Playback unavailable
                   </Text>
-                  <Text className="mt-2 text-center text-sm2 leading-5 text-white">
+                  <Text className="mt-2 text-center text-sm2 leading-5 text-white/70">
                     This reel could not be played.
                   </Text>
                 </>
               ) : isFailed ? (
                 <>
+                  <View className="mb-3 h-12 w-12 items-center justify-center rounded-full bg-white/10">
+                    <Ionicons name="cloud-offline-outline" size={25} color="#FF935B" />
+                  </View>
                   <Text className="text-center font-heading text-xl text-white">Upload failed</Text>
-                  <Text className="mt-2 text-center text-sm2 leading-5 text-white">
+                  <Text className="mt-2 text-center text-sm2 leading-5 text-white/70">
                     {processingMessage || 'Something went wrong while uploading this reel.'}
                   </Text>
 
                   {canManageReel ? (
                     <TouchableOpacity
-                      className="mt-4 rounded-full bg-white px-5 py-3"
+                      accessibilityLabel="Retry reel upload"
+                      accessibilityRole="button"
+                      className="mt-4 h-11 items-center justify-center rounded-full bg-brand px-5"
                       activeOpacity={0.84}
                       disabled={reprocessReel.isPending}
                       onPress={() => {
@@ -929,7 +1016,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                       }}
                       style={reprocessReel.isPending ? { opacity: 0.72 } : undefined}
                     >
-                      <Text className="text-center font-medium text-[#17120F]">
+                      <Text className="text-center font-medium text-white">
                         {reprocessReel.isPending ? 'Retrying...' : 'Try again'}
                       </Text>
                     </TouchableOpacity>
@@ -937,23 +1024,34 @@ const ReelFeedItemComponent = function ReelFeedItem({
                 </>
               ) : typeof processingProgress === 'number' ? (
                 <>
+                  <View className="mb-3 h-12 w-12 items-center justify-center rounded-full bg-white/10">
+                    <Ionicons name="cloud-upload-outline" size={26} color="#FF935B" />
+                  </View>
                   <Text className="text-center font-heading text-xl text-white">Uploading</Text>
-                  <View className="mt-4">
+                  <View className="mt-4 w-full">
                     <View className="h-2 overflow-hidden rounded-full bg-white/16">
                       <View
-                        className="h-full rounded-full bg-[#FF7A45]"
+                        className="h-full overflow-hidden rounded-full bg-brand"
                         style={{ width: `${processingProgress}%` }}
-                      />
+                      >
+                        <Animated.View
+                          className="absolute inset-y-0 left-0 w-14 bg-white/35"
+                          style={uploadRailShimmerStyle}
+                        />
+                      </View>
                     </View>
-                    <Text className="mt-2 text-center text-base2 font-medium text-white">
+                    <Text className="mt-2 text-center text-base2 font-medium text-white/80">
                       {processingProgress}%
                     </Text>
                   </View>
                 </>
               ) : (
                 <>
+                  <View className="mb-3 h-12 w-12 items-center justify-center rounded-full bg-white/10">
+                    <Ionicons name="sync-outline" size={25} color="#FF935B" />
+                  </View>
                   <Text className="text-center font-heading text-xl text-white">Processing</Text>
-                  <Text className="mt-2 text-center text-sm2 leading-5 text-white">
+                  <Text className="mt-2 text-center text-sm2 leading-5 text-white/70">
                     Your reel is being processed...
                   </Text>
                 </>
@@ -969,83 +1067,118 @@ const ReelFeedItemComponent = function ReelFeedItem({
         >
           <View className="px-4">
             <View className="flex-row items-start">
-              <View className="max-w-[78%] flex-1 flex-row items-start">
-                <TouchableOpacity
-                  activeOpacity={0.84}
-                  disabled={!canOpenAuthorProfile}
-                  onPress={handleAuthorPress}
-                >
-                  {effectiveAuthor?.avatarUrl ? (
-                    <Image
-                      source={{ uri: effectiveAuthor.avatarUrl }}
-                      contentFit="cover"
+              <View className="max-w-[82%] flex-1 pr-3">
+                <View className="flex-row items-center">
+                  <TouchableOpacity
+                    accessibilityLabel={
+                      canOpenAuthorProfile ? `Open ${authorUsernameLine}'s profile` : undefined
+                    }
+                    accessibilityRole={canOpenAuthorProfile ? 'button' : undefined}
+                    activeOpacity={0.84}
+                    className="h-11 w-11 items-center justify-center rounded-full"
+                    disabled={!canOpenAuthorProfile}
+                    onPress={handleAuthorPress}
+                  >
+                    {effectiveAuthor?.avatarUrl ? (
+                      <Image
+                        source={{ uri: effectiveAuthor.avatarUrl }}
+                        contentFit="cover"
+                        style={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: 21,
+                          backgroundColor: '#121212',
+                        }}
+                      />
+                    ) : (
+                      <View className="h-[42px] w-[42px] items-center justify-center rounded-full bg-[#2F6FED]">
+                        <Text className="font-heading text-sm text-white">{avatarInitials}</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    activeOpacity={0.84}
+                    className="ml-3 min-w-0 flex-1 py-2"
+                    disabled={!canOpenAuthorProfile}
+                    onPress={handleAuthorPress}
+                  >
+                    <Text
+                      className="font-semibold text-md text-white"
+                      numberOfLines={1}
                       style={{
-                        width: 42,
-                        height: 42,
-                        borderRadius: 21,
-                        backgroundColor: '#121212',
+                        textShadowColor: 'rgba(0, 0, 0, 0.7)',
+                        textShadowOffset: { width: 0, height: 1 },
+                        textShadowRadius: 3,
                       }}
-                    />
-                  ) : (
-                    <View className="h-[42px] w-[42px] items-center justify-center rounded-full bg-white/12">
-                      <Text className="font-heading text-sm text-white">{avatarInitials}</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-
-                <View className="ml-3 flex-1">
-                  <View className="min-w-0 flex-row items-center">
-                    <Text className="flex-shrink font-medium text-md text-white" numberOfLines={1}>
-                      {authorNameLine}
-                    </Text>
-                    <Text className="ml-2 text-xs2 uppercase tracking-[1px] text-white">
-                      {metaLine}
-                    </Text>
-                  </View>
-
-                  {authorUsernameLine ? (
-                    <Text className="mt-1 text-sm2 text-white" numberOfLines={1}>
+                    >
                       {authorUsernameLine}
                     </Text>
-                  ) : null}
+                  </TouchableOpacity>
+                </View>
 
-                  {captionText ? (
-                    <Text className="mt-3 text-sm2 leading-6 text-white" numberOfLines={3}>
+                {captionText ? (
+                  <View className="mt-2">
+                    <Text
+                      className="text-base2 font-medium leading-6 text-white"
+                      numberOfLines={isCaptionExpanded ? undefined : 1}
+                    >
                       {captionText}
                     </Text>
-                  ) : null}
+                    {canExpandMetadata ? (
+                      <TouchableOpacity
+                        accessibilityLabel={
+                          isCaptionExpanded ? 'Show less reel details' : 'Show more reel details'
+                        }
+                        accessibilityRole="button"
+                        activeOpacity={0.76}
+                        className="min-h-7 self-start justify-center"
+                        onPress={() => {
+                          setIsCaptionExpanded((current) => !current)
+                        }}
+                      >
+                        <Text className="text-sm2 font-semibold text-white/75">
+                          {isCaptionExpanded ? 'less' : '… more'}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                ) : null}
 
-                  {hashtagLine ? (
-                    <Text
-                      className="mt-2 text-sm2 font-medium leading-5 text-white"
-                      numberOfLines={1}
-                    >
-                      {hashtagLine}
-                    </Text>
-                  ) : null}
-                </View>
+                {hashtagLine ? (
+                  <Text
+                    className="mt-2 text-sm2 font-semibold leading-5 text-[#FFB18E]"
+                    numberOfLines={isCaptionExpanded ? undefined : 1}
+                  >
+                    {hashtagLine}
+                  </Text>
+                ) : null}
               </View>
 
-              <View className="ml-auto items-center gap-3">
+              <View className="ml-auto items-center gap-2">
                 <TouchableOpacity
-                  className="h-10 w-10 items-center justify-center rounded-full bg-white/14"
+                  accessibilityLabel="Share reel"
+                  accessibilityRole="button"
+                  className="h-11 w-11 items-center justify-center"
                   activeOpacity={0.84}
                   onPress={() => {
                     setShowShareSheet(true)
                   }}
                 >
-                  <MaterialIcons name="ios-share" size={20} color="#FFFFFF" />
+                  <Ionicons name="paper-plane-outline" size={24} color="#FFFFFF" />
                 </TouchableOpacity>
 
                 {canManageReel ? (
                   <TouchableOpacity
-                    className="h-10 w-10 items-center justify-center rounded-full bg-white/14"
+                    accessibilityLabel="More reel actions"
+                    accessibilityRole="button"
+                    className="h-11 w-11 items-center justify-center"
                     activeOpacity={0.84}
                     onPress={() => {
                       setShowActionsMenu(true)
                     }}
                   >
-                    <MaterialIcons name="more-horiz" size={24} color="#FFFFFF" />
+                    <Ionicons name="ellipsis-horizontal" size={25} color="#FFFFFF" />
                   </TouchableOpacity>
                 ) : null}
               </View>

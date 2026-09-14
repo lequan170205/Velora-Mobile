@@ -1,4 +1,4 @@
-import { MaterialIcons } from '@expo/vector-icons'
+import { Ionicons, MaterialIcons } from '@expo/vector-icons'
 import { useIsFocused } from '@react-navigation/native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useRouter } from 'expo-router'
@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AppState,
+  ActivityIndicator,
   InteractionManager,
   Text,
   TouchableOpacity,
@@ -320,6 +321,7 @@ export function ReelsViewer({
 
   const {
     data: reelContext,
+    isPending: isContextPending,
     isError: isContextError,
     error: contextError,
     refetch: refetchContext,
@@ -1117,6 +1119,7 @@ export function ReelsViewer({
     'response' in activeError &&
     !(activeError as { response?: unknown }).response
   const shouldShowOfflineSkeleton = reels.length === 0 && (!isOnline || isConnectivityError)
+  const isFeedPending = shouldFetchReelContext ? isContextPending : isPublicFeedPending
 
   const handleLayout = (event: LayoutChangeEvent) => {
     const nextHeight = event.nativeEvent.layout.height
@@ -1705,7 +1708,7 @@ export function ReelsViewer({
         <StatusBar style="light" />
 
         <View
-          className="items-center rounded-[32px] border border-white/12 bg-white/8 px-6 py-7"
+          className="w-full max-w-[340px] items-center rounded-[32px] border border-white/14 bg-black/52 px-6 py-7"
           style={{
             shadowColor: 'rgba(0, 0, 0, 0.28)',
             shadowOffset: { width: 0, height: 14 },
@@ -1714,16 +1717,20 @@ export function ReelsViewer({
             elevation: 5,
           }}
         >
-          <View className="h-14 w-14 items-center justify-center rounded-full bg-white/10">
-            <MaterialIcons name="error-outline" size={28} color="#FFFFFF" />
+          <View className="h-14 w-14 items-center justify-center rounded-[18px] border border-brand/30 bg-brand/14">
+            <MaterialIcons name="error-outline" size={28} color="#FF935B" />
           </View>
 
           <Text className="mt-4 text-center font-heading text-xl text-white">Feed unavailable</Text>
 
-          <Text className="mt-2 text-center text-base2 text-white">{errorMessage}</Text>
+          <Text className="mt-2 max-w-[280px] text-center text-base2 leading-6 text-white/70">
+            {errorMessage}
+          </Text>
 
           <TouchableOpacity
-            className="mt-6 rounded-full bg-brand px-5 py-3"
+            accessibilityLabel="Try loading reels again"
+            accessibilityRole="button"
+            className="mt-6 h-11 min-w-[132px] items-center justify-center rounded-full bg-brand px-6"
             activeOpacity={0.85}
             onPress={() => {
               void handleRefresh()
@@ -1845,7 +1852,47 @@ export function ReelsViewer({
         {reels.length === 0 &&
         !isShowingOfflineCache &&
         !shouldShowOfflineSkeleton &&
-        !(selectedFeedTab === 'for-you' && isPublicFeedPending) ? (
+        isFeedPending &&
+        !isActiveError ? (
+          <View
+            pointerEvents="none"
+            className="absolute items-center justify-center px-6"
+            style={{
+              top: insets.top + (mode === 'public' ? 72 : 56),
+              right: 0,
+              bottom: Math.max(bottomContentInset + 32, insets.bottom + 32),
+              left: 0,
+              zIndex: 15,
+              elevation: 15,
+            }}
+          >
+            <View
+              className="w-full max-w-[340px] items-center rounded-[32px] border border-white/14 bg-black/52 px-7 py-8"
+              style={{
+                shadowColor: 'rgba(0, 0, 0, 0.28)',
+                shadowOffset: { width: 0, height: 14 },
+                shadowOpacity: 1,
+                shadowRadius: 28,
+                elevation: 5,
+              }}
+            >
+              <View className="h-14 w-14 items-center justify-center rounded-[18px] border border-white/16 bg-white/10">
+                <ActivityIndicator color="#FF935B" size="small" />
+              </View>
+              <Text className="mt-4 text-center font-heading text-xl text-white">
+                Loading reels
+              </Text>
+              <Text className="mt-2 max-w-[280px] text-center text-base2 leading-6 text-white/70">
+                Finding something good to watch.
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
+        {reels.length === 0 &&
+        !isShowingOfflineCache &&
+        !shouldShowOfflineSkeleton &&
+        !isFeedPending ? (
           <View
             pointerEvents="box-none"
             className="absolute items-center justify-center px-6"
@@ -1860,7 +1907,7 @@ export function ReelsViewer({
             }}
           >
             <View
-              className="items-center rounded-[36px] border border-white/12 bg-white/8 px-8 py-10"
+              className="w-full max-w-[360px] items-center rounded-[32px] border border-white/14 bg-black/52 px-7 py-8"
               style={{
                 shadowColor: 'rgba(0, 0, 0, 0.28)',
                 shadowOffset: { width: 0, height: 14 },
@@ -1872,15 +1919,19 @@ export function ReelsViewer({
             >
               {isActiveError ? (
                 <>
-                  <View className="h-16 w-16 items-center justify-center rounded-full bg-white/10">
-                    <MaterialIcons name="error-outline" size={32} color="#FFFFFF" />
+                  <View className="h-14 w-14 items-center justify-center rounded-[18px] border border-brand/30 bg-brand/14">
+                    <MaterialIcons name="error-outline" size={28} color="#FF935B" />
                   </View>
-                  <Text className="mt-5 font-heading text-[28px] text-white">Feed unavailable</Text>
-                  <Text className="mt-3 max-w-[280px] text-center text-base2 leading-6 text-white">
+                  <Text className="mt-4 text-center font-heading text-xl text-white">
+                    Feed unavailable
+                  </Text>
+                  <Text className="mt-2 max-w-[280px] text-center text-base2 leading-6 text-white/70">
                     {errorMessage}
                   </Text>
                   <TouchableOpacity
-                    className="mt-7 rounded-full bg-brand px-6 py-3.5"
+                    accessibilityLabel="Try loading reels again"
+                    accessibilityRole="button"
+                    className="mt-6 h-11 min-w-[132px] items-center justify-center rounded-full bg-brand px-6"
                     activeOpacity={0.84}
                     onPress={() => {
                       void handleRefresh()
@@ -1891,13 +1942,13 @@ export function ReelsViewer({
                 </>
               ) : (
                 <>
-                  <View className="h-16 w-16 items-center justify-center rounded-full bg-white/10">
+                  <View className="h-14 w-14 items-center justify-center rounded-[18px] border border-brand/30 bg-brand/14">
                     <MaterialIcons
                       name={
                         selectedFeedTab === 'friends' ? 'people-outline' : 'play-circle-outline'
                       }
-                      size={32}
-                      color="#FFFFFF"
+                      size={28}
+                      color="#FF935B"
                     />
                   </View>
 
@@ -1916,7 +1967,7 @@ export function ReelsViewer({
                     </Text>
 
                     <Text
-                      className="max-w-[280px] text-center text-base2 leading-6 text-white"
+                      className="max-w-[280px] text-center text-base2 leading-6 text-white/70"
                       style={{
                         includeFontPadding: false,
                         lineHeight: emptyStateDescriptionLineHeight,
@@ -1930,7 +1981,11 @@ export function ReelsViewer({
                   </View>
 
                   <TouchableOpacity
-                    className="mt-7 rounded-full bg-brand px-6 py-3.5"
+                    accessibilityLabel={
+                      selectedFeedTab === 'friends' ? 'View friends' : 'Try loading reels again'
+                    }
+                    accessibilityRole="button"
+                    className="mt-6 h-11 min-w-[132px] items-center justify-center rounded-full bg-brand px-6"
                     activeOpacity={0.84}
                     onPress={() => {
                       if (selectedFeedTab === 'friends') {
@@ -1960,7 +2015,9 @@ export function ReelsViewer({
         >
           {mode === 'context' ? (
             <TouchableOpacity
-              className="h-12 w-12 items-center justify-center rounded-full bg-black/38"
+              accessibilityLabel="Go back"
+              accessibilityRole="button"
+              className="h-12 w-12 items-center justify-center rounded-full border border-white/16 bg-black/44"
               activeOpacity={0.72}
               onPress={handleExitContext}
             >
@@ -1972,16 +2029,17 @@ export function ReelsViewer({
                 <>
                   <View className="absolute inset-x-0 items-center" pointerEvents="box-none">
                     {shouldShowFriendsTab ? (
-                      <View className="flex-row rounded-full border border-white/10 bg-black/42 p-1">
+                      <View className="flex-row items-center gap-7">
                         {(['for-you', 'friends'] as const).map((tab) => {
                           const isSelected = selectedFeedTab === tab
 
                           return (
                             <TouchableOpacity
                               key={tab}
-                              className={
-                                isSelected ? 'rounded-full bg-white px-4 py-2.5' : 'px-4 py-2.5'
-                              }
+                              accessibilityLabel={`${tab === 'for-you' ? 'For You' : 'Friends'} reel feed`}
+                              accessibilityRole="tab"
+                              accessibilityState={{ selected: isSelected }}
+                              className="h-11 min-w-[62px] items-center justify-center px-1"
                               activeOpacity={0.78}
                               disabled={isManualRefreshing || isSwitchingFeedTab}
                               onPress={() => {
@@ -1993,41 +2051,55 @@ export function ReelsViewer({
                                 void handleFeedTabChange(tab)
                               }}
                             >
-                              <View className="flex-row items-center">
-                                <MaterialIcons
-                                  name={tab === 'for-you' ? 'auto-awesome' : 'people-outline'}
-                                  size={16}
-                                  color={isSelected ? '#161616' : '#FFFFFF'}
-                                />
-                                <Text
-                                  className={
-                                    isSelected
-                                      ? 'ml-1.5 font-medium text-sm2 text-text-primary'
-                                      : 'ml-1.5 font-medium text-sm2 text-white'
-                                  }
-                                >
-                                  {tab === 'for-you' ? 'For You' : 'Friends'}
-                                </Text>
-                              </View>
+                              <Text
+                                className={`text-md ${
+                                  isSelected
+                                    ? 'font-bold text-white'
+                                    : 'font-semibold text-white/85'
+                                }`}
+                                style={{
+                                  textShadowColor: 'rgba(0, 0, 0, 0.82)',
+                                  textShadowOffset: { width: 0, height: 1 },
+                                  textShadowRadius: 4,
+                                }}
+                              >
+                                {tab === 'for-you' ? 'For You' : 'Friends'}
+                              </Text>
+                              <View
+                                className={`absolute bottom-0 h-[2px] rounded-full ${
+                                  isSelected ? 'w-6 bg-brand' : 'w-0 bg-transparent'
+                                }`}
+                              />
                             </TouchableOpacity>
                           )
                         })}
                       </View>
                     ) : (
-                      <View className="flex-row items-center rounded-full border border-white/10 bg-black/42 px-4 py-2.5">
-                        <MaterialIcons name="auto-awesome" size={16} color="#FFFFFF" />
-                        <Text className="ml-1.5 font-medium text-sm2 text-white">For You</Text>
+                      <View className="h-11 min-w-[62px] items-center justify-center px-1">
+                        <Text
+                          className="font-bold text-md text-white"
+                          style={{
+                            textShadowColor: 'rgba(0, 0, 0, 0.82)',
+                            textShadowOffset: { width: 0, height: 1 },
+                            textShadowRadius: 4,
+                          }}
+                        >
+                          For You
+                        </Text>
+                        <View className="absolute bottom-0 h-[2px] w-6 rounded-full bg-brand" />
                       </View>
                     )}
                   </View>
                   <TouchableOpacity
-                    className="h-12 w-12 items-center justify-center rounded-full bg-black/38"
+                    accessibilityLabel="Create reel"
+                    accessibilityRole="button"
+                    className="h-11 w-11 items-center justify-center"
                     activeOpacity={0.72}
                     onPress={() => {
                       router.push('/reels/create')
                     }}
                   >
-                    <MaterialIcons name="add" size={25} color="#FFFFFF" />
+                    <Ionicons name="add" size={28} color="#FFFFFF" />
                   </TouchableOpacity>
                 </>
               ) : null}
