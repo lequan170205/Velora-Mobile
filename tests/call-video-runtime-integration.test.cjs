@@ -498,7 +498,11 @@ test('a failed camera command restores the last confirmed local state', async ()
   assert.equal(harness.refs.localVideoStateRef.current.confirmedEnabled, true)
 })
 
-const createRecoveryRuntime = ({ rejoinPayload, rejoinDeferred = null } = {}) => {
+const createRecoveryRuntime = ({
+  rejoinPayload,
+  rejoinDeferred = null,
+  rejoinError = null,
+} = {}) => {
   const state = {
     phase: 'active',
     callId: 'call-runtime-1',
@@ -516,21 +520,23 @@ const createRecoveryRuntime = ({ rejoinPayload, rejoinDeferred = null } = {}) =>
   const controlPlaneRecoveringRef = { current: true }
   const reconnectModeRef = { current: null }
   const activeCallIdRef = { current: state.callId }
-  const rejoinResult =
-    rejoinDeferred ??
-    Promise.resolve(
-      rejoinPayload ?? {
-        callId: state.callId,
-        session: { callType: 'VIDEO' },
-        activeProducers: [],
-        telemetryToken: 'telemetry-token',
-      },
-    )
+  const rejoinResult = rejoinError
+    ? Promise.reject(rejoinError)
+    : (rejoinDeferred ??
+      Promise.resolve(
+        rejoinPayload ?? {
+          callId: state.callId,
+          session: { callType: 'VIDEO' },
+          activeProducers: [],
+          telemetryToken: 'telemetry-token',
+        },
+      ))
   const rejoinCalls = []
   const reconciledSnapshots = []
   const consumed = []
   let teardownCount = 0
   let postAnswerCount = 0
+  const armReconnectTimeoutCalls = []
 
   const callSocket = {
     emitAndWaitForEvent: async (_socket, event, payload) => {
@@ -556,7 +562,8 @@ const createRecoveryRuntime = ({ rejoinPayload, rejoinDeferred = null } = {}) =>
           error instanceof Error && error.message === 'Call setup was cancelled',
         isConnectedTransportState: () => false,
         isTerminalRemoteMediaError: () => false,
-        isWaitTimeoutError: () => false,
+        isWaitTimeoutError: (error) =>
+          error instanceof Error && error.message.startsWith('Timed out'),
         waitForTransportConnection: async () => undefined,
       },
       './callSocket': callSocket,
@@ -628,7 +635,9 @@ const createRecoveryRuntime = ({ rejoinPayload, rejoinDeferred = null } = {}) =>
     clearReconnectTimeout: () => undefined,
     startTimer: () => undefined,
     markNativeCallActive: () => true,
-    armReconnectTimeout: () => undefined,
+    armReconnectTimeout: (reason) => {
+      armReconnectTimeoutCalls.push(reason)
+    },
     teardownRecoveryFailure: async () => {
       teardownCount += 1
     },
@@ -653,6 +662,7 @@ const createRecoveryRuntime = ({ rejoinPayload, rejoinDeferred = null } = {}) =>
     get postAnswerCount() {
       return postAnswerCount
     },
+    armReconnectTimeoutCalls,
   }
 }
 
@@ -672,6 +682,19 @@ test('a stale recovery generation cannot mutate the newer call runtime', async (
   await recovery
   assert.equal(harness.teardownCount, 0)
   assert.equal(harness.postAnswerCount, 0)
+  assert.equal(harness.recoveryInFlightRef.current, false)
+})
+
+test('a lost rejoin acknowledgement keeps a bounded recovery watchdog', async () => {
+  const harness = createRecoveryRuntime({
+    rejoinError: new Error('Timed out waiting for call_rejoined'),
+  })
+
+  await harness.runtime.recoverActiveCall()
+
+  assert.deepEqual(harness.armReconnectTimeoutCalls, ['recover_rejoin_timeout'])
+  assert.ok(harness.state.reconnectDeadlineMs > Date.now())
+  assert.equal(harness.teardownCount, 0)
   assert.equal(harness.recoveryInFlightRef.current, false)
 })
 

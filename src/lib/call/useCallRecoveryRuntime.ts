@@ -372,6 +372,16 @@ export const useCallRecoveryRuntime = ({
             errorCode: safeCallErrorCode(error),
           }),
         )
+        // The socket may be authenticated even though the rejoin ACK was
+        // lost. The socket-disconnect grace timer is cleared as soon as the
+        // connection returns, so keep a bounded watchdog for this recovery
+        // attempt instead of silently leaving an active call with stale media.
+        // A later authenticated connect/recovery can still clear this timer
+        // after it succeeds.
+        useCallStore.getState().patch({
+          reconnectDeadlineMs: Date.now() + RECONNECT_RECOVERY_TIMEOUT_MS,
+        })
+        armReconnectTimeout('recover_rejoin_timeout')
         return
       }
       await teardownRecoveryFailure('recover_active_call_failed')
