@@ -5,14 +5,15 @@ import { ActivityIndicator, Text, TextInput, TouchableOpacity, View } from 'reac
 
 import { authApi } from '../../src/api/auth.api'
 import { AuthFlowLayout } from '../../src/components/auth/AuthFlowLayout'
+import { colors } from '../../src/constants/theme'
 import { cn } from '../../src/lib/cn'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const inputClassName = (isFocused: boolean) =>
   cn(
-    'h-14 flex-row items-center rounded-[20px] border bg-[#FFFBF8] px-4',
-    isFocused ? 'border-brand bg-[#FFF7F2]' : 'border-[#F2DED0]',
+    'h-14 flex-row items-center rounded-[20px] border bg-surface-cream px-4',
+    isFocused ? 'border-brand bg-surface-cream-focus' : 'border-warm',
   )
 
 const getEmailError = (email: string) => {
@@ -103,11 +104,11 @@ export default function ForgotPasswordScreen() {
       <View>
         <Text className="mb-2 text-sm2 font-semibold text-text-primary">Email address</Text>
         <View className={inputClassName(isFocused)}>
-          <MaterialIcons name="mail-outline" size={20} color="#FF8A5B" />
+          <MaterialIcons name="mail-outline" size={20} color={colors.brand.secondary} />
           <TextInput
             className="ml-3 flex-1 text-md font-sans text-text-primary"
             placeholder="Enter your email"
-            placeholderTextColor="#9A9694"
+            placeholderTextColor={colors.text.tertiary}
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"

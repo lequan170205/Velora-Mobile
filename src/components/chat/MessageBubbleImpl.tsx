@@ -43,6 +43,7 @@ import {
 import { useAuthStore } from '../../stores/authStore'
 import { ReelVideo } from '../reels/ReelVideo'
 
+import { ChatAvatar } from './ChatAvatar'
 import { ChatReelCard, getChatReelCardHeight } from './ChatReelCard'
 import { MessageBubbleContent } from './MessageBubbleContent'
 
@@ -782,9 +783,6 @@ const MessageBubbleComponent = function MessageBubble({
   })
 
   const picture = senderInfo?.picture
-  const senderName = senderInfo && 'name' in senderInfo ? senderInfo.name : undefined
-  const fallbackInitial =
-    senderName?.charAt(0).toUpperCase() || senderInfo?.email?.charAt(0).toUpperCase() || '?'
   const visibleReceiptParticipants = readReceiptParticipants.slice(0, 3)
   const hiddenReceiptCount = Math.max(
     0,
@@ -1204,16 +1202,13 @@ const MessageBubbleComponent = function MessageBubble({
           <View className={cn('flex-row items-end', isOwn ? 'justify-end' : 'justify-start')}>
             {!isOwn && (
               <View className="w-8 mr-2.5 items-center justify-end pb-0.5">
-                {showAvatar &&
-                  (picture ? (
-                    <Image source={{ uri: picture }} className="w-8 h-8 rounded-full" />
-                  ) : (
-                    <View className="w-8 h-8 rounded-full bg-surface-muted items-center justify-center">
-                      <Text className="text-text-primary text-[10px] font-medium">
-                        {fallbackInitial}
-                      </Text>
-                    </View>
-                  ))}
+                {showAvatar && (
+                  <ChatAvatar
+                    name={senderDisplayName === 'Someone' ? '?' : senderDisplayName}
+                    picture={picture ?? null}
+                    size={32}
+                  />
+                )}
               </View>
             )}
 

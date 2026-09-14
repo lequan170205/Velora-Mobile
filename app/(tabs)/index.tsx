@@ -22,6 +22,7 @@ import { ConversationItem } from '../../src/components/chat/ConversationItem'
 import { AppSearchBar } from '../../src/components/common/AppSearchBar'
 import { SafeTouchableOpacity } from '../../src/components/common/SafeTouchableOpacity'
 import { getDockedTabBarHeight } from '../../src/components/navigation/CustomTabBar'
+import { colors } from '../../src/constants/theme'
 import { useConversationNavigation } from '../../src/hooks/useConversationNavigation'
 import { useConversations } from '../../src/hooks/useConversations'
 import {
@@ -54,7 +55,7 @@ function ConversationsHeader({ onCreateGroup }: { onCreateGroup: () => void }) {
       className="flex-row items-end justify-between bg-bg-primary px-5 pb-3 pt-2"
     >
       <View>
-        <AppText className="text-xs2 font-semibold uppercase tracking-[1.8px] text-brand-dark">
+        <AppText className="text-xs2 font-semibold uppercase tracking-[1.8px] text-brand">
           Velora
         </AppText>
         <AppText className="font-display text-[28px] leading-[34px] tracking-[-0.7px] text-text-primary">
@@ -68,7 +69,7 @@ function ConversationsHeader({ onCreateGroup }: { onCreateGroup: () => void }) {
         accessibilityRole="button"
         accessibilityLabel="Create group chat"
       >
-        <MaterialIcons name="group-add" size={21} color="#D85A21" />
+        <MaterialIcons name="group-add" size={21} color={colors.brand.primary} />
       </SafeTouchableOpacity>
     </Animated.View>
   )
@@ -316,7 +317,7 @@ export default function ConversationsScreen() {
         <ConversationsHeader onCreateGroup={openNewGroup} />
         <View className="flex-1 items-center justify-center px-6">
           <View className="h-12 w-12 items-center justify-center rounded-[18px] bg-surface-accent">
-            <MaterialIcons name="cloud-off" size={22} color="#D85A21" />
+            <MaterialIcons name="cloud-off" size={22} color={colors.brand.primary} />
           </View>
           <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
             We couldn&apos;t load your conversations
@@ -360,7 +361,7 @@ export default function ConversationsScreen() {
           <View className="pb-1">
             {matches.length > 0 ? (
               <Animated.View entering={SECTION_ENTERING.delay(40)}>
-                <AppText className="px-5 pb-1 pt-1 text-xs2 font-semibold uppercase tracking-[1.4px] text-text-muted">
+                <AppText className="px-5 pb-1 pt-1 text-xs2 font-semibold uppercase tracking-[1.8px] text-text-muted">
                   Matches
                 </AppText>
                 <ScrollView
@@ -406,7 +407,7 @@ export default function ConversationsScreen() {
                 placeholder="Search conversations"
                 iconPlacement="left"
                 size="compact"
-                containerClassName="h-[52px] rounded-full px-4 py-0"
+                containerClassName="h-[52px] px-4 py-0"
                 accessibilityLabel="Search conversations"
               />
             </Animated.View>
@@ -429,7 +430,7 @@ export default function ConversationsScreen() {
               <MaterialIcons
                 name={deferredSearchQuery.trim() ? 'search-off' : 'chat-bubble-outline'}
                 size={22}
-                color="#D85A21"
+                color={colors.brand.primary}
               />
             </View>
             <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
@@ -442,7 +443,7 @@ export default function ConversationsScreen() {
             </AppText>
             {deferredSearchQuery.trim() ? (
               <AppPressable
-                className="mt-6 h-11 items-center justify-center overflow-hidden rounded-full bg-brand px-6"
+                className="mt-6 h-11 items-center justify-center overflow-hidden rounded-[20px] bg-brand px-6"
                 activeOpacity={0.82}
                 onPress={() => setSearchQuery('')}
                 accessibilityRole="button"
@@ -452,7 +453,7 @@ export default function ConversationsScreen() {
               </AppPressable>
             ) : (
               <AppPressable
-                className="mt-6 h-11 flex-row items-center justify-center overflow-hidden rounded-full bg-brand px-6"
+                className="mt-6 h-11 flex-row items-center justify-center overflow-hidden rounded-[20px] bg-brand px-6"
                 activeOpacity={0.82}
                 onPress={openNewGroup}
                 accessibilityRole="button"

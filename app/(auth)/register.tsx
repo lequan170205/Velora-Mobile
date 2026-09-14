@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { authApi } from '../../src/api/auth.api'
 import { ShortFormScreen } from '../../src/components/base/ShortFormScreen'
+import { colors } from '../../src/constants/theme'
 import { cn } from '../../src/lib/cn'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -61,8 +62,8 @@ const getConfirmPasswordError = (password: string, confirmPassword: string) => {
 
 const inputClassName = (isFocused: boolean) =>
   cn(
-    'rounded-[20px] border bg-[#FFFBF8] px-4 py-3.5',
-    isFocused ? 'border-brand bg-[#FFF7F2]' : 'border-[#F2DED0]',
+    'rounded-[20px] border bg-surface-cream px-4 py-3.5',
+    isFocused ? 'border-brand bg-surface-cream-focus' : 'border-warm',
   )
 
 type FocusableField = 'fullName' | 'email' | 'password' | 'confirmPassword'
@@ -253,12 +254,16 @@ export default function RegisterScreen() {
                     <Text className="mb-2 text-sm2 font-semibold text-text-primary">Full name</Text>
                     <View className={inputClassName(focusedInput === 'fullName')}>
                       <View className="flex-row items-center">
-                        <MaterialIcons name="person-outline" size={20} color="#FF8A5B" />
+                        <MaterialIcons
+                          name="person-outline"
+                          size={20}
+                          color={colors.brand.secondary}
+                        />
                         <TextInput
                           ref={fullNameInputRef}
                           className="ml-3 flex-1 py-1 text-[16px] font-medium text-text-primary"
                           placeholder="Enter your full name"
-                          placeholderTextColor="#9A9694"
+                          placeholderTextColor={colors.text.tertiary}
                           value={fullName}
                           onChangeText={(value) => {
                             setFullName(value)
@@ -303,7 +308,7 @@ export default function RegisterScreen() {
                         ref={emailInputRef}
                         className="py-1 text-[16px] font-medium text-text-primary"
                         placeholder="name@email.com"
-                        placeholderTextColor="#9A9694"
+                        placeholderTextColor={colors.text.tertiary}
                         value={email}
                         onChangeText={(value) => {
                           setEmail(value)
@@ -344,7 +349,7 @@ export default function RegisterScreen() {
                           ref={passwordInputRef}
                           className="flex-1 py-1 text-[16px] font-medium text-text-primary"
                           placeholder="At least 8 characters"
-                          placeholderTextColor="#9A9694"
+                          placeholderTextColor={colors.text.tertiary}
                           value={password}
                           onChangeText={(value) => {
                             setPassword(value)
@@ -399,7 +404,7 @@ export default function RegisterScreen() {
                         ref={confirmPasswordInputRef}
                         className="py-1 text-[16px] font-medium text-text-primary"
                         placeholder="Re-enter your password"
-                        placeholderTextColor="#9A9694"
+                        placeholderTextColor={colors.text.tertiary}
                         value={confirmPassword}
                         onChangeText={(value) => {
                           setConfirmPassword(value)

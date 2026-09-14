@@ -106,7 +106,7 @@ function getCustomTabBarTokens(theme: MD3Theme): { light: BarTheme; dark: BarThe
   return {
     light: {
       overlay: 'rgba(255, 255, 255, 0.92)',
-      activeIcon: colors.brand.tertiary,
+      activeIcon: colors.brand.primary,
       inactiveIcon: theme.colors.onSurfaceVariant,
     },
     dark: {

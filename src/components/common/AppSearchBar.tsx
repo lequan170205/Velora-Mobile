@@ -1,5 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import React from 'react'
+import React, { useState } from 'react'
 import { ActivityIndicator, View } from 'react-native'
 
 import { cn } from '../../lib/cn'
@@ -29,13 +29,15 @@ export const AppSearchBar = React.forwardRef<NativeTextInputRef, AppSearchBarPro
       autoCorrect = false,
       className,
       containerClassName,
-      iconColor = '#A6A6A6',
+      iconColor = '#FF935B',
       iconPlacement = 'right',
       inputClassName,
       isLoading = false,
       loadingColor = '#FF6B2C',
       onChangeText,
       onClear,
+      onFocus,
+      onBlur,
       placeholder = 'Search',
       placeholderTextColor = '#A6A6A6',
       returnKeyType = 'search',
@@ -45,6 +47,7 @@ export const AppSearchBar = React.forwardRef<NativeTextInputRef, AppSearchBarPro
     },
     ref,
   ) => {
+    const [isFocused, setIsFocused] = useState(false)
     const isCompact = size === 'compact'
     const iconSize = isCompact ? 18 : 20
     const hasValue = value.trim().length > 0
@@ -54,7 +57,9 @@ export const AppSearchBar = React.forwardRef<NativeTextInputRef, AppSearchBarPro
     return (
       <View
         className={cn(
-          'flex-row items-center rounded-full bg-surface-input',
+          // Warm cream input family shared with the auth screens.
+          'flex-row items-center rounded-[20px] border bg-surface-cream',
+          isFocused ? 'border-brand bg-surface-cream-focus' : 'border-warm',
           isCompact ? 'h-10 px-3.5' : 'px-4 py-3.5',
           containerClassName,
         )}
@@ -76,6 +81,14 @@ export const AppSearchBar = React.forwardRef<NativeTextInputRef, AppSearchBarPro
           autoCapitalize={autoCapitalize}
           autoCorrect={autoCorrect}
           returnKeyType={returnKeyType}
+          onFocus={(event) => {
+            setIsFocused(true)
+            onFocus?.(event)
+          }}
+          onBlur={(event) => {
+            setIsFocused(false)
+            onBlur?.(event)
+          }}
           {...props}
         />
 

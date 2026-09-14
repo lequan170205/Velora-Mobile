@@ -23,6 +23,7 @@ import { authApi } from '../../src/api/auth.api'
 import { AuthBrandHeader } from '../../src/components/auth/AuthBrandHeader'
 import { ShortFormScreen } from '../../src/components/base/ShortFormScreen'
 import { GoogleIcon } from '../../src/components/ui/GoogleIcon'
+import { colors } from '../../src/constants/theme'
 import { cn } from '../../src/lib/cn'
 import { resumePushTokenRegistration } from '../../src/lib/notifications/pushTokenOperationState'
 import { useAuthStore } from '../../src/stores/authStore'
@@ -151,16 +152,16 @@ export default function LoginScreen() {
                 <Text className="mb-2 text-sm2 font-semibold text-text-primary">Email address</Text>
                 <View
                   className={cn(
-                    'h-14 flex-row items-center rounded-[20px] border bg-[#FFFBF8] px-4',
-                    isEmailFocused ? 'border-brand bg-[#FFF7F2]' : 'border-[#F2DED0]',
+                    'h-14 flex-row items-center rounded-[20px] border bg-surface-cream px-4',
+                    isEmailFocused ? 'border-brand bg-surface-cream-focus' : 'border-warm',
                   )}
                 >
-                  <MaterialIcons name="mail-outline" size={20} color="#FF8A5B" />
+                  <MaterialIcons name="mail-outline" size={20} color={colors.brand.secondary} />
                   <TextInput
                     ref={emailInputRef}
                     className="ml-3 flex-1 text-md font-sans text-text-primary"
                     placeholder="Enter your email"
-                    placeholderTextColor="#9A9694"
+                    placeholderTextColor={colors.text.tertiary}
                     value={email}
                     onChangeText={setEmail}
                     autoCapitalize="none"
@@ -183,16 +184,16 @@ export default function LoginScreen() {
                 <Text className="mb-2 text-sm2 font-semibold text-text-primary">Password</Text>
                 <View
                   className={cn(
-                    'h-14 flex-row items-center rounded-[20px] border bg-[#FFFBF8] px-4',
-                    isPasswordFocused ? 'border-brand bg-[#FFF7F2]' : 'border-[#F2DED0]',
+                    'h-14 flex-row items-center rounded-[20px] border bg-surface-cream px-4',
+                    isPasswordFocused ? 'border-brand bg-surface-cream-focus' : 'border-warm',
                   )}
                 >
-                  <MaterialIcons name="lock-outline" size={20} color="#FF8A5B" />
+                  <MaterialIcons name="lock-outline" size={20} color={colors.brand.secondary} />
                   <TextInput
                     ref={passwordInputRef}
                     className="ml-3 flex-1 text-md font-sans text-text-primary"
                     placeholder="Enter your password"
-                    placeholderTextColor="#9A9694"
+                    placeholderTextColor={colors.text.tertiary}
                     value={password}
                     onChangeText={setPassword}
                     secureTextEntry={!showPassword}
@@ -214,7 +215,7 @@ export default function LoginScreen() {
                     <MaterialIcons
                       name={showPassword ? 'visibility' : 'visibility-off'}
                       size={21}
-                      color="#6F6C6A"
+                      color={colors.text.secondary}
                     />
                   </TouchableOpacity>
                 </View>
@@ -224,7 +225,7 @@ export default function LoginScreen() {
                 <View className="min-w-0 flex-1 flex-row items-center pr-3">
                   {error ? (
                     <>
-                      <MaterialIcons name="error-outline" size={18} color="#FF3B30" />
+                      <MaterialIcons name="error-outline" size={18} color={colors.status.error} />
                       <Text
                         className="ml-2 flex-1 text-base2 font-medium leading-5 text-status-error"
                         numberOfLines={2}
@@ -260,15 +261,15 @@ export default function LoginScreen() {
               </TouchableOpacity>
 
               <View className="my-5 flex-row items-center">
-                <View className="h-px flex-1 bg-[#E8E4E1]" />
+                <View className="h-px flex-1 bg-border-default" />
                 <Text className="px-4 text-xs2 font-semibold uppercase tracking-[1px] text-text-muted">
                   OR
                 </Text>
-                <View className="h-px flex-1 bg-[#E8E4E1]" />
+                <View className="h-px flex-1 bg-border-default" />
               </View>
 
               <TouchableOpacity
-                className="h-14 flex-row items-center justify-center rounded-[20px] border border-[#CFC6FF] bg-white"
+                className="h-14 flex-row items-center justify-center rounded-[20px] border border-warm bg-white"
                 onPress={handleGoogleLogin}
                 disabled={isLoading}
                 activeOpacity={0.8}

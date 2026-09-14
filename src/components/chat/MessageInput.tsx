@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons'
+import { MaterialIcons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'
 import * as ImagePicker from 'expo-image-picker'
 import React, { memo, useCallback, useImperativeHandle, useRef, useState } from 'react'
@@ -29,6 +29,7 @@ import Animated, {
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { colors } from '../../constants/theme'
 import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../lib/chatMedia'
 import {
   getPreferredReelReplyPreviewContent,
@@ -63,17 +64,15 @@ export interface MessageInputHandle {
 
 interface ComposerIconButtonProps {
   accessibilityLabel: string
-  icon: React.ComponentProps<typeof Ionicons>['name']
+  icon: React.ComponentProps<typeof MaterialIcons>['name']
   onPress: () => void
   disabled?: boolean
 }
 
-const BRAND = '#FF6B2C'
-const BRAND_DARK = '#D85A21'
-const TEXT_PRIMARY = '#161616'
-const TEXT_SECONDARY = '#777777'
-const TEXT_MUTED = '#A6A6A6'
-const SURFACE_INPUT = '#F5F5F5'
+const BRAND = colors.brand.primary
+const TEXT_PRIMARY = colors.text.primary
+const TEXT_SECONDARY = colors.text.secondary
+const TEXT_MUTED = colors.text.tertiary
 const ACCESSORY_SLOT_WIDTH = 164
 const VIDEO_FILE_URI_PATTERN = /\.(mp4|m4v|mov|webm)(?:[?#].*)?$/i
 
@@ -184,7 +183,7 @@ const ComposerIconButton = memo(function ComposerIconButton({
           animatedStyle,
         ]}
       >
-        <Ionicons name={icon} size={23} color={TEXT_SECONDARY} />
+        <MaterialIcons name={icon} size={23} color={TEXT_SECONDARY} />
       </Animated.View>
     </Pressable>
   )
@@ -265,17 +264,17 @@ const ComposerAccessorySlot = memo(function ComposerAccessorySlot({
       >
         <ComposerIconButton
           accessibilityLabel="Record voice message"
-          icon="mic-outline"
+          icon="mic-none"
           onPress={onMic}
         />
         <ComposerIconButton
           accessibilityLabel="Open attachment options"
-          icon="image-outline"
+          icon="image"
           onPress={onAttach}
         />
         <ComposerIconButton
           accessibilityLabel="Open emoji picker"
-          icon="happy-outline"
+          icon="mood"
           onPress={() => {
             /* emoji picker placeholder */
           }}
@@ -312,7 +311,7 @@ const ComposerAccessorySlot = memo(function ComposerAccessorySlot({
             backgroundColor: BRAND,
           }}
         >
-          <Ionicons name="send" size={18} color="#FFFFFF" style={{ marginLeft: 2 }} />
+          <MaterialIcons name="send" size={18} color="#FFFFFF" style={{ marginLeft: 2 }} />
         </Pressable>
       </Animated.View>
     </Animated.View>
@@ -503,13 +502,13 @@ const MessageInputComponent = function MessageInput(
     paddingBottom: dynamicPadding.value,
   }))
 
-  // Focus ring on the pill, driven on the UI thread by the same progress the
-  // input already tracks — no extra JS state.
+  // Focus ring on the pill matches the auth input treatment: warm border at
+  // rest, solid brand border while focused.
   const inputPillStyle = useAnimatedStyle(() => ({
     borderColor: interpolateColor(
       inputFocusProgress.value,
       [0, 1],
-      ['rgba(0,0,0,0)', 'rgba(255,107,44,0.35)'],
+      [colors.border.warm, colors.brand.primary],
     ),
   }))
 
@@ -522,7 +521,7 @@ const MessageInputComponent = function MessageInput(
             transform: [{ translateY: 7 }, { translateX: -8 }],
           })}
           exiting={FadeOut.duration(110)}
-          className="mb-2 flex-row items-center rounded-[16px] bg-surface-input py-2.5"
+          className="mb-2 flex-row items-center rounded-[16px] border border-warm bg-surface-cream py-2.5"
           style={{
             paddingLeft: 12,
             paddingRight: 8,
@@ -538,7 +537,7 @@ const MessageInputComponent = function MessageInput(
                 height: isReplyReel ? 52 : 36,
                 borderRadius: isReplyReel ? 12 : 10,
                 overflow: 'hidden',
-                backgroundColor: isReplyVideo ? '#111111' : SURFACE_INPUT,
+                backgroundColor: isReplyVideo ? '#111111' : colors.surface.cream,
                 marginRight: 10,
               }}
             >
@@ -561,7 +560,7 @@ const MessageInputComponent = function MessageInput(
                     backgroundColor: 'rgba(0,0,0,0.18)',
                   }}
                 >
-                  <Ionicons name="play" size={16} color="#FFFFFF" />
+                  <MaterialIcons name="play-arrow" size={16} color="#FFFFFF" />
                 </View>
               ) : null}
             </View>
@@ -578,7 +577,7 @@ const MessageInputComponent = function MessageInput(
                 overflow: 'hidden',
               }}
             >
-              <Ionicons name="play" size={18} color="#FFFFFF" />
+              <MaterialIcons name="play-arrow" size={18} color="#FFFFFF" />
             </View>
           ) : (
             <View
@@ -588,13 +587,11 @@ const MessageInputComponent = function MessageInput(
                 borderRadius: 14,
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: '#FF6B2C22',
+                backgroundColor: colors.surface.accent,
                 marginRight: 10,
               }}
             >
-              <Text style={{ fontSize: 12, fontWeight: '800', color: BRAND_DARK }}>
-                {replyInitial}
-              </Text>
+              <Text style={{ fontSize: 12, fontWeight: '800', color: BRAND }}>{replyInitial}</Text>
             </View>
           )}
 
@@ -603,7 +600,7 @@ const MessageInputComponent = function MessageInput(
               style={{
                 fontSize: 12,
                 fontWeight: '700',
-                color: isReplyReel ? TEXT_PRIMARY : BRAND_DARK,
+                color: isReplyReel ? TEXT_PRIMARY : BRAND,
                 marginBottom: 2,
               }}
               numberOfLines={1}
@@ -626,11 +623,11 @@ const MessageInputComponent = function MessageInput(
               borderRadius: 14,
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: pressed ? '#E0E0E0' : '#ECECEC',
+              backgroundColor: pressed ? colors.border.strong : colors.border.default,
               marginLeft: 8,
             })}
           >
-            <Ionicons name="close" size={20} color={TEXT_SECONDARY} />
+            <MaterialIcons name="close" size={20} color={TEXT_SECONDARY} />
           </Pressable>
         </Animated.View>
       ) : null}
@@ -651,7 +648,7 @@ const MessageInputComponent = function MessageInput(
       >
         <ComposerIconButton
           accessibilityLabel="Open camera"
-          icon="camera"
+          icon="photo-camera"
           onPress={() => {
             void handleOpenCamera()
           }}
@@ -724,8 +721,9 @@ export const MessageInput = memo(React.forwardRef(MessageInputComponent))
 // Static styles extracted from render to avoid new object allocations per frame.
 const styles = StyleSheet.create({
   composerPill: {
-    backgroundColor: SURFACE_INPUT,
-    borderRadius: 24,
+    backgroundColor: colors.surface.cream,
+    borderColor: colors.border.warm,
+    borderRadius: 20,
     borderWidth: 1,
   },
   textInput: {

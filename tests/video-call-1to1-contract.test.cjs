@@ -221,7 +221,7 @@ test('conversation video entry point remains direct-chat only', () => {
   )
   assert.match(header, /showCallActions \? \(/)
   assert.match(header, /onPress=\{onStartVideoCall\}/)
-  assert.match(header, /icon="videocam-outline"/)
+  assert.match(header, /icon="videocam"/)
 })
 
 test('conversation call actions provide immediate single-flight loading feedback', () => {

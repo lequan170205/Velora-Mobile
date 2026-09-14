@@ -19,7 +19,7 @@ const SECTION_ENTERING = FadeInDown.springify()
   .reduceMotion(ReduceMotion.System)
 
 const ConversationTypingIndicator = memo(function ConversationTypingIndicator() {
-  return <AppText className="text-sm2 font-semibold text-brand-dark">Typing…</AppText>
+  return <AppText className="text-sm2 font-semibold text-brand">Typing…</AppText>
 })
 
 const ConversationItemComponent = function ConversationItem({
@@ -125,7 +125,7 @@ const ConversationItemComponent = function ConversationItem({
 
             <AppText
               className={
-                isUnread ? 'text-xs2 font-semibold text-brand-dark' : 'text-xs2 text-text-muted'
+                isUnread ? 'text-xs2 font-semibold text-brand' : 'text-xs2 text-text-muted'
               }
             >
               {timeString}

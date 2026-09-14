@@ -1,4 +1,4 @@
-import { Ionicons, MaterialIcons } from '@expo/vector-icons'
+import { MaterialIcons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'
 import { ActivityIndicator, View } from 'react-native'
 import Animated, {
@@ -17,7 +17,7 @@ type CallActionButtonProps = {
   accessibilityLabel: string
   busy: boolean
   disabled: boolean
-  icon: keyof typeof Ionicons.glyphMap
+  icon: keyof typeof MaterialIcons.glyphMap
   onPress: () => void
 }
 
@@ -59,8 +59,10 @@ function CallActionButton({
       <Animated.View
         className="h-10 w-10 items-center justify-center rounded-full"
         style={[
+          // Idle state mirrors the peach accent tiles used across chat and
+          // the warm input family on auth; busy keeps the solid brand fill.
           {
-            backgroundColor: busy ? colors.bubble.outgoing : colors.surface.input,
+            backgroundColor: busy ? colors.bubble.outgoing : colors.surface.accent,
           },
           animatedStyle,
         ]}
@@ -68,7 +70,7 @@ function CallActionButton({
         {busy ? (
           <ActivityIndicator color={colors.text.inverse} size="small" />
         ) : (
-          <Ionicons name={icon} size={21} color={colors.text.primary} />
+          <MaterialIcons name={icon} size={21} color={colors.brand.primary} />
         )}
       </Animated.View>
     </AppPressable>
@@ -113,7 +115,7 @@ export const ConversationHeader = ({
   onStartVoiceCall,
 }: ConversationHeaderProps) => {
   const subtitleColor = groupTypingLabel
-    ? colors.brand.tertiary
+    ? colors.brand.primary
     : !isGroup && isOnline
       ? colors.status.online
       : colors.text.tertiary
@@ -169,7 +171,7 @@ export const ConversationHeader = ({
               onPress={onStartVideoCall}
               disabled={callActionsDisabled}
               busy={pendingCallType === 'VIDEO'}
-              icon="videocam-outline"
+              icon="videocam"
               accessibilityLabel={
                 pendingCallType === 'VIDEO'
                   ? `Starting video call with ${displayName}`
@@ -180,7 +182,7 @@ export const ConversationHeader = ({
               onPress={onStartVoiceCall}
               disabled={callActionsDisabled}
               busy={pendingCallType === 'VOICE'}
-              icon="call-outline"
+              icon="call"
               accessibilityLabel={
                 pendingCallType === 'VOICE'
                   ? `Starting voice call with ${displayName}`
@@ -193,7 +195,7 @@ export const ConversationHeader = ({
 
       {!isConnected ? (
         <View className="mt-2.5 flex-row items-center gap-2.5 rounded-[14px] border border-brand-soft bg-surface-accent px-3.5 py-2.5">
-          <Ionicons name="cloud-offline" size={17} color={colors.brand.tertiary} />
+          <MaterialIcons name="cloud-off" size={17} color={colors.brand.primary} />
           <AppText className="flex-1 text-sm2 leading-[18px] text-text-primary">
             {queuedMessageCount > 0
               ? `Reconnecting — ${queuedMessageCount} message${queuedMessageCount > 1 ? 's are' : ' is'} waiting to send.`

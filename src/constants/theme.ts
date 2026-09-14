@@ -60,6 +60,9 @@ export const colors = {
     accent: '#FFF4EC',
     error: '#FFF1F0',
     muted: '#F5F5F5',
+    // Warm cream input family shared by auth and chat composers
+    cream: '#FFFBF8',
+    creamFocus: '#FFF7F2',
   },
   // Messages
   bubble: {
@@ -73,6 +76,8 @@ export const colors = {
     default: '#ECECEC',
     light: '#F4F4F4',
     strong: '#D9D9D9',
+    warm: '#F2DED0',
+    warmSoft: '#F5EEE9',
   },
 }
 
@@ -92,7 +97,7 @@ export const radius = {
   lg: 16,
   xl: 20,
   full: 9999,
-  bubble: { outgoing: [20, 20, 4, 20], incoming: [20, 20, 20, 4] },
+  bubble: { outgoing: [18, 18, 4, 18], incoming: [18, 18, 18, 4] },
 }
 
 export const typography = {

@@ -766,11 +766,11 @@ export default function SearchScreen() {
             value={query}
             onChangeText={setQuery}
             placeholder="Search reels, contacts, topics"
-            placeholderTextColor="#9B958C"
-            iconColor="#8A8379"
+            placeholderTextColor={colors.text.tertiary}
+            iconColor={colors.brand.secondary}
             iconPlacement="left"
             isLoading={isSearchTyping}
-            loadingColor={colors.brand.tertiary}
+            loadingColor={colors.brand.primary}
             onClear={() => setQuery('')}
             size="compact"
           />

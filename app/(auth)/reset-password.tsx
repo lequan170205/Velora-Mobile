@@ -10,8 +10,8 @@ import { cn } from '../../src/lib/cn'
 
 const inputClassName = (isFocused: boolean) =>
   cn(
-    'rounded-[20px] border bg-[#FFFBF8] px-4 py-3.5',
-    isFocused ? 'border-brand bg-[#FFF7F2]' : 'border-[#F2DED0]',
+    'rounded-[20px] border bg-surface-cream px-4 py-3.5',
+    isFocused ? 'border-brand bg-surface-cream-focus' : 'border-warm',
   )
 
 export default function ResetPasswordScreen() {
@@ -175,7 +175,7 @@ export default function ResetPasswordScreen() {
           </View>
         </>
       ) : (
-        <View className="rounded-[22px] border border-[#F2DED0] bg-[#FFFBF8] px-5 py-6">
+        <View className="rounded-[22px] border border-warm bg-surface-cream px-5 py-6">
           <View className="h-12 w-12 items-center justify-center rounded-[16px] bg-[#FFF2E8]">
             <MaterialIcons name="check-circle-outline" size={24} color="#D85A21" />
           </View>

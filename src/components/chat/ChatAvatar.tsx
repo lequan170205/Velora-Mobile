@@ -57,7 +57,7 @@ export const ChatAvatar = React.memo(function ChatAvatar({
           <AppText
             className="font-heading"
             style={{
-              color: colors.brand.tertiary,
+              color: colors.brand.primary,
               fontSize: Math.round(size * 0.38),
               lineHeight: Math.round(size * 0.46),
             }}
@@ -82,7 +82,7 @@ export const ChatAvatar = React.memo(function ChatAvatar({
           <MaterialIcons
             name="groups"
             size={Math.round(badgeSize * 0.62)}
-            color={colors.brand.tertiary}
+            color={colors.brand.primary}
           />
         </View>
       ) : null}

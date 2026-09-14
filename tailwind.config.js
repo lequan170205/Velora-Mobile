@@ -18,6 +18,9 @@ module.exports = {
         'surface-focus': '#F5F5F5',
         'surface-accent': '#FFF4EC',
         'surface-muted': '#F5F5F5',
+        // Warm cream input family shared by auth and chat composers
+        'surface-cream': '#FFFBF8',
+        'surface-cream-focus': '#FFF7F2',
         // Brand — Clean orange accent
         brand: '#FF6B2C',
         'brand-light': '#FF935B',
@@ -37,6 +40,8 @@ module.exports = {
         'border-default': '#ECECEC',
         'border-light': '#F4F4F4',
         'border-strong': '#D9D9D9',
+        'border-warm': '#F2DED0',
+        'border-warm-soft': '#F5EEE9',
         // Overlays
         overlay: 'rgba(0,0,0,0.4)',
         // Message Bubbles
