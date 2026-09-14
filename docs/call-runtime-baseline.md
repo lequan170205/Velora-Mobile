@@ -18,6 +18,17 @@ paired physical iPhone is now available, but the manual matrix has not been
 executed; an iOS simulator cannot prove CallKit/PushKit behavior. Simulator
 results therefore cannot close the physical-device gate.
 
+## Candidate build evidence
+
+- The iPhone 17 simulator candidate built, installed and launched successfully
+  with `npx expo run:ios --device "iPhone 17" --no-bundler`.
+- The Debug `iphoneos` candidate built successfully with Xcode, and the same
+  `com.quan.velora.dev` app installed and launched on the paired physical
+  iPhone.
+- These are compile/install checks only. No call, network-loss, camera-toggle
+  or CallKit measurements are inferred from them; the physical matrix below
+  remains pending.
+
 ## Safe diagnostic contract
 
 Call diagnostics use `socketGeneration`, setup generation, shortened call /
