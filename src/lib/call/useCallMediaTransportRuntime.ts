@@ -80,6 +80,7 @@ type MediaTransportRuntimeOptions = {
   handledRemoteProducerIdsRef: MutableRef<Set<string>>
   remoteVideoEnabledByProducerRef: MutableRef<Map<string, boolean>>
   remoteVideoRevisionByProducerRef: MutableRef<Map<string, number>>
+  closedRemoteVideoProducerIdsRef: MutableRef<Set<string>>
   remoteVideoSnapshotReadyRef: MutableRef<boolean>
   deriveRemoteVideoState: () => RemoteVideoState
   markRemoteVideoSnapshotReady: (ready: boolean) => void
@@ -138,6 +139,7 @@ export const useCallMediaTransportRuntime = ({
   handledRemoteProducerIdsRef,
   remoteVideoEnabledByProducerRef,
   remoteVideoRevisionByProducerRef,
+  closedRemoteVideoProducerIdsRef,
   remoteVideoSnapshotReadyRef,
   deriveRemoteVideoState,
   markRemoteVideoSnapshotReady,
@@ -396,6 +398,13 @@ export const useCallMediaTransportRuntime = ({
       if (!callId || payload.callId !== callId) return
       assertCallSetupCurrent(setupToken, callId)
 
+      if (
+        payload.kind === 'video' &&
+        closedRemoteVideoProducerIdsRef.current.has(payload.producerId)
+      ) {
+        return
+      }
+
       if (payload.kind === 'video' && payload.userId !== currentUserId) {
         const incomingRevision = payload.revision ?? 0
         const currentRevision = remoteVideoRevisionByProducerRef.current.get(payload.producerId)
@@ -548,6 +557,9 @@ export const useCallMediaTransportRuntime = ({
           reconnectModeRef.current !== null || options?.retryOnFailure === true
         if (isRecoveryConsume) {
           if (isTerminalRemoteMediaError(error)) {
+            if (payload.kind === 'video') {
+              closedRemoteVideoProducerIdsRef.current.add(payload.producerId)
+            }
             queuedRemoteProducerMapRef.current.delete(payload.producerId)
             const retryState = remoteConsumerRetryStateRef.current.get(payload.producerId)
             if (retryState) clearTimeout(retryState.timeoutId)
@@ -655,6 +667,7 @@ export const useCallMediaTransportRuntime = ({
     [
       assertCallSetupCurrent,
       callSetupGenerationRef,
+      closedRemoteVideoProducerIdsRef,
       consumerMapRef,
       confirmAudioFlow,
       clearReconnectTimeout,

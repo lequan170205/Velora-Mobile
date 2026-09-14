@@ -938,6 +938,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     handledRemoteProducerIdsRef,
     remoteVideoEnabledByProducerRef,
     remoteVideoRevisionByProducerRef,
+    closedRemoteVideoProducerIdsRef,
     remoteVideoSnapshotReadyRef,
     deriveRemoteVideoState,
     markRemoteVideoSnapshotReady,
