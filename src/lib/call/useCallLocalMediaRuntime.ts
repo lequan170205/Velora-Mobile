@@ -219,6 +219,7 @@ export const useCallLocalMediaRuntime = ({
             return false
           }
 
+          const revisionBeforeAck = localVideoState.revision
           const appliedAck = applyLocalVideoAck(
             localVideoState,
             acknowledgement,
@@ -232,7 +233,15 @@ export const useCallLocalMediaRuntime = ({
           // `cameraEnabled` remains ACK-driven below; the native track can be
           // prepared before the UI flips back to on.
           const localVideoTrack = localStreamRef.current?.getVideoTracks()[0]
-          if (localVideoTrack) localVideoTrack.enabled = acknowledgement.enabled
+          // A superseded command may still resolve after the latest command.
+          // It can update diagnostics/state only; applying its bit to the
+          // native track would make the camera flicker back to an old value.
+          if (
+            localVideoTrack &&
+            (appliedAck.isLatestAction || acknowledgement.revision >= revisionBeforeAck)
+          ) {
+            localVideoTrack.enabled = acknowledgement.enabled
+          }
 
           debugCall(
             '[Call] camera_state_ack',
