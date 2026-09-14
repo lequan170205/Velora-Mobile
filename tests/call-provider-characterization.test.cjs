@@ -690,17 +690,15 @@ test('rapid camera taps cancel pending activation and keep the producer stable',
     'const switchCamera = useCallback(',
   )
 
-  assert.match(
-    toggleSource,
-    /const cameraIsDesiredOn = state\.cameraEnabled \|\| localVideoStateRef\.current\.desiredEnabled/,
-  )
+  assert.match(toggleSource, /resolveLocalVideoToggleIntent\(/)
   assertOrdered(
     toggleSource,
     [
-      'const cameraIsDesiredOn =',
-      'if (!cameraIsDesiredOn)',
+      'const activation = videoActivationRef.current',
+      'const intent = resolveLocalVideoToggleIntent({',
+      "if (intent === 'activate')",
       "await activateLocalVideo({ source: 'user' })",
-      'if (!videoProducerRef.current)',
+      "if (intent === 'cancel_activation' || !videoProducerRef.current)",
       'deactivateLocalVideo()',
       'emitLocalVideoState(false)',
     ],

@@ -43,7 +43,7 @@ test('camera off/on is signaled without replacing the video producer', () => {
   assert.match(localMedia, /event: 'video_state_updated'/)
   assert.match(provider, /remoteVideoEnabledByProducerRef/)
   assert.match(provider, /remoteVideoRevisionByProducerRef/)
-  assert.match(provider, /shouldApplyRemoteVideoRevision\(currentRevision, payload\.revision\)/)
+  assert.match(provider, /shouldApplyRemoteVideoRevision\(\s*currentRevision,\s*payload\.revision/)
   assert.match(provider, /if \(payload\.enabled\) videoConsumer\.resume\(\)/)
   assert.match(provider, /else videoConsumer\.pause\(\)/)
   assert.match(mediaTransport, /markRemoteVideoSnapshotReady\(false\)/)

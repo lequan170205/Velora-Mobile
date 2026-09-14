@@ -127,6 +127,7 @@ test('remote video revisions reject late events and keep an unknown snapshot wai
   assert.equal(videoState.shouldApplyRemoteVideoRevision(undefined, 0), true)
   assert.equal(videoState.shouldApplyRemoteVideoRevision(7, 6), false)
   assert.equal(videoState.shouldApplyRemoteVideoRevision(7, 7), true)
+  assert.equal(videoState.shouldApplyRemoteVideoRevision(7, 7, true, false), false)
   assert.equal(
     videoState.deriveRemoteVideoStateFromRegistry({
       callType: 'VIDEO',
@@ -205,6 +206,48 @@ test('camera ACKs arriving out of order preserve the newest desired revision', (
   assert.equal(newestAck.accepted, true)
 })
 
+test('camera toggle intent keeps automatic and user activation single-flight', () => {
+  const base = {
+    phase: 'active',
+    callType: 'VIDEO',
+    cameraEnabled: false,
+    desiredEnabled: true,
+    confirmedEnabled: false,
+    hasProducer: false,
+    socketConnected: true,
+  }
+
+  assert.equal(
+    videoState.resolveLocalVideoToggleIntent({ ...base, activationInFlight: true }),
+    'cancel_activation',
+  )
+  assert.equal(
+    videoState.resolveLocalVideoToggleIntent({ ...base, activationInFlight: false }),
+    'activate',
+  )
+})
+
+test('camera intent survives a disconnected off/on cycle and retries after reconnect', () => {
+  const producerState = {
+    phase: 'active',
+    callType: 'VIDEO',
+    cameraEnabled: false,
+    desiredEnabled: true,
+    confirmedEnabled: false,
+    hasProducer: true,
+    activationInFlight: false,
+  }
+
+  assert.equal(
+    videoState.resolveLocalVideoToggleIntent({ ...producerState, socketConnected: false }),
+    'deactivate',
+  )
+  assert.equal(
+    videoState.resolveLocalVideoToggleIntent({ ...producerState, socketConnected: true }),
+    'activate',
+  )
+})
+
 test('camera and consumer retry delays are bounded exponential backoff', () => {
   assert.deepEqual(
     [0, 1, 2, 3, 10].map((attempt) => videoState.boundedRetryDelay(attempt, 250, 2_000)),
@@ -232,10 +275,7 @@ test('terminal stale media errors are never classified as retryable', () => {
   })
   assert.equal(callPolicies.isTerminalRemoteMediaError(terminal), true)
   assert.equal(callPolicies.isTerminalRemoteMediaError(new Error('Timed out waiting')), false)
-  assert.equal(
-    callPolicies.isTerminalRemoteMediaError(new Error('Producer not found')),
-    true,
-  )
+  assert.equal(callPolicies.isTerminalRemoteMediaError(new Error('Producer not found')), true)
 })
 
 test('exception context is attached without rejecting a waiter for another command', async () => {
