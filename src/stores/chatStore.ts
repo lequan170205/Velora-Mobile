@@ -3,6 +3,11 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
 import { isMessageBeyondOptimisticReadFrontier } from '../lib/messageIdentity'
+import {
+  pruneSettledTextOptimisticSortAnchors,
+  removeOptimisticSortAnchorsWithTextLease,
+  settleTextOptimisticSortAnchors,
+} from '../lib/optimisticSortAnchorLifecycle'
 
 import type { Message } from '../types/conversation.types'
 
@@ -85,6 +90,28 @@ const pruneOptimisticMessages = (optimisticMessages: Record<string, Message[]>) 
       return activeMessages.length > 0 ? [[conversationId, activeMessages] as const] : []
     }),
   )
+}
+
+const buildNextOptimisticSortAnchors = (
+  state: Pick<ChatState, 'optimisticSortAnchors'>,
+  conversationId: string,
+  nextAnchors: Record<string, OptimisticSortAnchor>,
+  currentAnchors: Record<string, OptimisticSortAnchor>,
+) => {
+  if (nextAnchors === currentAnchors) {
+    return state.optimisticSortAnchors
+  }
+
+  if (Object.keys(nextAnchors).length > 0) {
+    return {
+      ...state.optimisticSortAnchors,
+      [conversationId]: nextAnchors,
+    }
+  }
+
+  const updated = { ...state.optimisticSortAnchors }
+  delete updated[conversationId]
+  return updated
 }
 
 const isMessageAtOrBeforeReadFrontier = ({
@@ -218,42 +245,28 @@ export const useChatStore = create<ChatState>()(
 
       removeOptimisticSortAnchors: (conversationId, identityKeys) =>
         set((state) => {
-          if (identityKeys.length === 0) {
-            return state
-          }
-
           const currentAnchors = state.optimisticSortAnchors[conversationId]
-          if (!currentAnchors) {
+          if (!currentAnchors || identityKeys.length === 0) {
             return state
           }
 
-          let changed = false
-          const nextAnchors = { ...currentAnchors }
-          identityKeys.forEach((identityKey) => {
-            if (!nextAnchors[identityKey]) {
-              return
-            }
+          const nextAnchors = removeOptimisticSortAnchorsWithTextLease(
+            state.optimisticMessages[conversationId] || [],
+            currentAnchors,
+            identityKeys,
+          )
 
-            changed = true
-            delete nextAnchors[identityKey]
-          })
-
-          if (!changed) {
+          if (nextAnchors === currentAnchors) {
             return state
           }
 
           return {
-            optimisticSortAnchors:
-              Object.keys(nextAnchors).length > 0
-                ? {
-                    ...state.optimisticSortAnchors,
-                    [conversationId]: nextAnchors,
-                  }
-                : (() => {
-                    const updated = { ...state.optimisticSortAnchors }
-                    delete updated[conversationId]
-                    return updated
-                  })(),
+            optimisticSortAnchors: buildNextOptimisticSortAnchors(
+              state,
+              conversationId,
+              nextAnchors,
+              currentAnchors,
+            ),
           }
         }),
 
@@ -261,6 +274,9 @@ export const useChatStore = create<ChatState>()(
         set((state) => {
           const msgs = state.optimisticMessages[conversationId] || []
           const nextMessages = msgs.filter((message) => message.id !== tempId)
+          if (nextMessages.length === msgs.length) {
+            return state
+          }
 
           const nextOptimisticMessages =
             nextMessages.length > 0
@@ -273,9 +289,17 @@ export const useChatStore = create<ChatState>()(
                   delete updated[conversationId]
                   return updated
                 })()
+          const currentAnchors = state.optimisticSortAnchors[conversationId] || {}
+          const nextAnchors = settleTextOptimisticSortAnchors(nextMessages, currentAnchors)
 
           return {
             optimisticMessages: nextOptimisticMessages,
+            optimisticSortAnchors: buildNextOptimisticSortAnchors(
+              state,
+              conversationId,
+              nextAnchors,
+              currentAnchors,
+            ),
           }
         }),
 
@@ -297,11 +321,20 @@ export const useChatStore = create<ChatState>()(
             return state
           }
 
+          const currentAnchors = state.optimisticSortAnchors[conversationId] || {}
+          const nextAnchors = settleTextOptimisticSortAnchors(nextMessages, currentAnchors)
+
           return {
             optimisticMessages: {
               ...state.optimisticMessages,
               [conversationId]: nextMessages,
             },
+            optimisticSortAnchors: buildNextOptimisticSortAnchors(
+              state,
+              conversationId,
+              nextAnchors,
+              currentAnchors,
+            ),
           }
         }),
 
@@ -319,13 +352,12 @@ export const useChatStore = create<ChatState>()(
           const msgs = state.optimisticMessages[conversationId] || []
           const nextMessages = msgs.filter((message) => message.id !== tempId)
 
-          const hasMessageChanges = nextMessages.length !== msgs.length
-          if (!hasMessageChanges) {
+          if (nextMessages.length === msgs.length) {
             return state
           }
 
-          const nextOptimisticMessages = hasMessageChanges
-            ? nextMessages.length > 0
+          const nextOptimisticMessages =
+            nextMessages.length > 0
               ? {
                   ...state.optimisticMessages,
                   [conversationId]: nextMessages,
@@ -335,23 +367,52 @@ export const useChatStore = create<ChatState>()(
                   delete updated[conversationId]
                   return updated
                 })()
-            : state.optimisticMessages
+
+          const currentAnchors = state.optimisticSortAnchors[conversationId] || {}
+          const nextAnchors = settleTextOptimisticSortAnchors(nextMessages, currentAnchors)
 
           return {
             optimisticMessages: nextOptimisticMessages,
+            optimisticSortAnchors: buildNextOptimisticSortAnchors(
+              state,
+              conversationId,
+              nextAnchors,
+              currentAnchors,
+            ),
           }
         }),
 
       markMessageFailed: (conversationId, tempId) =>
         set((state) => {
           const msgs = state.optimisticMessages[conversationId] || []
+          let changed = false
+          const nextMessages = msgs.map((message) => {
+            if (message.id !== tempId || message.status === 'FAILED') {
+              return message
+            }
+
+            changed = true
+            return { ...message, status: 'FAILED' as const }
+          })
+
+          if (!changed) {
+            return state
+          }
+
+          const currentAnchors = state.optimisticSortAnchors[conversationId] || {}
+          const nextAnchors = settleTextOptimisticSortAnchors(nextMessages, currentAnchors)
+
           return {
             optimisticMessages: {
               ...state.optimisticMessages,
-              [conversationId]: msgs.map((message) =>
-                message.id === tempId ? { ...message, status: 'FAILED' as const } : message,
-              ),
+              [conversationId]: nextMessages,
             },
+            optimisticSortAnchors: buildNextOptimisticSortAnchors(
+              state,
+              conversationId,
+              nextAnchors,
+              currentAnchors,
+            ),
           }
         }),
 
@@ -573,11 +634,15 @@ export const useChatStore = create<ChatState>()(
         const optimisticMessages = pruneOptimisticMessages(
           (persisted.optimisticMessages as Record<string, Message[]>) || {},
         )
-        const optimisticSortAnchors =
+        const persistedOptimisticSortAnchors =
           (persisted.optimisticSortAnchors as Record<
             string,
             Record<string, OptimisticSortAnchor>
           >) || {}
+        const optimisticSortAnchors = pruneSettledTextOptimisticSortAnchors(
+          optimisticMessages,
+          persistedOptimisticSortAnchors,
+        )
 
         return {
           ...currentState,
