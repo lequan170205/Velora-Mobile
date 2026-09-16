@@ -511,6 +511,24 @@ sed -i '' \
   '/path = "Target Support Files\/ExpoMediaLibrary";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 
+# expo-router's ExpoHead target has the same pnpm-path fragility, including
+# the LinkPreviewNativeNavigation public header used by the archive.
+EXPO_HEAD_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/expo-router/ios/LinkPreview/LinkPreviewNativeNavigation.h' -type f -print -quit 2>/dev/null | sed 's#/ios/LinkPreview/LinkPreviewNativeNavigation.h$##' || true)"
+if [[ -n "$EXPO_HEAD_ROOT" ]]; then
+  rm -rf "$REPO_ROOT/ios/Pods/CloudSources/expo-head"
+  mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/expo-head"
+  cp -RL "$EXPO_HEAD_ROOT/ios/." "$REPO_ROOT/ios/Pods/CloudSources/expo-head/"
+  sed -i '' \
+    's#path = "\.\./\.\./node_modules/\.pnpm/expo-router@[^\"]*/node_modules/expo-router/ios";#path = "CloudSources/expo-head";#' \
+    "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+  sed -i '' \
+    's#path = "\.\./\.\./\.\./\.\./\.\./\.\./ios/Pods/Target Support Files/ExpoHead";#path = "Target Support Files/ExpoHead";#' \
+    "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+  sed -i '' \
+    '/path = "Target Support Files\/ExpoHead";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+    "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+fi
+
 # The generated React Native dependencies helper uses bash arrays while
 # CocoaPods gives it a /bin/sh shebang on the Cloud image.
 sed -i '' '1s|^#!/bin/sh$|#!/bin/bash|' \
