@@ -12,8 +12,8 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const inputClassName = (isFocused: boolean) =>
   cn(
-    'h-14 flex-row items-center rounded-[20px] border bg-surface-cream px-4',
-    isFocused ? 'border-brand bg-surface-cream-focus' : 'border-warm',
+    'h-14 flex-row items-center rounded-[20px] px-4',
+    isFocused ? 'bg-surface-cream-focus' : 'bg-surface-cream',
   )
 
 const getEmailError = (email: string) => {
