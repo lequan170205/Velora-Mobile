@@ -432,6 +432,9 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/FirebaseMessaging/FirebaseMessaging/Sources/Publ
   FIREBASE_INSTALLATIONS_ROOT="$(find "$FIREBASE_MESSAGING_TMP" -type f -path '*/FirebaseInstallations/Source/Library/Public/FirebaseInstallations/FIRInstallations.h' -print -quit | sed 's#/FirebaseInstallations/Source/Library/Public/FirebaseInstallations/FIRInstallations.h$##')"
   rm -rf "$REPO_ROOT/ios/Pods/FirebaseInstallations"
   cp -RL "$FIREBASE_INSTALLATIONS_ROOT" "$REPO_ROOT/ios/Pods/FirebaseInstallations"
+  FIREBASE_CORE_EXTENSION_ROOT="$(find "$FIREBASE_MESSAGING_TMP" -type f -path '*/FirebaseCore/Extension/FIRLogger.h' -print -quit | sed 's#/FirebaseCore/Extension/FIRLogger.h$##')"
+  rm -rf "$REPO_ROOT/ios/Pods/FirebaseCoreExtension"
+  cp -RL "$FIREBASE_CORE_EXTENSION_ROOT" "$REPO_ROOT/ios/Pods/FirebaseCoreExtension"
 fi
 
 if [[ ! -f "$REPO_ROOT/ios/Pods/GTMAppAuth/GTMAppAuth/Sources/Resources/PrivacyInfo.xcprivacy" ]]; then
