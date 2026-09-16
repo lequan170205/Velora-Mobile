@@ -438,6 +438,9 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/FirebaseMessaging/FirebaseMessaging/Sources/Publ
   FIREBASE_CORE_ROOT="$(find "$FIREBASE_MESSAGING_TMP" -type f -path '*/FirebaseCore/Sources/Public/FirebaseCore/FIRApp.h' -print -quit | sed 's#/FirebaseCore/Sources/Public/FirebaseCore/FIRApp.h$##')"
   rm -rf "$REPO_ROOT/ios/Pods/FirebaseCore"
   cp -RL "$FIREBASE_CORE_ROOT" "$REPO_ROOT/ios/Pods/FirebaseCore"
+  FIREBASE_CORE_INTERNAL_ROOT="$(find "$FIREBASE_MESSAGING_TMP" -type f -path '*/FirebaseCore/Internal/Sources/Resources/PrivacyInfo.xcprivacy' -print -quit | sed 's#/FirebaseCore/Internal/Sources/Resources/PrivacyInfo.xcprivacy$##')"
+  rm -rf "$REPO_ROOT/ios/Pods/FirebaseCoreInternal"
+  cp -RL "$FIREBASE_CORE_INTERNAL_ROOT" "$REPO_ROOT/ios/Pods/FirebaseCoreInternal"
 fi
 
 if [[ ! -f "$REPO_ROOT/ios/Pods/GTMAppAuth/GTMAppAuth/Sources/Resources/PrivacyInfo.xcprivacy" ]]; then
@@ -507,6 +510,11 @@ sed -i '' \
 sed -i '' \
   '/path = "Target Support Files\/ExpoMediaLibrary";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+
+# The generated React Native dependencies helper uses bash arrays while
+# CocoaPods gives it a /bin/sh shebang on the Cloud image.
+sed -i '' '1s|^#!/bin/sh$|#!/bin/bash|' \
+  "$REPO_ROOT/ios/Pods/Target Support Files/ReactNativeDependencies/ReactNativeDependencies-xcframeworks.sh"
 
 if [[ ! -f "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64/WebRTC.framework/WebRTC" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not materialized; downloading version 124.0.2"
