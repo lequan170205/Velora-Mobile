@@ -47369,7 +47369,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "pushd \"$PODS_ROOT/../\" > /dev/null\nRCT_SCRIPT_POD_INSTALLATION_ROOT=$(pwd)\npopd >/dev/null\n\nexport RCT_SCRIPT_RN_DIR=\"$RCT_SCRIPT_POD_INSTALLATION_ROOT/../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native\"\nexport RCT_SCRIPT_APP_PATH=\"$RCT_SCRIPT_POD_INSTALLATION_ROOT/..\"\nexport RCT_SCRIPT_OUTPUT_DIR=\"$RCT_SCRIPT_POD_INSTALLATION_ROOT\"\nexport RCT_SCRIPT_TYPE=\"withCodegenDiscovery\"\n\nexport SCRIPT_PHASES_SCRIPT=\"$RCT_SCRIPT_RN_DIR/scripts/react_native_pods_utils/script_phases.sh\"\nexport WITH_ENVIRONMENT=\"$RCT_SCRIPT_RN_DIR/scripts/xcode/with-environment.sh\"\n/bin/sh -c '\"$WITH_ENVIRONMENT\" \"$SCRIPT_PHASES_SCRIPT\"'\n";
+			shellScript = "pushd \"$PODS_ROOT/../\" > /dev/null\nRCT_SCRIPT_POD_INSTALLATION_ROOT=$(pwd)\npopd >/dev/null\n\nexport RCT_SCRIPT_RN_DIR=\"$PODS_ROOT/CloudSources/react-native\"\nexport RCT_SCRIPT_APP_PATH=\"$RCT_SCRIPT_POD_INSTALLATION_ROOT/..\"\nexport RCT_SCRIPT_OUTPUT_DIR=\"$RCT_SCRIPT_POD_INSTALLATION_ROOT\"\nexport RCT_SCRIPT_TYPE=\"withCodegenDiscovery\"\n\nexport SCRIPT_PHASES_SCRIPT=\"$RCT_SCRIPT_RN_DIR/scripts/react_native_pods_utils/script_phases.sh\"\nexport WITH_ENVIRONMENT=\"$RCT_SCRIPT_RN_DIR/scripts/xcode/with-environment.sh\"\n/bin/sh -c '\"$WITH_ENVIRONMENT\" \"$SCRIPT_PHASES_SCRIPT\"'\n";
 		};
 		46EB2E0003B450 /* [CP] Copy XCFrameworks */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -47397,7 +47397,7 @@
 			name = "[CP-User] [RNDeps] Replace React Native Dependencies for the right configuration, if needed";
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "      . \"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\n\n      CONFIG=\"Release\"\n      if echo $GCC_PREPROCESSOR_DEFINITIONS | grep -q \"DEBUG=1\"; then\n        CONFIG=\"Debug\"\n      fi\n\n      \"$NODE_BINARY\" \"$REACT_NATIVE_PATH/third-party-podspecs/replace_dependencies_version.js\" -c \"$CONFIG\" -r \"0.81.5\" -p \"$PODS_ROOT\"\n";
+				shellScript = "      . \"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\n\n      CONFIG=\"Release\"\n      if echo $GCC_PREPROCESSOR_DEFINITIONS | grep -q \"DEBUG=1\"; then\n        CONFIG=\"Debug\"\n      fi\n\n      \"$NODE_BINARY\" \"$REACT_NATIVE_PATH/third-party-podspecs/replace_dependencies_version.js\" -c \"$CONFIG\" -r \"0.81.5\" -p \"$PODS_ROOT\"\n";
 		};
 		46EB2E0003B470 /* [CP] Copy XCFrameworks */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -47424,7 +47424,7 @@
 			name = "[CP-User] [Hermes] Replace Hermes for the right configuration, if needed";
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "        . \"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\n\n        CONFIG=\"Release\"\n        if echo $GCC_PREPROCESSOR_DEFINITIONS | grep -q \"DEBUG=1\"; then\n          CONFIG=\"Debug\"\n        fi\n\n        \"$NODE_BINARY\" \"$REACT_NATIVE_PATH/sdks/hermes-engine/utils/replace_hermes_version.js\" -c \"$CONFIG\" -r \"0.81.5\" -p \"$PODS_ROOT\"\n";
+			shellScript = "        . \"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\n\n        CONFIG=\"Release\"\n        if echo $GCC_PREPROCESSOR_DEFINITIONS | grep -q \"DEBUG=1\"; then\n          CONFIG=\"Debug\"\n        fi\n\n        if \"$NODE_BINARY\" -e \"require.resolve('yargs')\" >/dev/null 2>&1; then\n          \"$NODE_BINARY\" \"$REACT_NATIVE_PATH/sdks/hermes-engine/utils/replace_hermes_version.js\" -c \"$CONFIG\" -r \"0.81.5\" -p \"$PODS_ROOT\"\n        else\n          echo \"Skipping Hermes version replacement because yargs is unavailable\"\n        fi\n";
 		};
 		46EB2E0003B490 /* [CP] Copy XCFrameworks */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -57164,7 +57164,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native";
+				REACT_NATIVE_PATH = "${PODS_ROOT}/CloudSources/react-native";
 				STRIP_INSTALLED_PRODUCT = NO;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
 				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
@@ -57242,7 +57242,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native";
+				REACT_NATIVE_PATH = "${PODS_ROOT}/CloudSources/react-native";
 				STRIP_INSTALLED_PRODUCT = NO;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_ENABLE_EXPLICIT_MODULES = NO;

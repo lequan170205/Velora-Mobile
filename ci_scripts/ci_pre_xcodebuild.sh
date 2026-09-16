@@ -62,7 +62,21 @@ else
 fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/react-native-webrtc"
 mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/react-native-webrtc/ios"
-cp -R "$WEBRTC_SOURCE" "$REPO_ROOT/ios/Pods/CloudSources/react-native-webrtc/ios/"
+cp -RL "$WEBRTC_SOURCE" "$REPO_ROOT/ios/Pods/CloudSources/react-native-webrtc/ios/"
+
+REACT_NATIVE_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/react-native/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
+if [[ -z "$REACT_NATIVE_ROOT" ]]; then
+  echo "[Velora CI] React Native sources are not materialized; downloading package 0.81.5"
+  RN_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/react-native/-/react-native-0.81.5.tgz' \
+    --output "$RN_TMP/react-native.tgz"
+  tar -xzf "$RN_TMP/react-native.tgz" -C "$RN_TMP"
+  REACT_NATIVE_ROOT="$RN_TMP/package"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/react-native"
+cp -RL "$REACT_NATIVE_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/react-native"
 
 cp "$REPO_ROOT/GoogleService-Info.plist" "$REPO_ROOT/ios/veloraDev/GoogleService-Info.plist"
 
