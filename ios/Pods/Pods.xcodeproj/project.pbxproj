@@ -29934,7 +29934,7 @@
 				46EB2E000380D0 /* Support Files */,
 			);
 			name = "react-native-pager-view";
-			path = "../../node_modules/.pnpm/react-native-pager-view@6.8.0_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_rea_ysoe4agzlj25kzbqhji7r6mfji/node_modules/react-native-pager-view";
+			path = "CloudSources/react-native-pager-view";
 			sourceTree = "<group>";
 		};
 		46EB2E000009C0 /* react-native-safe-area-context */ = {
@@ -40713,7 +40713,7 @@
 				46EB2E000380F0 /* react-native-pager-view.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../../../../ios/Pods/Target Support Files/react-native-pager-view";
+			path = "../../../../ios/Pods/Target Support Files/react-native-pager-view";
 			sourceTree = "<group>";
 		};
 		46EB2E00038420 /* Support Files */ = {
@@ -47343,7 +47343,7 @@
 			name = "[CP-User] [RNDeps] Replace React Native Core for the right configuration, if needed";
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "      . \"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\n\n      CONFIG=\"Release\"\n      if echo $GCC_PREPROCESSOR_DEFINITIONS | grep -q \"DEBUG=1\"; then\n        CONFIG=\"Debug\"\n      fi\n\n      \"$NODE_BINARY\" \"$REACT_NATIVE_PATH/scripts/replace-rncore-version.js\" -c \"$CONFIG\" -r \"0.81.5\" -p \"$PODS_ROOT\"\n";
+			shellScript = "      . \"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\n\n      CONFIG=\"Release\"\n      if echo $GCC_PREPROCESSOR_DEFINITIONS | grep -q \"DEBUG=1\"; then\n        CONFIG=\"Debug\"\n      fi\n\n      if \"$NODE_BINARY\" -e \"require.resolve('yargs')\" >/dev/null 2>&1; then\n        \"$NODE_BINARY\" \"$REACT_NATIVE_PATH/scripts/replace-rncore-version.js\" -c \"$CONFIG\" -r \"0.81.5\" -p \"$PODS_ROOT\"\n      else\n        echo \"Skipping React Native Core replacement because yargs is unavailable\"\n      fi\n";
 		};
 		46EB2E0003B430 /* [CP-User] [RN]Check FBReactNativeSpec */ = {
 			isa = PBXShellScriptBuildPhase;

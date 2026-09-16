@@ -131,6 +131,20 @@ fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/react-native-safe-area-context"
 cp -RL "$SAFE_AREA_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/react-native-safe-area-context"
 
+PAGER_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/react-native-pager-view/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
+if [[ -z "$PAGER_ROOT" ]]; then
+  echo "[Velora CI] react-native-pager-view sources are not materialized; downloading package 6.8.0"
+  PAGER_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/react-native-pager-view/-/react-native-pager-view-6.8.0.tgz' \
+    --output "$PAGER_TMP/pager.tgz"
+  tar -xzf "$PAGER_TMP/pager.tgz" -C "$PAGER_TMP"
+  PAGER_ROOT="$PAGER_TMP/package"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/react-native-pager-view"
+cp -RL "$PAGER_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/react-native-pager-view"
+
 if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not present; downloading version 124.0.2"
   JITSI_TMP="$(mktemp -d)"
