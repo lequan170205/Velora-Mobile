@@ -29592,7 +29592,7 @@
 				46EB2E00034F60 /* Support Files */,
 			);
 			name = ZXingObjC;
-			path = ZXingObjC;
+			path = CloudSources/ZXingObjC;
 			sourceTree = "<group>";
 		};
 		46EB2E00000910 /* expo-dev-client */ = {
@@ -40555,7 +40555,7 @@
 				46EB2E00034F80 /* ZXingObjC.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../Target Support Files/ZXingObjC";
+			path = "../../Target Support Files/ZXingObjC";
 			sourceTree = "<group>";
 		};
 		46EB2E00035040 /* Support Files */ = {

@@ -244,6 +244,20 @@ fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/expo-dev-launcher"
 cp -RL "$EXPO_DEV_LAUNCHER_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/expo-dev-launcher"
 
+if [[ ! -f "$REPO_ROOT/ios/Pods/ZXingObjC/ZXingObjC/ZXingObjC.h" ]]; then
+  echo "[Velora CI] ZXingObjC sources are not materialized; downloading version 3.6.9"
+  ZXING_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP" "$LIBWEBP_TMP" "$LIBDAV1D_TMP" "$LIBAVIF_TMP" "$EXPO_DEV_LAUNCHER_TMP" "$ZXING_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://github.com/zxingify/zxingify-objc/archive/refs/tags/3.6.9.tar.gz' \
+    --output "$ZXING_TMP/zxing.tgz"
+  tar -xzf "$ZXING_TMP/zxing.tgz" -C "$ZXING_TMP"
+  rm -rf "$REPO_ROOT/ios/Pods/ZXingObjC"
+  cp -RL "$ZXING_TMP/zxingify-objc-3.6.9" "$REPO_ROOT/ios/Pods/ZXingObjC"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/ZXingObjC"
+cp -RL "$REPO_ROOT/ios/Pods/ZXingObjC" "$REPO_ROOT/ios/Pods/CloudSources/ZXingObjC"
+
 if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not present; downloading version 124.0.2"
   JITSI_TMP="$(mktemp -d)"
