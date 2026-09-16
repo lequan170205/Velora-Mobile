@@ -46,6 +46,9 @@ yarn-error.*
 !/ios/Pods/Target Support Files/Pods-veloraDev/
 !/ios/Pods/Target Support Files/Pods-veloraDev/Pods-veloraDev.debug.xcconfig
 !/ios/Pods/Target Support Files/Pods-veloraDev/Pods-veloraDev.release.xcconfig
+!/ios/Pods/Manifest.lock
+!/ios/Pods/Pods.xcodeproj/
+!/ios/Pods/Pods.xcodeproj/project.pbxproj
 /ios/build/
 /ios/veloraDev.xcodeproj/project.xcworkspace/
 /ios/veloraDev.xcworkspace/xcuserdata/
