@@ -392,6 +392,19 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/GoogleDataTransport/GoogleDataTransport/GDTCORLi
   cp -RL "$GOOGLE_DATA_TRANSPORT_ROOT" "$REPO_ROOT/ios/Pods/GoogleDataTransport"
 fi
 
+if [[ ! -f "$REPO_ROOT/ios/Pods/GTMSessionFetcher/Sources/Core/Public/GTMSessionFetcher/GTMSessionFetcherService.h" ]]; then
+  echo "[Velora CI] GTMSessionFetcher sources are not materialized; downloading version 4.5.0"
+  GTM_SESSION_FETCHER_TMP="$(mktemp -d)"
+  trap 'rm -rf "$GTM_SESSION_FETCHER_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://github.com/google/gtm-session-fetcher/archive/refs/tags/v4.5.0.tar.gz' \
+    --output "$GTM_SESSION_FETCHER_TMP/gtm-session-fetcher.tgz"
+  tar -xzf "$GTM_SESSION_FETCHER_TMP/gtm-session-fetcher.tgz" -C "$GTM_SESSION_FETCHER_TMP"
+  GTM_SESSION_FETCHER_ROOT="$(find "$GTM_SESSION_FETCHER_TMP" -type f -path '*/Sources/Core/Public/GTMSessionFetcher/GTMSessionFetcherService.h' -print -quit | sed 's#/Sources/Core/Public/GTMSessionFetcher/GTMSessionFetcherService.h$##')"
+  rm -rf "$REPO_ROOT/ios/Pods/GTMSessionFetcher"
+  cp -RL "$GTM_SESSION_FETCHER_ROOT" "$REPO_ROOT/ios/Pods/GTMSessionFetcher"
+fi
+
 if [[ ! -f "$REPO_ROOT/ios/Pods/GoogleUtilities/GoogleUtilities/Network/Public/GoogleUtilities/GULNetworkURLSession.h" ]]; then
   echo "[Velora CI] GoogleUtilities sources are not materialized; downloading version 8.1.2"
   GOOGLE_UTILITIES_TMP="$(mktemp -d)"
