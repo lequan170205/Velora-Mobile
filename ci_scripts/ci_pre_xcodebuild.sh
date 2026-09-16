@@ -4,6 +4,12 @@
 # Cloud invokes xcodebuild. This also makes the hook safe to run manually.
 set -euo pipefail
 
+# Xcode Cloud can intermittently reset long GitHub/npm downloads. Retry
+# transient transfer failures so a healthy source tree is not marked failed.
+curl() {
+  command curl --retry 5 --retry-all-errors --retry-delay 2 "$@"
+}
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
