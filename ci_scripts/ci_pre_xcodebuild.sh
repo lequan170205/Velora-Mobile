@@ -122,7 +122,7 @@ done < <(rg -o --no-filename 'node_modules/\.pnpm/react-native@[^" ]+/node_modul
 RN_PBX_PREFIX="$(rg -o --no-filename '\.\./\.\./node_modules/\.pnpm/react-native@[^" ]+/node_modules/react-native' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj" 2>/dev/null | sort -u | head -1 || true)"
 if [[ -n "$RN_PBX_PREFIX" ]]; then
-  sed -i '' "s|$RN_PBX_PREFIX|../../Pods/CloudSources/react-native|g" \
+  sed -i '' "s|$RN_PBX_PREFIX|../CloudSources/react-native|g" \
     "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 fi
 
