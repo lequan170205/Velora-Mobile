@@ -252,6 +252,61 @@ sed -i '' -E \
   '/path = "Target Support Files\/RNSVG";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 
+GESTURE_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/react-native-gesture-handler/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
+if [[ -z "$GESTURE_ROOT" ]]; then
+  echo "[Velora CI] react-native-gesture-handler sources are not materialized; downloading package 2.28.0"
+  GESTURE_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$SCREENS_TMP" "$SVG_TMP" "$GESTURE_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/react-native-gesture-handler/-/react-native-gesture-handler-2.28.0.tgz' \
+    --output "$GESTURE_TMP/gesture.tgz"
+  tar -xzf "$GESTURE_TMP/gesture.tgz" -C "$GESTURE_TMP"
+  GESTURE_ROOT="$GESTURE_TMP/package"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/react-native-gesture-handler"
+cp -RL "$GESTURE_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/react-native-gesture-handler"
+sed -i '' -E \
+  's#path = "\.\./\.\./node_modules/\.pnpm/react-native-gesture-handler@[^\"]+/node_modules/react-native-gesture-handler";#path = "CloudSources/react-native-gesture-handler";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' -E \
+  '/path = "CloudSources\/react-native-gesture-handler";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' -E \
+  's#path = "../../../../../ios/Pods/Target Support Files/RNGestureHandler";#path = "Target Support Files/RNGestureHandler";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' -E \
+  '/path = "Target Support Files\/RNGestureHandler";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+
+GOOGLE_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/@react-native-google-signin/google-signin/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
+if [[ -z "$GOOGLE_ROOT" ]]; then
+  echo "[Velora CI] Google Sign-In sources are not materialized; downloading package 16.1.2"
+  GOOGLE_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$SCREENS_TMP" "$SVG_TMP" "$GESTURE_TMP" "$GOOGLE_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/@react-native-google-signin/google-signin/-/google-signin-16.1.2.tgz' \
+    --output "$GOOGLE_TMP/google-signin.tgz"
+  tar -xzf "$GOOGLE_TMP/google-signin.tgz" -C "$GOOGLE_TMP"
+  GOOGLE_ROOT="$GOOGLE_TMP/package"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/google-signin"
+cp -RL "$GOOGLE_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/google-signin"
+sed -i '' -E \
+  's#path = "\.\./\.\./node_modules/\.pnpm/@react-native-google-signin\+google-signin@[^\"]+/node_modules/@react-native-google-signin/google-signin";#path = "CloudSources/google-signin";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' -E \
+  '/path = "CloudSources\/google-signin";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' -E \
+  's#path = "../../../../../ios/Pods/Target Support Files/RNGoogleSignin";#path = "Target Support Files/RNGoogleSignin";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' -E \
+  's#path = "../../../../../../ios/Pods/Target Support Files/RNGoogleSignin";#path = "Target Support Files/RNGoogleSignin";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' -E \
+  '/path = "Target Support Files\/RNGoogleSignin";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+
 KEYBOARD_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/react-native-keyboard-controller/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
 if [[ -z "$KEYBOARD_ROOT" ]]; then
   echo "[Velora CI] react-native-keyboard-controller sources are not materialized; downloading package 1.21.7"
