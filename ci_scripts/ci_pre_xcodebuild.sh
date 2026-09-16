@@ -815,6 +815,10 @@ fi
 # Xcode Cloud's newer macOS image rejects that script under sh.
 sed -i '' '1s|^#!/bin/sh$|#!/bin/bash|' \
   "$REPO_ROOT/ios/Pods/Target Support Files/JitsiWebRTC/JitsiWebRTC-xcframeworks.sh"
+sed -i '' 's#"\${source}"/\* "\${destination}"#"\${source}" "\${destination}"#' \
+  "$REPO_ROOT/ios/Pods/Target Support Files/JitsiWebRTC/JitsiWebRTC-xcframeworks.sh"
+sed -i '' 's#"\${source}"/\* "\${destination}"#"\${source}" "\${destination}"#' \
+  "$REPO_ROOT/ios/Pods/Target Support Files/ReactNativeDependencies/ReactNativeDependencies-xcframeworks.sh"
 
 cp "$REPO_ROOT/GoogleService-Info.plist" "$REPO_ROOT/ios/veloraDev/GoogleService-Info.plist"
 
