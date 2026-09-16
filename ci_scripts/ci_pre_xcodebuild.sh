@@ -38,6 +38,9 @@ echo "[Velora CI] Syncing Expo native configuration and CocoaPods"
 npx expo prebuild --platform ios --no-install
 (cd "$REPO_ROOT/ios" && pod install)
 
+SIMDJSON_PBX="$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+perl -0pi -e 's#\.\./\.\./\.\./node_modules/\.pnpm/\@nozbe\+simdjson#../../../.pnpm/\@nozbe+simdjson#g' "$SIMDJSON_PBX"
+
 cp "$REPO_ROOT/GoogleService-Info.plist" "$REPO_ROOT/ios/veloraDev/GoogleService-Info.plist"
 
 if [[ -n "${CI_BUILD_NUMBER:-}" ]]; then

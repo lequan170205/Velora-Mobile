@@ -45,6 +45,11 @@ fi
 echo "[Velora CI] Installing CocoaPods dependencies"
 (cd "$REPO_ROOT/ios" && pod install)
 
+# CocoaPods can emit an invalid pnpm virtual-store path for simdjson. Normalize
+# the generated project after every install so Xcode Cloud can copy simdjson.h.
+SIMDJSON_PBX="$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+perl -0pi -e 's#\.\./\.\./\.\./node_modules/\.pnpm/\@nozbe\+simdjson#../../../.pnpm/\@nozbe+simdjson#g' "$SIMDJSON_PBX"
+
 # Expo writes a machine-specific NODE_BINARY value. Xcode Cloud needs a path
 # resolved on the current runner instead of a developer's Homebrew path.
 cat > "$REPO_ROOT/ios/.xcode.env" <<'EOF'
