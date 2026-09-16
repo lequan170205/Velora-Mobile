@@ -78,6 +78,23 @@ fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/react-native"
 cp -RL "$REACT_NATIVE_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/react-native"
 
+SKIA_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/@shopify/react-native-skia/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
+if [[ -z "$SKIA_ROOT" ]]; then
+  echo "[Velora CI] React Native Skia sources are not materialized; downloading package 2.2.12"
+  SKIA_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/@shopify/react-native-skia/-/react-native-skia-2.2.12.tgz' \
+    --output "$SKIA_TMP/skia.tgz"
+  tar -xzf "$SKIA_TMP/skia.tgz" -C "$SKIA_TMP"
+  SKIA_ROOT="$SKIA_TMP/package"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/react-native-skia"
+cp -RL "$SKIA_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/react-native-skia"
+SKIA_PNPM_PATH="$REPO_ROOT/node_modules/.pnpm/@shopify+react-native-skia@2.2.12_react-native-reanimated@4.1.7_react-native-worklets@0.5.1_@_zce5y6vf7xfwsgjhvc7fpoxxe4/node_modules/@shopify/react-native-skia"
+mkdir -p "$(dirname "$SKIA_PNPM_PATH")"
+ln -sfn "$REPO_ROOT/ios/Pods/CloudSources/react-native-skia" "$SKIA_PNPM_PATH"
+
 cp "$REPO_ROOT/GoogleService-Info.plist" "$REPO_ROOT/ios/veloraDev/GoogleService-Info.plist"
 
 if [[ -n "${CI_BUILD_NUMBER:-}" ]]; then
