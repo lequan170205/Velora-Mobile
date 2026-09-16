@@ -40486,7 +40486,7 @@
 				46EB2E000332A0 /* SDWebImageSVGCoder.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../Target Support Files/SDWebImageSVGCoder";
+			path = "../../Target Support Files/SDWebImageSVGCoder";
 			sourceTree = "<group>";
 		};
 		46EB2E00033430 /* Support Files */ = {
