@@ -355,10 +355,10 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/SDWebImage/SDWebImage/Classes/SDImageIOAnimatedC
   tar -xzf "$SDWEBIMAGE_TMP/sdwebimage.tgz" -C "$SDWEBIMAGE_TMP"
   rm -rf "$REPO_ROOT/ios/Pods/SDWebImage"
   mkdir -p "$REPO_ROOT/ios/Pods/SDWebImage"
-  cp -RL "$SDWEBIMAGE_TMP/SDWebImage-5.21.7/SDWebImage" "$REPO_ROOT/ios/Pods/SDWebImage/"
+  cp -RL "$SDWEBIMAGE_TMP/SDWebImage-5.21.7" "$REPO_ROOT/ios/Pods/SDWebImage"
 fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/SDWebImage"
-cp -RL "$REPO_ROOT/ios/Pods/SDWebImage/SDWebImage" "$REPO_ROOT/ios/Pods/CloudSources/SDWebImage"
+cp -RL "$REPO_ROOT/ios/Pods/SDWebImage" "$REPO_ROOT/ios/Pods/CloudSources/SDWebImage"
 
 if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not present; downloading version 124.0.2"
