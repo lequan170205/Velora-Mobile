@@ -10,7 +10,7 @@
 #endif
 #endif
 
-#include "../../../../node_modules/.pnpm/@nozbe+simdjson@3.9.4/node_modules/@nozbe/simdjson/src/simdjson.h"
+#include "../../../../node_modules/@nozbe/simdjson/src/simdjson.h"
 
 FOUNDATION_EXPORT double simdjsonVersionNumber;
 FOUNDATION_EXPORT const unsigned char simdjsonVersionString[];
