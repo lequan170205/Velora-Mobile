@@ -1,0 +1,6 @@
+framework module VeloraSystemCalls {
+  umbrella header "VeloraSystemCalls-umbrella.h"
+
+  export *
+  module * { export * }
+}

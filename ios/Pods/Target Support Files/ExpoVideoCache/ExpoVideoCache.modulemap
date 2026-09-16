@@ -1,0 +1,6 @@
+framework module ExpoVideoCache {
+  umbrella header "ExpoVideoCache-umbrella.h"
+
+  export *
+  module * { export * }
+}
