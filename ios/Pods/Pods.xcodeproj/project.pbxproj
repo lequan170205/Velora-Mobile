@@ -40581,7 +40581,7 @@
 				46EB2E000351B0 /* ResourceBundle-EXDevLauncher-expo-dev-launcher-Info.plist */,
 			);
 			name = "Support Files";
-			path = "../../../../../ios/Pods/Target Support Files/expo-dev-launcher";
+			path = "../../../../ios/Pods/Target Support Files/expo-dev-launcher";
 			sourceTree = "<group>";
 		};
 		46EB2E000357A0 /* Support Files */ = {
