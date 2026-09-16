@@ -29553,7 +29553,7 @@
 				46EB2E000338B0 /* Support Files */,
 			);
 			name = WatermelonDB;
-			path = "../../node_modules/.pnpm/@nozbe+watermelondb@0.28.0/node_modules/@nozbe/watermelondb";
+			path = CloudSources/WatermelonDB;
 			sourceTree = "<group>";
 		};
 		46EB2E000008F0 /* Yoga */ = {
@@ -40530,7 +40530,7 @@
 				46EB2E000338D0 /* WatermelonDB.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../../../../../ios/Pods/Target Support Files/WatermelonDB";
+			path = "../../Target Support Files/WatermelonDB";
 			sourceTree = "<group>";
 		};
 		46EB2E00033990 /* Support Files */ = {

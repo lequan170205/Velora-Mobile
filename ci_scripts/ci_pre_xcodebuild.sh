@@ -258,6 +258,20 @@ fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/ZXingObjC"
 cp -RL "$REPO_ROOT/ios/Pods/ZXingObjC" "$REPO_ROOT/ios/Pods/CloudSources/ZXingObjC"
 
+if [[ ! -f "$REPO_ROOT/ios/Pods/WatermelonDB/native/ios/WatermelonDB/WatermelonDB.h" ]]; then
+  echo "[Velora CI] WatermelonDB sources are not materialized; downloading version 0.28.0"
+  WATERMELON_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP" "$LIBWEBP_TMP" "$LIBDAV1D_TMP" "$LIBAVIF_TMP" "$EXPO_DEV_LAUNCHER_TMP" "$ZXING_TMP" "$WATERMELON_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/@nozbe/watermelondb/-/watermelondb-0.28.0.tgz' \
+    --output "$WATERMELON_TMP/watermelondb.tgz"
+  tar -xzf "$WATERMELON_TMP/watermelondb.tgz" -C "$WATERMELON_TMP"
+  rm -rf "$REPO_ROOT/ios/Pods/WatermelonDB"
+  cp -RL "$WATERMELON_TMP/package" "$REPO_ROOT/ios/Pods/WatermelonDB"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/WatermelonDB"
+cp -RL "$REPO_ROOT/ios/Pods/WatermelonDB" "$REPO_ROOT/ios/Pods/CloudSources/WatermelonDB"
+
 if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not present; downloading version 124.0.2"
   JITSI_TMP="$(mktemp -d)"
