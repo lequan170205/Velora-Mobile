@@ -371,6 +371,32 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/GoogleUtilities/GoogleUtilities/Network/Public/G
   cp -RL "$GOOGLE_UTILITIES_ROOT" "$REPO_ROOT/ios/Pods/GoogleUtilities"
 fi
 
+if [[ ! -f "$REPO_ROOT/ios/Pods/GoogleSignIn/GoogleSignIn/Sources/Public/GoogleSignIn/GIDToken.h" ]]; then
+  echo "[Velora CI] GoogleSignIn sources are not materialized; downloading version 9.2.0"
+  GOOGLE_SIGNIN_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$SCREENS_TMP" "$SVG_TMP" "$GESTURE_TMP" "$GOOGLE_TMP" "$ASYNC_STORAGE_TMP" "$PROMISES_TMP" "$PROMISES_SWIFT_TMP" "$GOOGLE_UTILITIES_TMP" "$GOOGLE_SIGNIN_TMP" "$JITSI_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://github.com/google/GoogleSignIn-iOS/archive/refs/tags/9.2.0.tar.gz' \
+    --output "$GOOGLE_SIGNIN_TMP/google-signin.tgz"
+  tar -xzf "$GOOGLE_SIGNIN_TMP/google-signin.tgz" -C "$GOOGLE_SIGNIN_TMP"
+  GOOGLE_SIGNIN_ROOT="$(find "$GOOGLE_SIGNIN_TMP" -type f -path '*/GoogleSignIn/Sources/Public/GoogleSignIn/GIDToken.h' -print -quit | sed 's#/GoogleSignIn/Sources/Public/GoogleSignIn/GIDToken.h$##')"
+  rm -rf "$REPO_ROOT/ios/Pods/GoogleSignIn"
+  cp -RL "$GOOGLE_SIGNIN_ROOT" "$REPO_ROOT/ios/Pods/GoogleSignIn"
+fi
+
+if [[ ! -f "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/Info.plist" ]]; then
+  echo "[Velora CI] JitsiWebRTC binary is not materialized; downloading version 124.0.2"
+  JITSI_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$SCREENS_TMP" "$SVG_TMP" "$GESTURE_TMP" "$GOOGLE_TMP" "$ASYNC_STORAGE_TMP" "$PROMISES_TMP" "$PROMISES_SWIFT_TMP" "$GOOGLE_UTILITIES_TMP" "$GOOGLE_SIGNIN_TMP" "$JITSI_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://github.com/jitsi/webrtc/releases/download/v124.0.2/WebRTC.xcframework.zip' \
+    --output "$JITSI_TMP/WebRTC.xcframework.zip"
+  unzip -q "$JITSI_TMP/WebRTC.xcframework.zip" -d "$JITSI_TMP"
+  rm -rf "$REPO_ROOT/ios/Pods/JitsiWebRTC"
+  mkdir -p "$REPO_ROOT/ios/Pods/JitsiWebRTC"
+  cp -RL "$JITSI_TMP/WebRTC.xcframework" "$REPO_ROOT/ios/Pods/JitsiWebRTC/"
+fi
+
 KEYBOARD_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/react-native-keyboard-controller/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
 if [[ -z "$KEYBOARD_ROOT" ]]; then
   echo "[Velora CI] react-native-keyboard-controller sources are not materialized; downloading package 1.21.7"
