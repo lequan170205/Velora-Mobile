@@ -32,8 +32,15 @@ fi
 SIMDJSON_HEADER="$(find -L "$REPO_ROOT/node_modules" -path '*/@nozbe/simdjson/src/simdjson.h' -type f -print -quit 2>/dev/null || true)"
 SIMDJSON_CPP="$(find -L "$REPO_ROOT/node_modules" -path '*/@nozbe/simdjson/src/simdjson.cpp' -type f -print -quit 2>/dev/null || true)"
 if [[ -z "$SIMDJSON_HEADER" || -z "$SIMDJSON_CPP" ]]; then
-  echo "[Velora CI] Could not locate simdjson native sources" >&2
-  exit 1
+  echo "[Velora CI] simdjson sources are not materialized; downloading package 3.9.4"
+  SIMDJSON_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/@nozbe/simdjson/-/simdjson-3.9.4.tgz' \
+    --output "$SIMDJSON_TMP/simdjson.tgz"
+  tar -xzf "$SIMDJSON_TMP/simdjson.tgz" -C "$SIMDJSON_TMP"
+  SIMDJSON_HEADER="$SIMDJSON_TMP/package/src/simdjson.h"
+  SIMDJSON_CPP="$SIMDJSON_TMP/package/src/simdjson.cpp"
 fi
 mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/simdjson/src"
 cp "$SIMDJSON_HEADER" "$REPO_ROOT/ios/Pods/CloudSources/simdjson/src/simdjson.h"
