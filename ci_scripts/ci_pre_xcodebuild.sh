@@ -333,6 +333,19 @@ sed -i '' -E \
   '/path = "Target Support Files\/RNCAsyncStorage";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 
+if [[ ! -f "$REPO_ROOT/ios/Pods/PromisesObjC/Sources/FBLPromises/include/FBLPromises.h" ]]; then
+  echo "[Velora CI] PromisesObjC sources are not materialized; downloading version 2.4.1"
+  PROMISES_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$SCREENS_TMP" "$SVG_TMP" "$GESTURE_TMP" "$GOOGLE_TMP" "$ASYNC_STORAGE_TMP" "$PROMISES_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://github.com/google/promises/archive/refs/tags/2.4.1.tar.gz' \
+    --output "$PROMISES_TMP/promises.tgz"
+  tar -xzf "$PROMISES_TMP/promises.tgz" -C "$PROMISES_TMP"
+  PROMISES_ROOT="$(find "$PROMISES_TMP" -type f -path '*/Sources/FBLPromises/include/FBLPromises.h' -print -quit | sed 's#/Sources/FBLPromises/include/FBLPromises.h$##')"
+  rm -rf "$REPO_ROOT/ios/Pods/PromisesObjC"
+  cp -RL "$PROMISES_ROOT" "$REPO_ROOT/ios/Pods/PromisesObjC"
+fi
+
 KEYBOARD_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/react-native-keyboard-controller/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
 if [[ -z "$KEYBOARD_ROOT" ]]; then
   echo "[Velora CI] react-native-keyboard-controller sources are not materialized; downloading package 1.21.7"
