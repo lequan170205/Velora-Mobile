@@ -230,6 +230,13 @@ if [[ -z "$SVG_ROOT" ]]; then
 fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/react-native-svg"
 cp -RL "$SVG_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/react-native-svg"
+while IFS= read -r svg_path; do
+  svg_path="$REPO_ROOT/$svg_path"
+  rm -rf "$svg_path"
+  mkdir -p "$svg_path"
+  cp -RL "$REPO_ROOT/ios/Pods/CloudSources/react-native-svg/." "$svg_path/"
+done < <(rg -o --no-filename 'node_modules/\.pnpm/react-native-svg@[^" ]+/node_modules/react-native-svg' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj" 2>/dev/null | sort -u)
 
 # Keep the generated CocoaPods project independent of pnpm's virtual paths.
 sed -i '' -E \
