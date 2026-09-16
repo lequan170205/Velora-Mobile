@@ -38,8 +38,13 @@ yarn-error.*
 *.tsbuildinfo
 
 # generated native folders
-/ios
 /android
+/ios/Pods/
+/ios/build/
+/ios/veloraDev.xcodeproj/project.xcworkspace/
+/ios/veloraDev.xcworkspace/xcuserdata/
+/ios/veloraDev.xcworkspace/xcshareddata/
+/ios/**/*.xcuserstate
 modules/**/android/.gradle/
 modules/**/android/build/
 

@@ -12,6 +12,34 @@ if [[ ! -d "$REPO_ROOT/ios/veloraDev.xcworkspace" ]]; then
   exit 1
 fi
 
+echo "[Velora CI] Installing JavaScript dependencies"
+if command -v pnpm >/dev/null 2>&1; then
+  PNPM=(pnpm)
+else
+  PNPM=(npm exec --yes --package=pnpm@9.15.0 -- pnpm)
+fi
+"${PNPM[@]}" install --frozen-lockfile
+
+if [[ -n "${GOOGLE_SERVICE_INFO_PLIST_BASE64:-}" ]]; then
+  echo "[Velora CI] Restoring GoogleService-Info.plist from CI secret"
+  if base64 --decode >/dev/null 2>&1 <<<""; then
+    printf '%s' "$GOOGLE_SERVICE_INFO_PLIST_BASE64" | base64 --decode > "$REPO_ROOT/GoogleService-Info.plist"
+  else
+    printf '%s' "$GOOGLE_SERVICE_INFO_PLIST_BASE64" | base64 -D > "$REPO_ROOT/GoogleService-Info.plist"
+  fi
+fi
+
+if [[ ! -f "$REPO_ROOT/GoogleService-Info.plist" ]]; then
+  echo "[Velora CI] Missing GoogleService-Info.plist" >&2
+  exit 1
+fi
+
+echo "[Velora CI] Syncing Expo native configuration and CocoaPods"
+npx expo prebuild --platform ios --no-install
+(cd "$REPO_ROOT/ios" && pod install)
+
+cp "$REPO_ROOT/GoogleService-Info.plist" "$REPO_ROOT/ios/veloraDev/GoogleService-Info.plist"
+
 if [[ -n "${CI_BUILD_NUMBER:-}" ]]; then
   echo "[Velora CI] Setting iOS build number to ${CI_BUILD_NUMBER}"
   (cd "$REPO_ROOT/ios" && agvtool new-version -all "$CI_BUILD_NUMBER")
