@@ -405,6 +405,19 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/GTMSessionFetcher/Sources/Core/Public/GTMSession
   cp -RL "$GTM_SESSION_FETCHER_ROOT" "$REPO_ROOT/ios/Pods/GTMSessionFetcher"
 fi
 
+if [[ ! -f "$REPO_ROOT/ios/Pods/FirebaseMessaging/FirebaseMessaging/Sources/Public/FirebaseMessaging/FirebaseMessaging.h" ]]; then
+  echo "[Velora CI] FirebaseMessaging sources are not materialized; downloading version 12.1.0"
+  FIREBASE_MESSAGING_TMP="$(mktemp -d)"
+  trap 'rm -rf "$FIREBASE_MESSAGING_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://github.com/firebase/firebase-ios-sdk/archive/refs/tags/CocoaPods-12.1.0.tar.gz' \
+    --output "$FIREBASE_MESSAGING_TMP/firebase-ios-sdk.tgz"
+  tar -xzf "$FIREBASE_MESSAGING_TMP/firebase-ios-sdk.tgz" -C "$FIREBASE_MESSAGING_TMP"
+  FIREBASE_MESSAGING_ROOT="$(find "$FIREBASE_MESSAGING_TMP" -type f -path '*/FirebaseMessaging/Sources/Public/FirebaseMessaging/FirebaseMessaging.h' -print -quit | sed 's#/FirebaseMessaging/Sources/Public/FirebaseMessaging/FirebaseMessaging.h$##')"
+  rm -rf "$REPO_ROOT/ios/Pods/FirebaseMessaging"
+  cp -RL "$FIREBASE_MESSAGING_ROOT" "$REPO_ROOT/ios/Pods/FirebaseMessaging"
+fi
+
 if [[ ! -f "$REPO_ROOT/ios/Pods/GoogleUtilities/GoogleUtilities/Network/Public/GoogleUtilities/GULNetworkURLSession.h" ]]; then
   echo "[Velora CI] GoogleUtilities sources are not materialized; downloading version 8.1.2"
   GOOGLE_UTILITIES_TMP="$(mktemp -d)"
