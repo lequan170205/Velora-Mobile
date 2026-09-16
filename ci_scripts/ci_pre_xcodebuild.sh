@@ -358,6 +358,19 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/PromisesSwift/Sources/Promises/Resources/Privacy
   cp -RL "$PROMISES_SWIFT_ROOT" "$REPO_ROOT/ios/Pods/PromisesSwift"
 fi
 
+if [[ ! -f "$REPO_ROOT/ios/Pods/GoogleDataTransport/GoogleDataTransport/GDTCORLibrary/Public/GoogleDataTransport/GDTCORProductData.h" ]]; then
+  echo "[Velora CI] GoogleDataTransport sources are not materialized; downloading version 10.1.0"
+  GOOGLE_DATA_TRANSPORT_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$SCREENS_TMP" "$SVG_TMP" "$GESTURE_TMP" "$GOOGLE_TMP" "$ASYNC_STORAGE_TMP" "$PROMISES_TMP" "$PROMISES_SWIFT_TMP" "$GOOGLE_DATA_TRANSPORT_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://github.com/google/GoogleDataTransport/archive/refs/tags/CocoaPods-10.1.0.tar.gz' \
+    --output "$GOOGLE_DATA_TRANSPORT_TMP/google-data-transport.tgz"
+  tar -xzf "$GOOGLE_DATA_TRANSPORT_TMP/google-data-transport.tgz" -C "$GOOGLE_DATA_TRANSPORT_TMP"
+  GOOGLE_DATA_TRANSPORT_ROOT="$(find "$GOOGLE_DATA_TRANSPORT_TMP" -type f -path '*/GoogleDataTransport/GDTCORLibrary/Public/GoogleDataTransport/GDTCORProductData.h' -print -quit | sed 's#/GoogleDataTransport/GDTCORLibrary/Public/GoogleDataTransport/GDTCORProductData.h$##')"
+  rm -rf "$REPO_ROOT/ios/Pods/GoogleDataTransport"
+  cp -RL "$GOOGLE_DATA_TRANSPORT_ROOT" "$REPO_ROOT/ios/Pods/GoogleDataTransport"
+fi
+
 if [[ ! -f "$REPO_ROOT/ios/Pods/GoogleUtilities/GoogleUtilities/Network/Public/GoogleUtilities/GULNetworkURLSession.h" ]]; then
   echo "[Velora CI] GoogleUtilities sources are not materialized; downloading version 8.1.2"
   GOOGLE_UTILITIES_TMP="$(mktemp -d)"
