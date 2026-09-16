@@ -159,6 +159,20 @@ fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/react-native-keyboard-controller"
 cp -RL "$KEYBOARD_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/react-native-keyboard-controller"
 
+if [[ ! -f "$REPO_ROOT/ios/Pods/nanopb/pb.h" ]]; then
+  echo "[Velora CI] nanopb sources are not materialized; downloading version 0.3.9.10"
+  NANOPB_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://github.com/nanopb/nanopb/archive/refs/tags/0.3.9.10.tar.gz' \
+    --output "$NANOPB_TMP/nanopb.tgz"
+  tar -xzf "$NANOPB_TMP/nanopb.tgz" -C "$NANOPB_TMP"
+  mkdir -p "$REPO_ROOT/ios/Pods/nanopb"
+  find "$NANOPB_TMP/nanopb-0.3.9.10" -maxdepth 1 -type f -exec cp {} "$REPO_ROOT/ios/Pods/nanopb/" \;
+  mkdir -p "$REPO_ROOT/ios/Pods/nanopb/spm_resources"
+  cp "$NANOPB_TMP/nanopb-0.3.9.10/spm_resources/PrivacyInfo.xcprivacy" "$REPO_ROOT/ios/Pods/nanopb/spm_resources/"
+fi
+
 if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not present; downloading version 124.0.2"
   JITSI_TMP="$(mktemp -d)"
