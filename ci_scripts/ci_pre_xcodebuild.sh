@@ -195,6 +195,9 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/libdav1d/dav1d/include/dav1d.h" ]]; then
     'https://github.com/SDWebImage/libdav1d-Xcode/archive/refs/tags/1.2.0.tar.gz' \
     --output "$LIBDAV1D_TMP/libdav1d.tgz"
   tar -xzf "$LIBDAV1D_TMP/libdav1d.tgz" -C "$LIBDAV1D_TMP"
+  git clone --quiet --depth 1 --branch 1.2.0 \
+    'https://github.com/videolan/dav1d.git' \
+    "$LIBDAV1D_TMP/libdav1d-Xcode-1.2.0/dav1d"
   rm -rf "$REPO_ROOT/ios/Pods/libdav1d"
   cp -RL "$LIBDAV1D_TMP/libdav1d-Xcode-1.2.0" "$REPO_ROOT/ios/Pods/libdav1d"
 fi
