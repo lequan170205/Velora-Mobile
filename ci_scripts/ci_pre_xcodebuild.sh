@@ -203,9 +203,10 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/libdav1d/dav1d/include/dav1d.h" ]]; then
 fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/libdav1d"
 cp -RL "$REPO_ROOT/ios/Pods/libdav1d" "$REPO_ROOT/ios/Pods/CloudSources/libdav1d"
-if [[ ! -f "$REPO_ROOT/ios/Pods/CloudSources/libdav1d/include/dav1d/version.h" ]]; then
-  rm -f "$REPO_ROOT/ios/Pods/CloudSources/libdav1d/include/dav1d/version.h"
-  cat > "$REPO_ROOT/ios/Pods/CloudSources/libdav1d/include/dav1d/version.h" <<'EOF'
+if [[ ! -f "$REPO_ROOT/ios/Pods/CloudSources/libdav1d/dav1d/include/dav1d/version.h" ]]; then
+  rm -f "$REPO_ROOT/ios/Pods/CloudSources/libdav1d/dav1d/include/dav1d/version.h"
+  mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/libdav1d/dav1d/include/dav1d"
+  cat > "$REPO_ROOT/ios/Pods/CloudSources/libdav1d/dav1d/include/dav1d/version.h" <<'EOF'
 #ifndef DAV1D_VERSION_H
 #define DAV1D_VERSION_H
 #define DAV1D_API_VERSION_MAJOR 6
