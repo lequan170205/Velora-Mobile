@@ -144,14 +144,16 @@ sed -i '' \
 if [[ ! -f "$REPO_ROOT/ios/Pods/ReactNativeDependencies/framework/packages/react-native/ReactNativeDependencies.xcframework/ios-arm64/ReactNativeDependencies.framework/ReactNativeDependencies" ]]; then
   echo "[Velora CI] ReactNativeDependencies arm64 artifact is not materialized; downloading the React Native 0.81.5 release artifact"
   RN_DEPS_TMP="$(mktemp -d)"
-  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$SCREENS_TMP" "$SVG_TMP" "$GESTURE_TMP" "$GOOGLE_TMP" "$ASYNC_STORAGE_TMP" "$PROMISES_TMP" "$PROMISES_SWIFT_TMP" "$GOOGLE_DATA_TRANSPORT_TMP" "$RN_DEPS_TMP"' EXIT
+  trap 'rm -rf "$RN_DEPS_TMP"' EXIT
   curl --fail --silent --show-error --location \
     'https://repo1.maven.org/maven2/com/facebook/react/react-native-artifacts/0.81.5/react-native-artifacts-0.81.5-reactnative-dependencies-release.tar.gz' \
     --output "$RN_DEPS_TMP/react-native-dependencies.tgz"
   tar -xzf "$RN_DEPS_TMP/react-native-dependencies.tgz" -C "$RN_DEPS_TMP"
-  RN_DEPS_ROOT="$(find "$RN_DEPS_TMP" -type f -path '*/framework/packages/react-native/ReactNativeDependencies.xcframework/Info.plist' -print -quit | sed 's#/framework/packages/react-native/ReactNativeDependencies.xcframework/Info.plist$##')"
+  RN_DEPS_XCFRAMEWORK="$(find "$RN_DEPS_TMP" -type f -path '*/packages/react-native/third-party/ReactNativeDependencies.xcframework/Info.plist' -print -quit | sed 's#/Info.plist$##')"
   rm -rf "$REPO_ROOT/ios/Pods/ReactNativeDependencies"
-  cp -RL "$RN_DEPS_ROOT" "$REPO_ROOT/ios/Pods/ReactNativeDependencies"
+  mkdir -p "$REPO_ROOT/ios/Pods/ReactNativeDependencies/framework/packages/react-native" "$REPO_ROOT/ios/Pods/ReactNativeDependencies/Headers"
+  cp -RL "$RN_DEPS_XCFRAMEWORK" "$REPO_ROOT/ios/Pods/ReactNativeDependencies/framework/packages/react-native/ReactNativeDependencies.xcframework"
+  cp -RL "$RN_DEPS_XCFRAMEWORK/Headers/." "$REPO_ROOT/ios/Pods/ReactNativeDependencies/Headers/"
 fi
 
 SKIA_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/@shopify/react-native-skia/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
