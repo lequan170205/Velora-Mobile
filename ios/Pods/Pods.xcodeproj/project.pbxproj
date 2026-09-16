@@ -29905,7 +29905,7 @@
 				46EB2E0001CC60 /* views */,
 			);
 			name = "react-native-keyboard-controller";
-			path = "../../node_modules/.pnpm/react-native-keyboard-controller@1.21.7_react-native-reanimated@4.1.7_react-native-worklets@0_m4wdo5aalc3haewosutkbviloy/node_modules/react-native-keyboard-controller";
+			path = "CloudSources/react-native-keyboard-controller";
 			sourceTree = "<group>";
 		};
 		46EB2E000009B0 /* react-native-pager-view */ = {
@@ -40698,7 +40698,7 @@
 				46EB2E00037E70 /* react-native-keyboard-controller.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../../../../ios/Pods/Target Support Files/react-native-keyboard-controller";
+			path = "../../../../ios/Pods/Target Support Files/react-native-keyboard-controller";
 			sourceTree = "<group>";
 		};
 		46EB2E000380D0 /* Support Files */ = {

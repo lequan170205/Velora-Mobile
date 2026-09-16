@@ -145,6 +145,20 @@ fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/react-native-pager-view"
 cp -RL "$PAGER_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/react-native-pager-view"
 
+KEYBOARD_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/react-native-keyboard-controller/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
+if [[ -z "$KEYBOARD_ROOT" ]]; then
+  echo "[Velora CI] react-native-keyboard-controller sources are not materialized; downloading package 1.21.7"
+  KEYBOARD_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/react-native-keyboard-controller/-/react-native-keyboard-controller-1.21.7.tgz' \
+    --output "$KEYBOARD_TMP/keyboard.tgz"
+  tar -xzf "$KEYBOARD_TMP/keyboard.tgz" -C "$KEYBOARD_TMP"
+  KEYBOARD_ROOT="$KEYBOARD_TMP/package"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/react-native-keyboard-controller"
+cp -RL "$KEYBOARD_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/react-native-keyboard-controller"
+
 if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not present; downloading version 124.0.2"
   JITSI_TMP="$(mktemp -d)"
