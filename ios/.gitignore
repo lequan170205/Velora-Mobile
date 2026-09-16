@@ -28,3 +28,9 @@ project.xcworkspace
 
 # CocoaPods
 /Pods/
+!/Pods/
+/Pods/*
+!/Pods/Target Support Files/
+!/Pods/Target Support Files/Pods-veloraDev/
+!/Pods/Target Support Files/Pods-veloraDev/Pods-veloraDev.debug.xcconfig
+!/Pods/Target Support Files/Pods-veloraDev/Pods-veloraDev.release.xcconfig

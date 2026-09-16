@@ -40,6 +40,12 @@ yarn-error.*
 # generated native folders
 /android
 /ios/Pods/
+!/ios/Pods/
+/ios/Pods/*
+!/ios/Pods/Target Support Files/
+!/ios/Pods/Target Support Files/Pods-veloraDev/
+!/ios/Pods/Target Support Files/Pods-veloraDev/Pods-veloraDev.debug.xcconfig
+!/ios/Pods/Target Support Files/Pods-veloraDev/Pods-veloraDev.release.xcconfig
 /ios/build/
 /ios/veloraDev.xcodeproj/project.xcworkspace/
 /ios/veloraDev.xcworkspace/xcuserdata/
