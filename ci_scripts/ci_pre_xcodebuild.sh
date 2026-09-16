@@ -275,7 +275,7 @@ cp -RL "$REPO_ROOT/ios/Pods/WatermelonDB" "$REPO_ROOT/ios/Pods/CloudSources/Wate
 if [[ ! -f "$REPO_ROOT/ios/Pods/SDWebImageWebPCoder/SDWebImageWebPCoder/Classes/SDWebImageWebPCoder.h" ]]; then
   echo "[Velora CI] SDWebImageWebPCoder sources are not materialized; downloading version 0.14.6"
   SDWEBP_CODER_TMP="$(mktemp -d)"
-  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP" "$LIBWEBP_TMP" "$LIBDAV1D_TMP" "$LIBAVIF_TMP" "$EXPO_DEV_LAUNCHER_TMP" "$ZXING_TMP" "$WATERMELON_TMP" "$SDWEBP_CODER_TMP" "$SDWEBP_SVG_TMP" "$EXPO_DEV_MENU_TMP" "$EXPO_DEV_MENU_INTERFACE_TMP" "$SDWEBP_AVIF_TMP"' EXIT
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP" "$LIBWEBP_TMP" "$LIBDAV1D_TMP" "$LIBAVIF_TMP" "$EXPO_DEV_LAUNCHER_TMP" "$ZXING_TMP" "$WATERMELON_TMP" "$SDWEBP_CODER_TMP" "$SDWEBP_SVG_TMP" "$EXPO_DEV_MENU_TMP" "$EXPO_DEV_MENU_INTERFACE_TMP" "$SDWEBP_AVIF_TMP" "$SDWEBIMAGE_TMP"' EXIT
   curl --fail --silent --show-error --location \
     'https://github.com/SDWebImage/SDWebImageWebPCoder/archive/refs/tags/0.14.6.tar.gz' \
     --output "$SDWEBP_CODER_TMP/webp-coder.tgz"
@@ -344,6 +344,21 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/SDWebImageAVIFCoder/SDWebImageAVIFCoder/Module/S
 fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/SDWebImageAVIFCoder"
 cp -RL "$REPO_ROOT/ios/Pods/SDWebImageAVIFCoder" "$REPO_ROOT/ios/Pods/CloudSources/SDWebImageAVIFCoder"
+
+if [[ ! -f "$REPO_ROOT/ios/Pods/SDWebImage/SDWebImage/Classes/SDImageIOAnimatedCoderInternal.h" ]]; then
+  echo "[Velora CI] SDWebImage sources are not materialized; downloading version 5.21.7"
+  SDWEBIMAGE_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP" "$LIBWEBP_TMP" "$LIBDAV1D_TMP" "$LIBAVIF_TMP" "$EXPO_DEV_LAUNCHER_TMP" "$ZXING_TMP" "$WATERMELON_TMP" "$SDWEBP_CODER_TMP" "$SDWEBP_SVG_TMP" "$EXPO_DEV_MENU_TMP" "$EXPO_DEV_MENU_INTERFACE_TMP" "$SDWEBP_AVIF_TMP" "$SDWEBIMAGE_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://github.com/SDWebImage/SDWebImage/archive/refs/tags/5.21.7.tar.gz' \
+    --output "$SDWEBIMAGE_TMP/sdwebimage.tgz"
+  tar -xzf "$SDWEBIMAGE_TMP/sdwebimage.tgz" -C "$SDWEBIMAGE_TMP"
+  rm -rf "$REPO_ROOT/ios/Pods/SDWebImage"
+  mkdir -p "$REPO_ROOT/ios/Pods/SDWebImage"
+  cp -RL "$SDWEBIMAGE_TMP/SDWebImage-5.21.7/SDWebImage" "$REPO_ROOT/ios/Pods/SDWebImage/"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/SDWebImage"
+cp -RL "$REPO_ROOT/ios/Pods/SDWebImage" "$REPO_ROOT/ios/Pods/CloudSources/SDWebImage"
 
 if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not present; downloading version 124.0.2"
