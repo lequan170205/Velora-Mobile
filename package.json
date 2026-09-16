@@ -123,5 +123,6 @@
     "prettier-plugin-organize-imports": "^3.2.4",
     "typescript": "^5.9.3"
   },
-  "private": true
+  "private": true,
+  "packageManager": "pnpm@9.15.0"
 }
