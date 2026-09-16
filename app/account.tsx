@@ -51,10 +51,7 @@ type ApiErrorPayload = {
 }
 
 const inputClassName = (isFocused: boolean) =>
-  cn(
-    'rounded-[22px] border bg-white px-4 py-3.5',
-    isFocused ? 'border-brand bg-[#FFF7F1]' : 'border-[#F1E3D7]',
-  )
+  cn('rounded-[22px] px-4 py-3.5', isFocused ? 'bg-[#FFF7F1]' : 'bg-white')
 
 const extractErrorMessages = (error: unknown) => {
   const responseData = (error as { response?: { data?: ApiErrorPayload } }).response?.data
