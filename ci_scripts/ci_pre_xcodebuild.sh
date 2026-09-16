@@ -216,6 +216,20 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/CloudSources/libdav1d/dav1d/include/dav1d/versio
 EOF
 fi
 
+if [[ ! -f "$REPO_ROOT/ios/Pods/libavif/include/avif/avif.h" || ! -f "$REPO_ROOT/ios/Pods/libavif/include/avif/internal.h" ]]; then
+  echo "[Velora CI] libavif sources are not materialized; downloading version 1.0.0"
+  LIBAVIF_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP" "$LIBWEBP_TMP" "$LIBDAV1D_TMP" "$LIBAVIF_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://github.com/AOMediaCodec/libavif/archive/refs/tags/v1.0.0.tar.gz' \
+    --output "$LIBAVIF_TMP/libavif.tgz"
+  tar -xzf "$LIBAVIF_TMP/libavif.tgz" -C "$LIBAVIF_TMP"
+  rm -rf "$REPO_ROOT/ios/Pods/libavif"
+  cp -RL "$LIBAVIF_TMP/libavif-1.0.0" "$REPO_ROOT/ios/Pods/libavif"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/libavif"
+cp -RL "$REPO_ROOT/ios/Pods/libavif" "$REPO_ROOT/ios/Pods/CloudSources/libavif"
+
 if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not present; downloading version 124.0.2"
   JITSI_TMP="$(mktemp -d)"

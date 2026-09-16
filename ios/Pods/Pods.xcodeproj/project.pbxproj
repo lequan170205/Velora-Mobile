@@ -29700,7 +29700,7 @@
 				46EB2E00035E90 /* Support Files */,
 			);
 			name = libavif;
-			path = libavif;
+			path = CloudSources/libavif;
 			sourceTree = "<group>";
 		};
 		46EB2E00000970 /* libdav1d */ = {
@@ -40637,7 +40637,7 @@
 				46EB2E00035EB0 /* libavif.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../Target Support Files/libavif";
+			path = "../../Target Support Files/libavif";
 			sourceTree = "<group>";
 		};
 		46EB2E00036860 /* Support Files */ = {
