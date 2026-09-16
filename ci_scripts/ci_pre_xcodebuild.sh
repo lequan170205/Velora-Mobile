@@ -107,8 +107,12 @@ cp -f "$REACT_NATIVE_ROOT/ReactCommon/cxxreact/PrivacyInfo.xcprivacy" \
   "$REPO_ROOT/ios/Pods/CloudSources/react-native/ReactCommon/cxxreact/PrivacyInfo.xcprivacy"
 while IFS= read -r react_native_path; do
   react_native_path="$REPO_ROOT/$react_native_path"
-  mkdir -p "$(dirname "$react_native_path")"
-  ln -sfn "$REPO_ROOT/ios/Pods/CloudSources/react-native" "$react_native_path"
+  # Xcode's PBXFileReferences resolve this exact pnpm path. Xcode Cloud can
+  # preserve the path more reliably when it is a real directory than when it
+  # is a symlink, so copy the prepared package into the recorded location.
+  rm -rf "$react_native_path"
+  mkdir -p "$react_native_path"
+  cp -RL "$REPO_ROOT/ios/Pods/CloudSources/react-native/." "$react_native_path/"
 done < <(rg -o --no-filename 'node_modules/\.pnpm/react-native@[^" ]+/node_modules/react-native' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj" 2>/dev/null | sort -u)
 
