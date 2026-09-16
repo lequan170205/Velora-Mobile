@@ -29530,7 +29530,7 @@
 				46EB2E00033430 /* Support Files */,
 			);
 			name = SDWebImageWebPCoder;
-			path = SDWebImageWebPCoder;
+			path = CloudSources/SDWebImageWebPCoder;
 			sourceTree = "<group>";
 		};
 		46EB2E000008D0 /* VeloraSystemCalls */ = {
@@ -40500,7 +40500,7 @@
 				46EB2E00033450 /* SDWebImageWebPCoder.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../Target Support Files/SDWebImageWebPCoder";
+			path = "../../Target Support Files/SDWebImageWebPCoder";
 			sourceTree = "<group>";
 		};
 		46EB2E00033560 /* Support Files */ = {

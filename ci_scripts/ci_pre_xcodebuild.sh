@@ -272,6 +272,20 @@ fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/WatermelonDB"
 cp -RL "$REPO_ROOT/ios/Pods/WatermelonDB" "$REPO_ROOT/ios/Pods/CloudSources/WatermelonDB"
 
+if [[ ! -f "$REPO_ROOT/ios/Pods/SDWebImageWebPCoder/SDWebImageWebPCoder/Classes/SDWebImageWebPCoder.h" ]]; then
+  echo "[Velora CI] SDWebImageWebPCoder sources are not materialized; downloading version 0.14.6"
+  SDWEBP_CODER_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP" "$LIBWEBP_TMP" "$LIBDAV1D_TMP" "$LIBAVIF_TMP" "$EXPO_DEV_LAUNCHER_TMP" "$ZXING_TMP" "$WATERMELON_TMP" "$SDWEBP_CODER_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://github.com/SDWebImage/SDWebImageWebPCoder/archive/refs/tags/0.14.6.tar.gz' \
+    --output "$SDWEBP_CODER_TMP/webp-coder.tgz"
+  tar -xzf "$SDWEBP_CODER_TMP/webp-coder.tgz" -C "$SDWEBP_CODER_TMP"
+  rm -rf "$REPO_ROOT/ios/Pods/SDWebImageWebPCoder"
+  cp -RL "$SDWEBP_CODER_TMP/SDWebImageWebPCoder-0.14.6" "$REPO_ROOT/ios/Pods/SDWebImageWebPCoder"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/SDWebImageWebPCoder"
+cp -RL "$REPO_ROOT/ios/Pods/SDWebImageWebPCoder" "$REPO_ROOT/ios/Pods/CloudSources/SDWebImageWebPCoder"
+
 if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not present; downloading version 124.0.2"
   JITSI_TMP="$(mktemp -d)"
