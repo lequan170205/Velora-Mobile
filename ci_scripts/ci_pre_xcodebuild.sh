@@ -15,6 +15,8 @@ fi
 echo "[Velora CI] Installing JavaScript dependencies"
 if command -v pnpm >/dev/null 2>&1; then
   PNPM=(pnpm)
+elif command -v corepack >/dev/null 2>&1; then
+  PNPM=(corepack pnpm)
 else
   PNPM=(npm exec --yes --package=pnpm@9.15.0 -- pnpm)
 fi

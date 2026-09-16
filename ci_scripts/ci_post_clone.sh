@@ -12,6 +12,8 @@ echo "[Velora CI] Installing JavaScript dependencies"
 
 if command -v pnpm >/dev/null 2>&1; then
   PNPM=(pnpm)
+elif command -v corepack >/dev/null 2>&1; then
+  PNPM=(corepack pnpm)
 else
   # Xcode Cloud images do not guarantee pnpm is installed. npm exec keeps the
   # fallback self-contained and uses the version compatible with this lockfile.
