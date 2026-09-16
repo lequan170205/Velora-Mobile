@@ -27,7 +27,7 @@ while IFS= read -r virtual_path; do
     mkdir -p "$(dirname "$recorded_path")"
     ln -s "$direct_path" "$recorded_path"
   fi
-done < <(rg -o 'node_modules/\.pnpm/[^" ]+/node_modules/[^" ]+' "$REPO_ROOT/ios/Pods" 2>/dev/null | sed 's/:.*//' | sort -u)
+done < <(rg -o --no-filename 'node_modules/\.pnpm/[^" ]+/node_modules/[^" ]+' "$REPO_ROOT/ios/Pods" 2>/dev/null | sort -u)
 
 if [[ ! -d "$REPO_ROOT/ios/veloraDev.xcworkspace" ]]; then
   echo "[Velora CI] Expected workspace was not generated: ios/veloraDev.xcworkspace" >&2
