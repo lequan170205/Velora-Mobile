@@ -125,6 +125,13 @@ if [[ -n "$RN_PBX_PREFIX" ]]; then
   sed -i '' "s|$RN_PBX_PREFIX|../CloudSources/react-native|g" \
     "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 fi
+# Pin the two privacy resources to explicit project-root paths as well. These
+# PBXFileReferences can otherwise retain a group-relative path during Xcode's
+# project validation even after the parent groups are rewritten.
+sed -i '' \
+  's|46EB2E00020890 /\* PrivacyInfo.xcprivacy \*/ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = React/Resources/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };|46EB2E00020890 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = ../CloudSources/react-native/React/Resources/PrivacyInfo.xcprivacy; sourceTree = SOURCE_ROOT; };|' \
+  's|46EB2E000208A0 /\* PrivacyInfo.xcprivacy \*/ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };|46EB2E000208A0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = ../CloudSources/react-native/ReactCommon/cxxreact/PrivacyInfo.xcprivacy; sourceTree = SOURCE_ROOT; };|' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 
 SKIA_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/@shopify/react-native-skia/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
 if [[ -z "$SKIA_ROOT" ]]; then
