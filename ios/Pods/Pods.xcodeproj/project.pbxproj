@@ -29498,7 +29498,7 @@
 				46EB2E000330F0 /* Support Files */,
 			);
 			name = SDWebImageAVIFCoder;
-			path = SDWebImageAVIFCoder;
+			path = CloudSources/SDWebImageAVIFCoder;
 			sourceTree = "<group>";
 		};
 		46EB2E000008B0 /* SDWebImageSVGCoder */ = {
@@ -40472,7 +40472,7 @@
 				46EB2E00033110 /* SDWebImageAVIFCoder.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../Target Support Files/SDWebImageAVIFCoder";
+			path = "../../Target Support Files/SDWebImageAVIFCoder";
 			sourceTree = "<group>";
 		};
 		46EB2E00033280 /* Support Files */ = {
