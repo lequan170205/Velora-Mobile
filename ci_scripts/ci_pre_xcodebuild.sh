@@ -307,6 +307,32 @@ sed -i '' -E \
   '/path = "Target Support Files\/RNGoogleSignin";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 
+ASYNC_STORAGE_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/@react-native-async-storage/async-storage/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
+if [[ -z "$ASYNC_STORAGE_ROOT" ]]; then
+  echo "[Velora CI] AsyncStorage sources are not materialized; downloading package 2.2.0"
+  ASYNC_STORAGE_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$SCREENS_TMP" "$SVG_TMP" "$GESTURE_TMP" "$GOOGLE_TMP" "$ASYNC_STORAGE_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/@react-native-async-storage/async-storage/-/async-storage-2.2.0.tgz' \
+    --output "$ASYNC_STORAGE_TMP/async-storage.tgz"
+  tar -xzf "$ASYNC_STORAGE_TMP/async-storage.tgz" -C "$ASYNC_STORAGE_TMP"
+  ASYNC_STORAGE_ROOT="$ASYNC_STORAGE_TMP/package"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/async-storage"
+cp -RL "$ASYNC_STORAGE_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/async-storage"
+sed -i '' -E \
+  's#path = "\.\./\.\./node_modules/\.pnpm/@react-native-async-storage\+async-storage@[^\"]+/node_modules/@react-native-async-storage/async-storage";#path = "CloudSources/async-storage";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' -E \
+  '/path = "CloudSources\/async-storage";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' -E \
+  's#path = "../../../../../../ios/Pods/Target Support Files/RNCAsyncStorage";#path = "Target Support Files/RNCAsyncStorage";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' -E \
+  '/path = "Target Support Files\/RNCAsyncStorage";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+
 KEYBOARD_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/react-native-keyboard-controller/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
 if [[ -z "$KEYBOARD_ROOT" ]]; then
   echo "[Velora CI] react-native-keyboard-controller sources are not materialized; downloading package 1.21.7"
