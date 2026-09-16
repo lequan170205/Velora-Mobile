@@ -217,6 +217,34 @@ sed -i '' -E \
   '/path = "Target Support Files\/RNScreens";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 
+SVG_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/react-native-svg/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
+if [[ -z "$SVG_ROOT" ]]; then
+  echo "[Velora CI] react-native-svg sources are not materialized; downloading package 15.12.1"
+  SVG_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$SCREENS_TMP" "$SVG_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/react-native-svg/-/react-native-svg-15.12.1.tgz' \
+    --output "$SVG_TMP/svg.tgz"
+  tar -xzf "$SVG_TMP/svg.tgz" -C "$SVG_TMP"
+  SVG_ROOT="$SVG_TMP/package"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/react-native-svg"
+cp -RL "$SVG_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/react-native-svg"
+
+# Keep the generated CocoaPods project independent of pnpm's virtual paths.
+sed -i '' -E \
+  's#path = "\.\./\.\./node_modules/\.pnpm/react-native-svg@[^\"]+/node_modules/react-native-svg";#path = "CloudSources/react-native-svg";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' -E \
+  '/path = "CloudSources\/react-native-svg";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' -E \
+  's#path = "../../../../../ios/Pods/Target Support Files/RNSVG";#path = "Target Support Files/RNSVG";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' -E \
+  '/path = "Target Support Files\/RNSVG";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+
 KEYBOARD_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/react-native-keyboard-controller/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
 if [[ -z "$KEYBOARD_ROOT" ]]; then
   echo "[Velora CI] react-native-keyboard-controller sources are not materialized; downloading package 1.21.7"
