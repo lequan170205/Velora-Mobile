@@ -29,8 +29,8 @@ fi
 # Xcode Cloud may resolve pnpm dependencies without creating the optional
 # package symlink that CocoaPods recorded for simdjson. Materialize the small
 # native source pair at a stable path before xcodebuild reads the Pods project.
-SIMDJSON_HEADER="$(find "$REPO_ROOT/node_modules" -path '*/@nozbe/simdjson/src/simdjson.h' -type f -print -quit 2>/dev/null || true)"
-SIMDJSON_CPP="$(find "$REPO_ROOT/node_modules" -path '*/@nozbe/simdjson/src/simdjson.cpp' -type f -print -quit 2>/dev/null || true)"
+SIMDJSON_HEADER="$(find -L "$REPO_ROOT/node_modules" -path '*/@nozbe/simdjson/src/simdjson.h' -type f -print -quit 2>/dev/null || true)"
+SIMDJSON_CPP="$(find -L "$REPO_ROOT/node_modules" -path '*/@nozbe/simdjson/src/simdjson.cpp' -type f -print -quit 2>/dev/null || true)"
 if [[ -z "$SIMDJSON_HEADER" || -z "$SIMDJSON_CPP" ]]; then
   echo "[Velora CI] Could not locate simdjson native sources" >&2
   exit 1
