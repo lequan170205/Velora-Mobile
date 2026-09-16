@@ -29859,7 +29859,7 @@
 				46EB2E0001BE10 /* webp */,
 			);
 			name = libwebp;
-			path = libwebp;
+			path = CloudSources/libwebp;
 			sourceTree = "<group>";
 		};
 		46EB2E00000990 /* nanopb */ = {

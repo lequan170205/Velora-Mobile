@@ -173,6 +173,20 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/nanopb/pb.h" ]]; then
   cp "$NANOPB_TMP/nanopb-0.3.9.10/spm_resources/PrivacyInfo.xcprivacy" "$REPO_ROOT/ios/Pods/nanopb/spm_resources/"
 fi
 
+if [[ ! -f "$REPO_ROOT/ios/Pods/libwebp/src/webp/decode.h" ]]; then
+  echo "[Velora CI] libwebp sources are not materialized; downloading version 1.5.0"
+  LIBWEBP_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP" "$LIBWEBP_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://github.com/webmproject/libwebp/archive/refs/tags/v1.5.0.tar.gz' \
+    --output "$LIBWEBP_TMP/libwebp.tgz"
+  tar -xzf "$LIBWEBP_TMP/libwebp.tgz" -C "$LIBWEBP_TMP"
+  rm -rf "$REPO_ROOT/ios/Pods/libwebp"
+  cp -RL "$LIBWEBP_TMP/libwebp-1.5.0" "$REPO_ROOT/ios/Pods/libwebp"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/libwebp"
+cp -RL "$REPO_ROOT/ios/Pods/libwebp" "$REPO_ROOT/ios/Pods/CloudSources/libwebp"
+
 if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not present; downloading version 124.0.2"
   JITSI_TMP="$(mktemp -d)"
