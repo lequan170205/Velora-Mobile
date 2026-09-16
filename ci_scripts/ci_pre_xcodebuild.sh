@@ -210,6 +210,12 @@ sed -i '' -E \
 sed -i '' -E \
   '/path = "CloudSources\/react-native-screens";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' -E \
+  's#path = "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/ios\/Pods\/Target Support Files\/RNScreens";#path = "Target Support Files/RNScreens";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' -E \
+  '/path = "Target Support Files\/RNScreens";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 
 KEYBOARD_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/react-native-keyboard-controller/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
 if [[ -z "$KEYBOARD_ROOT" ]]; then
