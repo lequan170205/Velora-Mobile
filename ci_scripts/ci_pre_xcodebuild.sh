@@ -201,6 +201,17 @@ while IFS= read -r screens_path; do
 done < <(rg -o --no-filename 'node_modules/\.pnpm/react-native-screens@[^" ]+/node_modules/react-native-screens' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj" 2>/dev/null | sort -u)
 
+# CocoaPods stores the RNScreens group relative to a pnpm path that is not
+# guaranteed to exist in the Xcode Cloud checkout. Point the group at the
+# materialized, stable source root instead of relying on node_modules layout.
+sed -i '' -E \
+  '/path = "\.\.\/\.\.\/node_modules\/\.pnpm\/react-native-screens@.*\/node_modules\/react-native-screens";/ {\
+    s#path = ".*";#path = "CloudSources/react-native-screens";#;\
+    n;\
+    s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;\
+  }' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+
 KEYBOARD_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/react-native-keyboard-controller/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
 if [[ -z "$KEYBOARD_ROOT" ]]; then
   echo "[Velora CI] react-native-keyboard-controller sources are not materialized; downloading package 1.21.7"
