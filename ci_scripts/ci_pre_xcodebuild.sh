@@ -479,6 +479,29 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/GoogleSignIn/GoogleSignIn/Sources/Public/GoogleS
   cp -RL "$GOOGLE_SIGNIN_ROOT" "$REPO_ROOT/ios/Pods/GoogleSignIn"
 fi
 
+# ExpoMediaLibrary's generated Pods project points at pnpm's virtual path.
+# Xcode Cloud may not preserve that path, which otherwise leaves the public
+# MediaLibraryImageLoader header missing during the archive.
+EXPO_MEDIA_LIBRARY_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/expo-media-library/ios/MediaLibraryImageLoader.h' -type f -print -quit 2>/dev/null | sed 's#/ios/MediaLibraryImageLoader.h$##' || true)"
+if [[ -z "$EXPO_MEDIA_LIBRARY_ROOT" ]]; then
+  echo "[Velora CI] ExpoMediaLibrary sources are not materialized; downloading version 18.2.1"
+  EXPO_MEDIA_LIBRARY_TMP="$(mktemp -d)"
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/expo-media-library/-/expo-media-library-18.2.1.tgz' \
+    --output "$EXPO_MEDIA_LIBRARY_TMP/expo-media-library.tgz"
+  tar -xzf "$EXPO_MEDIA_LIBRARY_TMP/expo-media-library.tgz" -C "$EXPO_MEDIA_LIBRARY_TMP"
+  EXPO_MEDIA_LIBRARY_ROOT="$EXPO_MEDIA_LIBRARY_TMP/package"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/expo-media-library"
+mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/expo-media-library"
+cp -RL "$EXPO_MEDIA_LIBRARY_ROOT/ios/." "$REPO_ROOT/ios/Pods/CloudSources/expo-media-library/"
+sed -i '' \
+  's#path = "\.\./\.\./node_modules/\.pnpm/expo-media-library@[^\"]*/node_modules/expo-media-library/ios";#path = "CloudSources/expo-media-library";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  '/path = "CloudSources\/expo-media-library";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+
 if [[ ! -f "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64/WebRTC.framework/WebRTC" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not materialized; downloading version 124.0.2"
   JITSI_TMP="$(mktemp -d)"
