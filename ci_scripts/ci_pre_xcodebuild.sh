@@ -130,6 +130,7 @@ fi
 # project validation even after the parent groups are rewritten.
 sed -i '' \
   's|46EB2E00020890 /\* PrivacyInfo.xcprivacy \*/ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = React/Resources/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };|46EB2E00020890 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = ../CloudSources/react-native/React/Resources/PrivacyInfo.xcprivacy; sourceTree = SOURCE_ROOT; };|' \
+  -e \
   's|46EB2E000208A0 /\* PrivacyInfo.xcprivacy \*/ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };|46EB2E000208A0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = ../CloudSources/react-native/ReactCommon/cxxreact/PrivacyInfo.xcprivacy; sourceTree = SOURCE_ROOT; };|' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 
