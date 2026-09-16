@@ -20,7 +20,6 @@ import Animated, {
   FadeInDown,
   FadeOut,
   interpolate,
-  interpolateColor,
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
@@ -335,7 +334,6 @@ const MessageInputComponent = function MessageInput(
   const inputRef = useRef<TextInput>(null)
   const attachmentSheetRef = useRef<AttachmentLauncherSheetHandle>(null)
   const sendLockRef = useRef(false)
-  const inputFocusProgress = useSharedValue(0)
 
   useImperativeHandle(
     ref,
@@ -502,16 +500,6 @@ const MessageInputComponent = function MessageInput(
     paddingBottom: dynamicPadding.value,
   }))
 
-  // Focus ring on the pill matches the auth input treatment: warm border at
-  // rest, solid brand border while focused.
-  const inputPillStyle = useAnimatedStyle(() => ({
-    borderColor: interpolateColor(
-      inputFocusProgress.value,
-      [0, 1],
-      [colors.border.warm, colors.brand.primary],
-    ),
-  }))
-
   return (
     <Animated.View className="bg-bg-primary" style={containerStyle}>
       {replyTo ? (
@@ -635,7 +623,6 @@ const MessageInputComponent = function MessageInput(
       <Animated.View
         style={[
           styles.composerPill,
-          inputPillStyle,
           {
             minHeight: 48,
             maxHeight: 116,
@@ -665,11 +652,9 @@ const MessageInputComponent = function MessageInput(
             scrollEnabled
             maxLength={1000}
             onBlur={() => {
-              inputFocusProgress.value = withTiming(0, { duration: 170 })
               onFocusChange?.(false)
             }}
             onFocus={() => {
-              inputFocusProgress.value = withTiming(1, { duration: 150 })
               onFocusChange?.(true)
             }}
             style={[
@@ -722,9 +707,7 @@ export const MessageInput = memo(React.forwardRef(MessageInputComponent))
 const styles = StyleSheet.create({
   composerPill: {
     backgroundColor: colors.surface.cream,
-    borderColor: colors.border.warm,
     borderRadius: 20,
-    borderWidth: 1,
   },
   textInput: {
     color: TEXT_PRIMARY,
