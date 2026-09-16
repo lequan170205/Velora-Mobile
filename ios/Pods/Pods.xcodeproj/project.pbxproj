@@ -40667,7 +40667,7 @@
 				46EB2E000374A0 /* libwebp.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../Target Support Files/libwebp";
+			path = "../../Target Support Files/libwebp";
 			sourceTree = "<group>";
 		};
 		46EB2E00037650 /* Support Files */ = {
