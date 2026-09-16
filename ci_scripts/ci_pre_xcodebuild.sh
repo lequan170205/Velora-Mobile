@@ -275,7 +275,7 @@ cp -RL "$REPO_ROOT/ios/Pods/WatermelonDB" "$REPO_ROOT/ios/Pods/CloudSources/Wate
 if [[ ! -f "$REPO_ROOT/ios/Pods/SDWebImageWebPCoder/SDWebImageWebPCoder/Classes/SDWebImageWebPCoder.h" ]]; then
   echo "[Velora CI] SDWebImageWebPCoder sources are not materialized; downloading version 0.14.6"
   SDWEBP_CODER_TMP="$(mktemp -d)"
-  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP" "$LIBWEBP_TMP" "$LIBDAV1D_TMP" "$LIBAVIF_TMP" "$EXPO_DEV_LAUNCHER_TMP" "$ZXING_TMP" "$WATERMELON_TMP" "$SDWEBP_CODER_TMP"' EXIT
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP" "$LIBWEBP_TMP" "$LIBDAV1D_TMP" "$LIBAVIF_TMP" "$EXPO_DEV_LAUNCHER_TMP" "$ZXING_TMP" "$WATERMELON_TMP" "$SDWEBP_CODER_TMP" "$SDWEBP_SVG_TMP"' EXIT
   curl --fail --silent --show-error --location \
     'https://github.com/SDWebImage/SDWebImageWebPCoder/archive/refs/tags/0.14.6.tar.gz' \
     --output "$SDWEBP_CODER_TMP/webp-coder.tgz"
@@ -285,6 +285,20 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/SDWebImageWebPCoder/SDWebImageWebPCoder/Classes/
 fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/SDWebImageWebPCoder"
 cp -RL "$REPO_ROOT/ios/Pods/SDWebImageWebPCoder" "$REPO_ROOT/ios/Pods/CloudSources/SDWebImageWebPCoder"
+
+if [[ ! -f "$REPO_ROOT/ios/Pods/SDWebImageSVGCoder/Module/SDWebImageSVGCoder.h" ]]; then
+  echo "[Velora CI] SDWebImageSVGCoder sources are not materialized; downloading version 1.7.0"
+  SDWEBP_SVG_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP" "$LIBWEBP_TMP" "$LIBDAV1D_TMP" "$LIBAVIF_TMP" "$EXPO_DEV_LAUNCHER_TMP" "$ZXING_TMP" "$WATERMELON_TMP" "$SDWEBP_CODER_TMP" "$SDWEBP_SVG_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://github.com/SDWebImage/SDWebImageSVGCoder/archive/refs/tags/1.7.0.tar.gz' \
+    --output "$SDWEBP_SVG_TMP/svg-coder.tgz"
+  tar -xzf "$SDWEBP_SVG_TMP/svg-coder.tgz" -C "$SDWEBP_SVG_TMP"
+  rm -rf "$REPO_ROOT/ios/Pods/SDWebImageSVGCoder"
+  cp -RL "$SDWEBP_SVG_TMP/SDWebImageSVGCoder-1.7.0" "$REPO_ROOT/ios/Pods/SDWebImageSVGCoder"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/SDWebImageSVGCoder"
+cp -RL "$REPO_ROOT/ios/Pods/SDWebImageSVGCoder" "$REPO_ROOT/ios/Pods/CloudSources/SDWebImageSVGCoder"
 
 if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not present; downloading version 124.0.2"

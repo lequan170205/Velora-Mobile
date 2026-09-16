@@ -29512,7 +29512,7 @@
 				46EB2E00033280 /* Support Files */,
 			);
 			name = SDWebImageSVGCoder;
-			path = SDWebImageSVGCoder;
+			path = CloudSources/SDWebImageSVGCoder;
 			sourceTree = "<group>";
 		};
 		46EB2E000008C0 /* SDWebImageWebPCoder */ = {
