@@ -152,8 +152,8 @@ export default function LoginScreen() {
                 <Text className="mb-2 text-sm2 font-semibold text-text-primary">Email address</Text>
                 <View
                   className={cn(
-                    'h-14 flex-row items-center rounded-[20px] border bg-surface-cream px-4',
-                    isEmailFocused ? 'border-brand bg-surface-cream-focus' : 'border-warm',
+                    'h-14 flex-row items-center rounded-[20px] px-4',
+                    isEmailFocused ? 'bg-surface-cream-focus' : 'bg-surface-cream',
                   )}
                 >
                   <MaterialIcons name="mail-outline" size={20} color={colors.brand.secondary} />
@@ -184,8 +184,8 @@ export default function LoginScreen() {
                 <Text className="mb-2 text-sm2 font-semibold text-text-primary">Password</Text>
                 <View
                   className={cn(
-                    'h-14 flex-row items-center rounded-[20px] border bg-surface-cream px-4',
-                    isPasswordFocused ? 'border-brand bg-surface-cream-focus' : 'border-warm',
+                    'h-14 flex-row items-center rounded-[20px] px-4',
+                    isPasswordFocused ? 'bg-surface-cream-focus' : 'bg-surface-cream',
                   )}
                 >
                   <MaterialIcons name="lock-outline" size={20} color={colors.brand.secondary} />
