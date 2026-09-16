@@ -10,8 +10,8 @@ import { cn } from '../../src/lib/cn'
 
 const inputClassName = (isFocused: boolean) =>
   cn(
-    'rounded-[20px] border bg-surface-cream px-4 py-3.5',
-    isFocused ? 'border-brand bg-surface-cream-focus' : 'border-warm',
+    'rounded-[20px] px-4 py-3.5',
+    isFocused ? 'bg-surface-cream-focus' : 'bg-surface-cream',
   )
 
 export default function ResetPasswordScreen() {
