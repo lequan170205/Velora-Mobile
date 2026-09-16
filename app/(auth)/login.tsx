@@ -269,7 +269,7 @@ export default function LoginScreen() {
               </View>
 
               <TouchableOpacity
-                className="h-14 flex-row items-center justify-center rounded-[20px] border border-warm bg-white"
+                className="h-14 flex-row items-center justify-center rounded-[20px] bg-surface-cream"
                 onPress={handleGoogleLogin}
                 disabled={isLoading}
                 activeOpacity={0.8}
