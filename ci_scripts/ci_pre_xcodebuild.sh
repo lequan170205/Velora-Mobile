@@ -99,6 +99,12 @@ if [[ -z "$REACT_NATIVE_ROOT" ]]; then
 fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/react-native"
 cp -RL "$REACT_NATIVE_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/react-native"
+mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/react-native/React/Resources"
+cp -f "$REACT_NATIVE_ROOT/React/Resources/PrivacyInfo.xcprivacy" \
+  "$REPO_ROOT/ios/Pods/CloudSources/react-native/React/Resources/PrivacyInfo.xcprivacy"
+mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/react-native/ReactCommon/cxxreact"
+cp -f "$REACT_NATIVE_ROOT/ReactCommon/cxxreact/PrivacyInfo.xcprivacy" \
+  "$REPO_ROOT/ios/Pods/CloudSources/react-native/ReactCommon/cxxreact/PrivacyInfo.xcprivacy"
 
 SKIA_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/@shopify/react-native-skia/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
 if [[ -z "$SKIA_ROOT" ]]; then
