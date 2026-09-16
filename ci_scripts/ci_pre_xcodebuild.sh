@@ -230,6 +230,20 @@ fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/libavif"
 cp -RL "$REPO_ROOT/ios/Pods/libavif" "$REPO_ROOT/ios/Pods/CloudSources/libavif"
 
+EXPO_DEV_LAUNCHER_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/expo-dev-launcher/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
+if [[ -z "$EXPO_DEV_LAUNCHER_ROOT" ]]; then
+  echo "[Velora CI] expo-dev-launcher sources are not materialized; downloading version 6.0.21"
+  EXPO_DEV_LAUNCHER_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP" "$LIBWEBP_TMP" "$LIBDAV1D_TMP" "$LIBAVIF_TMP" "$EXPO_DEV_LAUNCHER_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/expo-dev-launcher/-/expo-dev-launcher-6.0.21.tgz' \
+    --output "$EXPO_DEV_LAUNCHER_TMP/expo-dev-launcher.tgz"
+  tar -xzf "$EXPO_DEV_LAUNCHER_TMP/expo-dev-launcher.tgz" -C "$EXPO_DEV_LAUNCHER_TMP"
+  EXPO_DEV_LAUNCHER_ROOT="$EXPO_DEV_LAUNCHER_TMP/package"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/expo-dev-launcher"
+cp -RL "$EXPO_DEV_LAUNCHER_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/expo-dev-launcher"
+
 if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not present; downloading version 124.0.2"
   JITSI_TMP="$(mktemp -d)"

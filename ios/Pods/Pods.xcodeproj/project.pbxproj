@@ -29637,7 +29637,7 @@
 				46EB2E0001AC50 /* Unsafe */,
 			);
 			name = "expo-dev-launcher";
-			path = "../../node_modules/.pnpm/expo-dev-launcher@6.0.21_expo@54.0.35/node_modules/expo-dev-launcher";
+			path = CloudSources/expo-dev-launcher;
 			sourceTree = "<group>";
 		};
 		46EB2E00000930 /* expo-dev-menu */ = {
