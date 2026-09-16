@@ -12,16 +12,6 @@ if [[ ! -d "$REPO_ROOT/ios/veloraDev.xcworkspace" ]]; then
   exit 1
 fi
 
-echo "[Velora CI] Installing JavaScript dependencies"
-if command -v pnpm >/dev/null 2>&1; then
-  PNPM=(pnpm)
-elif command -v corepack >/dev/null 2>&1; then
-  PNPM=(corepack pnpm)
-else
-  PNPM=(npm exec --yes --package=pnpm@9.15.0 -- pnpm)
-fi
-"${PNPM[@]}" install --frozen-lockfile
-
 if [[ -n "${GOOGLE_SERVICE_INFO_PLIST_BASE64:-}" ]]; then
   echo "[Velora CI] Restoring GoogleService-Info.plist from CI secret"
   if base64 --decode >/dev/null 2>&1 <<<""; then
@@ -35,13 +25,6 @@ if [[ ! -f "$REPO_ROOT/GoogleService-Info.plist" ]]; then
   echo "[Velora CI] Missing GoogleService-Info.plist" >&2
   exit 1
 fi
-
-echo "[Velora CI] Syncing Expo native configuration and CocoaPods"
-npx expo prebuild --platform ios --no-install
-(cd "$REPO_ROOT/ios" && pod install)
-
-SIMDJSON_PBX="$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
-perl -0pi -e 's#\.\./\.\./\.\./node_modules/\.pnpm/\@nozbe\+simdjson#../../../.pnpm/\@nozbe+simdjson#g' "$SIMDJSON_PBX"
 
 cp "$REPO_ROOT/GoogleService-Info.plist" "$REPO_ROOT/ios/veloraDev/GoogleService-Info.plist"
 

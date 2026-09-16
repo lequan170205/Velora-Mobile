@@ -8,20 +8,6 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-echo "[Velora CI] Installing JavaScript dependencies"
-
-if command -v pnpm >/dev/null 2>&1; then
-  PNPM=(pnpm)
-elif command -v corepack >/dev/null 2>&1; then
-  PNPM=(corepack pnpm)
-else
-  # Xcode Cloud images do not guarantee pnpm is installed. npm exec keeps the
-  # fallback self-contained and uses the version compatible with this lockfile.
-  PNPM=(npm exec --yes --package=pnpm@9.15.0 -- pnpm)
-fi
-
-"${PNPM[@]}" install --frozen-lockfile
-
 if [[ -n "${GOOGLE_SERVICE_INFO_PLIST_BASE64:-}" ]]; then
   echo "[Velora CI] Restoring GoogleService-Info.plist from CI secret"
   if base64 --decode >/dev/null 2>&1 <<<""; then
@@ -36,21 +22,10 @@ if [[ ! -f "$REPO_ROOT/GoogleService-Info.plist" ]]; then
   exit 1
 fi
 
-echo "[Velora CI] Generating iOS workspace with Expo prebuild"
-npx expo prebuild --platform ios --no-install
-
-if ! command -v pod >/dev/null 2>&1; then
-  echo "[Velora CI] CocoaPods is required on the Xcode Cloud runner" >&2
+if [[ ! -d "$REPO_ROOT/ios/veloraDev.xcworkspace" ]]; then
+  echo "[Velora CI] Expected workspace is missing: ios/veloraDev.xcworkspace" >&2
   exit 1
 fi
-
-echo "[Velora CI] Installing CocoaPods dependencies"
-(cd "$REPO_ROOT/ios" && pod install)
-
-# CocoaPods can emit an invalid pnpm virtual-store path for simdjson. Normalize
-# the generated project after every install so Xcode Cloud can copy simdjson.h.
-SIMDJSON_PBX="$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
-perl -0pi -e 's#\.\./\.\./\.\./node_modules/\.pnpm/\@nozbe\+simdjson#../../../.pnpm/\@nozbe+simdjson#g' "$SIMDJSON_PBX"
 
 # Expo writes a machine-specific NODE_BINARY value. Xcode Cloud needs a path
 # resolved on the current runner instead of a developer's Homebrew path.
