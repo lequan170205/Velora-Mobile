@@ -57,9 +57,9 @@ export const AppSearchBar = React.forwardRef<NativeTextInputRef, AppSearchBarPro
     return (
       <View
         className={cn(
-          // Warm cream input family shared with the auth screens.
-          'flex-row items-center rounded-[20px] border bg-surface-cream',
-          isFocused ? 'border-brand bg-surface-cream-focus' : 'border-warm',
+          // Borderless warm cream input family shared with the auth screens.
+          'flex-row items-center rounded-[20px]',
+          isFocused ? 'bg-surface-cream-focus' : 'bg-surface-cream',
           isCompact ? 'h-10 px-3.5' : 'px-4 py-3.5',
           containerClassName,
         )}
