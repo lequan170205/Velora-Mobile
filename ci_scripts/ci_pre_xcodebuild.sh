@@ -180,6 +180,27 @@ fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/react-native-pager-view"
 cp -RL "$PAGER_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/react-native-pager-view"
 
+SCREENS_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/react-native-screens/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
+if [[ -z "$SCREENS_ROOT" ]]; then
+  echo "[Velora CI] react-native-screens sources are not materialized; downloading package 4.16.0"
+  SCREENS_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$SCREENS_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/react-native-screens/-/react-native-screens-4.16.0.tgz' \
+    --output "$SCREENS_TMP/screens.tgz"
+  tar -xzf "$SCREENS_TMP/screens.tgz" -C "$SCREENS_TMP"
+  SCREENS_ROOT="$SCREENS_TMP/package"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/react-native-screens"
+cp -RL "$SCREENS_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/react-native-screens"
+while IFS= read -r screens_path; do
+  screens_path="$REPO_ROOT/$screens_path"
+  rm -rf "$screens_path"
+  mkdir -p "$screens_path"
+  cp -RL "$REPO_ROOT/ios/Pods/CloudSources/react-native-screens/." "$screens_path/"
+done < <(rg -o --no-filename 'node_modules/\.pnpm/react-native-screens@[^" ]+/node_modules/react-native-screens' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj" 2>/dev/null | sort -u)
+
 KEYBOARD_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/react-native-keyboard-controller/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
 if [[ -z "$KEYBOARD_ROOT" ]]; then
   echo "[Velora CI] react-native-keyboard-controller sources are not materialized; downloading package 1.21.7"
