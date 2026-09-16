@@ -105,6 +105,12 @@ cp -f "$REACT_NATIVE_ROOT/React/Resources/PrivacyInfo.xcprivacy" \
 mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/react-native/ReactCommon/cxxreact"
 cp -f "$REACT_NATIVE_ROOT/ReactCommon/cxxreact/PrivacyInfo.xcprivacy" \
   "$REPO_ROOT/ios/Pods/CloudSources/react-native/ReactCommon/cxxreact/PrivacyInfo.xcprivacy"
+while IFS= read -r react_native_path; do
+  react_native_path="$REPO_ROOT/$react_native_path"
+  mkdir -p "$(dirname "$react_native_path")"
+  ln -sfn "$REPO_ROOT/ios/Pods/CloudSources/react-native" "$react_native_path"
+done < <(rg -o --no-filename 'node_modules/\.pnpm/react-native@[^" ]+/node_modules/react-native' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj" 2>/dev/null | sort -u)
 
 SKIA_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/@shopify/react-native-skia/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
 if [[ -z "$SKIA_ROOT" ]]; then
