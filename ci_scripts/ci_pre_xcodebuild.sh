@@ -286,6 +286,20 @@ fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/SDWebImageWebPCoder"
 cp -RL "$REPO_ROOT/ios/Pods/SDWebImageWebPCoder" "$REPO_ROOT/ios/Pods/CloudSources/SDWebImageWebPCoder"
 
+if [[ ! -f "$REPO_ROOT/ios/Pods/RecaptchaInterop/RecaptchaEnterprise/RecaptchaInterop/Public/RecaptchaInterop/RecaptchaInterop.h" ]]; then
+  echo "[Velora CI] RecaptchaInterop sources are not materialized; downloading version 101.0.0"
+  RECAPTCHA_TMP="$(mktemp -d)"
+  curl --fail --silent --show-error --location \
+    'https://github.com/google/interop-ios-for-google-sdks/archive/refs/tags/CocoaPods-101.0.0.tar.gz' \
+    --output "$RECAPTCHA_TMP/recaptcha-interop.tgz"
+  tar -xzf "$RECAPTCHA_TMP/recaptcha-interop.tgz" -C "$RECAPTCHA_TMP"
+  rm -rf "$REPO_ROOT/ios/Pods/RecaptchaInterop"
+  mkdir -p "$REPO_ROOT/ios/Pods/RecaptchaInterop"
+  cp -RL "$RECAPTCHA_TMP/interop-ios-for-google-sdks-CocoaPods-101.0.0/." "$REPO_ROOT/ios/Pods/RecaptchaInterop/"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/RecaptchaInterop"
+cp -RL "$REPO_ROOT/ios/Pods/RecaptchaInterop" "$REPO_ROOT/ios/Pods/CloudSources/RecaptchaInterop"
+
 if [[ ! -f "$REPO_ROOT/ios/Pods/SDWebImageSVGCoder/Module/SDWebImageSVGCoder.h" ]]; then
   echo "[Velora CI] SDWebImageSVGCoder sources are not materialized; downloading version 1.7.0"
   SDWEBP_SVG_TMP="$(mktemp -d)"
