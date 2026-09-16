@@ -53,3 +53,4 @@ export NODE_BINARY="$(command -v node)"
 EOF
 
 echo "[Velora CI] Ready: ios/veloraDev.xcworkspace"
+echo "[Velora CI] TestFlight push-trigger verification"
