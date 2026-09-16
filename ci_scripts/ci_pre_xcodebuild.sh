@@ -345,6 +345,18 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/PromisesObjC/Sources/FBLPromises/include/FBLProm
   rm -rf "$REPO_ROOT/ios/Pods/PromisesObjC"
   cp -RL "$PROMISES_ROOT" "$REPO_ROOT/ios/Pods/PromisesObjC"
 fi
+if [[ ! -f "$REPO_ROOT/ios/Pods/PromisesSwift/Sources/Promises/Resources/PrivacyInfo.xcprivacy" ]]; then
+  echo "[Velora CI] PromisesSwift privacy resource is not materialized; restoring version 2.4.1"
+  PROMISES_SWIFT_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$SCREENS_TMP" "$SVG_TMP" "$GESTURE_TMP" "$GOOGLE_TMP" "$ASYNC_STORAGE_TMP" "$PROMISES_TMP" "$PROMISES_SWIFT_TMP" "$GOOGLE_UTILITIES_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://github.com/google/promises/archive/refs/tags/2.4.1.tar.gz' \
+    --output "$PROMISES_SWIFT_TMP/promises.tgz"
+  tar -xzf "$PROMISES_SWIFT_TMP/promises.tgz" -C "$PROMISES_SWIFT_TMP"
+  PROMISES_SWIFT_ROOT="$(find "$PROMISES_SWIFT_TMP" -type f -path '*/Sources/Promises/Resources/PrivacyInfo.xcprivacy' -print -quit | sed 's#/Sources/Promises/Resources/PrivacyInfo.xcprivacy$##')"
+  rm -rf "$REPO_ROOT/ios/Pods/PromisesSwift"
+  cp -RL "$PROMISES_SWIFT_ROOT" "$REPO_ROOT/ios/Pods/PromisesSwift"
+fi
 
 if [[ ! -f "$REPO_ROOT/ios/Pods/GoogleUtilities/GoogleUtilities/Network/Public/GoogleUtilities/GULNetworkURLSession.h" ]]; then
   echo "[Velora CI] GoogleUtilities sources are not materialized; downloading version 8.1.2"
