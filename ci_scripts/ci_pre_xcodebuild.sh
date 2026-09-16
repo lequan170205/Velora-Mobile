@@ -95,6 +95,18 @@ SKIA_PNPM_PATH="$REPO_ROOT/node_modules/.pnpm/@shopify+react-native-skia@2.2.12_
 mkdir -p "$(dirname "$SKIA_PNPM_PATH")"
 ln -sfn "$REPO_ROOT/ios/Pods/CloudSources/react-native-skia" "$SKIA_PNPM_PATH"
 
+if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
+  echo "[Velora CI] JitsiWebRTC binary is not present; downloading version 124.0.2"
+  JITSI_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$JITSI_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://github.com/jitsi/webrtc/releases/download/v124.0.2/WebRTC.xcframework.zip' \
+    --output "$JITSI_TMP/WebRTC.xcframework.zip"
+  rm -rf "$REPO_ROOT/ios/Pods/JitsiWebRTC"
+  mkdir -p "$REPO_ROOT/ios/Pods/JitsiWebRTC"
+  unzip -q "$JITSI_TMP/WebRTC.xcframework.zip" -d "$REPO_ROOT/ios/Pods/JitsiWebRTC"
+fi
+
 cp "$REPO_ROOT/GoogleService-Info.plist" "$REPO_ROOT/ios/veloraDev/GoogleService-Info.plist"
 
 if [[ -n "${CI_BUILD_NUMBER:-}" ]]; then
