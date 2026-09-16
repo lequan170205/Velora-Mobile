@@ -30040,7 +30040,7 @@
 				46EB2E000200A0 /* videoEffects */,
 			);
 			name = "react-native-webrtc";
-			path = "../../node_modules/react-native-webrtc";
+			path = CloudSources/react-native-webrtc;
 			sourceTree = "<group>";
 		};
 		46EB2E000009F0 /* simdjson */ = {
@@ -40759,7 +40759,7 @@
 				46EB2E0003B0A0 /* react-native-webrtc.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../ios/Pods/Target Support Files/react-native-webrtc";
+			path = "../../Target Support Files/react-native-webrtc";
 			sourceTree = "<group>";
 		};
 		46EB2E0003B1E0 /* Support Files */ = {

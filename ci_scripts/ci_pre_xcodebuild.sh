@@ -46,6 +46,24 @@ mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/simdjson/src"
 cp "$SIMDJSON_HEADER" "$REPO_ROOT/ios/Pods/CloudSources/simdjson/src/simdjson.h"
 cp "$SIMDJSON_CPP" "$REPO_ROOT/ios/Pods/CloudSources/simdjson/src/simdjson.cpp"
 
+WEBRTC_HEADER="$(find -L "$REPO_ROOT/node_modules" -path '*/react-native-webrtc/ios/RCTWebRTC/WebRTCModule.h' -type f -print -quit 2>/dev/null || true)"
+if [[ -z "$WEBRTC_HEADER" ]]; then
+  echo "[Velora CI] react-native-webrtc sources are not materialized; downloading package 124.0.7"
+  WEBRTC_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/react-native-webrtc/-/react-native-webrtc-124.0.7.tgz' \
+    --output "$WEBRTC_TMP/webrtc.tgz"
+  tar -xzf "$WEBRTC_TMP/webrtc.tgz" -C "$WEBRTC_TMP"
+  WEBRTC_HEADER="$WEBRTC_TMP/package/ios/RCTWebRTC/WebRTCModule.h"
+  WEBRTC_SOURCE="$WEBRTC_TMP/package/ios/RCTWebRTC"
+else
+  WEBRTC_SOURCE="$(dirname "$WEBRTC_HEADER")"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/react-native-webrtc"
+mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/react-native-webrtc/ios"
+cp -R "$WEBRTC_SOURCE" "$REPO_ROOT/ios/Pods/CloudSources/react-native-webrtc/ios/"
+
 cp "$REPO_ROOT/GoogleService-Info.plist" "$REPO_ROOT/ios/veloraDev/GoogleService-Info.plist"
 
 if [[ -n "${CI_BUILD_NUMBER:-}" ]]; then
