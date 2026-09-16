@@ -418,6 +418,19 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/FirebaseMessaging/FirebaseMessaging/Sources/Publ
   cp -RL "$FIREBASE_MESSAGING_ROOT" "$REPO_ROOT/ios/Pods/FirebaseMessaging"
 fi
 
+if [[ ! -f "$REPO_ROOT/ios/Pods/GTMAppAuth/GTMAppAuth/Sources/Resources/PrivacyInfo.xcprivacy" ]]; then
+  echo "[Velora CI] GTMAppAuth sources are not materialized; downloading version 5.0.0"
+  GTM_APP_AUTH_TMP="$(mktemp -d)"
+  trap 'rm -rf "$GTM_APP_AUTH_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://github.com/google/GTMAppAuth/archive/refs/tags/5.0.0.tar.gz' \
+    --output "$GTM_APP_AUTH_TMP/gtm-app-auth.tgz"
+  tar -xzf "$GTM_APP_AUTH_TMP/gtm-app-auth.tgz" -C "$GTM_APP_AUTH_TMP"
+  GTM_APP_AUTH_ROOT="$(find "$GTM_APP_AUTH_TMP" -type f -path '*/GTMAppAuth/Sources/Resources/PrivacyInfo.xcprivacy' -print -quit | sed 's#/GTMAppAuth/Sources/Resources/PrivacyInfo.xcprivacy$##')"
+  rm -rf "$REPO_ROOT/ios/Pods/GTMAppAuth"
+  cp -RL "$GTM_APP_AUTH_ROOT" "$REPO_ROOT/ios/Pods/GTMAppAuth"
+fi
+
 if [[ ! -f "$REPO_ROOT/ios/Pods/GoogleUtilities/GoogleUtilities/Network/Public/GoogleUtilities/GULNetworkURLSession.h" ]]; then
   echo "[Velora CI] GoogleUtilities sources are not materialized; downloading version 8.1.2"
   GOOGLE_UTILITIES_TMP="$(mktemp -d)"
