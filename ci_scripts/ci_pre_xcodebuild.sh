@@ -104,7 +104,9 @@ if [[ -z "$REACT_NATIVE_ROOT" ]]; then
   REACT_NATIVE_ROOT="$RN_TMP/package"
 fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/react-native"
-cp -RL "$REACT_NATIVE_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/react-native"
+# Preserve package symlinks here; following node_modules symlinks makes the
+# pre-build hook recursively copy the entire pnpm store on Xcode Cloud.
+cp -R "$REACT_NATIVE_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/react-native"
 mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/react-native/React/Resources"
 cp -f "$REACT_NATIVE_ROOT/React/Resources/PrivacyInfo.xcprivacy" \
   "$REPO_ROOT/ios/Pods/CloudSources/react-native/React/Resources/PrivacyInfo.xcprivacy"
@@ -118,7 +120,7 @@ while IFS= read -r react_native_path; do
   # is a symlink, so copy the prepared package into the recorded location.
   rm -rf "$react_native_path"
   mkdir -p "$react_native_path"
-  cp -RL "$REPO_ROOT/ios/Pods/CloudSources/react-native/." "$react_native_path/"
+  cp -R "$REPO_ROOT/ios/Pods/CloudSources/react-native/." "$react_native_path/"
 done < <(rg -o --no-filename 'node_modules/\.pnpm/react-native@[^" ]+/node_modules/react-native' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj" 2>/dev/null | sort -u)
 
