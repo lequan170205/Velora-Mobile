@@ -117,6 +117,20 @@ SKIA_PNPM_PATH="$REPO_ROOT/node_modules/.pnpm/@shopify+react-native-skia@2.2.12_
 mkdir -p "$(dirname "$SKIA_PNPM_PATH")"
 ln -sfn "$REPO_ROOT/ios/Pods/CloudSources/react-native-skia" "$SKIA_PNPM_PATH"
 
+SAFE_AREA_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/react-native-safe-area-context/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
+if [[ -z "$SAFE_AREA_ROOT" ]]; then
+  echo "[Velora CI] react-native-safe-area-context sources are not materialized; downloading package 5.6.2"
+  SAFE_AREA_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/react-native-safe-area-context/-/react-native-safe-area-context-5.6.2.tgz' \
+    --output "$SAFE_AREA_TMP/safe-area.tgz"
+  tar -xzf "$SAFE_AREA_TMP/safe-area.tgz" -C "$SAFE_AREA_TMP"
+  SAFE_AREA_ROOT="$SAFE_AREA_TMP/package"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/react-native-safe-area-context"
+cp -RL "$SAFE_AREA_ROOT" "$REPO_ROOT/ios/Pods/CloudSources/react-native-safe-area-context"
+
 if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not present; downloading version 124.0.2"
   JITSI_TMP="$(mktemp -d)"

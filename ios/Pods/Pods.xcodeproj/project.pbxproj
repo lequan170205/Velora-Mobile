@@ -29970,7 +29970,7 @@
 				46EB2E00038420 /* Support Files */,
 			);
 			name = "react-native-safe-area-context";
-			path = "../../node_modules/.pnpm/react-native-safe-area-context@5.6.2_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1_pljuiy7zaffvusir22lttqwqre/node_modules/react-native-safe-area-context";
+			path = "CloudSources/react-native-safe-area-context";
 			sourceTree = "<group>";
 		};
 		46EB2E000009D0 /* react-native-skia */ = {
@@ -40728,7 +40728,7 @@
 				46EB2E00038440 /* react-native-safe-area-context.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../../../../ios/Pods/Target Support Files/react-native-safe-area-context";
+			path = "../../../../ios/Pods/Target Support Files/react-native-safe-area-context";
 			sourceTree = "<group>";
 		};
 		46EB2E0003AC00 /* Support Files */ = {
@@ -47397,7 +47397,7 @@
 			name = "[CP-User] [RNDeps] Replace React Native Dependencies for the right configuration, if needed";
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-				shellScript = "      . \"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\n\n      CONFIG=\"Release\"\n      if echo $GCC_PREPROCESSOR_DEFINITIONS | grep -q \"DEBUG=1\"; then\n        CONFIG=\"Debug\"\n      fi\n\n      \"$NODE_BINARY\" \"$REACT_NATIVE_PATH/third-party-podspecs/replace_dependencies_version.js\" -c \"$CONFIG\" -r \"0.81.5\" -p \"$PODS_ROOT\"\n";
+			shellScript = "      . \"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\n\n      CONFIG=\"Release\"\n      if echo $GCC_PREPROCESSOR_DEFINITIONS | grep -q \"DEBUG=1\"; then\n        CONFIG=\"Debug\"\n      fi\n\n      if \"$NODE_BINARY\" -e \"require.resolve('yargs')\" >/dev/null 2>&1; then\n        \"$NODE_BINARY\" \"$REACT_NATIVE_PATH/third-party-podspecs/replace_dependencies_version.js\" -c \"$CONFIG\" -r \"0.81.5\" -p \"$PODS_ROOT\"\n      else\n        echo \"Skipping React Native dependency replacement because yargs is unavailable\"\n      fi\n";
 		};
 		46EB2E0003B470 /* [CP] Copy XCFrameworks */ = {
 			isa = PBXShellScriptBuildPhase;
