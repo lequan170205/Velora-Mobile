@@ -7,6 +7,28 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# CocoaPods recorded pnpm virtual paths, while Xcode Cloud can materialize the
+# same packages only as direct node_modules links. Recreate the recorded paths
+# whenever the corresponding direct package is available.
+while IFS= read -r virtual_path; do
+  virtual_path="${virtual_path%%\"*}"
+  package_tail="${virtual_path##*/node_modules/}"
+  package_first="${package_tail%%/*}"
+  if [[ "$package_first" == @* ]]; then
+    package_second="${package_tail#*/}"
+    package_path="$package_first/${package_second%%/*}"
+  else
+    package_path="$package_first"
+  fi
+  virtual_base="${virtual_path%/$package_tail}"
+  recorded_path="$REPO_ROOT/node_modules/$virtual_base/node_modules/$package_path"
+  direct_path="$REPO_ROOT/node_modules/$package_path"
+  if [[ -n "$package_path" && -e "$direct_path" && ! -e "$recorded_path" ]]; then
+    mkdir -p "$(dirname "$recorded_path")"
+    ln -s "$direct_path" "$recorded_path"
+  fi
+done < <(rg -o 'node_modules/\.pnpm/[^" ]+/node_modules/[^" ]+' "$REPO_ROOT/ios/Pods" 2>/dev/null | sed 's/:.*//' | sort -u)
+
 if [[ ! -d "$REPO_ROOT/ios/veloraDev.xcworkspace" ]]; then
   echo "[Velora CI] Expected workspace was not generated: ios/veloraDev.xcworkspace" >&2
   exit 1
