@@ -204,11 +204,15 @@ fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/libdav1d"
 cp -RL "$REPO_ROOT/ios/Pods/libdav1d" "$REPO_ROOT/ios/Pods/CloudSources/libdav1d"
 if [[ ! -f "$REPO_ROOT/ios/Pods/CloudSources/libdav1d/include/dav1d/version.h" ]]; then
-  sed -e 's/@DAV1D_API_VERSION_MAJOR@/6/' \
-      -e 's/@DAV1D_API_VERSION_MINOR@/9/' \
-      -e 's/@DAV1D_API_VERSION_PATCH@/0/' \
-      "$REPO_ROOT/ios/Pods/CloudSources/libdav1d/include/dav1d/version.h.in" \
-      > "$REPO_ROOT/ios/Pods/CloudSources/libdav1d/include/dav1d/version.h"
+  rm -f "$REPO_ROOT/ios/Pods/CloudSources/libdav1d/include/dav1d/version.h"
+  cat > "$REPO_ROOT/ios/Pods/CloudSources/libdav1d/include/dav1d/version.h" <<'EOF'
+#ifndef DAV1D_VERSION_H
+#define DAV1D_VERSION_H
+#define DAV1D_API_VERSION_MAJOR 6
+#define DAV1D_API_VERSION_MINOR 9
+#define DAV1D_API_VERSION_PATCH 0
+#endif
+EOF
 fi
 
 if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
