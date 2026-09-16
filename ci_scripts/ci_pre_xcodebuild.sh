@@ -205,11 +205,10 @@ done < <(rg -o --no-filename 'node_modules/\.pnpm/react-native-screens@[^" ]+/no
 # guaranteed to exist in the Xcode Cloud checkout. Point the group at the
 # materialized, stable source root instead of relying on node_modules layout.
 sed -i '' -E \
-  '/path = "\.\.\/\.\.\/node_modules\/\.pnpm\/react-native-screens@.*\/node_modules\/react-native-screens";/ {\
-    s#path = ".*";#path = "CloudSources/react-native-screens";#;\
-    n;\
-    s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;\
-  }' \
+  's#path = "\.\.\/\.\.\/node_modules\/\.pnpm\/react-native-screens@[^\"]+\/node_modules\/react-native-screens";#path = "CloudSources/react-native-screens";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' -E \
+  '/path = "CloudSources\/react-native-screens";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 
 KEYBOARD_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/react-native-keyboard-controller/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
