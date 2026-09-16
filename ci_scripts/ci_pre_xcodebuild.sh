@@ -275,7 +275,7 @@ cp -RL "$REPO_ROOT/ios/Pods/WatermelonDB" "$REPO_ROOT/ios/Pods/CloudSources/Wate
 if [[ ! -f "$REPO_ROOT/ios/Pods/SDWebImageWebPCoder/SDWebImageWebPCoder/Classes/SDWebImageWebPCoder.h" ]]; then
   echo "[Velora CI] SDWebImageWebPCoder sources are not materialized; downloading version 0.14.6"
   SDWEBP_CODER_TMP="$(mktemp -d)"
-  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP" "$LIBWEBP_TMP" "$LIBDAV1D_TMP" "$LIBAVIF_TMP" "$EXPO_DEV_LAUNCHER_TMP" "$ZXING_TMP" "$WATERMELON_TMP" "$SDWEBP_CODER_TMP" "$SDWEBP_SVG_TMP"' EXIT
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP" "$LIBWEBP_TMP" "$LIBDAV1D_TMP" "$LIBAVIF_TMP" "$EXPO_DEV_LAUNCHER_TMP" "$ZXING_TMP" "$WATERMELON_TMP" "$SDWEBP_CODER_TMP" "$SDWEBP_SVG_TMP" "$EXPO_DEV_MENU_TMP" "$EXPO_DEV_MENU_INTERFACE_TMP"' EXIT
   curl --fail --silent --show-error --location \
     'https://github.com/SDWebImage/SDWebImageWebPCoder/archive/refs/tags/0.14.6.tar.gz' \
     --output "$SDWEBP_CODER_TMP/webp-coder.tgz"
@@ -299,6 +299,35 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/SDWebImageSVGCoder/Module/SDWebImageSVGCoder.h" 
 fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/SDWebImageSVGCoder"
 cp -RL "$REPO_ROOT/ios/Pods/SDWebImageSVGCoder" "$REPO_ROOT/ios/Pods/CloudSources/SDWebImageSVGCoder"
+
+if [[ ! -f "$REPO_ROOT/ios/Pods/expo-dev-menu/ios/assets/_expo-dev-client-components/assets/branch-icon.png" ]]; then
+  echo "[Velora CI] expo-dev-menu sources are not materialized; downloading version 7.0.19"
+  EXPO_DEV_MENU_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP" "$LIBWEBP_TMP" "$LIBDAV1D_TMP" "$LIBAVIF_TMP" "$EXPO_DEV_LAUNCHER_TMP" "$ZXING_TMP" "$WATERMELON_TMP" "$SDWEBP_CODER_TMP" "$SDWEBP_SVG_TMP" "$EXPO_DEV_MENU_TMP" "$EXPO_DEV_MENU_INTERFACE_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/expo-dev-menu/-/expo-dev-menu-7.0.19.tgz' \
+    --output "$EXPO_DEV_MENU_TMP/expo-dev-menu.tgz"
+  tar -xzf "$EXPO_DEV_MENU_TMP/expo-dev-menu.tgz" -C "$EXPO_DEV_MENU_TMP"
+  rm -rf "$REPO_ROOT/ios/Pods/expo-dev-menu"
+  cp -RL "$EXPO_DEV_MENU_TMP/package" "$REPO_ROOT/ios/Pods/expo-dev-menu"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/expo-dev-menu"
+cp -RL "$REPO_ROOT/ios/Pods/expo-dev-menu" "$REPO_ROOT/ios/Pods/CloudSources/expo-dev-menu"
+
+if [[ ! -f "$REPO_ROOT/ios/Pods/expo-dev-menu-interface/ios/DevMenuBridgeProtocol.swift" ]]; then
+  echo "[Velora CI] expo-dev-menu-interface sources are not materialized; downloading version 2.0.0"
+  EXPO_DEV_MENU_INTERFACE_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP" "$LIBWEBP_TMP" "$LIBDAV1D_TMP" "$LIBAVIF_TMP" "$EXPO_DEV_LAUNCHER_TMP" "$ZXING_TMP" "$WATERMELON_TMP" "$SDWEBP_CODER_TMP" "$SDWEBP_SVG_TMP" "$EXPO_DEV_MENU_TMP" "$EXPO_DEV_MENU_INTERFACE_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/expo-dev-menu-interface/-/expo-dev-menu-interface-2.0.0.tgz' \
+    --output "$EXPO_DEV_MENU_INTERFACE_TMP/expo-dev-menu-interface.tgz"
+  tar -xzf "$EXPO_DEV_MENU_INTERFACE_TMP/expo-dev-menu-interface.tgz" -C "$EXPO_DEV_MENU_INTERFACE_TMP"
+  rm -rf "$REPO_ROOT/ios/Pods/expo-dev-menu-interface"
+  mkdir -p "$REPO_ROOT/ios/Pods/expo-dev-menu-interface"
+  cp -RL "$EXPO_DEV_MENU_INTERFACE_TMP/package/ios" "$REPO_ROOT/ios/Pods/expo-dev-menu-interface/"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/expo-dev-menu-interface"
+cp -RL "$REPO_ROOT/ios/Pods/expo-dev-menu-interface" "$REPO_ROOT/ios/Pods/CloudSources/expo-dev-menu-interface"
 
 if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not present; downloading version 124.0.2"

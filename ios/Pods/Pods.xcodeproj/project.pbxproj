@@ -29666,7 +29666,7 @@
 				46EB2E0001AE50 /* SwiftUI */,
 			);
 			name = "expo-dev-menu";
-			path = "../../node_modules/.pnpm/expo-dev-menu@7.0.19_expo@54.0.35/node_modules/expo-dev-menu";
+			path = CloudSources/expo-dev-menu;
 			sourceTree = "<group>";
 		};
 		46EB2E00000940 /* expo-dev-menu-interface */ = {
@@ -29679,7 +29679,7 @@
 				46EB2E00035B90 /* Support Files */,
 			);
 			name = "expo-dev-menu-interface";
-			path = "../../node_modules/.pnpm/expo-dev-menu-interface@2.0.0_expo@54.0.35/node_modules/expo-dev-menu-interface/ios";
+			path = CloudSources/expo-dev-menu-interface;
 			sourceTree = "<group>";
 		};
 		46EB2E00000950 /* hermes-engine */ = {
@@ -40596,7 +40596,7 @@
 				46EB2E000357B0 /* ResourceBundle-EXDevMenu-expo-dev-menu-Info.plist */,
 			);
 			name = "Support Files";
-			path = "../../../../../ios/Pods/Target Support Files/expo-dev-menu";
+			path = "../../Target Support Files/expo-dev-menu";
 			sourceTree = "<group>";
 		};
 		46EB2E00035B90 /* Support Files */ = {
@@ -40611,7 +40611,7 @@
 				46EB2E00035BB0 /* expo-dev-menu-interface.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../../../../../ios/Pods/Target Support Files/expo-dev-menu-interface";
+			path = "../../Target Support Files/expo-dev-menu-interface";
 			sourceTree = "<group>";
 		};
 		46EB2E00035C70 /* Support Files */ = {
