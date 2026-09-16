@@ -346,6 +346,19 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/PromisesObjC/Sources/FBLPromises/include/FBLProm
   cp -RL "$PROMISES_ROOT" "$REPO_ROOT/ios/Pods/PromisesObjC"
 fi
 
+if [[ ! -f "$REPO_ROOT/ios/Pods/GoogleUtilities/GoogleUtilities/Network/Public/GoogleUtilities/GULNetworkURLSession.h" ]]; then
+  echo "[Velora CI] GoogleUtilities sources are not materialized; downloading version 8.1.2"
+  GOOGLE_UTILITIES_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$SCREENS_TMP" "$SVG_TMP" "$GESTURE_TMP" "$GOOGLE_TMP" "$ASYNC_STORAGE_TMP" "$PROMISES_TMP" "$GOOGLE_UTILITIES_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://github.com/google/GoogleUtilities/archive/refs/tags/8.1.2.tar.gz' \
+    --output "$GOOGLE_UTILITIES_TMP/google-utilities.tgz"
+  tar -xzf "$GOOGLE_UTILITIES_TMP/google-utilities.tgz" -C "$GOOGLE_UTILITIES_TMP"
+  GOOGLE_UTILITIES_ROOT="$(find "$GOOGLE_UTILITIES_TMP" -type f -path '*/GoogleUtilities/Network/Public/GoogleUtilities/GULNetworkURLSession.h' -print -quit | sed 's#/GoogleUtilities/Network/Public/GoogleUtilities/GULNetworkURLSession.h$##')"
+  rm -rf "$REPO_ROOT/ios/Pods/GoogleUtilities"
+  cp -RL "$GOOGLE_UTILITIES_ROOT" "$REPO_ROOT/ios/Pods/GoogleUtilities"
+fi
+
 KEYBOARD_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/react-native-keyboard-controller/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
 if [[ -z "$KEYBOARD_ROOT" ]]; then
   echo "[Velora CI] react-native-keyboard-controller sources are not materialized; downloading package 1.21.7"
