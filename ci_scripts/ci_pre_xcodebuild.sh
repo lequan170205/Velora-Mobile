@@ -345,7 +345,7 @@ fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/SDWebImageAVIFCoder"
 cp -RL "$REPO_ROOT/ios/Pods/SDWebImageAVIFCoder" "$REPO_ROOT/ios/Pods/CloudSources/SDWebImageAVIFCoder"
 
-if [[ ! -f "$REPO_ROOT/ios/Pods/SDWebImage/SDWebImage/Classes/SDImageIOAnimatedCoderInternal.h" ]]; then
+if [[ ! -f "$REPO_ROOT/ios/Pods/SDWebImage/WebImage/SDWebImage.h" || ! -f "$REPO_ROOT/ios/Pods/SDWebImage/SDWebImage/Private/SDImageFramePool.h" ]]; then
   echo "[Velora CI] SDWebImage sources are not materialized; downloading version 5.21.7"
   SDWEBIMAGE_TMP="$(mktemp -d)"
   trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP" "$LIBWEBP_TMP" "$LIBDAV1D_TMP" "$LIBAVIF_TMP" "$EXPO_DEV_LAUNCHER_TMP" "$ZXING_TMP" "$WATERMELON_TMP" "$SDWEBP_CODER_TMP" "$SDWEBP_SVG_TMP" "$EXPO_DEV_MENU_TMP" "$EXPO_DEV_MENU_INTERFACE_TMP" "$SDWEBP_AVIF_TMP" "$SDWEBIMAGE_TMP"' EXIT
@@ -355,7 +355,7 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/SDWebImage/SDWebImage/Classes/SDImageIOAnimatedC
   tar -xzf "$SDWEBIMAGE_TMP/sdwebimage.tgz" -C "$SDWEBIMAGE_TMP"
   rm -rf "$REPO_ROOT/ios/Pods/SDWebImage"
   mkdir -p "$REPO_ROOT/ios/Pods/SDWebImage"
-  cp -RL "$SDWEBIMAGE_TMP/SDWebImage-5.21.7" "$REPO_ROOT/ios/Pods/SDWebImage"
+  cp -RL "$SDWEBIMAGE_TMP/SDWebImage-5.21.7/." "$REPO_ROOT/ios/Pods/SDWebImage/"
 fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/SDWebImage"
 cp -RL "$REPO_ROOT/ios/Pods/SDWebImage" "$REPO_ROOT/ios/Pods/CloudSources/SDWebImage"
