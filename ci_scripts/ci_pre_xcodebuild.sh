@@ -203,6 +203,13 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/libdav1d/dav1d/include/dav1d.h" ]]; then
 fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/libdav1d"
 cp -RL "$REPO_ROOT/ios/Pods/libdav1d" "$REPO_ROOT/ios/Pods/CloudSources/libdav1d"
+if [[ ! -f "$REPO_ROOT/ios/Pods/CloudSources/libdav1d/include/dav1d/version.h" ]]; then
+  sed -e 's/@DAV1D_API_VERSION_MAJOR@/6/' \
+      -e 's/@DAV1D_API_VERSION_MINOR@/9/' \
+      -e 's/@DAV1D_API_VERSION_PATCH@/0/' \
+      "$REPO_ROOT/ios/Pods/CloudSources/libdav1d/include/dav1d/version.h.in" \
+      > "$REPO_ROOT/ios/Pods/CloudSources/libdav1d/include/dav1d/version.h"
+fi
 
 if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not present; downloading version 124.0.2"
