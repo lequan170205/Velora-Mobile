@@ -13,9 +13,11 @@ export function Input({ label, error, style, ...rest }: InputProps) {
   return (
     <>
       <PaperTextInput
-        mode="outlined"
+        mode="flat"
         label={label}
         error={!!error}
+        underlineColor="transparent"
+        activeUnderlineColor="transparent"
         // NativeWind limitation: kept as inline — Paper TextInput background not styleable via className
         style={[{ backgroundColor: '#F8F8F8' }, style]}
         {...rest}
