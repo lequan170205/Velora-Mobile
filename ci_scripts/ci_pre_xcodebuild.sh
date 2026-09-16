@@ -358,7 +358,7 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/SDWebImage/SDWebImage/Classes/SDImageIOAnimatedC
   cp -RL "$SDWEBIMAGE_TMP/SDWebImage-5.21.7/SDWebImage" "$REPO_ROOT/ios/Pods/SDWebImage/"
 fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/SDWebImage"
-cp -RL "$REPO_ROOT/ios/Pods/SDWebImage" "$REPO_ROOT/ios/Pods/CloudSources/SDWebImage"
+cp -RL "$REPO_ROOT/ios/Pods/SDWebImage/SDWebImage" "$REPO_ROOT/ios/Pods/CloudSources/SDWebImage"
 
 if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not present; downloading version 124.0.2"
