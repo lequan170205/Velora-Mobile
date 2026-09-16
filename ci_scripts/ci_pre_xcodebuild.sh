@@ -122,7 +122,7 @@ done < <(rg -o --no-filename 'node_modules/\.pnpm/react-native@[^" ]+/node_modul
 RN_PBX_PREFIX="$(rg -o --no-filename '\.\./\.\./node_modules/\.pnpm/react-native@[^" ]+/node_modules/react-native' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj" 2>/dev/null | sort -u | head -1 || true)"
 if [[ -n "$RN_PBX_PREFIX" ]]; then
-  sed -i '' "s|$RN_PBX_PREFIX|../CloudSources/react-native|g" \
+  sed -i '' "s|$RN_PBX_PREFIX|CloudSources/react-native|g" \
     "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 fi
 # Pin the two privacy resources to explicit project-root paths as well. These
@@ -130,9 +130,9 @@ fi
 # project validation even after the parent groups are rewritten.
 sed -i '' \
   -e \
-  's|46EB2E00020890 /\* PrivacyInfo.xcprivacy \*/ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = React/Resources/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };|46EB2E00020890 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = ../CloudSources/react-native/React/Resources/PrivacyInfo.xcprivacy; sourceTree = SOURCE_ROOT; };|' \
+  's|46EB2E00020890 /\* PrivacyInfo.xcprivacy \*/ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = React/Resources/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };|46EB2E00020890 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = CloudSources/react-native/React/Resources/PrivacyInfo.xcprivacy; sourceTree = SOURCE_ROOT; };|' \
   -e \
-  's|46EB2E000208A0 /\* PrivacyInfo.xcprivacy \*/ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };|46EB2E000208A0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = ../CloudSources/react-native/ReactCommon/cxxreact/PrivacyInfo.xcprivacy; sourceTree = SOURCE_ROOT; };|' \
+  's|46EB2E000208A0 /\* PrivacyInfo.xcprivacy \*/ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };|46EB2E000208A0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = CloudSources/react-native/ReactCommon/cxxreact/PrivacyInfo.xcprivacy; sourceTree = SOURCE_ROOT; };|' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 
 SKIA_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/@shopify/react-native-skia/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
@@ -420,6 +420,11 @@ if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; th
   mkdir -p "$REPO_ROOT/ios/Pods/JitsiWebRTC"
   unzip -q "$JITSI_TMP/WebRTC.xcframework.zip" -d "$REPO_ROOT/ios/Pods/JitsiWebRTC"
 fi
+
+# The generated CocoaPods helper uses bash arrays despite its /bin/sh shebang.
+# Xcode Cloud's newer macOS image rejects that script under sh.
+sed -i '' '1s|^#!/bin/sh$|#!/bin/bash|' \
+  "$REPO_ROOT/ios/Pods/Target Support Files/JitsiWebRTC/JitsiWebRTC-xcframeworks.sh"
 
 cp "$REPO_ROOT/GoogleService-Info.plist" "$REPO_ROOT/ios/veloraDev/GoogleService-Info.plist"
 
