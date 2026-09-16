@@ -26,6 +26,19 @@ if [[ ! -f "$REPO_ROOT/GoogleService-Info.plist" ]]; then
   exit 1
 fi
 
+# Xcode Cloud may resolve pnpm dependencies without creating the optional
+# package symlink that CocoaPods recorded for simdjson. Materialize the small
+# native source pair at a stable path before xcodebuild reads the Pods project.
+SIMDJSON_HEADER="$(find "$REPO_ROOT/node_modules" -path '*/@nozbe/simdjson/src/simdjson.h' -type f -print -quit 2>/dev/null || true)"
+SIMDJSON_CPP="$(find "$REPO_ROOT/node_modules" -path '*/@nozbe/simdjson/src/simdjson.cpp' -type f -print -quit 2>/dev/null || true)"
+if [[ -z "$SIMDJSON_HEADER" || -z "$SIMDJSON_CPP" ]]; then
+  echo "[Velora CI] Could not locate simdjson native sources" >&2
+  exit 1
+fi
+mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/simdjson/src"
+cp "$SIMDJSON_HEADER" "$REPO_ROOT/ios/Pods/CloudSources/simdjson/src/simdjson.h"
+cp "$SIMDJSON_CPP" "$REPO_ROOT/ios/Pods/CloudSources/simdjson/src/simdjson.cpp"
+
 cp "$REPO_ROOT/GoogleService-Info.plist" "$REPO_ROOT/ios/veloraDev/GoogleService-Info.plist"
 
 if [[ -n "${CI_BUILD_NUMBER:-}" ]]; then
