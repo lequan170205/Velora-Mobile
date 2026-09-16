@@ -501,6 +501,12 @@ sed -i '' \
 sed -i '' \
   '/path = "CloudSources\/expo-media-library";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  '/46EB2E00025770 \/\* Support Files \/\*\//,/^\t\t};$/ s#path = "\.\./\.\./\.\./\.\./\.\./\.\./ios/Pods/Target Support Files/ExpoMediaLibrary";#path = "Target Support Files/ExpoMediaLibrary";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  '/46EB2E00025770 \/\* Support Files \/\*\//,/^\t\t};$/ s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 
 if [[ ! -f "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64/WebRTC.framework/WebRTC" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not materialized; downloading version 124.0.2"
