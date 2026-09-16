@@ -29846,7 +29846,7 @@
 				46EB2E00036860 /* Support Files */,
 			);
 			name = libdav1d;
-			path = libdav1d;
+			path = CloudSources/libdav1d;
 			sourceTree = "<group>";
 		};
 		46EB2E00000980 /* libwebp */ = {
@@ -40652,7 +40652,7 @@
 				46EB2E00036880 /* libdav1d.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../Target Support Files/libdav1d";
+			path = "../../Target Support Files/libdav1d";
 			sourceTree = "<group>";
 		};
 		46EB2E00037480 /* Support Files */ = {

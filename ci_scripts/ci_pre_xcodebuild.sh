@@ -187,6 +187,20 @@ fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/libwebp"
 cp -RL "$REPO_ROOT/ios/Pods/libwebp" "$REPO_ROOT/ios/Pods/CloudSources/libwebp"
 
+if [[ ! -f "$REPO_ROOT/ios/Pods/libdav1d/dav1d/include/dav1d.h" ]]; then
+  echo "[Velora CI] libdav1d sources are not materialized; downloading version 1.2.0"
+  LIBDAV1D_TMP="$(mktemp -d)"
+  trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$KEYBOARD_TMP" "$NANOPB_TMP" "$LIBWEBP_TMP" "$LIBDAV1D_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://github.com/SDWebImage/libdav1d-Xcode/archive/refs/tags/1.2.0.tar.gz' \
+    --output "$LIBDAV1D_TMP/libdav1d.tgz"
+  tar -xzf "$LIBDAV1D_TMP/libdav1d.tgz" -C "$LIBDAV1D_TMP"
+  rm -rf "$REPO_ROOT/ios/Pods/libdav1d"
+  cp -RL "$LIBDAV1D_TMP/libdav1d-Xcode-1.2.0" "$REPO_ROOT/ios/Pods/libdav1d"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/libdav1d"
+cp -RL "$REPO_ROOT/ios/Pods/libdav1d" "$REPO_ROOT/ios/Pods/CloudSources/libdav1d"
+
 if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not present; downloading version 124.0.2"
   JITSI_TMP="$(mktemp -d)"
