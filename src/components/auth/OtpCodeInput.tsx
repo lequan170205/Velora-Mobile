@@ -38,22 +38,20 @@ export function OtpCodeInput({
 
   return (
     <Pressable onPress={() => resolvedInputRef.current?.focus()} className="rounded-[20px]">
-      <View className="rounded-[20px] border border-[#F1E8E1] bg-[#FFFBF8] px-4 py-4">
+      <View className="rounded-[20px] bg-[#FFFBF8] px-4 py-4">
         <Text className="mb-3 text-sm2 font-semibold text-text-primary">{label}</Text>
 
         <View className="flex-row items-center justify-between gap-2">
           {Array.from({ length }).map((_, index) => {
             const character = normalizedValue[index] ?? ''
             const isActive = isFocused && index === activeIndex
-            const isFilled = character.length > 0
 
             return (
               <View
                 key={index}
                 className={cn(
-                  'h-14 flex-1 items-center justify-center rounded-[16px] border bg-white',
-                  isActive ? 'border-brand bg-[#FFF7F2]' : 'border-[#EEE7E2]',
-                  isFilled ? 'bg-white' : null,
+                  'h-14 flex-1 items-center justify-center rounded-[16px]',
+                  isActive ? 'bg-[#FFF7F2]' : 'bg-white',
                 )}
               >
                 <Text className="font-heading text-[24px] leading-[28px] text-text-primary">
