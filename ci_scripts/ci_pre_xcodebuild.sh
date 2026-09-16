@@ -416,6 +416,9 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/FirebaseMessaging/FirebaseMessaging/Sources/Publ
   FIREBASE_MESSAGING_ROOT="$(find "$FIREBASE_MESSAGING_TMP" -type f -path '*/FirebaseMessaging/Sources/Public/FirebaseMessaging/FirebaseMessaging.h' -print -quit | sed 's#/FirebaseMessaging/Sources/Public/FirebaseMessaging/FirebaseMessaging.h$##')"
   rm -rf "$REPO_ROOT/ios/Pods/FirebaseMessaging"
   cp -RL "$FIREBASE_MESSAGING_ROOT" "$REPO_ROOT/ios/Pods/FirebaseMessaging"
+  FIREBASE_INSTALLATIONS_ROOT="$(find "$FIREBASE_MESSAGING_TMP" -type f -path '*/FirebaseInstallations/Source/Library/Public/FirebaseInstallations/FIRInstallations.h' -print -quit | sed 's#/FirebaseInstallations/Source/Library/Public/FirebaseInstallations/FIRInstallations.h$##')"
+  rm -rf "$REPO_ROOT/ios/Pods/FirebaseInstallations"
+  cp -RL "$FIREBASE_INSTALLATIONS_ROOT" "$REPO_ROOT/ios/Pods/FirebaseInstallations"
 fi
 
 if [[ ! -f "$REPO_ROOT/ios/Pods/GTMAppAuth/GTMAppAuth/Sources/Resources/PrivacyInfo.xcprivacy" ]]; then
@@ -457,7 +460,7 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/GoogleSignIn/GoogleSignIn/Sources/Public/GoogleS
   cp -RL "$GOOGLE_SIGNIN_ROOT" "$REPO_ROOT/ios/Pods/GoogleSignIn"
 fi
 
-if [[ ! -f "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/Info.plist" ]]; then
+if [[ ! -f "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64/WebRTC.framework/WebRTC" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not materialized; downloading version 124.0.2"
   JITSI_TMP="$(mktemp -d)"
   trap 'rm -rf "$SIMDJSON_TMP" "$WEBRTC_TMP" "$RN_TMP" "$SKIA_TMP" "$SAFE_AREA_TMP" "$PAGER_TMP" "$SCREENS_TMP" "$SVG_TMP" "$GESTURE_TMP" "$GOOGLE_TMP" "$ASYNC_STORAGE_TMP" "$PROMISES_TMP" "$PROMISES_SWIFT_TMP" "$GOOGLE_UTILITIES_TMP" "$GOOGLE_SIGNIN_TMP" "$JITSI_TMP"' EXIT
