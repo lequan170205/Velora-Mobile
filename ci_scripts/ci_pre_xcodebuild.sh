@@ -131,6 +131,27 @@ if [[ -n "$RN_PBX_PREFIX" ]]; then
   sed -i '' "s|$RN_PBX_PREFIX|CloudSources/react-native|g" \
     "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 fi
+
+# Restore the arm64 React framework used by React-Core-prebuilt. The checked
+# in artifact cache is available in the repository; Maven is the fallback for
+# fresh Cloud clones where that cache is absent.
+if [[ ! -f "$REPO_ROOT/ios/Pods/React-Core-prebuilt/React.xcframework/ios-arm64/React.framework/React" ]]; then
+  echo "[Velora CI] React-Core-prebuilt arm64 artifact is not materialized"
+  REACT_CORE_TMP="$(mktemp -d)"
+  REACT_CORE_ARCHIVE="$REPO_ROOT/ios/Pods/ReactNativeCore-artifacts/reactnative-core-0.81.5-release.tar.gz"
+  if [[ -f "$REACT_CORE_ARCHIVE" ]]; then
+    cp "$REACT_CORE_ARCHIVE" "$REACT_CORE_TMP/react-native-core.tgz"
+  else
+    curl --fail --silent --show-error --location \
+      'https://repo1.maven.org/maven2/com/facebook/react/react-native-artifacts/0.81.5/react-native-artifacts-0.81.5-reactnative-core-release.tar.gz' \
+      --output "$REACT_CORE_TMP/react-native-core.tgz"
+  fi
+  tar -xzf "$REACT_CORE_TMP/react-native-core.tgz" -C "$REACT_CORE_TMP"
+  rm -rf "$REPO_ROOT/ios/Pods/React-Core-prebuilt/React.xcframework"
+  mkdir -p "$REPO_ROOT/ios/Pods/React-Core-prebuilt"
+  cp -RL "$REACT_CORE_TMP/React.xcframework" "$REPO_ROOT/ios/Pods/React-Core-prebuilt/"
+fi
+
 # Pin the two privacy resources to explicit project-root paths as well. These
 # PBXFileReferences can otherwise retain a group-relative path during Xcode's
 # project validation even after the parent groups are rewritten.
