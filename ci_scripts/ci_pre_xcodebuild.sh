@@ -116,6 +116,16 @@ while IFS= read -r react_native_path; do
 done < <(rg -o --no-filename 'node_modules/\.pnpm/react-native@[^" ]+/node_modules/react-native' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj" 2>/dev/null | sort -u)
 
+# The Pods project itself still contains the pnpm prefix in PBXGroup paths.
+# Rewrite that prefix to the prepared CloudSources copy so xcodebuild does not
+# depend on Xcode Cloud preserving pnpm's virtual directory layout.
+RN_PBX_PREFIX="$(rg -o --no-filename '\.\./\.\./node_modules/\.pnpm/react-native@[^" ]+/node_modules/react-native' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj" 2>/dev/null | sort -u | head -1 || true)"
+if [[ -n "$RN_PBX_PREFIX" ]]; then
+  sed -i '' "s|$RN_PBX_PREFIX|../../Pods/CloudSources/react-native|g" \
+    "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+fi
+
 SKIA_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/@shopify/react-native-skia/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
 if [[ -z "$SKIA_ROOT" ]]; then
   echo "[Velora CI] React Native Skia sources are not materialized; downloading package 2.2.12"
