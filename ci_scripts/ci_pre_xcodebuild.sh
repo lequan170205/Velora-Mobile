@@ -156,6 +156,19 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/ReactNativeDependencies/framework/packages/react
   cp -RL "$RN_DEPS_XCFRAMEWORK/Headers/." "$REPO_ROOT/ios/Pods/ReactNativeDependencies/Headers/"
 fi
 
+if [[ ! -f "$REPO_ROOT/ios/Pods/hermes-engine/destroot/Library/Frameworks/universal/hermes.xcframework/ios-arm64/hermes.framework/hermes" ]]; then
+  echo "[Velora CI] Hermes arm64 artifact is not materialized; downloading the React Native 0.81.5 release artifact"
+  HERMES_TMP="$(mktemp -d)"
+  trap 'rm -rf "$HERMES_TMP"' EXIT
+  curl --fail --silent --show-error --location \
+    'https://repo1.maven.org/maven2/com/facebook/react/react-native-artifacts/0.81.5/react-native-artifacts-0.81.5-hermes-ios-release.tar.gz' \
+    --output "$HERMES_TMP/hermes.tgz"
+  tar -xzf "$HERMES_TMP/hermes.tgz" -C "$HERMES_TMP"
+  HERMES_ROOT="$(find "$HERMES_TMP" -type f -path '*/destroot/Library/Frameworks/universal/hermes.xcframework/ios-arm64/hermes.framework/hermes' -print -quit | sed 's#/destroot/Library/Frameworks/universal/hermes.xcframework/ios-arm64/hermes.framework/hermes$##')"
+  rm -rf "$REPO_ROOT/ios/Pods/hermes-engine"
+  cp -RL "$HERMES_ROOT" "$REPO_ROOT/ios/Pods/hermes-engine"
+fi
+
 SKIA_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/@shopify/react-native-skia/package.json' -type f -print -quit 2>/dev/null | sed 's#/package.json$##' || true)"
 if [[ -z "$SKIA_ROOT" ]]; then
   echo "[Velora CI] React Native Skia sources are not materialized; downloading package 2.2.12"
