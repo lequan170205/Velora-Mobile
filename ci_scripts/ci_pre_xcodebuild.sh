@@ -76,6 +76,12 @@ sed -i '' \
 sed -i '' \
   '/path = "CloudSources\/expo-image-loader";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  's#path = "\.\./\.\./\.\./\.\./\.\./\.\./ios/Pods/Target Support Files/EXImageLoader";#path = "Target Support Files/EXImageLoader";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  '/path = "Target Support Files\/EXImageLoader";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 
 # expo-json-utils is a transitive pod that is omitted from some Cloud pnpm
 # layouts.  Its public header is compiled by EXJSONUtils, so provide the
