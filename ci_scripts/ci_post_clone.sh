@@ -23,6 +23,8 @@ cd "$REPO_ROOT"
 # shell. Add the standard Apple Silicon + Intel Homebrew locations before
 # invoking Node/npm/pod so preinstalled tools can actually be discovered.
 export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+export HOMEBREW_NO_AUTO_UPDATE=1
+export HOMEBREW_NO_ENV_HINTS=1
 
 find_brew() {
   if command -v brew >/dev/null 2>&1; then
@@ -81,11 +83,39 @@ FIREBASE_IOS_PLIST="$REPO_ROOT/ios/veloraDev/GoogleService-Info.plist"
 if [[ -n "${GOOGLE_SERVICE_INFO_PLIST_BASE64:-}" ]]; then
   echo "[Velora CI] Restoring GoogleService-Info.plist"
   mkdir -p "$(dirname "$FIREBASE_IOS_PLIST")"
-  if base64 --decode >/dev/null 2>&1 <<<""; then
-    printf '%s' "$GOOGLE_SERVICE_INFO_PLIST_BASE64" | base64 --decode > "$FIREBASE_ROOT_PLIST"
-  else
-    printf '%s' "$GOOGLE_SERVICE_INFO_PLIST_BASE64" | base64 -D > "$FIREBASE_ROOT_PLIST"
-  fi
+
+  # Xcode Cloud environment values can preserve whitespace or surrounding
+  # quotes from copy/paste. Node's decoder lets us normalize those safely
+  # without ever echoing the secret into CI logs. It also accepts the raw plist
+  # itself as a convenience fallback.
+  node - "$FIREBASE_ROOT_PLIST" <<'NODE'
+const fs = require('fs');
+const output = process.argv[2];
+let value = process.env.GOOGLE_SERVICE_INFO_PLIST_BASE64 || '';
+value = value.trim();
+if ((value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))) {
+  value = value.slice(1, -1).trim();
+}
+if (!value) {
+  console.error('[Velora CI] GOOGLE_SERVICE_INFO_PLIST_BASE64 is empty.');
+  process.exit(1);
+}
+
+let data;
+if (value.startsWith('<?xml') || value.startsWith('<plist') || value.startsWith('bplist')) {
+  data = Buffer.from(value, 'utf8');
+} else {
+  const normalized = value.replace(/\s+/g, '');
+  data = Buffer.from(normalized, 'base64');
+}
+if (!data.length) {
+  console.error('[Velora CI] Firebase secret decoded to an empty file.');
+  process.exit(1);
+}
+fs.writeFileSync(output, data);
+NODE
+
   cp "$FIREBASE_ROOT_PLIST" "$FIREBASE_IOS_PLIST"
 fi
 
@@ -100,12 +130,13 @@ if [[ ! -s "$FIREBASE_IOS_PLIST" ]]; then
 fi
 
 if ! /usr/bin/plutil -lint "$FIREBASE_IOS_PLIST" >/dev/null; then
-  echo "[Velora CI] GoogleService-Info.plist is not a valid plist after decoding. Recreate GOOGLE_SERVICE_INFO_PLIST_BASE64 from the original Firebase plist." >&2
+  echo "[Velora CI] GoogleService-Info.plist is not valid after restoring the Xcode Cloud secret." >&2
+  echo "[Velora CI] Re-save GOOGLE_SERVICE_INFO_PLIST_BASE64 using either the raw plist contents or a clean base64 value." >&2
   exit 1
 fi
 
 if ! /usr/libexec/PlistBuddy -c 'Print :GOOGLE_APP_ID' "$FIREBASE_IOS_PLIST" >/dev/null 2>&1; then
-  echo "[Velora CI] GoogleService-Info.plist is valid XML but does not contain GOOGLE_APP_ID." >&2
+  echo "[Velora CI] GoogleService-Info.plist is valid but does not contain GOOGLE_APP_ID." >&2
   exit 1
 fi
 
