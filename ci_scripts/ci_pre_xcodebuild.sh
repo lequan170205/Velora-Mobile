@@ -140,6 +140,22 @@ sed -i '' \
   '/path = "Target Support Files\/EXApplication";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 
+# ExpoDevice's privacy manifest is referenced directly by its resource target.
+EXPO_DEVICE_PRIVACY="$(find -L "$REPO_ROOT/node_modules" -path '*/expo-device/ios/PrivacyInfo.xcprivacy' -type f -print -quit 2>/dev/null || true)"
+if [[ -z "$EXPO_DEVICE_PRIVACY" ]]; then
+  EXPO_DEVICE_TMP="$(mktemp -d)"
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/expo-device/-/expo-device-55.0.18.tgz' \
+    --output "$EXPO_DEVICE_TMP/expo-device.tgz"
+  tar -xzf "$EXPO_DEVICE_TMP/expo-device.tgz" -C "$EXPO_DEVICE_TMP"
+  EXPO_DEVICE_PRIVACY="$EXPO_DEVICE_TMP/package/ios/PrivacyInfo.xcprivacy"
+fi
+mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/expo-device"
+cp "$EXPO_DEVICE_PRIVACY" "$REPO_ROOT/ios/Pods/CloudSources/expo-device/PrivacyInfo.xcprivacy"
+sed -i '' \
+  's|46EB2E00020400 /\* PrivacyInfo.xcprivacy \*/ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };|46EB2E00020400 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = CloudSources/expo-device/PrivacyInfo.xcprivacy; sourceTree = SOURCE_ROOT; };|' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+
 # expo-json-utils is a transitive pod that is omitted from some Cloud pnpm
 # layouts.  Its public header is compiled by EXJSONUtils, so provide the
 # package archive as a deterministic fallback.
