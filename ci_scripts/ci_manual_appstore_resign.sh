@@ -296,8 +296,7 @@ validate_with_app_store_connect() {
       -t ios \
       -u "$ASC_APPLE_ID_USERNAME" \
       --apiKey "$ASC_API_KEY_ID" \
-      --apiIssuer "$ASC_API_ISSUER_ID" \
-      --output-format json 2>&1)"; then
+      --apiIssuer "$ASC_API_ISSUER_ID" 2>&1)"; then
     printf '%s\n' "$output" >&2
     echo "[Velora CI] App Store Connect validation rejected the exact manually signed IPA. It was NOT uploaded." >&2
     return 1
@@ -315,8 +314,7 @@ upload_to_app_store_connect() {
       -t ios \
       -u "$ASC_APPLE_ID_USERNAME" \
       --apiKey "$ASC_API_KEY_ID" \
-      --apiIssuer "$ASC_API_ISSUER_ID" \
-      --output-format json 2>&1)"; then
+      --apiIssuer "$ASC_API_ISSUER_ID" 2>&1)"; then
     printf '%s\n' "$output" >&2
     echo "[Velora CI] Direct App Store Connect upload failed." >&2
     return 1
