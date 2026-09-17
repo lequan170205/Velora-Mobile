@@ -17,6 +17,7 @@ echo "[Velora CI] App Store artifact: $CI_APP_STORE_SIGNED_APP_PATH"
 echo "[Velora CI] Archive: ${CI_ARCHIVE_PATH:-unavailable}"
 
 TMP_DIR=""
+IPA_PATH=""
 cleanup() {
   if [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]]; then
     rm -rf "$TMP_DIR"
@@ -26,6 +27,7 @@ trap cleanup EXIT
 
 extract_ipa() {
   local ipa="$1"
+  IPA_PATH="$ipa"
   TMP_DIR="$(mktemp -d)"
   /usr/bin/unzip -q "$ipa" -d "$TMP_DIR"
   find "$TMP_DIR/Payload" -maxdepth 2 -type d -name '*.app' -print -quit 2>/dev/null || true
@@ -106,6 +108,111 @@ print_signature() {
     return 1
   fi
 }
+
+strict_app_valid() {
+  /usr/bin/codesign --verify --deep --strict --verbose=4 "$APP_PATH"
+}
+
+extract_entitlements() {
+  local code="$1"
+  local output="$2"
+  : > "$output"
+  /usr/bin/codesign -d --entitlements :- "$code" > "$output" 2>/dev/null || true
+  if ! /usr/bin/plutil -lint "$output" >/dev/null 2>&1; then
+    : > "$output"
+  fi
+}
+
+resign_preserving_entitlements() {
+  local code="$1"
+  local identity="$2"
+  local requirement="$3"
+  local entitlements
+  entitlements="$(mktemp "${TMPDIR:-/tmp}/velora-entitlements.XXXXXX.plist")"
+  extract_entitlements "$code" "$entitlements"
+
+  local args=(--force --sign "$identity" --requirements "$requirement" --timestamp=none)
+  if [[ -s "$entitlements" ]]; then
+    args+=(--entitlements "$entitlements")
+  fi
+
+  /usr/bin/codesign "${args[@]}" "$code"
+  rm -f "$entitlements"
+}
+
+repair_unicode_designated_requirement() {
+  if [[ -z "$IPA_PATH" || -z "$TMP_DIR" ]]; then
+    echo "[Velora CI] Cannot repair signing because the exported artifact is not an IPA" >&2
+    return 1
+  fi
+
+  local identity team_id requirement_file
+  identity="$(/usr/bin/codesign -dv --verbose=4 "$APP_PATH" 2>&1 | /usr/bin/sed -n 's/^Authority=//p' | /usr/bin/head -1)"
+  team_id="$(/usr/bin/codesign -dv --verbose=4 "$APP_PATH" 2>&1 | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -1)"
+
+  if [[ -z "$identity" || -z "$team_id" || "$team_id" == "not set" ]]; then
+    echo "[Velora CI] Could not determine Apple Distribution identity/team from exported app" >&2
+    return 1
+  fi
+
+  if [[ "$identity" != Apple\ Distribution:* ]]; then
+    echo "[Velora CI] Refusing signing workaround because exported app is not Apple Distribution signed: $identity" >&2
+    return 1
+  fi
+
+  echo "[Velora CI] Export uses a valid Apple Distribution certificate but its generated designated requirement is invalid."
+  echo "[Velora CI] Applying OU-based designated requirement for TeamIdentifier=$team_id"
+
+  if ! /usr/bin/security find-identity -v -p codesigning | /usr/bin/grep -Fq "$identity"; then
+    echo "[Velora CI] Distribution identity is not available with its private key on this runner: $identity" >&2
+    return 1
+  fi
+
+  requirement_file="$(mktemp "${TMPDIR:-/tmp}/velora-requirement.XXXXXX")"
+  cat > "$requirement_file" <<EOF
+designated => anchor apple generic
+  and certificate leaf[subject.OU] = "$team_id"
+  and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */
+EOF
+
+  # Sign nested code first. This avoids the parent app seal becoming stale.
+  if [[ -d "$APP_PATH/Frameworks" ]]; then
+    while IFS= read -r -d '' dylib; do
+      /usr/bin/codesign --force --sign "$identity" --requirements "$requirement_file" --timestamp=none "$dylib"
+    done < <(find "$APP_PATH/Frameworks" -type f -name '*.dylib' -print0)
+
+    while IFS= read -r -d '' framework; do
+      /usr/bin/codesign --force --sign "$identity" --requirements "$requirement_file" --timestamp=none "$framework"
+    done < <(find "$APP_PATH/Frameworks" -type d -name '*.framework' -print0)
+  fi
+
+  # Preserve extension entitlements, then sign the app itself last.
+  if [[ -d "$APP_PATH/PlugIns" ]]; then
+    while IFS= read -r -d '' extension; do
+      resign_preserving_entitlements "$extension" "$identity" "$requirement_file"
+    done < <(find "$APP_PATH/PlugIns" -type d -name '*.appex' -print0)
+  fi
+
+  resign_preserving_entitlements "$APP_PATH" "$identity" "$requirement_file"
+  rm -f "$requirement_file"
+
+  echo "[Velora CI] Verifying repaired signature"
+  /usr/bin/codesign --verify --deep --strict --verbose=4 "$APP_PATH"
+
+  local new_ipa="$IPA_PATH.repacked"
+  rm -f "$new_ipa"
+  (
+    cd "$TMP_DIR"
+    /usr/bin/zip -qry "$new_ipa" .
+  )
+  mv "$new_ipa" "$IPA_PATH"
+
+  echo "[Velora CI] Repacked repaired IPA: $IPA_PATH"
+}
+
+if ! strict_app_valid 2>&1; then
+  repair_unicode_designated_requirement
+fi
 
 FAILED=0
 print_signature "$APP_PATH" "app" || FAILED=1
