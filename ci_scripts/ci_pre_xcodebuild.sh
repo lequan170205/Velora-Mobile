@@ -534,6 +534,34 @@ sed -i '' \
   '/path = "Target Support Files\/ExpoMediaLibrary";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 
+# ExpoFileSystem has a deep Legacy source tree and its generated project stores
+# the pnpm path directly.  Materialize it before Xcode resolves header groups.
+EXPO_FILE_SYSTEM_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/expo-file-system/ios/Legacy/EXSessionTasks/EXTaskHandlersManager.h' -type f -print -quit 2>/dev/null | sed 's#/ios/Legacy/EXSessionTasks/EXTaskHandlersManager.h$##' || true)"
+if [[ -z "$EXPO_FILE_SYSTEM_ROOT" ]]; then
+  echo "[Velora CI] ExpoFileSystem sources are not materialized; downloading version 19.0.23"
+  EXPO_FILE_SYSTEM_TMP="$(mktemp -d)"
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/expo-file-system/-/expo-file-system-19.0.23.tgz' \
+    --output "$EXPO_FILE_SYSTEM_TMP/expo-file-system.tgz"
+  tar -xzf "$EXPO_FILE_SYSTEM_TMP/expo-file-system.tgz" -C "$EXPO_FILE_SYSTEM_TMP"
+  EXPO_FILE_SYSTEM_ROOT="$EXPO_FILE_SYSTEM_TMP/package"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/expo-file-system"
+mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/expo-file-system"
+cp -R "$EXPO_FILE_SYSTEM_ROOT/ios/." "$REPO_ROOT/ios/Pods/CloudSources/expo-file-system/"
+sed -i '' \
+  's#path = "\.\./\.\./node_modules/\.pnpm/expo-file-system@[^\"]*/node_modules/expo-file-system/ios";#path = "CloudSources/expo-file-system";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  's#path = "\.\./\.\./\.\./\.\./\.\./\.\./ios/Pods/Target Support Files/ExpoFileSystem";#path = "Target Support Files/ExpoFileSystem";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  '/path = "CloudSources\/expo-file-system";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  '/path = "Target Support Files\/ExpoFileSystem";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+
 # expo-router's ExpoHead target has the same pnpm-path fragility, including
 # the LinkPreviewNativeNavigation public header used by the archive.
 EXPO_HEAD_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/expo-router/ios/LinkPreview/LinkPreviewNativeNavigation.h' -type f -print -quit 2>/dev/null | sed 's#/ios/LinkPreview/LinkPreviewNativeNavigation.h$##' || true)"
@@ -829,12 +857,19 @@ if [[ ! -d "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64" ]]; th
   unzip -q "$JITSI_TMP/WebRTC.xcframework.zip" -d "$REPO_ROOT/ios/Pods/JitsiWebRTC"
 fi
 
-# The generated CocoaPods helper uses bash arrays despite its /bin/sh shebang.
-# Xcode Cloud's newer macOS image rejects that script under sh.
-sed -i '' '1s|^#!/bin/sh$|#!/bin/bash|' \
-  "$REPO_ROOT/ios/Pods/Target Support Files/JitsiWebRTC/JitsiWebRTC-xcframeworks.sh"
-sed -i '' 's#"\${source}"/\* "\${destination}"#"\${source}" "\${destination}"#' \
-  "$REPO_ROOT/ios/Pods/Target Support Files/JitsiWebRTC/JitsiWebRTC-xcframeworks.sh"
+# CocoaPods generates this helper with bash-only arrays but runs it with sh on
+# the current Xcode Cloud image.  The archive only needs the device arm64
+# slice, so replace it with a POSIX helper that copies that exact slice.
+JITSI_XCFRAMEWORKS_SCRIPT="$REPO_ROOT/ios/Pods/Target Support Files/JitsiWebRTC/JitsiWebRTC-xcframeworks.sh"
+printf '%s\n' \
+  '#!/bin/sh' \
+  'set -eu' \
+  'source="${PODS_ROOT}/JitsiWebRTC/WebRTC.xcframework/ios-arm64/"' \
+  'destination="${PODS_XCFRAMEWORKS_BUILD_DIR}/JitsiWebRTC"' \
+  'mkdir -p "$destination"' \
+  'rsync --delete -av --links --filter "- CVS/" --filter "- .svn/" --filter "- .git/" --filter "- .hg/" "$source" "$destination"' \
+  > "$JITSI_XCFRAMEWORKS_SCRIPT"
+chmod +x "$JITSI_XCFRAMEWORKS_SCRIPT"
 sed -i '' 's#"\${source}"/\* "\${destination}"#"\${source}" "\${destination}"#' \
   "$REPO_ROOT/ios/Pods/Target Support Files/ReactNativeDependencies/ReactNativeDependencies-xcframeworks.sh"
 
