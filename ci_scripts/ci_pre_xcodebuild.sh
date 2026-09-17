@@ -537,25 +537,43 @@ sed -i '' \
 # expo-router's ExpoHead target has the same pnpm-path fragility, including
 # the LinkPreviewNativeNavigation public header used by the archive.
 EXPO_HEAD_ROOT="$(find -L "$REPO_ROOT/node_modules" -path '*/expo-router/ios/LinkPreview/LinkPreviewNativeNavigation.h' -type f -print -quit 2>/dev/null | sed 's#/ios/LinkPreview/LinkPreviewNativeNavigation.h$##' || true)"
-if [[ -n "$EXPO_HEAD_ROOT" ]]; then
-  rm -rf "$REPO_ROOT/ios/Pods/CloudSources/expo-head"
-  mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/expo-head"
-  cp -RL "$EXPO_HEAD_ROOT/ios/." "$REPO_ROOT/ios/Pods/CloudSources/expo-head/"
-  sed -i '' \
-    's#path = "\.\./\.\./node_modules/\.pnpm/expo-router@[^\"]*/node_modules/expo-router/ios";#path = "CloudSources/expo-head";#' \
-    "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
-  sed -i '' \
-    's#path = "\.\./\.\./\.\./\.\./\.\./\.\./ios/Pods/Target Support Files/ExpoHead";#path = "Target Support Files/ExpoHead";#' \
-    "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
-  sed -i '' \
-    '/path = "Target Support Files\/ExpoHead";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
-    "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+if [[ -z "$EXPO_HEAD_ROOT" ]]; then
+  echo "[Velora CI] ExpoHead sources are not materialized; downloading expo-router 6.0.24"
+  EXPO_HEAD_TMP="$(mktemp -d)"
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/expo-router/-/expo-router-6.0.24.tgz' \
+    --output "$EXPO_HEAD_TMP/expo-router.tgz"
+  tar -xzf "$EXPO_HEAD_TMP/expo-router.tgz" -C "$EXPO_HEAD_TMP"
+  EXPO_HEAD_ROOT="$EXPO_HEAD_TMP/package"
 fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/expo-head"
+mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/expo-head"
+cp -R "$EXPO_HEAD_ROOT/ios/." "$REPO_ROOT/ios/Pods/CloudSources/expo-head/"
+sed -i '' \
+  's#path = "\.\./\.\./node_modules/\.pnpm/expo-router@[^\"]*/node_modules/expo-router/ios";#path = "CloudSources/expo-head";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  's#path = "\.\./\.\./\.\./\.\./\.\./\.\./ios/Pods/Target Support Files/ExpoHead";#path = "Target Support Files/ExpoHead";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  '/path = "CloudSources\/expo-head";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  '/path = "Target Support Files\/ExpoHead";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+# ExpoHead's public header is referenced independently of its parent source
+# group.  Point that reference at the materialized source to avoid Xcode
+# resolving the original pnpm path.
+sed -i '' \
+  's#path = LinkPreviewNativeNavigation\.h; sourceTree = "<group>";#path = CloudSources/expo-head/LinkPreview/LinkPreviewNativeNavigation.h; sourceTree = SOURCE_ROOT;#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 
 # The generated React Native dependencies helper uses bash arrays while
 # CocoaPods gives it a /bin/sh shebang on the Cloud image.
 sed -i '' '1s|^#!/bin/sh$|#!/bin/bash|' \
   "$REPO_ROOT/ios/Pods/Target Support Files/ReactNativeDependencies/ReactNativeDependencies-xcframeworks.sh"
+sed -i '' '/^set -o pipefail$/d' \
+  "$REPO_ROOT/ios/Pods/Target Support Files/JitsiWebRTC/JitsiWebRTC-xcframeworks.sh"
 
 if [[ ! -f "$REPO_ROOT/ios/Pods/JitsiWebRTC/WebRTC.xcframework/ios-arm64/WebRTC.framework/WebRTC" ]]; then
   echo "[Velora CI] JitsiWebRTC binary is not materialized; downloading version 124.0.2"
