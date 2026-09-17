@@ -35,37 +35,18 @@ while IFS= read -r virtual_path; do
   fi
 done < <(rg -o --no-filename 'node_modules/\.pnpm/[^" ]+/node_modules/[^" ]+' "$REPO_ROOT/ios/Pods" 2>/dev/null | sort -u)
 
-# CocoaPods stores Expo native sources under pnpm's virtual path.  Xcode does
-# not reliably resolve those symlinks on Cloud, so turn every Expo iOS source
-# path referenced by the Pods project into a real directory.  This covers the
-# smaller Expo pods (for example EXImageLoader and EXJSONUtils) together rather
-# than waiting for each missing public header to surface during archive.
-while IFS= read -r expo_ios_path; do
-  expo_ios_path="${expo_ios_path%%\"*}"
-  expo_package="${expo_ios_path##*/node_modules/}"
-  expo_package="${expo_package%/ios}"
-  expo_source="$REPO_ROOT/node_modules/$expo_package/ios"
-  expo_destination="$REPO_ROOT/$expo_ios_path"
-  if [[ -d "$expo_source" ]]; then
-    rm -rf "$expo_destination"
-    mkdir -p "$expo_destination"
-    cp -R "$expo_source/." "$expo_destination/"
-  fi
-done < <(rg -o --no-filename 'node_modules/\.pnpm/[^" ]+/node_modules/(expo-[^/" ]+)/ios' \
-  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj" 2>/dev/null | sort -u)
-
-# Do not depend on pnpm symlinks for any Expo native pod. CocoaPods records
-# those virtual paths verbatim, while Xcode Cloud can omit the corresponding
-# package link. Materialize every referenced expo-* iOS tree as a real
-# directory, downloading precisely the locked package version only when its
-# source is unavailable in node_modules.
+# Do not depend on pnpm's mutable virtual paths for Expo native pods. A direct
+# dependency link can itself target one of the recorded virtual paths; copying
+# into that path would then delete the source part-way through the hook. Keep
+# immutable copies under Pods/CloudSources and repoint every Expo source group
+# there instead.
 while IFS= read -r expo_ios_path; do
   expo_package="${expo_ios_path##*/node_modules/}"
   expo_package="${expo_package%/ios}"
   expo_package_name="${expo_package%%/*}"
   expo_version="$(printf '%s' "$expo_ios_path" | sed -E "s#.*node_modules/\\.pnpm/${expo_package_name}@([^_/]+).*#\\1#")"
   expo_source="$REPO_ROOT/node_modules/$expo_package/ios"
-  expo_destination="$REPO_ROOT/$expo_ios_path"
+  expo_destination="$REPO_ROOT/ios/Pods/CloudSources/expo-packages/$expo_package_name-$expo_version"
 
   if [[ ! -d "$expo_source" ]]; then
     expo_cache_root="$REPO_ROOT/ios/Pods/CloudSources/npm-cache/$expo_package_name-$expo_version"
@@ -83,6 +64,15 @@ while IFS= read -r expo_ios_path; do
   rm -rf "$expo_destination"
   mkdir -p "$expo_destination"
   cp -R "$expo_source/." "$expo_destination/"
+
+  pbx_virtual_path="../../$expo_ios_path"
+  pbx_virtual_path_escaped="$(printf '%s' "$pbx_virtual_path" | sed 's/[.[\\*^$\\/]/\\\\&/g')"
+  sed -i '' \
+    "s#path = \\\"$pbx_virtual_path_escaped\\\";#path = \\\"CloudSources/expo-packages/$expo_package_name-$expo_version\\\";#" \
+    "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+  sed -i '' \
+    "/path = \\\"CloudSources\\/expo-packages\\/$expo_package_name-$expo_version\\\";/{n;s#sourceTree = \\\"<group>\\\";#sourceTree = SOURCE_ROOT;#;}" \
+    "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 done < <(rg -o --no-filename 'node_modules/\.pnpm/expo-[^@" ]+@[^/" ]+/node_modules/expo-[^/" ]+/ios' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj" 2>/dev/null | sort -u)
 
