@@ -54,6 +54,37 @@ while IFS= read -r expo_ios_path; do
 done < <(rg -o --no-filename 'node_modules/\.pnpm/[^" ]+/node_modules/(expo-[^/" ]+)/ios' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj" 2>/dev/null | sort -u)
 
+# expo-json-utils is a transitive pod that is omitted from some Cloud pnpm
+# layouts.  Its public header is compiled by EXJSONUtils, so provide the
+# package archive as a deterministic fallback.
+EXPO_JSON_UTILS_ROOT=""
+if [[ -f "$REPO_ROOT/node_modules/expo-json-utils/ios/EXJSONUtils/NSDictionary+EXJSONUtils.h" ]]; then
+  EXPO_JSON_UTILS_ROOT="$REPO_ROOT/node_modules/expo-json-utils"
+else
+  echo "[Velora CI] expo-json-utils sources are not materialized; downloading version 0.15.0"
+  EXPO_JSON_UTILS_TMP="$(mktemp -d)"
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/expo-json-utils/-/expo-json-utils-0.15.0.tgz' \
+    --output "$EXPO_JSON_UTILS_TMP/expo-json-utils.tgz"
+  tar -xzf "$EXPO_JSON_UTILS_TMP/expo-json-utils.tgz" -C "$EXPO_JSON_UTILS_TMP"
+  EXPO_JSON_UTILS_ROOT="$EXPO_JSON_UTILS_TMP/package"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/expo-json-utils"
+mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/expo-json-utils"
+cp -R "$EXPO_JSON_UTILS_ROOT/ios/." "$REPO_ROOT/ios/Pods/CloudSources/expo-json-utils/"
+sed -i '' \
+  's#path = "\.\./\.\./node_modules/\.pnpm/expo-json-utils@[^"]*/node_modules/expo-json-utils/ios";#path = "CloudSources/expo-json-utils";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  's#path = "\.\./\.\./\.\./\.\./\.\./\.\./ios/Pods/Target Support Files/EXJSONUtils";#path = "Target Support Files/EXJSONUtils";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  '/path = "CloudSources\/expo-json-utils";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  '/path = "Target Support Files\/EXJSONUtils";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+
 if [[ ! -d "$REPO_ROOT/ios/veloraDev.xcworkspace" ]]; then
   echo "[Velora CI] Expected workspace was not generated: ios/veloraDev.xcworkspace" >&2
   exit 1
