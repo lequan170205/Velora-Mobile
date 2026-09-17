@@ -61,19 +61,36 @@ echo "[Velora CI] Node: $(node --version) ($(command -v node))"
 echo "[Velora CI] npm: $(npm --version) ($(command -v npm))"
 
 # Restore Firebase configuration without committing the production plist.
+# Expo reads the root copy from app.json, while the checked-in Xcode project
+# references ios/veloraDev/GoogleService-Info.plist as a build resource.
+FIREBASE_ROOT_PLIST="$REPO_ROOT/GoogleService-Info.plist"
+FIREBASE_IOS_PLIST="$REPO_ROOT/ios/veloraDev/GoogleService-Info.plist"
+
 if [[ -n "${GOOGLE_SERVICE_INFO_PLIST_BASE64:-}" ]]; then
   echo "[Velora CI] Restoring GoogleService-Info.plist"
+  mkdir -p "$(dirname "$FIREBASE_IOS_PLIST")"
   if base64 --decode >/dev/null 2>&1 <<<""; then
-    printf '%s' "$GOOGLE_SERVICE_INFO_PLIST_BASE64" | base64 --decode > "$REPO_ROOT/GoogleService-Info.plist"
+    printf '%s' "$GOOGLE_SERVICE_INFO_PLIST_BASE64" | base64 --decode > "$FIREBASE_ROOT_PLIST"
   else
-    printf '%s' "$GOOGLE_SERVICE_INFO_PLIST_BASE64" | base64 -D > "$REPO_ROOT/GoogleService-Info.plist"
+    printf '%s' "$GOOGLE_SERVICE_INFO_PLIST_BASE64" | base64 -D > "$FIREBASE_ROOT_PLIST"
   fi
+  cp "$FIREBASE_ROOT_PLIST" "$FIREBASE_IOS_PLIST"
 fi
 
-if [[ ! -f "$REPO_ROOT/GoogleService-Info.plist" ]]; then
-  echo "[Velora CI] Missing GoogleService-Info.plist. Add GOOGLE_SERVICE_INFO_PLIST_BASE64 to the Xcode Cloud workflow." >&2
+if [[ ! -s "$FIREBASE_ROOT_PLIST" ]]; then
+  echo "[Velora CI] Missing root GoogleService-Info.plist. Add GOOGLE_SERVICE_INFO_PLIST_BASE64 to the Xcode Cloud workflow." >&2
   exit 1
 fi
+
+if [[ ! -s "$FIREBASE_IOS_PLIST" ]]; then
+  echo "[Velora CI] Missing Xcode Firebase plist: $FIREBASE_IOS_PLIST" >&2
+  exit 1
+fi
+
+# Validate the secret decoded into a real plist before spending time on pods.
+/usr/libexec/PlistBuddy -c 'Print :GOOGLE_APP_ID' "$FIREBASE_IOS_PLIST" >/dev/null
+
+echo "[Velora CI] Firebase plist ready for Expo and Xcode"
 
 # package.json pins pnpm@9.15.0. Corepack is not guaranteed to ship with every
 # Node release, so use it when present and fall back to npx otherwise.
