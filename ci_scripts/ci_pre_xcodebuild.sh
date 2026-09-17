@@ -54,6 +54,38 @@ while IFS= read -r expo_ios_path; do
 done < <(rg -o --no-filename 'node_modules/\.pnpm/[^" ]+/node_modules/(expo-[^/" ]+)/ios' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj" 2>/dev/null | sort -u)
 
+# Do not depend on pnpm symlinks for any Expo native pod. CocoaPods records
+# those virtual paths verbatim, while Xcode Cloud can omit the corresponding
+# package link. Materialize every referenced expo-* iOS tree as a real
+# directory, downloading precisely the locked package version only when its
+# source is unavailable in node_modules.
+while IFS= read -r expo_ios_path; do
+  expo_package="${expo_ios_path##*/node_modules/}"
+  expo_package="${expo_package%/ios}"
+  expo_package_name="${expo_package%%/*}"
+  expo_version="$(printf '%s' "$expo_ios_path" | sed -E "s#.*node_modules/\\.pnpm/${expo_package_name}@([^_/]+).*#\\1#")"
+  expo_source="$REPO_ROOT/node_modules/$expo_package/ios"
+  expo_destination="$REPO_ROOT/$expo_ios_path"
+
+  if [[ ! -d "$expo_source" ]]; then
+    expo_cache_root="$REPO_ROOT/ios/Pods/CloudSources/npm-cache/$expo_package_name-$expo_version"
+    if [[ ! -d "$expo_cache_root/package/ios" ]]; then
+      mkdir -p "$expo_cache_root"
+      echo "[Velora CI] Restoring $expo_package_name@$expo_version for Xcode Cloud"
+      curl --fail --silent --show-error --location \
+        "https://registry.npmjs.org/$expo_package_name/-/$expo_package_name-$expo_version.tgz" \
+        --output "$expo_cache_root/package.tgz"
+      tar -xzf "$expo_cache_root/package.tgz" -C "$expo_cache_root"
+    fi
+    expo_source="$expo_cache_root/package/ios"
+  fi
+
+  rm -rf "$expo_destination"
+  mkdir -p "$expo_destination"
+  cp -R "$expo_source/." "$expo_destination/"
+done < <(rg -o --no-filename 'node_modules/\.pnpm/expo-[^@" ]+@[^/" ]+/node_modules/expo-[^/" ]+/ios' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj" 2>/dev/null | sort -u)
+
 # The Cloud pnpm layout can retain expo-image-loader only in its store rather
 # than at the project dependency link. Materialize its native public header.
 EXPO_IMAGE_LOADER_ROOT=""
