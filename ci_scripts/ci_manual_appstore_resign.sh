@@ -9,6 +9,10 @@ trap 's=$?; echo "[Velora CI] FAILED stage=$STAGE line=$LINENO exit=$s command=$
 : "${IOS_DISTRIBUTION_P12_BASE64:?IOS_DISTRIBUTION_P12_BASE64 secret is required}"
 : "${IOS_DISTRIBUTION_P12_PASSWORD:?IOS_DISTRIBUTION_P12_PASSWORD secret is required}"
 : "${IOS_DISTRIBUTION_PROFILE_BASE64:?IOS_DISTRIBUTION_PROFILE_BASE64 secret is required}"
+: "${ASC_API_KEY_ID:?ASC_API_KEY_ID secret is required}"
+: "${ASC_API_ISSUER_ID:?ASC_API_ISSUER_ID secret is required}"
+: "${ASC_API_PRIVATE_KEY_BASE64:?ASC_API_PRIVATE_KEY_BASE64 secret is required}"
+: "${ASC_APPLE_ID_USERNAME:?ASC_APPLE_ID_USERNAME secret is required}"
 
 TMP_DIR=""
 VERIFY_DIR=""
@@ -21,6 +25,7 @@ APP_PATH=""
 SIGNING_HASH=""
 TEAM_ID=""
 BUNDLE_ID=""
+ASC_KEY_FILE=""
 ORIGINAL_KEYCHAINS=()
 SEARCH_LIST_CHANGED=0
 
@@ -29,6 +34,7 @@ cleanup() {
   [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]] && rm -rf "$TMP_DIR"
   [[ -n "$P12_FILE" && -f "$P12_FILE" ]] && rm -f "$P12_FILE"
   [[ -n "$PROFILE_FILE" && -f "$PROFILE_FILE" ]] && rm -f "$PROFILE_FILE"
+  [[ -n "$ASC_KEY_FILE" && -f "$ASC_KEY_FILE" ]] && rm -f "$ASC_KEY_FILE"
   if [[ "$SEARCH_LIST_CHANGED" == "1" && ${#ORIGINAL_KEYCHAINS[@]} -gt 0 ]]; then
     /usr/bin/security list-keychains -d user -s "${ORIGINAL_KEYCHAINS[@]}" >/dev/null 2>&1 || true
   fi
@@ -92,14 +98,12 @@ if not team or appid != expected:
 if expiry and expiry.replace(tzinfo=datetime.timezone.utc) <= datetime.datetime.now(datetime.timezone.utc):
     print('[Velora CI] Manual provisioning profile is expired', file=sys.stderr)
     sys.exit(11)
-# App Store profiles must not be development/ad-hoc profiles.
 if get_task_allow is True or provisioned_devices or provisions_all:
     print('[Velora CI] Profile is not an App Store Connect distribution profile', file=sys.stderr)
     sys.exit(12)
 if len(p.get('DeveloperCertificates') or []) != 1:
     print('[Velora CI] Expected exactly one distribution certificate in App Store profile', file=sys.stderr)
     sys.exit(13)
-print(team)
 PY
   TEAM_ID="$($python_bin - "$plist" <<'PY'
 import plistlib,sys
@@ -270,10 +274,64 @@ repack_and_verify() {
   log "Final IPA uses matching manual certificate + App Store profile and passed all local distribution checks"
 }
 
+prepare_app_store_connect_key() {
+  STAGE="asc-auth"
+  local key_dir="$HOME/.appstoreconnect/private_keys"
+  /bin/mkdir -p "$key_dir"
+  /bin/chmod 700 "$HOME/.appstoreconnect" "$key_dir" 2>/dev/null || true
+  ASC_KEY_FILE="$key_dir/AuthKey_${ASC_API_KEY_ID}.p8"
+  printf '%s' "$ASC_API_PRIVATE_KEY_BASE64" | /usr/bin/tr -d '\r\n\t ' | /usr/bin/base64 -D > "$ASC_KEY_FILE"
+  [[ -s "$ASC_KEY_FILE" ]] || { echo "[Velora CI] ASC_API_PRIVATE_KEY_BASE64 decoded to an empty file" >&2; return 1; }
+  /bin/chmod 600 "$ASC_KEY_FILE"
+  /usr/bin/grep -q 'BEGIN PRIVATE KEY' "$ASC_KEY_FILE" || { echo "[Velora CI] App Store Connect API key is not a valid .p8 private key" >&2; return 1; }
+  log "App Store Connect API key prepared for key ID $ASC_API_KEY_ID"
+}
+
+validate_with_app_store_connect() {
+  STAGE="app-store-validate"
+  log "Validating the manually signed IPA with App Store Connect"
+  local output=""
+  if ! output="$(/usr/bin/xcrun altool --validate-app \
+      -f "$IPA_PATH" \
+      -t ios \
+      -u "$ASC_APPLE_ID_USERNAME" \
+      --apiKey "$ASC_API_KEY_ID" \
+      --apiIssuer "$ASC_API_ISSUER_ID" \
+      --output-format json 2>&1)"; then
+    printf '%s\n' "$output" >&2
+    echo "[Velora CI] App Store Connect validation rejected the exact manually signed IPA. It was NOT uploaded." >&2
+    return 1
+  fi
+  printf '%s\n' "$output"
+  log "App Store Connect validation accepted the exact manually signed IPA"
+}
+
+upload_to_app_store_connect() {
+  STAGE="app-store-upload"
+  log "Uploading the exact validated IPA directly to App Store Connect"
+  local output=""
+  if ! output="$(/usr/bin/xcrun altool --upload-app \
+      -f "$IPA_PATH" \
+      -t ios \
+      -u "$ASC_APPLE_ID_USERNAME" \
+      --apiKey "$ASC_API_KEY_ID" \
+      --apiIssuer "$ASC_API_ISSUER_ID" \
+      --output-format json 2>&1)"; then
+    printf '%s\n' "$output" >&2
+    echo "[Velora CI] Direct App Store Connect upload failed." >&2
+    return 1
+  fi
+  printf '%s\n' "$output"
+  log "Direct App Store Connect upload completed successfully"
+}
+
 find_ipa
 decode_manual_profile
 import_identity
 verify_profile_authorizes_identity
 resign_all
 repack_and_verify
-log "Manual App Store re-sign completed successfully"
+prepare_app_store_connect_key
+validate_with_app_store_connect
+upload_to_app_store_connect
+log "Manual App Store signing, server validation, and direct upload completed successfully"
