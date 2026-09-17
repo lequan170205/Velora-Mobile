@@ -95,9 +95,6 @@ strict_verify_deep() {
   /usr/bin/codesign --verify --deep --strict --verbose=4 "$1"
 }
 
-# Apple TN2318/TN2250 distribution requirement. This is deliberately separate
-# from the code's own designated requirement: App Store Connect applies a
-# distribution-policy requirement in addition to ordinary signature integrity.
 app_store_distribution_verify() {
   local code="$1"
   /usr/bin/codesign --verify --strict --verbose=4 \
@@ -224,8 +221,6 @@ make_requirement_file() {
     return 1
   fi
 
-  # Keep Apple's distribution and WWDR OID constraints while replacing only
-  # the Unicode-sensitive Common Name comparison with the ASCII Team ID / OU.
   cat > "$output" <<EOF
 designated => anchor apple generic
   and identifier "$identifier"
@@ -326,23 +321,44 @@ profile_contains_signing_certificate() {
   local plist="$TMP_DIR/profile.plist"
   /usr/bin/security cms -D -i "$profile" -o "$plist" >/dev/null
 
-  local cert_count index cert_der cert_sha
-  cert_count="$(/usr/libexec/PlistBuddy -c 'Print :DeveloperCertificates' "$plist" 2>/dev/null | /usr/bin/grep -c '^    Dict' || true)"
+  local python_bin=""
+  python_bin="$(command -v python3 || true)"
+  if [[ -z "$python_bin" ]]; then
+    python_bin="$(/usr/bin/xcrun --find python3 2>/dev/null || true)"
+  fi
 
-  # PlistBuddy's textual output is awkward for Data values, so use PlistBuddy
-  # to export each certificate to DER through a temporary one-item plist.
-  local matched=0
-  for ((index=0; index<cert_count; index++)); do
-    local cert_plist="$TMP_DIR/profile-cert-$index.plist"
-    /bin/cp "$plist" "$cert_plist"
-    /usr/libexec/PlistBuddy -c "Delete :DeveloperCertificates:$((index + 1))" "$cert_plist" >/dev/null 2>&1 || true
-  done
+  if [[ -z "$python_bin" ]]; then
+    echo "[Velora CI] WARNING: python3 unavailable; cannot compare provisioning-profile certificate SHA-1 values." >&2
+    return 0
+  fi
 
-  # security cms does not provide a direct SHA query for DeveloperCertificates.
-  # Compare against the profile by certificate public key through cms decoding
-  # with Python/plutil only if available; otherwise keep this as diagnostic.
-  echo "[Velora CI] Provisioning profile decoded; App Store distribution signature checks will run independently."
-  return 0
+  if ! "$python_bin" - "$plist" "$SIGNING_HASH" <<'PY'
+import hashlib
+import plistlib
+import sys
+
+plist_path, expected = sys.argv[1], sys.argv[2].upper()
+with open(plist_path, 'rb') as f:
+    profile = plistlib.load(f)
+certs = profile.get('DeveloperCertificates') or []
+hashes = [hashlib.sha1(bytes(cert)).hexdigest().upper() for cert in certs]
+for value in hashes:
+    print(f"[Velora CI]   profile DeveloperCertificate SHA1: {value}")
+if expected not in hashes:
+    print(
+        f"[Velora CI] Provisioning profile does NOT authorize manual signing certificate {expected}.",
+        file=sys.stderr,
+    )
+    print(
+        "[Velora CI] A matching App Store provisioning profile is required before this IPA can be re-signed safely.",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+print(f"[Velora CI] Provisioning profile authorizes manual signing certificate {expected}")
+PY
+  then
+    return 1
+  fi
 }
 
 print_profile_diagnostics() {
