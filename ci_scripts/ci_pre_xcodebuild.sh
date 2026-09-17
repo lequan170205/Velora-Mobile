@@ -76,6 +76,50 @@ while IFS= read -r expo_ios_path; do
 done < <(rg -o --no-filename 'node_modules/\.pnpm/expo-[^@" ]+@[^/" ]+/node_modules/expo-[^/" ]+/ios' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj" 2>/dev/null | sort -u)
 
+# Xcode Cloud can expose an empty expo-av iOS directory even though the package
+# directory itself exists. EXAV uses many public headers, so validate its
+# source as a unit and fall back to the exact package locked by CocoaPods.
+EXPO_AV_ROOT="$REPO_ROOT/node_modules/expo-av"
+if [[ ! -f "$EXPO_AV_ROOT/ios/EXAV/EXAV.h" ]] || \
+   [[ ! -f "$EXPO_AV_ROOT/ios/EXAV/Video/EXVideoView.h" ]] || \
+   [[ ! -f "$EXPO_AV_ROOT/ios/EXAV/Video/EXVideoPlayerViewController.h" ]]; then
+  EXPO_AV_TMP="$(mktemp -d)"
+  echo "[Velora CI] expo-av sources are incomplete; downloading version 16.0.8"
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/expo-av/-/expo-av-16.0.8.tgz' \
+    --output "$EXPO_AV_TMP/expo-av.tgz"
+  tar -xzf "$EXPO_AV_TMP/expo-av.tgz" -C "$EXPO_AV_TMP"
+  EXPO_AV_ROOT="$EXPO_AV_TMP/package"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/expo-av"
+mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/expo-av"
+cp -R "$EXPO_AV_ROOT/ios/." "$REPO_ROOT/ios/Pods/CloudSources/expo-av/"
+for expo_av_header in \
+  EXAV/EXAV.h \
+  EXAV/EXAVObject.h \
+  EXAV/EXAudioRecordingPermissionRequester.h \
+  EXAV/EXAudioSessionManager.h \
+  EXAV/Video/EXVideoView.h \
+  EXAV/EXAVPlayerData.h \
+  EXAV/Video/EXVideoPlayerViewController.h \
+  EXAV/Video/EXVideoPlayerViewControllerDelegate.h \
+  EXAV/AudioSampleCallback/EXAV+AudioSampleCallback.h \
+  EXAV/AudioSampleCallback/EXAudioSampleCallback.h; do
+  [[ -f "$REPO_ROOT/ios/Pods/CloudSources/expo-av/$expo_av_header" ]] || {
+    echo "[Velora CI] expo-av is missing required header: $expo_av_header" >&2
+    exit 1
+  }
+done
+sed -i '' \
+  's#path = "\.\./\.\./node_modules/\.pnpm/expo-av@[^\"]*/node_modules/expo-av/ios";#path = "CloudSources/expo-av";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  's#path = "CloudSources/expo-packages/expo-av-16\.0\.8";#path = "CloudSources/expo-av";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  '/path = "CloudSources\/expo-av";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+
 # The Cloud pnpm layout can retain expo-image-loader only in its store rather
 # than at the project dependency link. Materialize its native public header.
 EXPO_IMAGE_LOADER_ROOT=""
