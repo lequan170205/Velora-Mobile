@@ -24,26 +24,62 @@ cleanup() {
 }
 trap cleanup EXIT
 
+extract_ipa() {
+  local ipa="$1"
+  TMP_DIR="$(mktemp -d)"
+  /usr/bin/unzip -q "$ipa" -d "$TMP_DIR"
+  find "$TMP_DIR/Payload" -maxdepth 2 -type d -name '*.app' -print -quit 2>/dev/null || true
+}
+
 find_app() {
   local artifact="$1"
+  local app=""
+  local ipa=""
 
   if [[ -d "$artifact" ]]; then
-    find "$artifact" -type d -name '*.app' -maxdepth 5 -print -quit 2>/dev/null || true
-    return
+    app="$(find "$artifact" -maxdepth 6 -type d -name '*.app' -print -quit 2>/dev/null || true)"
+    if [[ -n "$app" ]]; then
+      printf '%s\n' "$app"
+      return 0
+    fi
+
+    ipa="$(find "$artifact" -maxdepth 4 -type f -name '*.ipa' -print -quit 2>/dev/null || true)"
+    if [[ -n "$ipa" ]]; then
+      echo "[Velora CI] Found exported IPA: $ipa" >&2
+      extract_ipa "$ipa"
+      return 0
+    fi
+
+    echo "[Velora CI] Contents of App Store export directory:" >&2
+    find "$artifact" -maxdepth 3 -print 2>/dev/null | head -80 >&2 || true
+    return 1
   fi
 
   if [[ -f "$artifact" ]]; then
-    TMP_DIR="$(mktemp -d)"
-    if /usr/bin/unzip -q "$artifact" -d "$TMP_DIR" 2>/dev/null; then
-      find "$TMP_DIR" -type d -name '*.app' -maxdepth 5 -print -quit 2>/dev/null || true
-      return
-    fi
+    case "$artifact" in
+      *.ipa)
+        extract_ipa "$artifact"
+        return 0
+        ;;
+      *)
+        TMP_DIR="$(mktemp -d)"
+        if /usr/bin/unzip -q "$artifact" -d "$TMP_DIR" 2>/dev/null; then
+          app="$(find "$TMP_DIR" -maxdepth 6 -type d -name '*.app' -print -quit 2>/dev/null || true)"
+          if [[ -n "$app" ]]; then
+            printf '%s\n' "$app"
+            return 0
+          fi
+        fi
+        ;;
+    esac
   fi
+
+  return 1
 }
 
-APP_PATH="$(find_app "$CI_APP_STORE_SIGNED_APP_PATH")"
+APP_PATH="$(find_app "$CI_APP_STORE_SIGNED_APP_PATH" || true)"
 if [[ -z "$APP_PATH" || ! -d "$APP_PATH" ]]; then
-  echo "[Velora CI] Could not locate exported .app inside CI_APP_STORE_SIGNED_APP_PATH" >&2
+  echo "[Velora CI] Could not locate exported .app or .ipa inside CI_APP_STORE_SIGNED_APP_PATH" >&2
   exit 1
 fi
 
@@ -81,7 +117,7 @@ for framework in WebRTC React ReactNativeDependencies hermes; do
   fi
 done
 
-if [[ -n "${CI_ARCHIVE_PATH:-}" ]]; then
+if [[ -n "${CI_ARCHIVE_PATH:-}" && -d "${CI_ARCHIVE_PATH:-}" ]]; then
   ARCHIVE_APP="$(find "$CI_ARCHIVE_PATH/Products/Applications" -maxdepth 1 -type d -name '*.app' -print -quit 2>/dev/null || true)"
   if [[ -n "$ARCHIVE_APP" ]]; then
     echo "[Velora CI] ----- archive app signing -----"
