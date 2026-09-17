@@ -9,8 +9,56 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Custom Xcode Cloud hooks can start with a smaller PATH than an interactive
+# shell. Add the standard Apple Silicon + Intel Homebrew locations before
+# invoking Node/npm/pod so preinstalled tools can actually be discovered.
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+
+find_brew() {
+  if command -v brew >/dev/null 2>&1; then
+    command -v brew
+    return 0
+  fi
+  for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+ensure_node() {
+  if command -v node >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local brew_bin
+  brew_bin="$(find_brew || true)"
+  if [[ -z "$brew_bin" ]]; then
+    echo "[Velora CI] Node is not available and Homebrew could not be found." >&2
+    echo "[Velora CI] PATH=$PATH" >&2
+    exit 1
+  fi
+
+  echo "[Velora CI] Node not found in PATH; installing Node 22 with Homebrew"
+  "$brew_bin" install node@22
+
+  local node_prefix
+  node_prefix="$("$brew_bin" --prefix node@22)"
+  export PATH="$node_prefix/bin:$PATH"
+
+  if ! command -v node >/dev/null 2>&1; then
+    echo "[Velora CI] Node installation completed but node is still unavailable." >&2
+    echo "[Velora CI] PATH=$PATH" >&2
+    exit 1
+  fi
+}
+
 echo "[Velora CI] Preparing Xcode Cloud runner"
-echo "[Velora CI] Node: $(node --version)"
+ensure_node
+echo "[Velora CI] Node: $(node --version) ($(command -v node))"
+echo "[Velora CI] npm: $(npm --version) ($(command -v npm))"
 
 # Restore Firebase configuration without committing the production plist.
 if [[ -n "${GOOGLE_SERVICE_INFO_PLIST_BASE64:-}" ]]; then
@@ -27,8 +75,8 @@ if [[ ! -f "$REPO_ROOT/GoogleService-Info.plist" ]]; then
   exit 1
 fi
 
-# package.json pins pnpm@9.15.0. Prefer Corepack so CI uses that exact package
-# manager without mutating the system Node installation.
+# package.json pins pnpm@9.15.0. Corepack is not guaranteed to ship with every
+# Node release, so use it when present and fall back to npx otherwise.
 if command -v corepack >/dev/null 2>&1; then
   PNPM=(corepack pnpm)
 else
@@ -39,20 +87,20 @@ fi
 echo "[Velora CI] pnpm: $("${PNPM[@]}" --version)"
 HUSKY=0 CI=true "${PNPM[@]}" install --frozen-lockfile
 
-# Xcode Cloud images normally include CocoaPods. Keep a fallback for runner
-# images where the executable is not preinstalled.
+# CocoaPods is preinstalled on Xcode Cloud. Keep a Homebrew fallback for an
+# image where it is unexpectedly absent.
 if ! command -v pod >/dev/null 2>&1; then
-  if command -v brew >/dev/null 2>&1; then
-    echo "[Velora CI] Installing CocoaPods with Homebrew"
-    brew install cocoapods
-  else
-    echo "[Velora CI] Installing CocoaPods as a user gem"
-    gem install --user-install cocoapods --no-document
-    export PATH="$(ruby -e 'print Gem.user_dir')/bin:$PATH"
+  brew_bin="$(find_brew || true)"
+  if [[ -z "$brew_bin" ]]; then
+    echo "[Velora CI] CocoaPods is unavailable and Homebrew could not be found." >&2
+    exit 1
   fi
+  echo "[Velora CI] CocoaPods not found; installing it with Homebrew"
+  "$brew_bin" install cocoapods
+  export PATH="$("$brew_bin" --prefix)/bin:$PATH"
 fi
 
-echo "[Velora CI] CocoaPods: $(pod --version)"
+echo "[Velora CI] CocoaPods: $(pod --version) ($(command -v pod))"
 
 # Remove the partially committed/generated Pods tree. pod install then creates
 # Pods and the workspace using node_modules from this exact Xcode Cloud runner.
