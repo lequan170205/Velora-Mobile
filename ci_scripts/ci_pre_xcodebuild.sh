@@ -863,7 +863,9 @@ if [[ ! -f "$REPO_ROOT/ios/Pods/expo-dev-menu-interface/ios/DevMenuBridgeProtoco
   cp -RL "$EXPO_DEV_MENU_INTERFACE_TMP/package/ios" "$REPO_ROOT/ios/Pods/expo-dev-menu-interface/"
 fi
 rm -rf "$REPO_ROOT/ios/Pods/CloudSources/expo-dev-menu-interface"
-cp -RL "$REPO_ROOT/ios/Pods/expo-dev-menu-interface" "$REPO_ROOT/ios/Pods/CloudSources/expo-dev-menu-interface"
+mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/expo-dev-menu-interface"
+cp -RL "$REPO_ROOT/ios/Pods/expo-dev-menu-interface/ios/." \
+  "$REPO_ROOT/ios/Pods/CloudSources/expo-dev-menu-interface/"
 
 if [[ ! -f "$REPO_ROOT/ios/Pods/SDWebImageAVIFCoder/SDWebImageAVIFCoder/Module/SDWebImageAVIFCoder.h" ]]; then
   echo "[Velora CI] SDWebImageAVIFCoder sources are not materialized; downloading version 0.11.1"
