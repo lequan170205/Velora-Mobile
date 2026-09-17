@@ -54,6 +54,29 @@ while IFS= read -r expo_ios_path; do
 done < <(rg -o --no-filename 'node_modules/\.pnpm/[^" ]+/node_modules/(expo-[^/" ]+)/ios' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj" 2>/dev/null | sort -u)
 
+# The Cloud pnpm layout can retain expo-image-loader only in its store rather
+# than at the project dependency link. Materialize its native public header.
+EXPO_IMAGE_LOADER_ROOT=""
+if [[ -f "$REPO_ROOT/node_modules/expo-image-loader/ios/EXImageLoader/EXImageLoader.h" ]]; then
+  EXPO_IMAGE_LOADER_ROOT="$REPO_ROOT/node_modules/expo-image-loader"
+else
+  EXPO_IMAGE_LOADER_TMP="$(mktemp -d)"
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/expo-image-loader/-/expo-image-loader-6.0.0.tgz' \
+    --output "$EXPO_IMAGE_LOADER_TMP/expo-image-loader.tgz"
+  tar -xzf "$EXPO_IMAGE_LOADER_TMP/expo-image-loader.tgz" -C "$EXPO_IMAGE_LOADER_TMP"
+  EXPO_IMAGE_LOADER_ROOT="$EXPO_IMAGE_LOADER_TMP/package"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/expo-image-loader"
+mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/expo-image-loader"
+cp -R "$EXPO_IMAGE_LOADER_ROOT/ios/." "$REPO_ROOT/ios/Pods/CloudSources/expo-image-loader/"
+sed -i '' \
+  's#path = "\.\./\.\./node_modules/\.pnpm/expo-image-loader@[^"]*/node_modules/expo-image-loader/ios";#path = "CloudSources/expo-image-loader";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  '/path = "CloudSources\/expo-image-loader";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+
 # expo-json-utils is a transitive pod that is omitted from some Cloud pnpm
 # layouts.  Its public header is compiled by EXJSONUtils, so provide the
 # package archive as a deterministic fallback.
@@ -650,6 +673,9 @@ sed -i '' \
 # CocoaPods gives it a /bin/sh shebang on the Cloud image.
 sed -i '' '1s|^#!/bin/sh$|#!/bin/bash|' \
   "$REPO_ROOT/ios/Pods/Target Support Files/ReactNativeDependencies/ReactNativeDependencies-xcframeworks.sh"
+while IFS= read -r xcframework_script; do
+  sed -i '' '1s|^#!/bin/sh$|#!/bin/bash|' "$xcframework_script"
+done < <(find "$REPO_ROOT/ios/Pods/Target Support Files" -name '*-xcframeworks.sh' -type f)
 sed -i '' '/^set -o pipefail$/d' \
   "$REPO_ROOT/ios/Pods/Target Support Files/JitsiWebRTC/JitsiWebRTC-xcframeworks.sh"
 
