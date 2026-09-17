@@ -20,17 +20,17 @@ TMP_DIR=""
 IPA_PATH=""
 APP_PATH=""
 TEMP_KEYCHAIN=""
+TEMP_KEYCHAIN_PASSWORD=""
 P12_FILE=""
 KEYCHAIN_SEARCH_LIST_CHANGED=0
 ORIGINAL_KEYCHAIN_LIST=""
+SIGNING_HASH=""
 
 cleanup() {
   [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]] && rm -rf "$TMP_DIR"
   [[ -n "$P12_FILE" && -f "$P12_FILE" ]] && rm -f "$P12_FILE"
 
   if [[ "$KEYCHAIN_SEARCH_LIST_CHANGED" == "1" && -n "$ORIGINAL_KEYCHAIN_LIST" ]]; then
-    # security list-keychains returns shell-quoted paths. Re-evaluate only this
-    # local command output so the runner's original user keychain list is restored.
     eval "/usr/bin/security list-keychains -d user -s $ORIGINAL_KEYCHAIN_LIST" >/dev/null 2>&1 || true
   fi
 
@@ -69,21 +69,15 @@ locate_exported_app() {
 }
 
 signature_team_id() {
-  /usr/bin/codesign -dv --verbose=4 "$1" 2>&1 \
-    | /usr/bin/sed -n 's/^TeamIdentifier=//p' \
-    | /usr/bin/head -1
+  /usr/bin/codesign -dv --verbose=4 "$1" 2>&1 | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -1
 }
 
 signature_authority() {
-  /usr/bin/codesign -dv --verbose=4 "$1" 2>&1 \
-    | /usr/bin/sed -n 's/^Authority=//p' \
-    | /usr/bin/head -1
+  /usr/bin/codesign -dv --verbose=4 "$1" 2>&1 | /usr/bin/sed -n 's/^Authority=//p' | /usr/bin/head -1
 }
 
 signature_identifier() {
-  /usr/bin/codesign -dv --verbose=4 "$1" 2>&1 \
-    | /usr/bin/sed -n 's/^Identifier=//p' \
-    | /usr/bin/head -1
+  /usr/bin/codesign -dv --verbose=4 "$1" 2>&1 | /usr/bin/sed -n 's/^Identifier=//p' | /usr/bin/head -1
 }
 
 strict_app_valid() {
@@ -109,23 +103,21 @@ import_manual_distribution_identity() {
     return 1
   fi
 
-  local keychain_password signing_hash import_output login_keychain identity_output
-  keychain_password="velora-$(/usr/bin/uuidgen)"
+  local signing_hash import_output login_keychain identity_output
+  TEMP_KEYCHAIN_PASSWORD="velora-$(/usr/bin/uuidgen)"
   TEMP_KEYCHAIN="${TMPDIR:-/tmp}/velora-signing-$(/usr/bin/uuidgen).keychain-db"
   P12_FILE="$(mktemp "${TMPDIR:-/tmp}/velora-distribution.XXXXXX.p12")"
 
-  printf '%s' "$IOS_DISTRIBUTION_P12_BASE64" \
-    | /usr/bin/tr -d '\r\n\t ' \
-    | /usr/bin/base64 -D > "$P12_FILE"
+  printf '%s' "$IOS_DISTRIBUTION_P12_BASE64" | /usr/bin/tr -d '\r\n\t ' | /usr/bin/base64 -D > "$P12_FILE"
 
   if [[ ! -s "$P12_FILE" ]]; then
     echo "[Velora CI] IOS_DISTRIBUTION_P12_BASE64 decoded to an empty file" >&2
     return 1
   fi
 
-  /usr/bin/security create-keychain -p "$keychain_password" "$TEMP_KEYCHAIN"
+  /usr/bin/security create-keychain -p "$TEMP_KEYCHAIN_PASSWORD" "$TEMP_KEYCHAIN"
   /usr/bin/security set-keychain-settings -lut 21600 "$TEMP_KEYCHAIN"
-  /usr/bin/security unlock-keychain -p "$keychain_password" "$TEMP_KEYCHAIN"
+  /usr/bin/security unlock-keychain -p "$TEMP_KEYCHAIN_PASSWORD" "$TEMP_KEYCHAIN"
 
   import_output="$(/usr/bin/security import "$P12_FILE" \
     -k "$TEMP_KEYCHAIN" \
@@ -141,12 +133,9 @@ import_manual_distribution_identity() {
   /usr/bin/security set-key-partition-list \
     -S apple-tool:,apple:,codesign: \
     -s \
-    -k "$keychain_password" \
+    -k "$TEMP_KEYCHAIN_PASSWORD" \
     "$TEMP_KEYCHAIN" >/dev/null
 
-  # A P12 usually contains the leaf certificate + private key, while the WWDR
-  # intermediate/root are provided by the runner. Put the temporary keychain in
-  # the user search list so Security.framework can build the complete trust chain.
   ORIGINAL_KEYCHAIN_LIST="$(/usr/bin/security list-keychains -d user | /usr/bin/tr '\n' ' ')"
   login_keychain="$HOME/Library/Keychains/login.keychain-db"
   if [[ -f "$login_keychain" ]]; then
@@ -164,7 +153,6 @@ import_manual_distribution_identity() {
     echo "[Velora CI] Imported P12, but no valid Apple Distribution identity for TeamIdentifier=$expected_team_id was found." >&2
     echo "[Velora CI] Available valid code-signing identities after import:" >&2
     printf '%s\n' "$identity_output" >&2
-    echo "[Velora CI] If this still shows 0 valid identities, verify locally that distribution.p12 contains BOTH the certificate and its private key." >&2
     return 1
   fi
 
@@ -196,12 +184,12 @@ resign_code() {
   local code="$1"
   local team_id="$2"
   local preserve_entitlements="${3:-0}"
-  local requirement_file entitlements_file
+  local requirement_file entitlements_file codesign_output
 
   requirement_file="$(mktemp "${TMPDIR:-/tmp}/velora-requirement.XXXXXX")"
   make_requirement_file "$code" "$team_id" "$requirement_file"
 
-  local args=(--force --sign "$SIGNING_HASH" --keychain "$TEMP_KEYCHAIN" --requirements "$requirement_file" --timestamp=none)
+  local args=(--force --verbose=4 --sign "$SIGNING_HASH" --keychain "$TEMP_KEYCHAIN" --requirements "$requirement_file" --timestamp=none)
 
   entitlements_file=""
   if [[ "$preserve_entitlements" == "1" ]]; then
@@ -212,7 +200,20 @@ resign_code() {
     fi
   fi
 
-  /usr/bin/codesign "${args[@]}" "$code"
+  /usr/bin/security unlock-keychain -p "$TEMP_KEYCHAIN_PASSWORD" "$TEMP_KEYCHAIN"
+  echo "[Velora CI] Re-signing: $code"
+  codesign_output="$(/usr/bin/codesign "${args[@]}" "$code" 2>&1)" || {
+    local status=$?
+    echo "[Velora CI] codesign failed for: $code" >&2
+    echo "[Velora CI] codesign exit status: $status" >&2
+    printf '%s\n' "$codesign_output" >&2
+    echo "[Velora CI] Requirement used:" >&2
+    /bin/cat "$requirement_file" >&2
+    rm -f "$requirement_file"
+    [[ -n "$entitlements_file" ]] && rm -f "$entitlements_file"
+    return "$status"
+  }
+  [[ -n "$codesign_output" ]] && printf '%s\n' "$codesign_output"
 
   rm -f "$requirement_file"
   [[ -n "$entitlements_file" ]] && rm -f "$entitlements_file"
@@ -236,7 +237,6 @@ repair_unicode_designated_requirement() {
   echo "[Velora CI] Export uses Apple Distribution but its designated requirement is invalid."
   echo "[Velora CI] Applying OU-based designated requirement for TeamIdentifier=$team_id"
 
-  SIGNING_HASH=""
   import_manual_distribution_identity "$team_id"
 
   if [[ -d "$APP_PATH/Frameworks" ]]; then
