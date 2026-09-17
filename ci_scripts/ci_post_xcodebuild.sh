@@ -2,13 +2,16 @@
 
 set -Eeuo pipefail
 
+STAGE="startup"
+trap 'status=$?; echo "[Velora CI] FAILED stage=$STAGE line=$LINENO exit=$status command=$BASH_COMMAND" >&2' ERR
+
 if [[ "${CI_XCODEBUILD_ACTION:-}" != "archive" ]]; then
-  echo "[Velora CI] Post-xcodebuild signature verification skipped: action=${CI_XCODEBUILD_ACTION:-unknown}"
+  echo "[Velora CI] Post-xcodebuild signing repair skipped: action=${CI_XCODEBUILD_ACTION:-unknown}"
   exit 0
 fi
 
 if [[ -z "${CI_APP_STORE_SIGNED_APP_PATH:-}" ]]; then
-  echo "[Velora CI] CI_APP_STORE_SIGNED_APP_PATH is unavailable; cannot verify exported App Store artifact" >&2
+  echo "[Velora CI] CI_APP_STORE_SIGNED_APP_PATH is unavailable" >&2
   exit 1
 fi
 
@@ -17,21 +20,23 @@ echo "[Velora CI] App Store artifact: $CI_APP_STORE_SIGNED_APP_PATH"
 echo "[Velora CI] Archive: ${CI_ARCHIVE_PATH:-unavailable}"
 
 TMP_DIR=""
+VERIFY_DIR=""
 IPA_PATH=""
 APP_PATH=""
 TEMP_KEYCHAIN=""
 TEMP_KEYCHAIN_PASSWORD=""
 P12_FILE=""
-KEYCHAIN_SEARCH_LIST_CHANGED=0
-ORIGINAL_KEYCHAIN_LIST=""
 SIGNING_HASH=""
+KEYCHAIN_SEARCH_LIST_CHANGED=0
+ORIGINAL_KEYCHAINS=()
 
 cleanup() {
+  [[ -n "$VERIFY_DIR" && -d "$VERIFY_DIR" ]] && rm -rf "$VERIFY_DIR"
   [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]] && rm -rf "$TMP_DIR"
   [[ -n "$P12_FILE" && -f "$P12_FILE" ]] && rm -f "$P12_FILE"
 
-  if [[ "$KEYCHAIN_SEARCH_LIST_CHANGED" == "1" && -n "$ORIGINAL_KEYCHAIN_LIST" ]]; then
-    eval "/usr/bin/security list-keychains -d user -s $ORIGINAL_KEYCHAIN_LIST" >/dev/null 2>&1 || true
+  if [[ "$KEYCHAIN_SEARCH_LIST_CHANGED" == "1" && ${#ORIGINAL_KEYCHAINS[@]} -gt 0 ]]; then
+    /usr/bin/security list-keychains -d user -s "${ORIGINAL_KEYCHAINS[@]}" >/dev/null 2>&1 || true
   fi
 
   if [[ -n "$TEMP_KEYCHAIN" ]]; then
@@ -41,6 +46,7 @@ cleanup() {
 trap cleanup EXIT
 
 locate_exported_app() {
+  STAGE="locate-export"
   local artifact="$1"
 
   if [[ -d "$artifact" ]]; then
@@ -51,6 +57,7 @@ locate_exported_app() {
 
   if [[ -z "$IPA_PATH" ]]; then
     echo "[Velora CI] Could not locate exported IPA inside CI_APP_STORE_SIGNED_APP_PATH" >&2
+    find "$artifact" -maxdepth 3 -print 2>/dev/null | head -80 >&2 || true
     return 1
   fi
 
@@ -80,8 +87,12 @@ signature_identifier() {
   /usr/bin/codesign -dv --verbose=4 "$1" 2>&1 | /usr/bin/sed -n 's/^Identifier=//p' | /usr/bin/head -1
 }
 
-strict_app_valid() {
-  /usr/bin/codesign --verify --deep --strict --verbose=4 "$APP_PATH"
+strict_verify() {
+  /usr/bin/codesign --verify --strict --verbose=4 "$1"
+}
+
+strict_verify_deep() {
+  /usr/bin/codesign --verify --deep --strict --verbose=4 "$1"
 }
 
 extract_entitlements() {
@@ -94,21 +105,53 @@ extract_entitlements() {
   fi
 }
 
+preserve_original_keychain_search_list() {
+  ORIGINAL_KEYCHAINS=()
+  while IFS= read -r line; do
+    line="${line#\"}"
+    line="${line%\"}"
+    line="${line#${line%%[![:space:]]*}}"
+    [[ -n "$line" ]] && ORIGINAL_KEYCHAINS+=("$line")
+  done < <(/usr/bin/security list-keychains -d user | /usr/bin/sed -e 's/^[[:space:]]*//')
+}
+
+preflight_signing_identity() {
+  STAGE="identity-preflight"
+  local probe="$TMP_DIR/signing-probe"
+  /bin/cp /usr/bin/true "$probe"
+  /usr/bin/xattr -c "$probe" 2>/dev/null || true
+  /usr/bin/security unlock-keychain -p "$TEMP_KEYCHAIN_PASSWORD" "$TEMP_KEYCHAIN"
+
+  local output=""
+  output="$(/usr/bin/codesign --force --verbose=4 --sign "$SIGNING_HASH" --keychain "$TEMP_KEYCHAIN" "$probe" 2>&1)" || {
+    local status=$?
+    echo "[Velora CI] Imported identity exists, but codesign cannot use its private key." >&2
+    printf '%s\n' "$output" >&2
+    /usr/bin/security find-identity -v -p codesigning >&2 || true
+    return "$status"
+  }
+
+  strict_verify "$probe" >/dev/null
+  rm -f "$probe"
+  echo "[Velora CI] Manual distribution identity passed signing preflight"
+}
+
 import_manual_distribution_identity() {
+  STAGE="identity-import"
   local expected_team_id="$1"
 
   if [[ -z "${IOS_DISTRIBUTION_P12_BASE64:-}" || -z "${IOS_DISTRIBUTION_P12_PASSWORD:-}" ]]; then
-    echo "[Velora CI] Xcode Cloud cloud-signing private keys are not available to custom scripts." >&2
     echo "[Velora CI] Configure IOS_DISTRIBUTION_P12_BASE64 and IOS_DISTRIBUTION_P12_PASSWORD as Xcode Cloud secrets." >&2
     return 1
   fi
 
-  local signing_hash import_output login_keychain identity_output
   TEMP_KEYCHAIN_PASSWORD="velora-$(/usr/bin/uuidgen)"
   TEMP_KEYCHAIN="${TMPDIR:-/tmp}/velora-signing-$(/usr/bin/uuidgen).keychain-db"
   P12_FILE="$(mktemp "${TMPDIR:-/tmp}/velora-distribution.XXXXXX.p12")"
 
-  printf '%s' "$IOS_DISTRIBUTION_P12_BASE64" | /usr/bin/tr -d '\r\n\t ' | /usr/bin/base64 -D > "$P12_FILE"
+  printf '%s' "$IOS_DISTRIBUTION_P12_BASE64" \
+    | /usr/bin/tr -d '\r\n\t ' \
+    | /usr/bin/base64 -D > "$P12_FILE"
 
   if [[ ! -s "$P12_FILE" ]]; then
     echo "[Velora CI] IOS_DISTRIBUTION_P12_BASE64 decoded to an empty file" >&2
@@ -119,13 +162,15 @@ import_manual_distribution_identity() {
   /usr/bin/security set-keychain-settings -lut 21600 "$TEMP_KEYCHAIN"
   /usr/bin/security unlock-keychain -p "$TEMP_KEYCHAIN_PASSWORD" "$TEMP_KEYCHAIN"
 
+  local import_output=""
   import_output="$(/usr/bin/security import "$P12_FILE" \
     -k "$TEMP_KEYCHAIN" \
     -P "$IOS_DISTRIBUTION_P12_PASSWORD" \
+    -A \
     -T /usr/bin/codesign \
     -T /usr/bin/security 2>&1)" || {
-      echo "[Velora CI] Failed to import IOS_DISTRIBUTION_P12_BASE64 into the temporary keychain" >&2
-      echo "$import_output" >&2
+      echo "[Velora CI] Failed to import distribution P12" >&2
+      printf '%s\n' "$import_output" >&2
       return 1
     }
   echo "[Velora CI] $import_output"
@@ -136,28 +181,24 @@ import_manual_distribution_identity() {
     -k "$TEMP_KEYCHAIN_PASSWORD" \
     "$TEMP_KEYCHAIN" >/dev/null
 
-  ORIGINAL_KEYCHAIN_LIST="$(/usr/bin/security list-keychains -d user | /usr/bin/tr '\n' ' ')"
-  login_keychain="$HOME/Library/Keychains/login.keychain-db"
-  if [[ -f "$login_keychain" ]]; then
-    /usr/bin/security list-keychains -d user -s "$TEMP_KEYCHAIN" "$login_keychain"
-  else
-    /usr/bin/security list-keychains -d user -s "$TEMP_KEYCHAIN"
-  fi
+  preserve_original_keychain_search_list
+  /usr/bin/security list-keychains -d user -s "$TEMP_KEYCHAIN" "${ORIGINAL_KEYCHAINS[@]}"
   KEYCHAIN_SEARCH_LIST_CHANGED=1
 
+  local identity_output signing_hash
   identity_output="$(/usr/bin/security find-identity -v -p codesigning 2>&1 || true)"
   signing_hash="$(printf '%s\n' "$identity_output" \
     | /usr/bin/awk -v team="$expected_team_id" 'index($0, "Apple Distribution:") && index($0, "(" team ")") {print $2; exit}')"
 
   if [[ -z "$signing_hash" ]]; then
     echo "[Velora CI] Imported P12, but no valid Apple Distribution identity for TeamIdentifier=$expected_team_id was found." >&2
-    echo "[Velora CI] Available valid code-signing identities after import:" >&2
     printf '%s\n' "$identity_output" >&2
     return 1
   fi
 
   SIGNING_HASH="$signing_hash"
   echo "[Velora CI] Imported manual Apple Distribution identity: $SIGNING_HASH"
+  preflight_signing_identity
 }
 
 make_requirement_file() {
@@ -172,54 +213,107 @@ make_requirement_file() {
     return 1
   fi
 
+  # Avoid the certificate Common Name entirely. The TeamIdentifier/OU is ASCII
+  # and stable, which avoids the Unicode-normalization bug in the implicit DR.
   cat > "$output" <<EOF
 designated => anchor apple generic
   and identifier "$identifier"
   and certificate leaf[subject.OU] = "$team_id"
-  and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */
 EOF
+
+  # Compile once before touching the bundle, so syntax mistakes fail early.
+  local compiled="$output.bin"
+  /usr/bin/csreq -r "$output" -b "$compiled" >/dev/null
+  rm -f "$compiled"
 }
 
 resign_code() {
   local code="$1"
   local team_id="$2"
   local preserve_entitlements="${3:-0}"
-  local requirement_file entitlements_file codesign_output
+  local label="${4:-$code}"
+  local requirement_file entitlements_file identifier output
 
+  identifier="$(signature_identifier "$code")"
   requirement_file="$(mktemp "${TMPDIR:-/tmp}/velora-requirement.XXXXXX")"
   make_requirement_file "$code" "$team_id" "$requirement_file"
 
-  local args=(--force --verbose=4 --sign "$SIGNING_HASH" --keychain "$TEMP_KEYCHAIN" --requirements "$requirement_file" --timestamp=none)
-
   entitlements_file=""
+  local args=(--force --verbose=4 --sign "$SIGNING_HASH" --keychain "$TEMP_KEYCHAIN" --identifier "$identifier" --requirements "$requirement_file")
+
   if [[ "$preserve_entitlements" == "1" ]]; then
     entitlements_file="$(mktemp "${TMPDIR:-/tmp}/velora-entitlements.XXXXXX.plist")"
     extract_entitlements "$code" "$entitlements_file"
     if [[ -s "$entitlements_file" ]]; then
-      args+=(--entitlements "$entitlements_file")
+      args+=(--entitlements "$entitlements_file" --generate-entitlement-der)
     fi
   fi
 
   /usr/bin/security unlock-keychain -p "$TEMP_KEYCHAIN_PASSWORD" "$TEMP_KEYCHAIN"
-  echo "[Velora CI] Re-signing: $code"
-  codesign_output="$(/usr/bin/codesign "${args[@]}" "$code" 2>&1)" || {
+  echo "[Velora CI] Re-signing $label"
+
+  output="$(/usr/bin/codesign "${args[@]}" "$code" 2>&1)" || {
     local status=$?
-    echo "[Velora CI] codesign failed for: $code" >&2
-    echo "[Velora CI] codesign exit status: $status" >&2
-    printf '%s\n' "$codesign_output" >&2
+    echo "[Velora CI] codesign failed for $label" >&2
+    printf '%s\n' "$output" >&2
     echo "[Velora CI] Requirement used:" >&2
     /bin/cat "$requirement_file" >&2
-    rm -f "$requirement_file"
-    [[ -n "$entitlements_file" ]] && rm -f "$entitlements_file"
+    /usr/bin/xattr -lr "$code" >&2 2>/dev/null || true
+    rm -f "$requirement_file" "$entitlements_file"
     return "$status"
   }
-  [[ -n "$codesign_output" ]] && printf '%s\n' "$codesign_output"
 
-  rm -f "$requirement_file"
-  [[ -n "$entitlements_file" ]] && rm -f "$entitlements_file"
+  [[ -n "$output" ]] && printf '%s\n' "$output"
+
+  if ! strict_verify "$code" 2>&1; then
+    echo "[Velora CI] Re-signed object failed strict verification: $label" >&2
+    /usr/bin/codesign -d -r- --verbose=4 "$code" >&2 2>&1 || true
+    rm -f "$requirement_file" "$entitlements_file"
+    return 1
+  fi
+
+  rm -f "$requirement_file" "$entitlements_file"
+}
+
+resign_nested_code() {
+  STAGE="nested-signing"
+  local team_id="$1"
+
+  # Extended attributes can make codesign fail with the familiar
+  # "resource fork, Finder information, or similar detritus" error.
+  /usr/bin/xattr -cr "$APP_PATH" 2>/dev/null || true
+
+  while IFS= read -r -d '' dylib; do
+    resign_code "$dylib" "$team_id" 0 "dylib ${dylib#$APP_PATH/}"
+  done < <(find "$APP_PATH" -depth -type f -name '*.dylib' -print0)
+
+  while IFS= read -r -d '' framework; do
+    resign_code "$framework" "$team_id" 0 "framework ${framework#$APP_PATH/}"
+  done < <(find "$APP_PATH" -depth -type d -name '*.framework' -print0)
+
+  while IFS= read -r -d '' nested; do
+    [[ "$nested" == "$APP_PATH" ]] && continue
+    resign_code "$nested" "$team_id" 1 "nested bundle ${nested#$APP_PATH/}"
+  done < <(find "$APP_PATH" -depth -type d \( -name '*.appex' -o -name '*.xpc' -o -name '*.app' \) -print0)
+}
+
+print_profile_diagnostics() {
+  local profile="$APP_PATH/embedded.mobileprovision"
+  [[ -f "$profile" ]] || return 0
+
+  local plist="$TMP_DIR/profile.plist"
+  if /usr/bin/security cms -D -i "$profile" -o "$plist" >/dev/null 2>&1; then
+    echo "[Velora CI] Provisioning profile diagnostics:"
+    /usr/libexec/PlistBuddy -c 'Print :Name' "$plist" 2>/dev/null | /usr/bin/sed 's/^/[Velora CI]   Name: /' || true
+    /usr/libexec/PlistBuddy -c 'Print :UUID' "$plist" 2>/dev/null | /usr/bin/sed 's/^/[Velora CI]   UUID: /' || true
+    /usr/libexec/PlistBuddy -c 'Print :ExpirationDate' "$plist" 2>/dev/null | /usr/bin/sed 's/^/[Velora CI]   Expiration: /' || true
+    /usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$plist" 2>/dev/null | /usr/bin/sed 's/^/[Velora CI]   application-identifier: /' || true
+    /usr/libexec/PlistBuddy -c 'Print :Entitlements:aps-environment' "$plist" 2>/dev/null | /usr/bin/sed 's/^/[Velora CI]   aps-environment: /' || true
+  fi
 }
 
 repair_unicode_designated_requirement() {
+  STAGE="repair"
   local team_id authority repaired_team
   team_id="$(signature_team_id "$APP_PATH")"
   authority="$(signature_authority "$APP_PATH")"
@@ -236,26 +330,11 @@ repair_unicode_designated_requirement() {
 
   echo "[Velora CI] Export uses Apple Distribution but its designated requirement is invalid."
   echo "[Velora CI] Applying OU-based designated requirement for TeamIdentifier=$team_id"
+  print_profile_diagnostics
 
   import_manual_distribution_identity "$team_id"
-
-  if [[ -d "$APP_PATH/Frameworks" ]]; then
-    while IFS= read -r -d '' dylib; do
-      resign_code "$dylib" "$team_id" 0
-    done < <(find "$APP_PATH/Frameworks" -type f -name '*.dylib' -print0)
-
-    while IFS= read -r -d '' framework; do
-      resign_code "$framework" "$team_id" 0
-    done < <(find "$APP_PATH/Frameworks" -depth -type d -name '*.framework' -print0)
-  fi
-
-  if [[ -d "$APP_PATH/PlugIns" ]]; then
-    while IFS= read -r -d '' extension; do
-      resign_code "$extension" "$team_id" 1
-    done < <(find "$APP_PATH/PlugIns" -depth -type d -name '*.appex' -print0)
-  fi
-
-  resign_code "$APP_PATH" "$team_id" 1
+  resign_nested_code "$team_id"
+  resign_code "$APP_PATH" "$team_id" 1 "main app"
 
   repaired_team="$(signature_team_id "$APP_PATH")"
   if [[ "$repaired_team" != "$team_id" ]]; then
@@ -263,59 +342,58 @@ repair_unicode_designated_requirement() {
     return 1
   fi
 
-  echo "[Velora CI] Verifying repaired signature"
-  /usr/bin/codesign --verify --deep --strict --verbose=4 "$APP_PATH"
+  echo "[Velora CI] Verifying repaired app and every nested signature"
+  strict_verify_deep "$APP_PATH"
 
-  local new_ipa="$IPA_PATH.repacked"
+  STAGE="repack"
+  local new_ipa="$TMP_DIR/veloraDev.repacked.ipa"
   rm -f "$new_ipa"
   (
     cd "$TMP_DIR"
-    /usr/bin/zip -qry "$new_ipa" .
+    /usr/bin/zip -qry -y "$new_ipa" Payload SwiftSupport Symbols WatchKitSupport 2>/dev/null || /usr/bin/zip -qry -y "$new_ipa" .
   )
-  mv "$new_ipa" "$IPA_PATH"
-  echo "[Velora CI] Repacked repaired IPA: $IPA_PATH"
+
+  VERIFY_DIR="$(mktemp -d "${TMPDIR:-/tmp}/velora-verify.XXXXXX")"
+  /usr/bin/unzip -q "$new_ipa" -d "$VERIFY_DIR"
+  local verify_app
+  verify_app="$(find "$VERIFY_DIR/Payload" -maxdepth 2 -type d -name '*.app' -print -quit 2>/dev/null || true)"
+  if [[ -z "$verify_app" ]]; then
+    echo "[Velora CI] Repacked IPA does not contain Payload/*.app" >&2
+    return 1
+  fi
+
+  strict_verify_deep "$verify_app"
+  /bin/mv "$new_ipa" "$IPA_PATH"
+  echo "[Velora CI] Repacked IPA verified and replaced atomically: $IPA_PATH"
 }
 
 print_signature() {
   local path="$1"
   local label="$2"
-
-  if [[ ! -e "$path" ]]; then
-    echo "[Velora CI] $label: not present"
-    return 0
-  fi
+  [[ -e "$path" ]] || return 0
 
   echo "[Velora CI] ----- $label signing -----"
   /usr/bin/codesign -dv --verbose=4 "$path" 2>&1 \
     | /usr/bin/grep -E '^(Executable|Identifier|Format|CodeDirectory|Signature size|Authority|TeamIdentifier|Sealed Resources|Internal requirements)' \
     || true
 
-  if /usr/bin/codesign --verify --strict --verbose=4 "$path" 2>&1; then
-    echo "[Velora CI] $label signature: VALID"
-  else
-    echo "[Velora CI] $label signature: INVALID" >&2
-    return 1
-  fi
+  strict_verify "$path"
+  echo "[Velora CI] $label signature: VALID"
 }
 
 locate_exported_app "$CI_APP_STORE_SIGNED_APP_PATH"
 
-if ! strict_app_valid 2>&1; then
+STAGE="initial-verify"
+if ! strict_verify_deep "$APP_PATH" 2>&1; then
   repair_unicode_designated_requirement
 fi
 
-FAILED=0
-print_signature "$APP_PATH" "app" || FAILED=1
+STAGE="final-verify"
+print_signature "$APP_PATH" "app"
 for framework in WebRTC React ReactNativeDependencies hermes; do
   framework_path="$APP_PATH/Frameworks/$framework.framework"
-  if [[ -d "$framework_path" ]]; then
-    print_signature "$framework_path" "$framework.framework" || FAILED=1
-  fi
+  [[ -d "$framework_path" ]] && print_signature "$framework_path" "$framework.framework"
 done
-
-if [[ "$FAILED" -ne 0 ]]; then
-  echo "[Velora CI] Exported App Store artifact still has an invalid code signature; stopping before upload." >&2
-  exit 1
-fi
+strict_verify_deep "$APP_PATH"
 
 echo "[Velora CI] App Store artifact signatures verified successfully"
