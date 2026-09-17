@@ -83,6 +83,36 @@ sed -i '' \
   '/path = "Target Support Files\/EXImageLoader";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 
+# EXConstants is another Expo pod whose public Objective-C headers are needed
+# during archive. Keep its source and support-file groups rooted in the checked
+# out Pods directory, with the npm package as a fallback on Cloud.
+EXPO_CONSTANTS_ROOT=""
+if [[ -f "$REPO_ROOT/node_modules/expo-constants/ios/EXConstantsService.h" ]]; then
+  EXPO_CONSTANTS_ROOT="$REPO_ROOT/node_modules/expo-constants"
+else
+  EXPO_CONSTANTS_TMP="$(mktemp -d)"
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/expo-constants/-/expo-constants-18.0.13.tgz' \
+    --output "$EXPO_CONSTANTS_TMP/expo-constants.tgz"
+  tar -xzf "$EXPO_CONSTANTS_TMP/expo-constants.tgz" -C "$EXPO_CONSTANTS_TMP"
+  EXPO_CONSTANTS_ROOT="$EXPO_CONSTANTS_TMP/package"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/expo-constants"
+mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/expo-constants"
+cp -R "$EXPO_CONSTANTS_ROOT/ios/." "$REPO_ROOT/ios/Pods/CloudSources/expo-constants/"
+sed -i '' \
+  's#path = "\.\./\.\./node_modules/\.pnpm/expo-constants@[^"]*/node_modules/expo-constants/ios";#path = "CloudSources/expo-constants";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  's#path = "\.\./\.\./\.\./\.\./\.\./\.\./ios/Pods/Target Support Files/EXConstants";#path = "Target Support Files/EXConstants";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  '/path = "CloudSources\/expo-constants";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  '/path = "Target Support Files\/EXConstants";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+
 # expo-json-utils is a transitive pod that is omitted from some Cloud pnpm
 # layouts.  Its public header is compiled by EXJSONUtils, so provide the
 # package archive as a deterministic fallback.
