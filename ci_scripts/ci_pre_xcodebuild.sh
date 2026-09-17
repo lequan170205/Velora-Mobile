@@ -918,8 +918,9 @@ printf '%s\n' \
   'set -eu' \
   'source="${PODS_ROOT}/JitsiWebRTC/WebRTC.xcframework/ios-arm64/"' \
   'destination="${PODS_XCFRAMEWORKS_BUILD_DIR}/JitsiWebRTC"' \
+  'rm -rf "$destination"' \
   'mkdir -p "$destination"' \
-  'rsync --delete -av --links --filter "- CVS/" --filter "- .svn/" --filter "- .git/" --filter "- .hg/" "$source" "$destination"' \
+  '/usr/bin/ditto "$source" "$destination"' \
   > "$JITSI_XCFRAMEWORKS_SCRIPT"
 chmod +x "$JITSI_XCFRAMEWORKS_SCRIPT"
 sed -i '' 's#"\${source}"/\* "\${destination}"#"\${source}" "\${destination}"#' \
