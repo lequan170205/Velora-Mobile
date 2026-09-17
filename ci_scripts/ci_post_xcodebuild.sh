@@ -21,10 +21,19 @@ IPA_PATH=""
 APP_PATH=""
 TEMP_KEYCHAIN=""
 P12_FILE=""
+KEYCHAIN_SEARCH_LIST_CHANGED=0
+ORIGINAL_KEYCHAIN_LIST=""
 
 cleanup() {
   [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]] && rm -rf "$TMP_DIR"
   [[ -n "$P12_FILE" && -f "$P12_FILE" ]] && rm -f "$P12_FILE"
+
+  if [[ "$KEYCHAIN_SEARCH_LIST_CHANGED" == "1" && -n "$ORIGINAL_KEYCHAIN_LIST" ]]; then
+    # security list-keychains returns shell-quoted paths. Re-evaluate only this
+    # local command output so the runner's original user keychain list is restored.
+    eval "/usr/bin/security list-keychains -d user -s $ORIGINAL_KEYCHAIN_LIST" >/dev/null 2>&1 || true
+  fi
+
   if [[ -n "$TEMP_KEYCHAIN" ]]; then
     /usr/bin/security delete-keychain "$TEMP_KEYCHAIN" >/dev/null 2>&1 || true
   fi
@@ -33,7 +42,6 @@ trap cleanup EXIT
 
 locate_exported_app() {
   local artifact="$1"
-  local ipa=""
 
   if [[ -d "$artifact" ]]; then
     IPA_PATH="$(find "$artifact" -maxdepth 4 -type f -name '*.ipa' -print -quit 2>/dev/null || true)"
@@ -97,13 +105,11 @@ import_manual_distribution_identity() {
 
   if [[ -z "${IOS_DISTRIBUTION_P12_BASE64:-}" || -z "${IOS_DISTRIBUTION_P12_PASSWORD:-}" ]]; then
     echo "[Velora CI] Xcode Cloud cloud-signing private keys are not available to custom scripts." >&2
-    echo "[Velora CI] To repair the Unicode designated-requirement issue, configure these Xcode Cloud secrets:" >&2
-    echo "[Velora CI]   IOS_DISTRIBUTION_P12_BASE64" >&2
-    echo "[Velora CI]   IOS_DISTRIBUTION_P12_PASSWORD" >&2
+    echo "[Velora CI] Configure IOS_DISTRIBUTION_P12_BASE64 and IOS_DISTRIBUTION_P12_PASSWORD as Xcode Cloud secrets." >&2
     return 1
   fi
 
-  local keychain_password signing_hash signed_team
+  local keychain_password signing_hash import_output login_keychain identity_output
   keychain_password="velora-$(/usr/bin/uuidgen)"
   TEMP_KEYCHAIN="${TMPDIR:-/tmp}/velora-signing-$(/usr/bin/uuidgen).keychain-db"
   P12_FILE="$(mktemp "${TMPDIR:-/tmp}/velora-distribution.XXXXXX.p12")"
@@ -112,35 +118,58 @@ import_manual_distribution_identity() {
     | /usr/bin/tr -d '\r\n\t ' \
     | /usr/bin/base64 -D > "$P12_FILE"
 
+  if [[ ! -s "$P12_FILE" ]]; then
+    echo "[Velora CI] IOS_DISTRIBUTION_P12_BASE64 decoded to an empty file" >&2
+    return 1
+  fi
+
   /usr/bin/security create-keychain -p "$keychain_password" "$TEMP_KEYCHAIN"
   /usr/bin/security set-keychain-settings -lut 21600 "$TEMP_KEYCHAIN"
   /usr/bin/security unlock-keychain -p "$keychain_password" "$TEMP_KEYCHAIN"
-  /usr/bin/security import "$P12_FILE" \
+
+  import_output="$(/usr/bin/security import "$P12_FILE" \
     -k "$TEMP_KEYCHAIN" \
     -P "$IOS_DISTRIBUTION_P12_PASSWORD" \
     -T /usr/bin/codesign \
-    -T /usr/bin/security >/dev/null
+    -T /usr/bin/security 2>&1)" || {
+      echo "[Velora CI] Failed to import IOS_DISTRIBUTION_P12_BASE64 into the temporary keychain" >&2
+      echo "$import_output" >&2
+      return 1
+    }
+  echo "[Velora CI] $import_output"
+
   /usr/bin/security set-key-partition-list \
     -S apple-tool:,apple:,codesign: \
     -s \
     -k "$keychain_password" \
     "$TEMP_KEYCHAIN" >/dev/null
 
-  signing_hash="$(/usr/bin/security find-identity -v -p codesigning "$TEMP_KEYCHAIN" \
-    | /usr/bin/awk '/Apple Distribution:/ {print $2; exit}')"
+  # A P12 usually contains the leaf certificate + private key, while the WWDR
+  # intermediate/root are provided by the runner. Put the temporary keychain in
+  # the user search list so Security.framework can build the complete trust chain.
+  ORIGINAL_KEYCHAIN_LIST="$(/usr/bin/security list-keychains -d user | /usr/bin/tr '\n' ' ')"
+  login_keychain="$HOME/Library/Keychains/login.keychain-db"
+  if [[ -f "$login_keychain" ]]; then
+    /usr/bin/security list-keychains -d user -s "$TEMP_KEYCHAIN" "$login_keychain"
+  else
+    /usr/bin/security list-keychains -d user -s "$TEMP_KEYCHAIN"
+  fi
+  KEYCHAIN_SEARCH_LIST_CHANGED=1
+
+  identity_output="$(/usr/bin/security find-identity -v -p codesigning 2>&1 || true)"
+  signing_hash="$(printf '%s\n' "$identity_output" \
+    | /usr/bin/awk -v team="$expected_team_id" 'index($0, "Apple Distribution:") && index($0, "(" team ")") {print $2; exit}')"
 
   if [[ -z "$signing_hash" ]]; then
-    echo "[Velora CI] No Apple Distribution identity with private key was found in IOS_DISTRIBUTION_P12_BASE64" >&2
+    echo "[Velora CI] Imported P12, but no valid Apple Distribution identity for TeamIdentifier=$expected_team_id was found." >&2
+    echo "[Velora CI] Available valid code-signing identities after import:" >&2
+    printf '%s\n' "$identity_output" >&2
+    echo "[Velora CI] If this still shows 0 valid identities, verify locally that distribution.p12 contains BOTH the certificate and its private key." >&2
     return 1
   fi
 
   SIGNING_HASH="$signing_hash"
   echo "[Velora CI] Imported manual Apple Distribution identity: $SIGNING_HASH"
-
-  # Sanity-check the imported identity by signing a temporary copy of the app executable metadata later.
-  # The final app verification below confirms that TeamIdentifier still matches the cloud-exported team.
-  signed_team="$expected_team_id"
-  [[ -n "$signed_team" ]]
 }
 
 make_requirement_file() {
@@ -210,7 +239,6 @@ repair_unicode_designated_requirement() {
   SIGNING_HASH=""
   import_manual_distribution_identity "$team_id"
 
-  # Sign nested code from the inside out so the parent app seal remains valid.
   if [[ -d "$APP_PATH/Frameworks" ]]; then
     while IFS= read -r -d '' dylib; do
       resign_code "$dylib" "$team_id" 0
