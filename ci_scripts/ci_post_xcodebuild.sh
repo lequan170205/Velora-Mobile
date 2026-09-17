@@ -18,6 +18,7 @@ echo "[Velora CI] Archive: ${CI_ARCHIVE_PATH:-unavailable}"
 
 TMP_DIR=""
 IPA_PATH=""
+APP_PATH=""
 cleanup() {
   if [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]]; then
     rm -rf "$TMP_DIR"
@@ -30,26 +31,25 @@ extract_ipa() {
   IPA_PATH="$ipa"
   TMP_DIR="$(mktemp -d)"
   /usr/bin/unzip -q "$ipa" -d "$TMP_DIR"
-  find "$TMP_DIR/Payload" -maxdepth 2 -type d -name '*.app' -print -quit 2>/dev/null || true
+  APP_PATH="$(find "$TMP_DIR/Payload" -maxdepth 2 -type d -name '*.app' -print -quit 2>/dev/null || true)"
+  [[ -n "$APP_PATH" && -d "$APP_PATH" ]]
 }
 
 find_app() {
   local artifact="$1"
-  local app=""
   local ipa=""
 
   if [[ -d "$artifact" ]]; then
-    app="$(find "$artifact" -maxdepth 6 -type d -name '*.app' -print -quit 2>/dev/null || true)"
-    if [[ -n "$app" ]]; then
-      printf '%s\n' "$app"
+    APP_PATH="$(find "$artifact" -maxdepth 6 -type d -name '*.app' -print -quit 2>/dev/null || true)"
+    if [[ -n "$APP_PATH" ]]; then
       return 0
     fi
 
     ipa="$(find "$artifact" -maxdepth 4 -type f -name '*.ipa' -print -quit 2>/dev/null || true)"
     if [[ -n "$ipa" ]]; then
-      echo "[Velora CI] Found exported IPA: $ipa" >&2
+      echo "[Velora CI] Found exported IPA: $ipa"
       extract_ipa "$ipa"
-      return 0
+      return $?
     fi
 
     echo "[Velora CI] Contents of App Store export directory:" >&2
@@ -61,16 +61,14 @@ find_app() {
     case "$artifact" in
       *.ipa)
         extract_ipa "$artifact"
-        return 0
+        return $?
         ;;
       *)
         TMP_DIR="$(mktemp -d)"
         if /usr/bin/unzip -q "$artifact" -d "$TMP_DIR" 2>/dev/null; then
-          app="$(find "$TMP_DIR" -maxdepth 6 -type d -name '*.app' -print -quit 2>/dev/null || true)"
-          if [[ -n "$app" ]]; then
-            printf '%s\n' "$app"
-            return 0
-          fi
+          APP_PATH="$(find "$TMP_DIR" -maxdepth 6 -type d -name '*.app' -print -quit 2>/dev/null || true)"
+          [[ -n "$APP_PATH" && -d "$APP_PATH" ]]
+          return $?
         fi
         ;;
     esac
@@ -79,13 +77,20 @@ find_app() {
   return 1
 }
 
-APP_PATH="$(find_app "$CI_APP_STORE_SIGNED_APP_PATH" || true)"
-if [[ -z "$APP_PATH" || ! -d "$APP_PATH" ]]; then
+if ! find_app "$CI_APP_STORE_SIGNED_APP_PATH"; then
   echo "[Velora CI] Could not locate exported .app or .ipa inside CI_APP_STORE_SIGNED_APP_PATH" >&2
   exit 1
 fi
 
+if [[ -z "$APP_PATH" || ! -d "$APP_PATH" ]]; then
+  echo "[Velora CI] Exported app path was not resolved" >&2
+  exit 1
+fi
+
 echo "[Velora CI] Exported app: $APP_PATH"
+if [[ -n "$IPA_PATH" ]]; then
+  echo "[Velora CI] Exported IPA retained for repair: $IPA_PATH"
+fi
 
 print_signature() {
   local path="$1"
@@ -141,8 +146,8 @@ resign_preserving_entitlements() {
 }
 
 repair_unicode_designated_requirement() {
-  if [[ -z "$IPA_PATH" || -z "$TMP_DIR" ]]; then
-    echo "[Velora CI] Cannot repair signing because the exported artifact is not an IPA" >&2
+  if [[ -z "$IPA_PATH" || ! -f "$IPA_PATH" || -z "$TMP_DIR" || ! -d "$TMP_DIR" ]]; then
+    echo "[Velora CI] Cannot repair signing because the exported IPA context was not retained" >&2
     return 1
   fi
 
@@ -160,7 +165,7 @@ repair_unicode_designated_requirement() {
     return 1
   fi
 
-  echo "[Velora CI] Export uses a valid Apple Distribution certificate but its generated designated requirement is invalid."
+  echo "[Velora CI] Export uses Apple Distribution but its designated requirement is invalid."
   echo "[Velora CI] Applying OU-based designated requirement for TeamIdentifier=$team_id"
 
   if ! /usr/bin/security find-identity -v -p codesigning | /usr/bin/grep -Fq "$identity"; then
@@ -175,7 +180,7 @@ designated => anchor apple generic
   and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */
 EOF
 
-  # Sign nested code first. This avoids the parent app seal becoming stale.
+  # Sign nested code first so the parent app seal remains valid.
   if [[ -d "$APP_PATH/Frameworks" ]]; then
     while IFS= read -r -d '' dylib; do
       /usr/bin/codesign --force --sign "$identity" --requirements "$requirement_file" --timestamp=none "$dylib"
@@ -186,7 +191,6 @@ EOF
     done < <(find "$APP_PATH/Frameworks" -type d -name '*.framework' -print0)
   fi
 
-  # Preserve extension entitlements, then sign the app itself last.
   if [[ -d "$APP_PATH/PlugIns" ]]; then
     while IFS= read -r -d '' extension; do
       resign_preserving_entitlements "$extension" "$identity" "$requirement_file"
