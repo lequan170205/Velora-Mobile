@@ -35,6 +35,25 @@ while IFS= read -r virtual_path; do
   fi
 done < <(rg -o --no-filename 'node_modules/\.pnpm/[^" ]+/node_modules/[^" ]+' "$REPO_ROOT/ios/Pods" 2>/dev/null | sort -u)
 
+# CocoaPods stores Expo native sources under pnpm's virtual path.  Xcode does
+# not reliably resolve those symlinks on Cloud, so turn every Expo iOS source
+# path referenced by the Pods project into a real directory.  This covers the
+# smaller Expo pods (for example EXImageLoader and EXJSONUtils) together rather
+# than waiting for each missing public header to surface during archive.
+while IFS= read -r expo_ios_path; do
+  expo_ios_path="${expo_ios_path%%\"*}"
+  expo_package="${expo_ios_path##*/node_modules/}"
+  expo_package="${expo_package%/ios}"
+  expo_source="$REPO_ROOT/node_modules/$expo_package/ios"
+  expo_destination="$REPO_ROOT/$expo_ios_path"
+  if [[ -d "$expo_source" ]]; then
+    rm -rf "$expo_destination"
+    mkdir -p "$expo_destination"
+    cp -R "$expo_source/." "$expo_destination/"
+  fi
+done < <(rg -o --no-filename 'node_modules/\.pnpm/[^" ]+/node_modules/(expo-[^/" ]+)/ios' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj" 2>/dev/null | sort -u)
+
 if [[ ! -d "$REPO_ROOT/ios/veloraDev.xcworkspace" ]]; then
   echo "[Velora CI] Expected workspace was not generated: ios/veloraDev.xcworkspace" >&2
   exit 1
