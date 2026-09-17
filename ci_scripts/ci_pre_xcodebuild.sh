@@ -113,6 +113,33 @@ sed -i '' \
   '/path = "Target Support Files\/EXConstants";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
   "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
 
+EXPO_APPLICATION_ROOT=""
+if [[ -f "$REPO_ROOT/node_modules/expo-application/ios/EXApplication/EXProvisioningProfile.h" ]]; then
+  EXPO_APPLICATION_ROOT="$REPO_ROOT/node_modules/expo-application"
+else
+  EXPO_APPLICATION_TMP="$(mktemp -d)"
+  curl --fail --silent --show-error --location \
+    'https://registry.npmjs.org/expo-application/-/expo-application-7.0.8.tgz' \
+    --output "$EXPO_APPLICATION_TMP/expo-application.tgz"
+  tar -xzf "$EXPO_APPLICATION_TMP/expo-application.tgz" -C "$EXPO_APPLICATION_TMP"
+  EXPO_APPLICATION_ROOT="$EXPO_APPLICATION_TMP/package"
+fi
+rm -rf "$REPO_ROOT/ios/Pods/CloudSources/expo-application"
+mkdir -p "$REPO_ROOT/ios/Pods/CloudSources/expo-application"
+cp -R "$EXPO_APPLICATION_ROOT/ios/." "$REPO_ROOT/ios/Pods/CloudSources/expo-application/"
+sed -i '' \
+  's#path = "\.\./\.\./node_modules/\.pnpm/expo-application@[^"]*/node_modules/expo-application/ios";#path = "CloudSources/expo-application";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  's#path = "\.\./\.\./\.\./\.\./\.\./\.\./ios/Pods/Target Support Files/EXApplication";#path = "Target Support Files/EXApplication";#' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  '/path = "CloudSources\/expo-application";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+sed -i '' \
+  '/path = "Target Support Files\/EXApplication";/{n;s#sourceTree = "<group>";#sourceTree = SOURCE_ROOT;#;}' \
+  "$REPO_ROOT/ios/Pods/Pods.xcodeproj/project.pbxproj"
+
 # expo-json-utils is a transitive pod that is omitted from some Cloud pnpm
 # layouts.  Its public header is compiled by EXJSONUtils, so provide the
 # package archive as a deterministic fallback.
