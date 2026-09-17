@@ -63,7 +63,7 @@ export class ReelPlaybackCoordinator {
     this.players.set(reelId, player)
     this.schedulePendingSeek(reelId, player)
 
-    if (this.desiredReelId === reelId && this.playingReelId !== reelId) {
+    if (this.desiredReelId === reelId) {
       player.play()
       this.playingReelId = reelId
       return
@@ -92,11 +92,8 @@ export class ReelPlaybackCoordinator {
     }
 
     this.schedulePendingSeek(nextReelId, nextPlayer)
-
-    if (this.playingReelId !== nextReelId) {
-      nextPlayer.play()
-      this.playingReelId = nextReelId
-    }
+    nextPlayer.play()
+    this.playingReelId = nextReelId
   }
 
   pauseAll() {

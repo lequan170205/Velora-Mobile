@@ -83,9 +83,17 @@ export interface Reel extends Partial<ReelMediaState> {
 
 export type ReelFeedListItem = Reel
 
+export interface ReelTranscriptSegment {
+  id?: number
+  start: number
+  end: number
+  text: string
+}
+
 export interface ReelDetail extends Reel {
   description?: string
   transcript?: string
+  transcriptSegments?: ReelTranscriptSegment[]
 }
 
 export interface ListReelsParams {

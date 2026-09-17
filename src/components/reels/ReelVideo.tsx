@@ -31,6 +31,7 @@ interface ReelVideoProps {
   uri: string
   posterUri?: string | undefined
   shouldPlay: boolean
+  playbackRate?: number | undefined
   loop?: boolean | undefined
   muted?: boolean | undefined
   nativeControls?: boolean | undefined
@@ -83,6 +84,7 @@ interface ExpoVideoModule {
       bufferOptions: VideoBufferOptions
       currentTime: number
       duration: number
+      playbackRate: number
       timeUpdateEventInterval: number
       seekBy?: (seconds: number) => void
       play: () => void
@@ -95,6 +97,7 @@ interface ExpoVideoModule {
     bufferOptions: VideoBufferOptions
     currentTime: number
     duration: number
+    playbackRate: number
     timeUpdateEventInterval: number
     seekBy?: (seconds: number) => void
     play: () => void
@@ -131,6 +134,7 @@ type PlaybackStatus = PlaybackStatusLoaded | PlaybackStatusUnloaded
 interface ExpoAvPlaybackRef {
   playAsync: () => Promise<unknown>
   pauseAsync: () => Promise<unknown>
+  setRateAsync: (rate: number, shouldCorrectPitch: boolean) => Promise<unknown>
   setPositionAsync: (position: number) => Promise<unknown>
   getStatusAsync: () => Promise<PlaybackStatus>
 }
@@ -142,6 +146,8 @@ interface ExpoAvModule {
     shouldPlay?: boolean
     isLooping?: boolean
     isMuted?: boolean
+    rate?: number
+    shouldCorrectPitch?: boolean
     resizeMode?: string
     usePoster?: boolean
     posterSource?: { uri: string }
@@ -293,6 +299,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
     uri,
     posterUri,
     shouldPlay,
+    playbackRate = 1,
     loop = false,
     muted = false,
     nativeControls = false,
@@ -316,6 +323,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
   const player = useVideoPlayer(videoSource, (videoPlayer) => {
     videoPlayer.loop = loop
     videoPlayer.muted = muted
+    videoPlayer.playbackRate = playbackRate
     videoPlayer.bufferOptions = REEL_BUFFER_OPTIONS
     videoPlayer.timeUpdateEventInterval = 0.25
     videoPlayer.pause()
@@ -385,6 +393,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
   useEffect(() => {
     player.loop = loop
     player.muted = muted
+    player.playbackRate = playbackRate
     player.bufferOptions = REEL_BUFFER_OPTIONS
     player.timeUpdateEventInterval = 0.25
 
@@ -402,7 +411,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
     if (resetOnPause) {
       player.currentTime = 0
     }
-  }, [externallyManagedPlayback, loop, muted, player, resetOnPause, shouldPlay])
+  }, [externallyManagedPlayback, loop, muted, playbackRate, player, resetOnPause, shouldPlay])
 
   useEffect(() => {
     const statusSubscription = player.addListener('statusChange', ({ status, error }) => {
@@ -478,6 +487,7 @@ const ExpoAvPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoAv
     uri,
     posterUri,
     shouldPlay,
+    playbackRate = 1,
     loop = false,
     muted = false,
     nativeControls = false,
@@ -556,6 +566,10 @@ const ExpoAvPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoAv
   )
 
   useEffect(() => {
+    void videoRef.current?.setRateAsync(playbackRate, true).catch(() => undefined)
+  }, [playbackRate, uri])
+
+  useEffect(() => {
     if (externallyManagedPlayback) {
       return
     }
@@ -579,6 +593,8 @@ const ExpoAvPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoAv
       shouldPlay={externallyManagedPlayback ? false : shouldPlay}
       isLooping={loop}
       isMuted={muted}
+      rate={playbackRate}
+      shouldCorrectPitch
       resizeMode={contentFit === 'contain' ? ResizeMode.CONTAIN : ResizeMode.COVER}
       usePoster={!!posterUri}
       {...(posterUri ? { posterSource: { uri: posterUri } } : {})}

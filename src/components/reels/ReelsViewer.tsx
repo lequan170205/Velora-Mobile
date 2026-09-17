@@ -34,6 +34,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { scheduleOnRN } from 'react-native-worklets'
 
 import { useReelAnalyticsTracker } from '@/hooks/useReelAnalyticsTracker'
+import { useReelPlaybackPreferences } from '@/hooks/useReelPlaybackPreferences'
 import { useReelSavingMode } from '@/hooks/useReelSavingMode'
 import {
   cancelQueuedTemporaryReelVideoCacheExcept,
@@ -166,6 +167,8 @@ export function ReelsViewer({
   const { fontScale, height: windowHeight } = useWindowDimensions()
   const { isOnline, networkState } = useNetworkStatus()
   const { isReelSavingModeHydrated, reelSavingModeEnabled } = useReelSavingMode()
+  const { liveTranscriptionEnabled, playbackSpeed, setLiveTranscriptionEnabled, setPlaybackSpeed } =
+    useReelPlaybackPreferences()
   const {
     startReelSession,
     endCurrentReelSession,
@@ -203,6 +206,7 @@ export function ReelsViewer({
   const [deletedReelIds, setDeletedReelIds] = useState<Set<string>>(() => new Set())
   const [isOfflineAlertVisible, setIsOfflineAlertVisible] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
+  const [clearDisplay, setClearDisplay] = useState(false)
   const [offlineReadyReelIds, setOfflineReadyReelIds] = useState<string[]>([])
   const [isTimelineInteracting, setIsTimelineInteracting] = useState(false)
   const [isActiveReelPausedByUser, setIsActiveReelPausedByUser] = useState(false)
@@ -275,6 +279,20 @@ export function ReelsViewer({
   const handleToggleMuted = useCallback(() => {
     setIsMuted((current) => !current)
   }, [])
+
+  const handleClearDisplay = useCallback(() => {
+    setClearDisplay(true)
+  }, [])
+
+  const handleRestoreDisplay = useCallback(() => {
+    setClearDisplay(false)
+  }, [])
+
+  useEffect(() => {
+    if (!isFocused) {
+      setClearDisplay(false)
+    }
+  }, [isFocused])
 
   const {
     data: recommendedData,
@@ -1363,7 +1381,6 @@ export function ReelsViewer({
       Gesture.Pan()
         .enabled(
           shouldAllowRefresh &&
-            isFocused &&
             reels.length > 0 &&
             activeIndex <= 0 &&
             !isTimelineInteracting &&
@@ -1403,7 +1420,6 @@ export function ReelsViewer({
     [
       activeIndex,
       handleRefresh,
-      isFocused,
       isManualRefreshing,
       isRefetchingPublicFeed,
       isTimelineInteracting,
@@ -1418,8 +1434,7 @@ export function ReelsViewer({
     () =>
       Gesture.Pan()
         .enabled(
-          isFocused &&
-            isAtOfflineBoundary &&
+          isAtOfflineBoundary &&
             !isTimelineInteracting &&
             !isManualRefreshing &&
             !isRefetchingPublicFeed,
@@ -1472,7 +1487,6 @@ export function ReelsViewer({
         }),
     [
       isAtOfflineBoundary,
-      isFocused,
       isManualRefreshing,
       isRefetchingPublicFeed,
       isTimelineInteracting,
@@ -1635,8 +1649,15 @@ export function ReelsViewer({
             enableStatusPolling={isActiveItem}
             hideCaption={hideDescriptions}
             isMuted={isMuted}
+            clearDisplay={clearDisplay}
+            liveTranscriptionEnabled={isActiveItem && liveTranscriptionEnabled}
+            playbackSpeed={playbackSpeed}
             bottomContentInset={bottomContentInset}
             onToggleMuted={handleToggleMuted}
+            onClearDisplay={handleClearDisplay}
+            onRestoreDisplay={handleRestoreDisplay}
+            onLiveTranscriptionChange={setLiveTranscriptionEnabled}
+            onPlaybackSpeedChange={setPlaybackSpeed}
             onDeleted={handleReelDeleted}
             onIntentionalPauseChange={handleIntentionalPauseChange}
             onPlaybackProgress={handlePlaybackProgress}
@@ -1644,7 +1665,10 @@ export function ReelsViewer({
             onPlayerChange={handlePlayerChange}
           />
 
-          {shouldShowRecommendationDebugOverlay && isActiveItem && item.recommendation ? (
+          {!clearDisplay &&
+          shouldShowRecommendationDebugOverlay &&
+          isActiveItem &&
+          item.recommendation ? (
             <View
               pointerEvents="none"
               style={{
@@ -1688,16 +1712,23 @@ export function ReelsViewer({
       handlePlaybackProgress,
       handleTimelineInteractionChange,
       handleToggleMuted,
+      handleClearDisplay,
+      handleRestoreDisplay,
       hideDescriptions,
       isFocused,
       isManualRefreshing,
       isMuted,
       isSwitchingFeedTab,
       insets.top,
+      clearDisplay,
+      liveTranscriptionEnabled,
       offlineVideoCachePriorities,
+      playbackSpeed,
       recommendedAlgorithmVersion,
       recommendedFeedSessionId,
       handleIntentionalPauseChange,
+      setLiveTranscriptionEnabled,
+      setPlaybackSpeed,
       viewportHeight,
     ],
   )
@@ -1705,7 +1736,7 @@ export function ReelsViewer({
   if (isActiveError && reels.length === 0 && !shouldShowOfflineSkeleton && !shouldLoadPublicFeed) {
     return (
       <View className="flex-1 items-center justify-center bg-[#050505] px-6">
-        <StatusBar style="light" />
+        <StatusBar style="light" hidden={clearDisplay} />
 
         <View
           className="w-full max-w-[340px] items-center rounded-[32px] border border-white/14 bg-black/52 px-6 py-7"
@@ -1806,7 +1837,7 @@ export function ReelsViewer({
           )}
         </Animated.View>
 
-        {activeIndex <= 0 ? (
+        {!clearDisplay && activeIndex <= 0 ? (
           <Animated.View
             pointerEvents="none"
             style={[
@@ -2006,12 +2037,14 @@ export function ReelsViewer({
           </View>
         ) : null}
 
-        <ReelOfflineAlert topOffset={insets.top + 18} visible={isOfflineAlertVisible} />
+        {!clearDisplay ? (
+          <ReelOfflineAlert topOffset={insets.top + 18} visible={isOfflineAlertVisible} />
+        ) : null}
 
         <View
-          pointerEvents="box-none"
+          pointerEvents={clearDisplay ? 'none' : 'box-none'}
           className="absolute inset-x-0 top-0 z-30 px-5"
-          style={{ paddingTop: insets.top + 18, elevation: 30 }}
+          style={{ paddingTop: insets.top + 18, elevation: 30, opacity: clearDisplay ? 0 : 1 }}
         >
           {mode === 'context' ? (
             <TouchableOpacity

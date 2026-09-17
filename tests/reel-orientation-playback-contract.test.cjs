@@ -11,6 +11,7 @@ const editorStage = read('src/components/reels/create/editor-stage.tsx')
 const publishStage = read('src/components/reels/create/publish-stage.tsx')
 const reelFeedItem = read('src/components/reels/ReelFeedItem.tsx')
 const reelVideo = read('src/components/reels/ReelVideo.tsx')
+const reelPlaybackCoordinator = read('src/lib/reelPlaybackCoordinator.ts')
 
 test('creator classifies portrait, landscape and square sources without forcing 9:16 crop', () => {
   assert.match(creatorHelpers, /aspectRatio >= 1\.1/)
@@ -45,14 +46,22 @@ test('orientation detection is cached so returning to a reel does not restart at
 })
 
 test('feed fit follows explicit edit framing before legacy poster detection', () => {
-  assert.match(reelFeedItem, /reel\.edit\?\.framing === 'crop'/)
+  assert.match(
+    reelFeedItem,
+    /reel\.edit\?\.framing === 'crop'[\s\S]*reel\.sourceOrientation === 'LANDSCAPE'[\s\S]*return 'contain'/,
+  )
+  assert.match(reelFeedItem, /reel\.playbackPresentation === 'FIT_WITH_LETTERBOX'/)
+  assert.match(reelFeedItem, /reel\.playbackPresentation === 'PORTRAIT_COVER'/)
   assert.match(reelFeedItem, /reel\.edit\?\.framing !== 'fit'/)
+  assert.doesNotMatch(
+    reelFeedItem,
+    /sourceLengthClass === 'LONG' \? 'contain' : 'cover'/,
+  )
   assert.match(reelFeedItem, /contentFit=\{playbackContentFit\}/g)
   assert.match(
     reelFeedItem,
     /disableOrientationAwareContentFit=\{stablePlaybackContentFit !== null\}/,
   )
-  assert.doesNotMatch(reelFeedItem, /playbackPresentation === 'PORTRAIT_COVER'/)
 })
 
 test('contained feed reels keep contain foreground and add a poster immersive background', () => {
@@ -73,4 +82,15 @@ test('contained feed reels keep contain foreground and add a poster immersive ba
   )
   assert.match(reelFeedItem, /style=\{styles\.mediaStage\}/)
   assert.doesNotMatch(reelFeedItem, /foregroundMediaStyle/)
+})
+
+test('playback coordinator plays desired reel upon registration and does not pause active reel', () => {
+  assert.match(
+    reelPlaybackCoordinator,
+    /if\s*\(\s*this\.desiredReelId\s*===\s*reelId\s*\)\s*\{\s*player\.play\(\)/,
+  )
+  assert.doesNotMatch(
+    reelPlaybackCoordinator,
+    /if\s*\(\s*this\.desiredReelId\s*===\s*reelId\s*&&\s*this\.playingReelId\s*!==\s*reelId\s*\)/,
+  )
 })

@@ -4,7 +4,7 @@ import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useRouter } from 'expo-router'
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
   cancelAnimation,
@@ -18,6 +18,7 @@ import Animated, {
 import { scheduleOnRN } from 'react-native-worklets'
 
 import { useOfflineReelVideoSource } from '@/hooks/useOfflineReelVideoSource'
+import type { BottomSheetModal } from '@gorhom/bottom-sheet'
 
 import {
   useReelDetail,
@@ -38,11 +39,13 @@ import { useAuthStore } from '../../stores/authStore'
 import { DeleteReelModal } from './DeleteReelModal'
 import { ReelActionsMenu } from './ReelActionsMenu'
 import { ReelLoadingRail } from './ReelLoadingRail'
+import { ReelPlaybackOptionsSheet } from './ReelPlaybackOptionsSheet'
 import { ReelShareSheet } from './ReelShareSheet'
 import { ReelVideo } from './ReelVideo'
 
 import type { ReelVideoHandle, ReelVideoProgress } from './ReelVideo'
-import type { Reel } from '../../types/reel.types'
+import type { ReelPlaybackSpeed } from '../../lib/reelPlaybackPreferences'
+import type { Reel, ReelTranscriptSegment } from '../../types/reel.types'
 
 interface ReelFeedItemProps {
   description?: string | undefined
@@ -54,8 +57,15 @@ interface ReelFeedItemProps {
   enableStatusPolling?: boolean | undefined
   hideCaption?: boolean | undefined
   isMuted: boolean
+  clearDisplay: boolean
+  liveTranscriptionEnabled: boolean
+  playbackSpeed: ReelPlaybackSpeed
   bottomContentInset?: number | undefined
   onToggleMuted: () => void
+  onClearDisplay: () => void
+  onRestoreDisplay: () => void
+  onLiveTranscriptionChange: (enabled: boolean) => void
+  onPlaybackSpeedChange: (speed: ReelPlaybackSpeed) => void
   onDeleted?: ((reelId: string) => void) | undefined
   onIntentionalPauseChange?: ((paused: boolean) => void) | undefined
   onPlaybackProgress?:
@@ -93,6 +103,67 @@ const formatPlaybackTime = (value: number) => {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
+const TRANSCRIPT_WORDS_PER_CUE = 6
+const TRANSCRIPT_SILENCE_HIDE_SECONDS = 0.18
+const TRANSCRIPT_PHRASE_GAP_SECONDS = 0.35
+
+const getTimedTranscriptWords = (segments: ReelTranscriptSegment[] | undefined) =>
+  (segments ?? []).flatMap((segment) => {
+    const words = segment.text.trim().split(/\s+/).filter(Boolean)
+    if (words.length === 0) return []
+    if (words.length === 1) {
+      return [{ text: words[0], start: segment.start, end: segment.end }]
+    }
+
+    const duration = Math.max(0.001, segment.end - segment.start)
+    return words.map((text, index) => ({
+      text,
+      start: segment.start + (duration * index) / words.length,
+      end: segment.start + (duration * (index + 1)) / words.length,
+    }))
+  })
+
+const getActiveTranscriptText = (
+  segments: ReelTranscriptSegment[] | undefined,
+  position: number,
+) => {
+  const words = getTimedTranscriptWords(segments)
+  if (words.length === 0) return ''
+
+  let chunkStart = 0
+  while (chunkStart < words.length) {
+    let chunkEnd = chunkStart
+    while (
+      chunkEnd + 1 < words.length &&
+      chunkEnd + 1 - chunkStart < TRANSCRIPT_WORDS_PER_CUE &&
+      words[chunkEnd + 1].start - words[chunkEnd].end <= TRANSCRIPT_PHRASE_GAP_SECONDS
+    ) {
+      chunkEnd += 1
+    }
+
+    const cueStartTime = words[chunkStart].start
+    const cueEndTime = words[chunkEnd].end
+    const nextWord = words[chunkEnd + 1]
+    const nextCueStart = nextWord ? nextWord.start : Infinity
+    const cueHideTime = Math.min(cueEndTime + TRANSCRIPT_SILENCE_HIDE_SECONDS, nextCueStart)
+
+    if (position >= cueStartTime && position < cueHideTime) {
+      return words
+        .slice(chunkStart, chunkEnd + 1)
+        .map((word) => word.text)
+        .join(' ')
+    }
+
+    if (position < cueStartTime) {
+      break
+    }
+
+    chunkStart = chunkEnd + 1
+  }
+
+  return ''
+}
+
 const styles = StyleSheet.create({
   containedMediaFrame: {
     overflow: 'hidden',
@@ -114,6 +185,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  transcriptOverlay: {
+    alignItems: 'flex-start',
+    left: 12,
+    position: 'absolute',
+    right: 84,
+    zIndex: 20,
+  },
   video: {
     backgroundColor: '#050505',
     height: '100%',
@@ -132,7 +210,23 @@ const getStablePlaybackContentFit = (reel: Reel): ReelPlaybackContentFit | null 
     return 'cover'
   }
 
+  if (reel.sourceOrientation === 'LANDSCAPE') {
+    return 'contain'
+  }
+
+  if (reel.playbackPresentation === 'FIT_WITH_LETTERBOX') {
+    return 'contain'
+  }
+
+  if (reel.playbackPresentation === 'PORTRAIT_COVER') {
+    return 'cover'
+  }
+
   if (reel.edit?.framing !== 'fit') {
+    if (reel.sourceOrientation === 'PORTRAIT' || reel.sourceOrientation === 'SQUARE') {
+      return 'cover'
+    }
+
     return null
   }
 
@@ -140,7 +234,7 @@ const getStablePlaybackContentFit = (reel: Reel): ReelPlaybackContentFit | null 
     return 'cover'
   }
 
-  if (reel.sourceOrientation === 'LANDSCAPE' || reel.sourceOrientation === 'SQUARE') {
+  if (reel.sourceOrientation === 'SQUARE') {
     return 'contain'
   }
 
@@ -192,8 +286,15 @@ const ReelFeedItemComponent = function ReelFeedItem({
   enableStatusPolling = false,
   hideCaption = false,
   isMuted,
+  clearDisplay,
+  liveTranscriptionEnabled,
+  playbackSpeed,
   bottomContentInset = 0,
   onToggleMuted,
+  onClearDisplay,
+  onRestoreDisplay,
+  onLiveTranscriptionChange,
+  onPlaybackSpeedChange,
   onDeleted,
   onIntentionalPauseChange,
   onPlaybackProgress,
@@ -202,6 +303,8 @@ const ReelFeedItemComponent = function ReelFeedItem({
 }: ReelFeedItemProps) {
   const router = useRouter()
   const { user } = useAuthStore()
+  const playbackOptionsSheetRef = useRef<BottomSheetModal>(null)
+  const isPlaybackOptionsPresentedRef = useRef(false)
   const videoRef = useRef<ReelVideoHandle | null>(null)
   const playerIdentityRef = useRef({ playerGeneration: 0, reelId: reel.id, sourceKey: '' })
   const lastBufferedPositionRef = useRef(0)
@@ -219,6 +322,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const [scrubberWidth, setScrubberWidth] = useState(0)
   const [showActionsMenu, setShowActionsMenu] = useState(false)
   const [isCaptionExpanded, setIsCaptionExpanded] = useState(false)
+  const [metadataCopyHeight, setMetadataCopyHeight] = useState(0)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showShareSheet, setShowShareSheet] = useState(false)
   const { data: processingStatus } = useReelProcessingStatus(reel, {
@@ -226,7 +330,8 @@ const ReelFeedItemComponent = function ReelFeedItem({
   })
   const shouldFetchReelDetail =
     !reel.id.startsWith(CHAT_SHARED_REEL_FALLBACK_ID_PREFIX) &&
-    (!reel.author?.username ||
+    ((isActive && liveTranscriptionEnabled && !clearDisplay) ||
+      !reel.author?.username ||
       !reel.author?.avatarUrl ||
       reel.tags.length === 0 ||
       !reel.description?.trim())
@@ -262,6 +367,10 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
     if (reelDetail?.thumbnailUrl) {
       nextReel.thumbnailUrl = reelDetail.thumbnailUrl
+    }
+
+    if (reelDetail?.playbackPresentation && !nextReel.playbackPresentation) {
+      nextReel.playbackPresentation = reelDetail.playbackPresentation
     }
 
     return nextReel
@@ -351,10 +460,15 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const shouldRenderVideo = playbackState.isPlayable && shouldWarmVideo
   const effectivePosition = isScrubbing ? scrubPosition : playbackPosition
   const timelinePosition = pendingSeekPosition ?? effectivePosition
+  const activeTranscriptText = getActiveTranscriptText(
+    reelDetail?.transcriptSegments,
+    timelinePosition,
+  )
   const bufferedRatio = durationSeconds > 0 ? clamp(bufferedPosition / durationSeconds, 0, 1) : 0
   const safeBottomContentInset = Math.max(0, bottomContentInset)
   const scrubRailBottom = safeBottomContentInset
   const metadataBottom = safeBottomContentInset + METADATA_GAP_ABOVE_SCRUB_RAIL
+  const transcriptOverlayBottom = metadataBottom + Math.max(metadataCopyHeight, 52) + 12
   const timelineLabel = formatPlaybackTime(timelinePosition)
   const timelineChipWidth = TIMELINE_CHIP_WIDTH
   const processingMessage = displayReel.message ?? displayReel.processingMessage
@@ -376,9 +490,13 @@ const ReelFeedItemComponent = function ReelFeedItem({
     Number.isFinite(displayReel.sourceAspectRatio) &&
     displayReel.sourceAspectRatio > 0
       ? displayReel.sourceAspectRatio
-      : displayReel.sourceOrientation === 'LANDSCAPE'
-        ? 16 / 9
-        : 1
+      : typeof displayReel.sourceEffectiveWidth === 'number' &&
+          typeof displayReel.sourceEffectiveHeight === 'number' &&
+          displayReel.sourceEffectiveHeight > 0
+        ? displayReel.sourceEffectiveWidth / displayReel.sourceEffectiveHeight
+        : displayReel.sourceOrientation === 'LANDSCAPE'
+          ? 16 / 9
+          : 1
   const shouldShowVideoLayer = isActive || isReady || playbackPosition > 0
 
   const triggerScrubStartHaptic = useCallback(() => {
@@ -436,6 +554,70 @@ const ReelFeedItemComponent = function ReelFeedItem({
     }
   }, [authorHandle, displayReel.userId, router, user?.id])
 
+  const handleOpenPlaybackOptions = useCallback(() => {
+    if (!isActive || clearDisplay || !playbackState.isPlayable || hasPlaybackError) {
+      return
+    }
+
+    void Haptics.selectionAsync().catch(() => undefined)
+    isPlaybackOptionsPresentedRef.current = true
+    playbackOptionsSheetRef.current?.present()
+  }, [clearDisplay, hasPlaybackError, isActive, playbackState.isPlayable])
+
+  const handleClosePlaybackOptions = useCallback(() => {
+    isPlaybackOptionsPresentedRef.current = false
+  }, [])
+
+  const handlePlaybackSurfaceTap = useCallback(() => {
+    if (!isActive || !playbackState.isPlayable || hasPlaybackError) {
+      return
+    }
+
+    if (clearDisplay) {
+      onRestoreDisplay()
+      return
+    }
+
+    setIsPausedByUser(!isPausedByUserRef.current)
+  }, [
+    clearDisplay,
+    hasPlaybackError,
+    isActive,
+    onRestoreDisplay,
+    playbackState.isPlayable,
+    setIsPausedByUser,
+  ])
+
+  const playbackLongPressGesture = useMemo(
+    () =>
+      Gesture.LongPress()
+        .enabled(!clearDisplay && playbackState.isPlayable && !hasPlaybackError)
+        .minDuration(450)
+        .maxDistance(28)
+        .onStart(() => {
+          scheduleOnRN(handleOpenPlaybackOptions)
+        }),
+    [clearDisplay, handleOpenPlaybackOptions, hasPlaybackError, playbackState.isPlayable],
+  )
+
+  const playbackTapGesture = useMemo(
+    () =>
+      Gesture.Tap()
+        .enabled(playbackState.isPlayable && !hasPlaybackError)
+        .maxDistance(28)
+        .onEnd((_event, success) => {
+          if (success) {
+            scheduleOnRN(handlePlaybackSurfaceTap)
+          }
+        }),
+    [handlePlaybackSurfaceTap, hasPlaybackError, playbackState.isPlayable],
+  )
+
+  const playbackSurfaceGesture = useMemo(
+    () => Gesture.Exclusive(playbackLongPressGesture, playbackTapGesture),
+    [playbackLongPressGesture, playbackTapGesture],
+  )
+
   const handleProgress = ({
     bufferedPosition: nextBufferedPosition,
     currentTime,
@@ -469,7 +651,8 @@ const ReelFeedItemComponent = function ReelFeedItem({
     const shouldCommitPlaybackPosition =
       currentTime === 0 ||
       currentTime < lastPlaybackPositionRef.current ||
-      Math.abs(currentTime - lastPlaybackPositionRef.current) >= 0.5
+      Math.abs(currentTime - lastPlaybackPositionRef.current) >=
+        (liveTranscriptionEnabled ? 0.2 : 0.5)
 
     if (shouldCommitPlaybackPosition) {
       lastPlaybackPositionRef.current = currentTime
@@ -731,6 +914,10 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
   useEffect(() => {
     if (!isActive) {
+      if (isPlaybackOptionsPresentedRef.current) {
+        playbackOptionsSheetRef.current?.dismiss()
+        isPlaybackOptionsPresentedRef.current = false
+      }
       resetTimelineState({ resetReadyState: !shouldWarmVideo })
       return
     }
@@ -799,6 +986,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                 uri={offlineVideoSource.uri}
                 {...(posterUri ? { posterUri } : {})}
                 shouldPlay={isActive && !isPausedByUser && !hasPlaybackError}
+                playbackRate={playbackSpeed}
                 loop
                 muted={isMuted || !isActive}
                 contentFit={playbackContentFit}
@@ -852,62 +1040,56 @@ const ReelFeedItemComponent = function ReelFeedItem({
           </View>
         </View>
 
-        <LinearGradient
-          colors={['rgba(0,0,0,0.10)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.92)']}
-          locations={[0, 0.48, 1]}
-          pointerEvents="none"
-          style={styles.fill}
-        />
-
-        {isActive && !showPausedControls && playbackState.isPlayable && !hasPlaybackError ? (
-          <Pressable
-            style={[styles.fill, { bottom: scrubRailBottom + SCRUBBER_TOUCH_ZONE_HEIGHT + 10 }]}
-            onPress={() => {
-              setIsPausedByUser(true)
-            }}
+        {!clearDisplay ? (
+          <LinearGradient
+            colors={['rgba(0,0,0,0.10)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.92)']}
+            locations={[0, 0.48, 1]}
+            pointerEvents="none"
+            style={styles.fill}
           />
         ) : null}
 
-        {showPausedControls ? (
-          <Pressable
-            style={styles.fill}
-            onPress={() => {
-              setIsPausedByUser(false)
-            }}
-          >
-            <View className="absolute inset-0 items-center justify-center">
-              <View className="items-center">
-                <TouchableOpacity
-                  className="mb-4 h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/40"
-                  activeOpacity={0.84}
-                  onPress={(event) => {
-                    event.stopPropagation()
-                    onToggleMuted()
-                  }}
-                >
-                  <Ionicons
-                    name={isMuted ? 'volume-mute' : 'volume-high'}
-                    size={16}
-                    color="#FFFFFF"
-                  />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  className="h-[68px] w-[68px] items-center justify-center rounded-full border border-white/15 bg-black/40"
-                  activeOpacity={0.84}
-                  onPress={(event) => {
-                    event.stopPropagation()
-                    setIsPausedByUser(false)
-                  }}
-                >
-                  <Ionicons name="play" size={30} color="#FFFFFF" style={{ marginLeft: 3 }} />
-                </TouchableOpacity>
-              </View>
-            </View>
-          </Pressable>
+        {playbackState.isPlayable && !hasPlaybackError ? (
+          <GestureDetector gesture={playbackSurfaceGesture}>
+            <View
+              pointerEvents={isActive ? 'auto' : 'none'}
+              style={[
+                styles.fill,
+                { bottom: clearDisplay ? 0 : scrubRailBottom + SCRUBBER_TOUCH_ZONE_HEIGHT + 10 },
+              ]}
+            />
+          </GestureDetector>
         ) : null}
 
-        {isActive && playbackState.isPlayable ? (
+        {showPausedControls && !clearDisplay ? (
+          <View className="absolute inset-0 items-center justify-center" pointerEvents="box-none">
+            <View className="items-center" pointerEvents="box-none">
+              <TouchableOpacity
+                className="mb-4 h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/40"
+                activeOpacity={0.84}
+                onPress={onToggleMuted}
+              >
+                <Ionicons
+                  name={isMuted ? 'volume-mute' : 'volume-high'}
+                  size={16}
+                  color="#FFFFFF"
+                />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                className="h-[68px] w-[68px] items-center justify-center rounded-full border border-white/15 bg-black/40"
+                activeOpacity={0.84}
+                onPress={() => {
+                  setIsPausedByUser(false)
+                }}
+              >
+                <Ionicons name="play" size={30} color="#FFFFFF" style={{ marginLeft: 3 }} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+
+        {isActive && playbackState.isPlayable && !clearDisplay ? (
           <GestureDetector gesture={scrubGesture}>
             <View
               className="absolute inset-x-0 z-20"
@@ -971,7 +1153,9 @@ const ReelFeedItemComponent = function ReelFeedItem({
           </GestureDetector>
         ) : null}
 
-        {showLoadingRail ? <ReelLoadingRail bottomOffset={scrubRailBottom} /> : null}
+        {showLoadingRail && !clearDisplay ? (
+          <ReelLoadingRail bottomOffset={scrubRailBottom} />
+        ) : null}
 
         {(!playbackState.isPlayable && !offlineVideoSource.isOfflineVideoUnavailable) ||
         hasPlaybackError ? (
@@ -1060,14 +1244,41 @@ const ReelFeedItemComponent = function ReelFeedItem({
           </View>
         ) : null}
 
+        {isActive && liveTranscriptionEnabled && activeTranscriptText && !clearDisplay ? (
+          <View
+            pointerEvents="none"
+            style={[styles.transcriptOverlay, { bottom: transcriptOverlayBottom }]}
+          >
+            <View className="self-start rounded-[12px] bg-black/60 px-3 py-2">
+              <Text
+                className="text-left text-base font-medium leading-6 text-white"
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                style={{
+                  textShadowColor: 'rgba(0, 0, 0, 0.48)',
+                  textShadowOffset: { width: 0, height: 1 },
+                  textShadowRadius: 2,
+                }}
+              >
+                {activeTranscriptText}
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
         <View
-          pointerEvents="box-none"
+          pointerEvents={clearDisplay ? 'none' : 'box-none'}
           className="absolute inset-x-0"
-          style={{ bottom: metadataBottom }}
+          style={[{ bottom: metadataBottom }, clearDisplay ? { opacity: 0 } : undefined]}
         >
           <View className="px-4">
             <View className="flex-row items-start">
-              <View className="max-w-[82%] flex-1 pr-3">
+              <View
+                className="max-w-[82%] flex-1 pr-3"
+                onLayout={({ nativeEvent }) => {
+                  setMetadataCopyHeight(nativeEvent.layout.height)
+                }}
+              >
                 <View className="flex-row items-center">
                   <TouchableOpacity
                     accessibilityLabel={
@@ -1207,6 +1418,16 @@ const ReelFeedItemComponent = function ReelFeedItem({
           }}
         />
 
+        <ReelPlaybackOptionsSheet
+          sheetRef={playbackOptionsSheetRef}
+          transcriptionEnabled={liveTranscriptionEnabled}
+          onTranscriptionChange={onLiveTranscriptionChange}
+          playbackSpeed={playbackSpeed}
+          onPlaybackSpeedChange={onPlaybackSpeedChange}
+          onClearDisplay={onClearDisplay}
+          onClose={handleClosePlaybackOptions}
+        />
+
         <DeleteReelModal
           visible={showDeleteModal}
           reel={displayReel}
@@ -1239,8 +1460,15 @@ const areReelFeedItemPropsEqual = (previous: ReelFeedItemProps, next: ReelFeedIt
   previous.enableStatusPolling === next.enableStatusPolling &&
   previous.hideCaption === next.hideCaption &&
   previous.isMuted === next.isMuted &&
+  previous.clearDisplay === next.clearDisplay &&
+  previous.liveTranscriptionEnabled === next.liveTranscriptionEnabled &&
+  previous.playbackSpeed === next.playbackSpeed &&
   previous.bottomContentInset === next.bottomContentInset &&
   previous.onToggleMuted === next.onToggleMuted &&
+  previous.onClearDisplay === next.onClearDisplay &&
+  previous.onRestoreDisplay === next.onRestoreDisplay &&
+  previous.onLiveTranscriptionChange === next.onLiveTranscriptionChange &&
+  previous.onPlaybackSpeedChange === next.onPlaybackSpeedChange &&
   previous.onDeleted === next.onDeleted &&
   previous.onIntentionalPauseChange === next.onIntentionalPauseChange &&
   previous.onPlaybackProgress === next.onPlaybackProgress &&

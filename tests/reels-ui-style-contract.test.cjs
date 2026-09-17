@@ -9,6 +9,10 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'u
 const reelsViewer = read('src/components/reels/ReelsViewer.tsx')
 const reelFeedItem = read('src/components/reels/ReelFeedItem.tsx')
 const reelActionsMenu = read('src/components/reels/ReelActionsMenu.tsx')
+const reelPlaybackOptionsSheet = read('src/components/reels/ReelPlaybackOptionsSheet.tsx')
+const reelPlaybackPreferences = read('src/lib/reelPlaybackPreferences.ts')
+const reelVideo = read('src/components/reels/ReelVideo.tsx')
+const reelTypes = read('src/types/reel.types.ts')
 
 test('reels viewer keeps immersive pager, refresh, offline, and recommendation boundaries', () => {
   assert.match(reelsViewer, /<PagerView/)
@@ -92,6 +96,115 @@ test('reel feed item keeps playback and scrub contracts while making metadata re
     reelFeedItem,
     /accessibilityLabel="More reel actions"[\s\S]{0,220}rounded-full border/,
   )
+})
+
+test('active reels fetch timed transcript detail and render synchronized captions', () => {
+  assert.match(reelTypes, /export interface ReelTranscriptSegment/)
+  assert.match(reelTypes, /transcriptSegments\?: ReelTranscriptSegment\[\]/)
+  assert.match(reelFeedItem, /\(isActive && liveTranscriptionEnabled && !clearDisplay\)/)
+  assert.match(reelFeedItem, /const TRANSCRIPT_WORDS_PER_CUE = 6/)
+  assert.match(reelFeedItem, /const TRANSCRIPT_SILENCE_HIDE_SECONDS = 0\.18/)
+  assert.match(reelFeedItem, /const TRANSCRIPT_PHRASE_GAP_SECONDS = 0\.35/)
+  assert.match(reelFeedItem, /const getTimedTranscriptWords =/)
+  assert.match(
+    reelFeedItem,
+    /words\[chunkEnd \+ 1\]\.start - words\[chunkEnd\]\.end <= TRANSCRIPT_PHRASE_GAP_SECONDS/,
+  )
+  assert.match(reelFeedItem, /position >= cueStartTime && position < cueHideTime/)
+  assert.match(reelFeedItem, /self-start/)
+  assert.match(reelFeedItem, /text-left/)
+  assert.doesNotMatch(reelFeedItem, /styles\.transcriptOverlay[\s\S]{0,120}self-center/)
+  assert.doesNotMatch(reelFeedItem, /styles\.transcriptOverlay[\s\S]{0,120}text-center/)
+  assert.match(reelFeedItem, /getActiveTranscriptText\(\s*reelDetail\?\.transcriptSegments/)
+  assert.match(reelFeedItem, /liveTranscriptionEnabled \? 0\.2 : 0\.5/)
+  assert.match(reelFeedItem, /numberOfLines=\{1\}/)
+  assert.match(reelFeedItem, /ellipsizeMode="tail"/)
+  assert.doesNotMatch(reelFeedItem, /segment\.start - 0\.08/)
+  assert.doesNotMatch(reelFeedItem, /segment\.end \+ 0\.12/)
+  assert.match(
+    reelFeedItem,
+    /\{isActive && liveTranscriptionEnabled && activeTranscriptText && !clearDisplay \? \(/,
+  )
+  assert.match(reelFeedItem, /styles\.transcriptOverlay/)
+  assert.match(reelFeedItem, /transcriptOverlayBottom/)
+  assert.match(reelFeedItem, /\{activeTranscriptText\}/)
+})
+
+test('long press opens gorhom playback options without stealing the scrubber gesture', () => {
+  assert.match(reelFeedItem, /Gesture\.LongPress\(\)/)
+  assert.match(reelFeedItem, /\.minDuration\(450\)/)
+  assert.match(reelFeedItem, /\.maxDistance\(28\)/)
+  assert.match(reelFeedItem, /scheduleOnRN\(handleOpenPlaybackOptions\)/)
+  assert.match(reelFeedItem, /playbackOptionsSheetRef\.current\?\.present\(\)/)
+  assert.match(reelFeedItem, /\.activateAfterLongPress\(120\)/)
+  assert.match(reelPlaybackOptionsSheet, /@gorhom\/bottom-sheet/)
+  assert.match(reelPlaybackOptionsSheet, /<BottomSheetModal/)
+  assert.match(reelPlaybackOptionsSheet, /enableDynamicSizing/)
+  assert.match(reelPlaybackOptionsSheet, />Playback</)
+  assert.match(reelPlaybackOptionsSheet, /accessibilityLabel="Live transcription"/)
+  assert.match(reelPlaybackOptionsSheet, /accessibilityLabel="Clear display"/)
+  assert.match(reelPlaybackOptionsSheet, /Playback speed/)
+  assert.doesNotMatch(reelPlaybackOptionsSheet, /colors\.call\./)
+  assert.match(reelPlaybackOptionsSheet, /bg-brand-soft/)
+  assert.match(reelPlaybackOptionsSheet, /bg-brand'/)
+})
+
+test('playback long press keeps one stable surface across pause and tab focus changes', () => {
+  assert.match(
+    reelFeedItem,
+    /\{playbackState\.isPlayable && !hasPlaybackError \? \(\s*<GestureDetector gesture=\{playbackSurfaceGesture\}>/,
+  )
+  assert.match(
+    reelFeedItem,
+    /\.enabled\(!clearDisplay && playbackState\.isPlayable && !hasPlaybackError\)/,
+  )
+  assert.match(reelFeedItem, /pointerEvents=\{isActive \? 'auto' : 'none'\}/)
+  assert.doesNotMatch(reelFeedItem, /Gesture\.LongPress\(\)[\s\S]{0,180}\.enabled\(isActive/)
+  assert.match(reelFeedItem, /Gesture\.Tap\(\)/)
+  assert.match(reelFeedItem, /Gesture\.Exclusive\(playbackLongPressGesture, playbackTapGesture\)/)
+  assert.match(reelFeedItem, /setIsPausedByUser\(!isPausedByUserRef\.current\)/)
+  assert.match(reelFeedItem, /\{showPausedControls && !clearDisplay \? \(/)
+  assert.doesNotMatch(reelFeedItem, /<Pressable/)
+  assert.doesNotMatch(reelFeedItem, /didLongPressPlaybackSurfaceRef/)
+  assert.doesNotMatch(reelFeedItem, /showPausedControls && clearDisplay \? \(/)
+  assert.doesNotMatch(reelsViewer, /Gesture\.Pan\(\)[\s\S]{0,220}\.enabled\([\s\S]{0,160}isFocused/)
+})
+
+test('transcription uses a direct row action without a native switch animation', () => {
+  assert.doesNotMatch(reelPlaybackOptionsSheet, /<Switch/)
+  assert.doesNotMatch(reelPlaybackOptionsSheet, /setTimeout/)
+  assert.match(
+    reelPlaybackOptionsSheet,
+    /accessibilityState=\{\{ selected: transcriptionEnabled \}\}/,
+  )
+  assert.match(
+    reelPlaybackOptionsSheet,
+    /onPress=\{\(\) => onTranscriptionChange\(!transcriptionEnabled\)\}/,
+  )
+  assert.match(reelPlaybackOptionsSheet, /Captions are on · tap to turn off/)
+  assert.match(reelPlaybackOptionsSheet, /Captions are off · tap to turn on/)
+  assert.match(reelsViewer, /liveTranscriptionEnabled=\{isActiveItem && liveTranscriptionEnabled\}/)
+})
+
+test('clear display hides reel chrome and the next video tap restores it without pausing', () => {
+  assert.match(reelsViewer, /const \[clearDisplay, setClearDisplay\] = useState\(false\)/)
+  assert.match(reelsViewer, /pointerEvents=\{clearDisplay \? 'none' : 'box-none'\}/)
+  assert.match(reelsViewer, /opacity: clearDisplay \? 0 : 1/)
+  assert.match(reelFeedItem, /\{!clearDisplay \? \(\s*<LinearGradient/)
+  assert.match(reelFeedItem, /pointerEvents=\{clearDisplay \? 'none' : 'box-none'\}/)
+  assert.match(reelFeedItem, /clearDisplay \? \{ opacity: 0 \} : undefined/)
+  assert.match(reelFeedItem, /if \(clearDisplay\) \{\s*onRestoreDisplay\(\)\s*return/)
+})
+
+test('transcription and playback speed preferences persist and speed applies without replacing video source', () => {
+  assert.match(reelPlaybackPreferences, /reel-live-transcription-enabled/)
+  assert.match(reelPlaybackPreferences, /reel-playback-speed/)
+  assert.match(reelPlaybackPreferences, /\[0\.5, 1, 1\.5, 2\] as const/)
+  assert.match(reelFeedItem, /playbackRate=\{playbackSpeed\}/)
+  assert.match(reelVideo, /videoPlayer\.playbackRate = playbackRate/)
+  assert.match(reelVideo, /player\.playbackRate = playbackRate/)
+  assert.match(reelVideo, /setRateAsync\(playbackRate, true\)/)
+  assert.match(reelVideo, /rate=\{playbackRate\}/)
 })
 
 test('reel actions reuse the shared animated action sheet without changing edit/delete callbacks', () => {
