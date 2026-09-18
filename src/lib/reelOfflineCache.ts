@@ -21,7 +21,7 @@ import {
 } from '../database/reels/reelOfflineStore'
 
 import type { CacheableFeedParams } from '../database/reels/reelCacheMappers'
-import type { ListReelsResponse, Reel } from '../types/reel.types'
+import type { ListReelsResponse, Reel, ReelSeriesSummary } from '../types/reel.types'
 
 const MAX_CACHED_FEED_PAGES = 24
 const MAX_CACHE_AGE_MS = 1000 * 60 * 60 * 24 * 7
@@ -105,6 +105,35 @@ export const updateCachedReelIfPresent = async (reel: Reel) => {
   await upsertCachedReels([
     {
       ...serializeReelToCachedReelInput(reel),
+      cachedAt: existingRecord.cachedAt,
+      lastAccessedAt: updatedAt,
+    },
+  ])
+}
+
+export const updateCachedReelSeriesIfPresent = async (
+  reelId: string,
+  series?: ReelSeriesSummary,
+) => {
+  const [existingRecord] = await getCachedReelsByReelIds([reelId])
+
+  if (!existingRecord) {
+    return
+  }
+
+  const cachedReel = deserializeCachedReelToReel(existingRecord)
+  const updatedReel: Reel = { ...cachedReel }
+
+  if (series) {
+    updatedReel.series = series
+  } else {
+    delete updatedReel.series
+  }
+
+  const updatedAt = Date.now()
+  await upsertCachedReels([
+    {
+      ...serializeReelToCachedReelInput(updatedReel),
       cachedAt: existingRecord.cachedAt,
       lastAccessedAt: updatedAt,
     },

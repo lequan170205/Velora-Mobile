@@ -21,6 +21,7 @@ export class CachedReelModel extends Model {
   @text('stream_url') streamUrl!: string
   @text('author_json') authorJson!: string | null
   @text('recommendation_json') recommendationJson!: string | null
+  @text('series_json') seriesJson!: string | null
   @text('media_status') mediaStatus!: string | null
   @text('index_status') indexStatus!: string | null
   @text('media_stage') mediaStage!: string | null

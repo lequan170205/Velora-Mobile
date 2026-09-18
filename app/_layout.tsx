@@ -178,6 +178,14 @@ function RootAppShell({ hasPendingNativeCallIntent }: RootAppShellProps) {
                                       }}
                                     />
                                     <Stack.Screen
+                                      name="series/[id]"
+                                      options={{
+                                        animation: 'slide_from_right',
+                                        animationDuration: 220,
+                                        freezeOnBlur: false,
+                                      }}
+                                    />
+                                    <Stack.Screen
                                       name="conversation/[id]"
                                       options={{
                                         animation: 'slide_from_right',

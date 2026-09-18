@@ -80,5 +80,14 @@ export const migrations = schemaMigrations({
         }),
       ],
     },
+    {
+      toVersion: 8,
+      steps: [
+        addColumns({
+          table: TABLES.cachedReels,
+          columns: [{ name: 'series_json', type: 'string', isOptional: true }],
+        }),
+      ],
+    },
   ],
 })

@@ -11,6 +11,7 @@ import type {
   ReelIndexStatus,
   ReelMediaStatus,
   ReelProcessingState,
+  ReelSeriesSummary,
   ReelSourceLengthClass,
   ReelSourceOrientation,
   ReelVisibility,
@@ -41,6 +42,7 @@ export interface CachedReelInput {
   streamUrl: string
   authorJson: string | null
   recommendationJson: string | null
+  seriesJson: string | null
   mediaStatus: string | null
   indexStatus: string | null
   mediaStage: string | null
@@ -77,7 +79,7 @@ export interface CachedReelFeedPageInput {
 const FEED_CACHE_KEY_PREFIX = '@velora/reels/feed-page/v3'
 
 const REEL_STATUS_VALUES: ReelProcessingState[] = ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED']
-const REEL_VISIBILITY_VALUES: ReelVisibility[] = ['public', 'private']
+const REEL_VISIBILITY_VALUES: ReelVisibility[] = ['public', 'friends', 'private']
 const REEL_MEDIA_STATUS_VALUES: ReelMediaStatus[] = [
   'PENDING',
   'PROBING',
@@ -282,6 +284,41 @@ export const deserializeRecommendationMetadata = (value: string | null) => {
   }
 }
 
+export const serializeReelSeriesSummary = (series?: ReelSeriesSummary) =>
+  series
+    ? JSON.stringify({
+        id: series.id,
+        title: series.title,
+        episodeNumber: series.episodeNumber,
+      })
+    : null
+
+export const deserializeReelSeriesSummary = (
+  value: string | null,
+): ReelSeriesSummary | undefined => {
+  const parsed = safeParseJson(value)
+
+  if (!isRecord(parsed)) {
+    return undefined
+  }
+
+  const id = toNullableTrimmedString(parsed.id)
+  const title = toNullableTrimmedString(parsed.title)
+  const episodeNumber = parsed.episodeNumber
+
+  if (
+    !id ||
+    !title ||
+    typeof episodeNumber !== 'number' ||
+    !Number.isInteger(episodeNumber) ||
+    episodeNumber < 1
+  ) {
+    return undefined
+  }
+
+  return { id, title, episodeNumber }
+}
+
 export const serializeReelRecommendations = (reels: Reel[]) => {
   const recommendations = reels.reduce<Record<string, RecommendationMetadata>>((result, reel) => {
     if (reel.recommendation) {
@@ -364,6 +401,7 @@ export const serializeReelToCachedReelInput = (reel: Reel): CachedReelInput => {
     streamUrl: reel.streamUrl,
     authorJson: serializeAuthor(reel.author),
     recommendationJson: serializeRecommendationMetadata(reel.recommendation),
+    seriesJson: serializeReelSeriesSummary(reel.series),
     mediaStatus: toNullableTrimmedString(reel.mediaStatus),
     indexStatus: toNullableTrimmedString(reel.indexStatus),
     mediaStage: toNullableTrimmedString(reel.mediaStage),
@@ -404,6 +442,7 @@ export const deserializeCachedReelToReel = (
         | 'streamUrl'
         | 'authorJson'
         | 'recommendationJson'
+        | 'seriesJson'
         | 'mediaStatus'
         | 'indexStatus'
         | 'mediaStage'
@@ -429,6 +468,7 @@ export const deserializeCachedReelToReel = (
     : 'public'
   const author = deserializeAuthor(record.authorJson)
   const recommendation = deserializeRecommendationMetadata(record.recommendationJson)
+  const series = deserializeReelSeriesSummary(record.seriesJson)
   const mediaStatus = REEL_MEDIA_STATUS_VALUES.includes(record.mediaStatus as ReelMediaStatus)
     ? (record.mediaStatus as ReelMediaStatus)
     : undefined
@@ -466,6 +506,7 @@ export const deserializeCachedReelToReel = (
     ...(record.localThumbnailUri ? { localThumbnailUri: record.localThumbnailUri } : {}),
     ...(author ? { author } : {}),
     ...(recommendation ? { recommendation } : {}),
+    ...(series ? { series } : {}),
     ...(mediaStatus ? { mediaStatus } : {}),
     ...(indexStatus ? { indexStatus } : {}),
     ...(record.mediaStage ? { mediaStage: record.mediaStage } : {}),

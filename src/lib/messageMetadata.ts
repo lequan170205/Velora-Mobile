@@ -16,7 +16,7 @@ const AI_RECOMMENDATION_METADATA_KIND = 'velora_ai_reel_recommendations'
 const GROUP_SYSTEM_ACTIVITY_METADATA_KIND = 'group_system_activity'
 const AI_RAG_EVIDENCE_TYPES = new Set(['TRANSCRIPT', 'VISUAL', 'METADATA'])
 const REEL_STATUS_VALUES = new Set(['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'])
-const REEL_VISIBILITY_VALUES = new Set(['public', 'private'])
+const REEL_VISIBILITY_VALUES = new Set(['public', 'friends', 'private'])
 const GROUP_SYSTEM_ACTIVITY_TYPES = new Set<GroupSystemActivityType>([
   'GROUP_CREATED',
   'MEMBER_ADDED',
