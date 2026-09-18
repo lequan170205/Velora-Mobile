@@ -1,7 +1,7 @@
 import type { RecommendationMetadata } from './recommendation.types'
 import type { ReelCrop, ReelTrim } from './reel-creator'
 
-export type ReelVisibility = 'public' | 'private'
+export type ReelVisibility = 'public' | 'friends' | 'private'
 
 export type AllowedVideoType = 'video/mp4' | 'video/webm' | 'video/quicktime'
 export type ReelProcessingState = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED'
@@ -52,6 +52,12 @@ export interface ReelAuthor {
   isVerified: boolean | null
 }
 
+export interface ReelSeriesSummary {
+  id: string
+  title: string
+  episodeNumber: number
+}
+
 export interface Reel extends Partial<ReelMediaState> {
   id: string
   userId: string
@@ -76,12 +82,45 @@ export interface Reel extends Partial<ReelMediaState> {
   streamUrl: string
   createdAt: string
   author?: ReelAuthor | null
+  series?: ReelSeriesSummary
   recommendation?: RecommendationMetadata
   edit?: ReelEditPayload
   playbackPresentation?: ReelPlaybackPresentation
 }
 
 export type ReelFeedListItem = Reel
+
+export interface ReelSeries {
+  id: string
+  ownerId: string
+  title: string
+  description?: string
+  visibility: ReelVisibility
+  createdAt: string
+  updatedAt: string
+  reels: ReelFeedListItem[]
+}
+
+export interface CreateReelSeriesPayload {
+  title: string
+  description?: string
+  visibility?: ReelVisibility
+}
+
+export interface UpdateReelSeriesPayload {
+  title?: string
+  description?: string
+  visibility?: ReelVisibility
+}
+
+export interface AddReelToSeriesPayload {
+  reelId: string
+  episodeNumber?: number
+}
+
+export interface ReorderReelSeriesPayload {
+  reelIds: string[]
+}
 
 export interface ReelTranscriptSegment {
   id?: number

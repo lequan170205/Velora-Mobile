@@ -9,6 +9,8 @@ import {
 import { apiClient } from './client'
 
 import type {
+  AddReelToSeriesPayload,
+  CreateReelSeriesPayload,
   CreateReelPayload,
   ReelContextParams,
   ReelContextResponse,
@@ -18,15 +20,23 @@ import type {
   PaginatedFriendsReels,
   RecommendedReelsPage,
   ReelDetail,
+  ReelSeries,
   ReelProcessingStatusResponse,
   RecommendedReelsParams,
+  ReorderReelSeriesPayload,
   ReelShareLinkResponse,
   ReelShareResponse,
   ShareReelPayload,
   TrackReelEventsPayload,
   TrackReelEventsResponse,
   UpdateReelPayload,
+  UpdateReelSeriesPayload,
 } from '../types/reel.types'
+
+const normalizeReelSeriesResponse = (series: ReelSeries): ReelSeries => ({
+  ...series,
+  reels: series.reels.map(normalizeReelApiResponse),
+})
 
 export async function getRecommendedReels(
   params: RecommendedReelsParams = {},
@@ -122,6 +132,38 @@ const hydrateMissingReelAuthor = async (reel: ReelDetail): Promise<ReelDetail> =
 }
 
 export const reelsApi = {
+  createSeries: async (data: CreateReelSeriesPayload) => {
+    const response = await apiClient.post<ReelSeries>('/content/series', data)
+    return normalizeReelSeriesResponse(response.data)
+  },
+  getSeries: async (id: string) => {
+    const response = await apiClient.get<ReelSeries>(`/content/series/${id}`)
+    return normalizeReelSeriesResponse(response.data)
+  },
+  updateSeries: async (id: string, data: UpdateReelSeriesPayload) => {
+    const response = await apiClient.patch<ReelSeries>(`/content/series/${id}`, data)
+    return normalizeReelSeriesResponse(response.data)
+  },
+  deleteSeries: async (id: string) => {
+    await apiClient.delete(`/content/series/${id}`)
+  },
+  addReelToSeries: async (seriesId: string, data: AddReelToSeriesPayload) => {
+    const response = await apiClient.post<ReelSeries>(`/content/series/${seriesId}/reels`, data)
+    return normalizeReelSeriesResponse(response.data)
+  },
+  removeReelFromSeries: async (seriesId: string, reelId: string) => {
+    const response = await apiClient.delete<ReelSeries>(
+      `/content/series/${seriesId}/reels/${reelId}`,
+    )
+    return normalizeReelSeriesResponse(response.data)
+  },
+  reorderSeries: async (seriesId: string, data: ReorderReelSeriesPayload) => {
+    const response = await apiClient.patch<ReelSeries>(
+      `/content/series/${seriesId}/reels/order`,
+      data,
+    )
+    return normalizeReelSeriesResponse(response.data)
+  },
   list: async (params: ListReelsParams = {}) => {
     const response = await apiClient.get<ListReelsResponse>('/content/reels', { params })
     return {

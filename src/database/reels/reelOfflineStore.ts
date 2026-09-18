@@ -57,6 +57,7 @@ const applyCachedReelInput = (record: CachedReelModel, input: CachedReelInput) =
   record.streamUrl = input.streamUrl
   record.authorJson = input.authorJson
   record.recommendationJson = input.recommendationJson
+  record.seriesJson = input.seriesJson
   record.mediaStatus = input.mediaStatus
   record.indexStatus = input.indexStatus
   record.mediaStage = input.mediaStage

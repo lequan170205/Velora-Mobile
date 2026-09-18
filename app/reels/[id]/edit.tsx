@@ -20,6 +20,7 @@ import { GlassIconButton } from '@/components/reels/create/shared-ui'
 import { MAX_CAPTION_LENGTH, bannedHashtags } from '@/constants/reel-creator'
 import { useReelDetail, useUpdateReel } from '@/hooks/useReels'
 import { extractHashtags, stripHashtagsFromCaption } from '@/lib/reels'
+import type { ReelVisibility } from '@/types/reel.types'
 
 const buildCaptionValue = (description?: string, tags: string[] = []) => {
   const tagLine = tags
@@ -48,7 +49,7 @@ export default function EditReelDetailsScreen() {
   const updateReel = useUpdateReel()
   const [title, setTitle] = useState('')
   const [caption, setCaption] = useState('')
-  const [visibility, setVisibility] = useState<'public' | 'private'>('public')
+  const [visibility, setVisibility] = useState<ReelVisibility>('public')
 
   useEffect(() => {
     if (!reel) {
@@ -291,7 +292,10 @@ export default function EditReelDetailsScreen() {
               Visibility
             </Text>
             <View className="mt-3 flex-row gap-2">
-              {(['public', 'private'] as const).map((option) => (
+              {(visibility === 'friends'
+                ? (['public', 'friends', 'private'] as const)
+                : (['public', 'private'] as const)
+              ).map((option) => (
                 <TouchableOpacity
                   key={option}
                   className={`flex-1 rounded-full px-4 py-3 ${

@@ -56,6 +56,7 @@ export const CACHED_REELS_TABLE_SCHEMA: TableSchemaSpec = {
     { name: 'stream_url', type: 'string' },
     { name: 'author_json', type: 'string', isOptional: true },
     { name: 'recommendation_json', type: 'string', isOptional: true },
+    { name: 'series_json', type: 'string', isOptional: true },
     { name: 'media_status', type: 'string', isOptional: true },
     { name: 'index_status', type: 'string', isOptional: true },
     { name: 'media_stage', type: 'string', isOptional: true },
@@ -133,7 +134,7 @@ export const CALL_TELEMETRY_OUTBOX_ITEMS_TABLE_SCHEMA: TableSchemaSpec = {
 }
 
 export const schema = appSchema({
-  version: 7,
+  version: 8,
   tables: [
     tableSchema({
       name: TABLES.users,

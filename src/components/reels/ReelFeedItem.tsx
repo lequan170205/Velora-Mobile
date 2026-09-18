@@ -373,6 +373,10 @@ const ReelFeedItemComponent = function ReelFeedItem({
       nextReel.playbackPresentation = reelDetail.playbackPresentation
     }
 
+    if (reelDetail?.series) {
+      nextReel.series = reelDetail.series
+    }
+
     return nextReel
   }, [processingStatus, reel, reelDetail])
   const offlineVideoSource = useOfflineReelVideoSource(displayReel, {
@@ -553,6 +557,16 @@ const ReelFeedItemComponent = function ReelFeedItem({
       router.push(`/users/${authorHandle}`)
     }
   }, [authorHandle, displayReel.userId, router, user?.id])
+
+  const handleSeriesPress = useCallback(() => {
+    if (!displayReel.series) {
+      return
+    }
+
+    router.push(
+      `/series/${encodeURIComponent(displayReel.series.id)}?reelId=${encodeURIComponent(displayReel.id)}` as never,
+    )
+  }, [displayReel.id, displayReel.series, router])
 
   const handleOpenPlaybackOptions = useCallback(() => {
     if (!isActive || clearDisplay || !playbackState.isPlayable || hasPlaybackError) {
@@ -1327,6 +1341,24 @@ const ReelFeedItemComponent = function ReelFeedItem({
                     </Text>
                   </TouchableOpacity>
                 </View>
+
+                {displayReel.series ? (
+                  <TouchableOpacity
+                    accessibilityLabel={`Open ${displayReel.series.title}, episode ${displayReel.series.episodeNumber}`}
+                    accessibilityRole="button"
+                    activeOpacity={0.82}
+                    className="mt-1 min-h-11 max-w-full self-start flex-row items-center rounded-full bg-black/36 px-3 py-2"
+                    onPress={handleSeriesPress}
+                  >
+                    <Ionicons name="albums-outline" size={15} color="#FFB18E" />
+                    <Text
+                      className="ml-1.5 flex-shrink text-sm2 font-semibold text-white"
+                      numberOfLines={1}
+                    >
+                      {displayReel.series.title} · Episode {displayReel.series.episodeNumber}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
 
                 {captionText ? (
                   <View className="mt-2">

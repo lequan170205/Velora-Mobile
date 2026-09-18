@@ -3,7 +3,7 @@ import type { Reel, ReelAuthor, ReelFeedListItem } from '../types/reel.types'
 
 export const CHAT_SHARED_REEL_FALLBACK_ID_PREFIX = 'shared-message:'
 const ROUTE_REEL_CONTEXT_STATUS_VALUES = new Set(['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'])
-const ROUTE_REEL_CONTEXT_VISIBILITY_VALUES = new Set(['public', 'private'])
+const ROUTE_REEL_CONTEXT_VISIBILITY_VALUES = new Set(['public', 'friends', 'private'])
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)

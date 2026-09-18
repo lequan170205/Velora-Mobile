@@ -34,6 +34,7 @@ export const queryKeys = {
     pendingCreated: (viewerId: string) => ['reels', viewerId, 'pending-created'] as const,
     detail: (viewerId: string, id: string) => ['reels', viewerId, 'detail', id] as const,
     status: (viewerId: string, id: string) => ['reels', viewerId, 'status', id] as const,
+    series: (viewerId: string, id: string) => ['reels', viewerId, 'series', id] as const,
   },
   search: {
     all: ['search'] as const,

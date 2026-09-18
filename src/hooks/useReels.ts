@@ -6,6 +6,7 @@ import {
   cacheReelFeedPage,
   readCachedReelFeedPage,
   updateCachedReelIfPresent,
+  updateCachedReelSeriesIfPresent,
 } from '@/lib/reelOfflineCache'
 import type { InfiniteData, QueryClient, QueryKey } from '@tanstack/react-query'
 
@@ -31,7 +32,9 @@ import { useAuthStore } from '../stores/authStore'
 import type { CacheableFeedParams } from '../database/reels/reelCacheMappers'
 import type { Conversation, Message } from '../types/conversation.types'
 import type {
+  AddReelToSeriesPayload,
   AllowedVideoType,
+  CreateReelSeriesPayload,
   CreateReelPayload,
   ListReelsParams,
   ListReelsResponse,
@@ -42,12 +45,16 @@ import type {
   Reel,
   ReelDetail,
   ReelFeedListItem,
+  ReelSeries,
+  ReelSeriesSummary,
   ReelProcessingStatusResponse,
   RecommendedReelsParams,
+  ReorderReelSeriesPayload,
   ReelShareResponse,
   ReelVisibility,
   ShareReelPayload,
   UpdateReelPayload,
+  UpdateReelSeriesPayload,
 } from '../types/reel.types'
 
 const REELS_QUERY_STALE_TIME_MS = 30 * 1000
@@ -201,6 +208,98 @@ const updateReelInContextData = (
     ...data,
     items: data.items.map((item) => (item.id === reel.id ? { ...item, ...reel } : item)),
   }
+}
+
+const withReelSeries = (reel: Reel, series?: ReelSeriesSummary): Reel => {
+  const nextReel = { ...reel }
+
+  if (series) {
+    nextReel.series = series
+  } else {
+    delete nextReel.series
+  }
+
+  return nextReel
+}
+
+const updateReelSeriesInInfiniteData = (
+  data: ReelsInfiniteData | undefined,
+  reelId: string,
+  series?: ReelSeriesSummary,
+): ReelsInfiniteData | undefined => {
+  if (!data?.pages.length) {
+    return data
+  }
+
+  return {
+    ...data,
+    pages: data.pages.map((page) => ({
+      ...page,
+      items: page.items.map((item) => (item.id === reelId ? withReelSeries(item, series) : item)),
+    })),
+  }
+}
+
+const updateReelSeriesInContextData = (
+  data: ReelContextData | undefined,
+  reelId: string,
+  series?: ReelSeriesSummary,
+): ReelContextData | undefined => {
+  if (!data?.items.length) {
+    return data
+  }
+
+  return {
+    ...data,
+    items: data.items.map((item) => (item.id === reelId ? withReelSeries(item, series) : item)),
+  }
+}
+
+const updateReelSeriesCaches = (
+  queryClient: QueryClient,
+  viewerId: string,
+  reelId: string,
+  series?: ReelSeriesSummary,
+) => {
+  queryClient.setQueryData<ReelDetail>(queryKeys.reels.detail(viewerId, reelId), (current) =>
+    current ? (withReelSeries(current, series) as ReelDetail) : current,
+  )
+  queryClient.setQueriesData<ReelsInfiniteData>(
+    {
+      predicate: (query) =>
+        query.queryKey[0] === 'reels' &&
+        query.queryKey[1] === viewerId &&
+        (query.queryKey[2] === 'list' ||
+          query.queryKey[2] === 'recommended' ||
+          query.queryKey[2] === 'friends'),
+    },
+    (data) => updateReelSeriesInInfiniteData(data, reelId, series),
+  )
+  queryClient.setQueriesData<ReelContextData>(
+    { queryKey: queryKeys.reels.contexts(viewerId) },
+    (data) => updateReelSeriesInContextData(data, reelId, series),
+  )
+  queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(viewerId), (current) =>
+    current?.map((item) => (item.id === reelId ? withReelSeries(item, series) : item)),
+  )
+  void updateCachedReelSeriesIfPresent(reelId, series)
+}
+
+const reconcileReelSeries = (
+  queryClient: QueryClient,
+  viewerId: string,
+  series: ReelSeries,
+  setSeriesQuery = true,
+) => {
+  if (setSeriesQuery) {
+    queryClient.setQueryData(queryKeys.reels.series(viewerId, series.id), series)
+  }
+
+  series.reels.forEach((reel) => {
+    if (reel.series) {
+      updateReelSeriesCaches(queryClient, viewerId, reel.id, reel.series)
+    }
+  })
 }
 
 const removeReelFromInfiniteData = (
@@ -685,6 +784,117 @@ export function useReelContext(
     },
     enabled: Boolean(id) && (options.enabled ?? true),
     staleTime: REELS_QUERY_STALE_TIME_MS,
+  })
+}
+
+export function useReelSeries(id?: string, options: { enabled?: boolean } = {}) {
+  const queryClient = useQueryClient()
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
+  const query = useQuery({
+    queryKey: queryKeys.reels.series(viewerId, id || 'unknown'),
+    queryFn: () => {
+      if (!id) {
+        throw new Error('Missing reel series id')
+      }
+
+      return reelsApi.getSeries(id)
+    },
+    enabled: Boolean(id) && (options.enabled ?? true),
+    staleTime: REELS_QUERY_STALE_TIME_MS,
+  })
+
+  useEffect(() => {
+    if (query.data) {
+      reconcileReelSeries(queryClient, viewerId, query.data, false)
+    }
+  }, [query.data, queryClient, viewerId])
+
+  return query
+}
+
+export function useCreateReelSeries() {
+  const queryClient = useQueryClient()
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
+
+  return useMutation({
+    mutationFn: (data: CreateReelSeriesPayload) => reelsApi.createSeries(data),
+    onSuccess: (series) => {
+      reconcileReelSeries(queryClient, viewerId, series)
+    },
+  })
+}
+
+export function useUpdateReelSeries() {
+  const queryClient = useQueryClient()
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateReelSeriesPayload }) =>
+      reelsApi.updateSeries(id, data),
+    onSuccess: (series) => {
+      reconcileReelSeries(queryClient, viewerId, series)
+    },
+  })
+}
+
+export function useDeleteReelSeries() {
+  const queryClient = useQueryClient()
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const series =
+        queryClient.getQueryData<ReelSeries>(queryKeys.reels.series(viewerId, id)) ??
+        (await reelsApi.getSeries(id))
+      await reelsApi.deleteSeries(id)
+      return { id, series }
+    },
+    onSuccess: ({ id, series }) => {
+      series.reels.forEach((reel) => {
+        updateReelSeriesCaches(queryClient, viewerId, reel.id)
+      })
+      queryClient.removeQueries({ queryKey: queryKeys.reels.series(viewerId, id) })
+    },
+  })
+}
+
+export function useAddReelToSeries() {
+  const queryClient = useQueryClient()
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
+
+  return useMutation({
+    mutationFn: ({ seriesId, data }: { seriesId: string; data: AddReelToSeriesPayload }) =>
+      reelsApi.addReelToSeries(seriesId, data),
+    onSuccess: (series) => {
+      reconcileReelSeries(queryClient, viewerId, series)
+    },
+  })
+}
+
+export function useRemoveReelFromSeries() {
+  const queryClient = useQueryClient()
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
+
+  return useMutation({
+    mutationFn: ({ seriesId, reelId }: { seriesId: string; reelId: string }) =>
+      reelsApi.removeReelFromSeries(seriesId, reelId),
+    onSuccess: (series, { reelId }) => {
+      reconcileReelSeries(queryClient, viewerId, series)
+      updateReelSeriesCaches(queryClient, viewerId, reelId)
+    },
+  })
+}
+
+export function useReorderReelSeries() {
+  const queryClient = useQueryClient()
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
+
+  return useMutation({
+    mutationFn: ({ seriesId, data }: { seriesId: string; data: ReorderReelSeriesPayload }) =>
+      reelsApi.reorderSeries(seriesId, data),
+    onSuccess: (series) => {
+      reconcileReelSeries(queryClient, viewerId, series)
+    },
   })
 }
 
