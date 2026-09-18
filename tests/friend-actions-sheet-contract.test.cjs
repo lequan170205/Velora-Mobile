@@ -6,7 +6,6 @@ const test = require('node:test')
 const root = path.resolve(__dirname, '..')
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8')
 const friendsScreen = read('app/(tabs)/friends.tsx')
-const animatedActionSheet = read('src/components/common/AnimatedActionSheet.tsx')
 const profileActionsMenu = read('src/components/profile/ProfileActionsMenu.tsx')
 
 const sheetStart = friendsScreen.indexOf('export function FriendActionsSheet')
@@ -72,11 +71,9 @@ test('remove and block submissions share pending and duplicate guards', () => {
     assert.match(callback, /onSettled: \(\) => \{\s*friendActionStartedRef\.current = false/)
   }
 
-  assert.match(friendActionsSheet, /disabled=\{isActionPending\}/)
   assert.match(friendActionsSheet, /const actionsDisabled = isActionPending \|\| isClosing/)
   assert.match(friendActionsSheet, /if \(!confirmation \|\| actionsDisabled\) return/)
-  assert.match(animatedActionSheet, /if \(\(disabled && !options\.force\) \|\| isClosingRef\.current\)/)
-  assert.match(animatedActionSheet, /onRequestClose=\{\(\) => close\(\)\}/)
+  assert.match(friendActionsSheet, /enablePanDownToClose=\{!actionsDisabled\}/)
   assert.match(friendsScreenBody, /isBlocking=\{block\.isPending\}/)
   assert.match(
     friendsScreenBody,
@@ -105,20 +102,13 @@ test('a failed block leaves confirmation retryable until a successful mutation',
 })
 
 test('profile navigation runs only after the shared sheet exit animation completes', () => {
-  const closeStart = animatedActionSheet.indexOf('const close = useCallback(')
-  const closeCompletion = animatedActionSheet.indexOf('onClose()\n        afterClose?.()', closeStart)
   const viewProfilePress = friendActionsSheet.indexOf(
     'onPress={() => close(() => onViewProfile(friend))}',
   )
 
-  assert.ok(closeStart >= 0, 'shared sheet close handler should exist')
-  assert.ok(closeCompletion > closeStart, 'close should invoke callbacks in its completion block')
   assert.ok(viewProfilePress >= 0, 'View profile should use the shared close callback')
-  assert.match(
-    animatedActionSheet.slice(closeStart),
-    /setTimeout\(\(\) => \{[\s\S]*onClose\(\)[\s\S]*afterClose\?\.\(\)[\s\S]*\}, 150\)/,
-  )
-  assert.match(animatedActionSheet, /duration: 150/)
-  assert.match(friendActionsSheet, /<AnimatedActionSheet[\s\S]*onClose=\{handleClosed\}/)
-  assert.match(profileActionsMenu, /<AnimatedActionSheet/)
+  assert.match(friendActionsSheet, /<BottomSheetModal[\s\S]*onDismiss=\{handleDismiss\}/)
+  assert.match(profileActionsMenu, /<BottomSheetModal[\s\S]*onDismiss=\{handleDismiss\}/)
+  assert.match(friendActionsSheet, /nextAction\?\.\(\)/)
+  assert.match(profileActionsMenu, /nextAction\?\.\(\)/)
 })

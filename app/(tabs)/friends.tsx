@@ -1,16 +1,29 @@
 import { MaterialIcons } from '@expo/vector-icons'
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetView,
+  type BottomSheetBackdropProps,
+} from '@gorhom/bottom-sheet'
 import { useFocusEffect } from '@react-navigation/native'
 import { formatDistanceToNow } from 'date-fns'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, View } from 'react-native'
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  View,
+} from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { AppPressable, AppText } from '../../src/components/base'
 import { ChatAvatar } from '../../src/components/chat/ChatAvatar'
-import { AnimatedActionSheet } from '../../src/components/common/AnimatedActionSheet'
 import { SafeTouchableOpacity } from '../../src/components/common/SafeTouchableOpacity'
 import { getDockedTabBarHeight } from '../../src/components/navigation/CustomTabBar'
+import { colors } from '../../src/constants/theme'
 import {
   useAcceptFriendRequest,
   useBlockUser,
@@ -142,13 +155,14 @@ function EmptyState({ section, onFindPeople }: { section: Section; onFindPeople:
 }
 
 export function FriendActionsSheet({
-  friend,
+  friend: selectedFriend,
   isBlocking,
   isRemoving,
   onBlock,
   onClose,
   onRemove,
   onViewProfile,
+  sheetRef: externalSheetRef,
 }: {
   friend: FriendSummary | null
   isBlocking: boolean
@@ -157,56 +171,103 @@ export function FriendActionsSheet({
   onClose: () => void
   onRemove: (friend: FriendSummary, onSuccess: () => void) => void
   onViewProfile: (friend: FriendSummary) => void
+  sheetRef?: React.RefObject<BottomSheetModal | null>
 }) {
+  const insets = useSafeAreaInsets()
+  const internalRef = useRef<BottomSheetModal | null>(null)
+  const resolvedRef = externalSheetRef ?? internalRef
+  const [displayedFriend, setDisplayedFriend] = useState<FriendSummary | null>(selectedFriend)
   const [confirmation, setConfirmation] = useState<'block' | 'remove' | null>(null)
+  const [isClosing, setIsClosing] = useState(false)
+  const pendingActionRef = useRef<(() => void) | null>(null)
+
   const isActionPending = isBlocking || isRemoving
+  const actionsDisabled = isActionPending || isClosing
 
   useEffect(() => {
-    if (!friend) {
-      setConfirmation(null)
+    if (selectedFriend) {
+      setDisplayedFriend(selectedFriend)
+      setIsClosing(false)
+      if (!externalSheetRef) {
+        resolvedRef.current?.present()
+      }
     }
-  }, [friend])
+  }, [externalSheetRef, resolvedRef, selectedFriend])
 
-  const handleClosed = useCallback(() => {
+  const renderBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop
+        {...props}
+        accessibilityLabel="Close friend options"
+        appearsOnIndex={0}
+        disappearsOnIndex={-1}
+        opacity={0.44}
+        pressBehavior={actionsDisabled ? 'none' : 'close'}
+      />
+    ),
+    [actionsDisabled],
+  )
+
+  const handleDismiss = useCallback(() => {
+    setIsClosing(false)
     setConfirmation(null)
+    setDisplayedFriend(null)
+    const nextAction = pendingActionRef.current
+    pendingActionRef.current = null
     onClose()
+    nextAction?.()
   }, [onClose])
 
-  if (!friend) return null
+  const close = useCallback(
+    (afterClose?: () => void, options: { force?: boolean } = {}) => {
+      if (actionsDisabled && !options.force) return
 
-  const { user } = friend
+      setIsClosing(true)
+      pendingActionRef.current = afterClose ?? null
+      resolvedRef.current?.dismiss()
+    },
+    [actionsDisabled, resolvedRef],
+  )
+
+  const friend = selectedFriend ?? displayedFriend
+  const user = friend?.user
   const confirmationTitle =
     confirmation === 'remove'
       ? 'Remove friend?'
       : confirmation === 'block'
         ? 'Block account?'
-        : user.fullName
+        : (user?.fullName ?? '')
+
+  const isConfirmationPending =
+    (confirmation === 'remove' && isRemoving) || (confirmation === 'block' && isBlocking)
+
+  const confirmDestructiveAction = () => {
+    if (!confirmation || actionsDisabled) return
+    if (!friend) return
+
+    const closeAfterSuccess = () => close(undefined, { force: true })
+    if (confirmation === 'remove') {
+      onRemove(friend, closeAfterSuccess)
+      return
+    }
+
+    onBlock(friend, closeAfterSuccess)
+  }
 
   return (
-    <AnimatedActionSheet
-      visible={Boolean(friend)}
-      onClose={handleClosed}
-      disabled={isActionPending}
-      backdropAccessibilityLabel="Close friend options"
+    <BottomSheetModal
+      ref={resolvedRef}
+      enableDynamicSizing
+      enablePanDownToClose={!actionsDisabled}
+      backdropComponent={renderBackdrop}
+      backgroundStyle={styles.sheetBackground}
+      handleIndicatorStyle={styles.handleIndicator}
+      onDismiss={handleDismiss}
     >
-      {({ close, isClosing }) => {
-        const actionsDisabled = isActionPending || isClosing
-        const isConfirmationPending =
-          (confirmation === 'remove' && isRemoving) || (confirmation === 'block' && isBlocking)
-        const confirmDestructiveAction = () => {
-          if (!confirmation || actionsDisabled) return
-
-          const closeAfterSuccess = () => close(undefined, { force: true })
-          if (confirmation === 'remove') {
-            onRemove(friend, closeAfterSuccess)
-          } else {
-            onBlock(friend, closeAfterSuccess)
-          }
-        }
-
-        return (
-          <>
-            <View className="mt-3 flex-row items-start justify-between">
+      <BottomSheetView style={{ paddingBottom: Math.max(insets.bottom, 18) }}>
+        {friend && user ? (
+          <View className="px-5 pb-1">
+            <View className="mt-1 flex-row items-start justify-between">
               <View className="min-w-0 flex-1 flex-row items-center pr-4">
                 <ChatAvatar name={user.fullName} picture={user.picture} size={52} />
                 <View className="ml-3 min-w-0 flex-1">
@@ -342,10 +403,10 @@ export function FriendActionsSheet({
                 </AppPressable>
               </View>
             )}
-          </>
-        )
-      }}
-    </AnimatedActionSheet>
+          </View>
+        ) : null}
+      </BottomSheetView>
+    </BottomSheetModal>
   )
 }
 
@@ -355,6 +416,7 @@ export default function FriendsScreen() {
   const insets = useSafeAreaInsets()
   const [section, setSection] = useState<Section>('friends')
   const [selectedFriend, setSelectedFriend] = useState<FriendSummary | null>(null)
+  const friendActionsSheetRef = useRef<BottomSheetModal>(null)
   const friendActionStartedRef = useRef(false)
 
   useEffect(() => {
@@ -488,6 +550,7 @@ export default function FriendsScreen() {
     (friend: FriendSummary) => {
       if (friendActionStartedRef.current || friendActionPending) return
       setSelectedFriend(friend)
+      requestAnimationFrame(() => friendActionsSheetRef.current?.present())
     },
     [friendActionPending],
   )
@@ -729,7 +792,27 @@ export default function FriendsScreen() {
         onClose={closeFriendActions}
         onRemove={removeSelectedFriend}
         onViewProfile={viewSelectedFriendProfile}
+        sheetRef={friendActionsSheetRef}
       />
     </SafeAreaView>
   )
 }
+
+const styles = StyleSheet.create({
+  handleIndicator: {
+    backgroundColor: '#D9D9D9',
+    borderRadius: 9999,
+    height: 6,
+    width: 56,
+  },
+  sheetBackground: {
+    backgroundColor: colors.surface.modal,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    elevation: 18,
+    shadowColor: 'rgba(22, 22, 22, 0.18)',
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 1,
+    shadowRadius: 24,
+  },
+})

@@ -1,4 +1,10 @@
 import { MaterialIcons } from '@expo/vector-icons'
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetView,
+  type BottomSheetBackdropProps,
+} from '@gorhom/bottom-sheet'
 import { useQueryClient } from '@tanstack/react-query'
 import { Image } from 'expo-image'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -7,20 +13,14 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
+  StyleSheet,
   Text,
   View,
   useWindowDimensions,
 } from 'react-native'
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { conversationApi } from '../../src/api/conversation.api'
@@ -209,7 +209,6 @@ export default function PublicProfileScreen() {
   const insets = useSafeAreaInsets()
   const { width: windowWidth } = useWindowDimensions()
   const tileSize = useMemo(() => Math.floor((windowWidth - 4) / 3), [windowWidth])
-  const closeRemoveSheetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isMountedRef = useRef(true)
   const { username } = useLocalSearchParams<{ username?: string }>()
   const normalizedUsername = useMemo(
@@ -221,12 +220,9 @@ export default function PublicProfileScreen() {
   )
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
   const [actionErrorMessage, setActionErrorMessage] = useState<string | null>(null)
-  const [isProfileActionsVisible, setIsProfileActionsVisible] = useState(false)
-  const [isRemoveSheetVisible, setIsRemoveSheetVisible] = useState(false)
   const blockSubmissionStartedRef = useRef(false)
-  const removeSheetBackdropOpacity = useSharedValue(0)
-  const removeSheetTranslateY = useSharedValue(48)
-  const removeSheetScale = useSharedValue(0.985)
+  const profileActionsSheetRef = useRef<BottomSheetModal>(null)
+  const removeSheetRef = useRef<BottomSheetModal>(null)
 
   const {
     data: profile,
@@ -272,7 +268,8 @@ export default function PublicProfileScreen() {
     sendFriendRequest.isPending || removeFriend.isPending || blockUser.isPending
   const isPending = pendingAction !== null || isFriendActionPending
   const status = friendshipStatus?.status ?? 'none'
-  const isOwnProfile = profile?.id === useAuthStore((state) => state.user?.id)
+  const currentUserId = useAuthStore((state) => state.user?.id)
+  const isOwnProfile = Boolean(profile?.id && currentUserId && profile.id === currentUserId)
   const publicReels = useMemo(
     () => reelsData?.pages.flatMap((page) => page.items) ?? [],
     [reelsData],
@@ -286,64 +283,21 @@ export default function PublicProfileScreen() {
   useEffect(() => {
     return () => {
       isMountedRef.current = false
-
-      if (closeRemoveSheetTimeoutRef.current) {
-        clearTimeout(closeRemoveSheetTimeoutRef.current)
-      }
     }
   }, [])
 
-  useEffect(() => {
-    setIsProfileActionsVisible(false)
-  }, [profile?.id])
-
-  const animateRemoveSheetIn = useCallback(() => {
-    removeSheetBackdropOpacity.value = withTiming(1, {
-      duration: 160,
-      easing: Easing.out(Easing.quad),
-    })
-    removeSheetTranslateY.value = withTiming(0, {
-      duration: 190,
-      easing: Easing.out(Easing.cubic),
-    })
-    removeSheetScale.value = withTiming(1, {
-      duration: 190,
-      easing: Easing.out(Easing.cubic),
-    })
-  }, [removeSheetBackdropOpacity, removeSheetScale, removeSheetTranslateY])
-
-  const closeRemoveSheet = useCallback(
-    (options: { force?: boolean } = {}) => {
-      if (removeFriend.isPending && !options.force) {
-        return
-      }
-
-      removeSheetBackdropOpacity.value = withTiming(0, {
-        duration: 120,
-        easing: Easing.out(Easing.quad),
-      })
-      removeSheetTranslateY.value = withTiming(56, {
-        duration: 145,
-        easing: Easing.inOut(Easing.cubic),
-      })
-      removeSheetScale.value = withTiming(0.985, {
-        duration: 145,
-        easing: Easing.out(Easing.cubic),
-      })
-
-      if (closeRemoveSheetTimeoutRef.current) {
-        clearTimeout(closeRemoveSheetTimeoutRef.current)
-      }
-
-      closeRemoveSheetTimeoutRef.current = setTimeout(() => {
-        if (!isMountedRef.current) {
-          return
-        }
-
-        setIsRemoveSheetVisible(false)
-      }, 150)
-    },
-    [removeFriend.isPending, removeSheetBackdropOpacity, removeSheetScale, removeSheetTranslateY],
+  const renderRemoveSheetBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop
+        {...props}
+        accessibilityLabel="Close remove friend options"
+        appearsOnIndex={0}
+        disappearsOnIndex={-1}
+        opacity={0.44}
+        pressBehavior={removeFriend.isPending ? 'none' : 'close'}
+      />
+    ),
+    [removeFriend.isPending],
   )
 
   const createAndOpenConversation = useCallback(
@@ -396,39 +350,29 @@ export default function PublicProfileScreen() {
 
   const handleOpenRemoveSheet = useCallback(() => {
     if (!profile?.id) return
-
-    if (closeRemoveSheetTimeoutRef.current) {
-      clearTimeout(closeRemoveSheetTimeoutRef.current)
-    }
-
     setActionErrorMessage(null)
-    setIsRemoveSheetVisible(true)
-    requestAnimationFrame(() => {
-      animateRemoveSheetIn()
-    })
-  }, [animateRemoveSheetIn, profile?.id])
+    requestAnimationFrame(() => removeSheetRef.current?.present())
+  }, [profile?.id])
 
   const handleCloseRemoveSheet = useCallback(() => {
-    closeRemoveSheet()
-  }, [closeRemoveSheet])
+    removeSheetRef.current?.dismiss()
+  }, [])
 
   const handleConfirmRemoveFriend = useCallback(() => {
     if (!profile?.id) return
 
     removeFriend.mutate(profile.id, {
-      onSuccess: () => closeRemoveSheet({ force: true }),
+      onSuccess: () => removeSheetRef.current?.dismiss(),
     })
-  }, [closeRemoveSheet, profile?.id, removeFriend])
+  }, [profile?.id, removeFriend])
 
   const handleOpenProfileActions = useCallback(() => {
     if (!profile?.id || isOwnProfile || blockUser.isPending) return
 
-    setIsProfileActionsVisible(true)
+    requestAnimationFrame(() => profileActionsSheetRef.current?.present())
   }, [blockUser.isPending, isOwnProfile, profile?.id])
 
-  const handleCloseProfileActions = useCallback(() => {
-    setIsProfileActionsVisible(false)
-  }, [])
+  const handleCloseProfileActions = useCallback(() => {}, [])
 
   const handleBlockUser = useCallback(() => {
     if (!profile?.id || isOwnProfile || blockUser.isPending || blockSubmissionStartedRef.current) {
@@ -476,14 +420,6 @@ export default function PublicProfileScreen() {
   const handleRefresh = useCallback(() => {
     void Promise.all([refetchProfile(), refetchStatus(), refetchFriends(), refetchReels()])
   }, [refetchFriends, refetchProfile, refetchReels, refetchStatus])
-
-  const removeSheetBackdropAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: removeSheetBackdropOpacity.value,
-  }))
-
-  const removeSheetAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: removeSheetTranslateY.value }, { scale: removeSheetScale.value }],
-  }))
 
   const renderReelItem = useCallback(
     ({ item, index }: { item: Reel; index: number }) => {
@@ -749,48 +685,21 @@ export default function PublicProfileScreen() {
       <ProfileActionsMenu
         onBlock={handleBlockUser}
         onClose={handleCloseProfileActions}
+        sheetRef={profileActionsSheetRef}
         username={getHandleLabel(profile.username)}
-        visible={isProfileActionsVisible && !isOwnProfile}
       />
 
-      <Modal
-        visible={isRemoveSheetVisible}
-        transparent
-        animationType="none"
-        statusBarTranslucent
-        onRequestClose={handleCloseRemoveSheet}
+      <BottomSheetModal
+        ref={removeSheetRef}
+        enableDynamicSizing
+        enablePanDownToClose={!removeFriend.isPending}
+        backdropComponent={renderRemoveSheetBackdrop}
+        backgroundStyle={styles.sheetBackground}
+        handleIndicatorStyle={styles.handleIndicator}
       >
-        <View className="flex-1 justify-end">
-          <Animated.View
-            className="absolute inset-0 bg-black/40"
-            style={removeSheetBackdropAnimatedStyle}
-          >
-            <Pressable
-              className="flex-1"
-              disabled={removeFriend.isPending}
-              onPress={handleCloseRemoveSheet}
-            />
-          </Animated.View>
-
-          <Animated.View
-            className="rounded-t-[32px] bg-white px-5 pt-3"
-            style={[
-              removeSheetAnimatedStyle,
-              {
-                paddingBottom: Math.max(insets.bottom, 18),
-                shadowColor: 'rgba(22, 22, 22, 0.18)',
-                shadowOffset: { width: 0, height: -8 },
-                shadowOpacity: 1,
-                shadowRadius: 24,
-                elevation: 18,
-              },
-            ]}
-          >
-            <View className="items-center pb-2">
-              <View className="h-1.5 w-14 rounded-full bg-[#D9D9D9]" />
-            </View>
-
-            <View className="mt-3 flex-row items-start justify-between">
+        <BottomSheetView style={{ paddingBottom: Math.max(insets.bottom, 18) }}>
+          <View className="px-5 pb-1">
+            <View className="mt-1 flex-row items-start justify-between">
               <View className="flex-1 pr-4">
                 <Text className="font-heading text-xl text-text-primary">Remove friend?</Text>
                 <Text className="mt-2 text-base2 leading-6 text-text-secondary">
@@ -800,6 +709,8 @@ export default function PublicProfileScreen() {
               </View>
 
               <Pressable
+                accessibilityLabel="Close remove friend options"
+                accessibilityRole="button"
                 className="h-11 w-11 items-center justify-center rounded-full bg-surface-muted"
                 disabled={removeFriend.isPending}
                 onPress={handleCloseRemoveSheet}
@@ -810,6 +721,8 @@ export default function PublicProfileScreen() {
 
             <View className="mt-6 flex-row">
               <Pressable
+                accessibilityLabel="Cancel removing friend"
+                accessibilityRole="button"
                 className="mr-3 flex-1 rounded-full border border-border-light bg-surface-muted py-3"
                 disabled={removeFriend.isPending}
                 onPress={handleCloseRemoveSheet}
@@ -818,6 +731,8 @@ export default function PublicProfileScreen() {
               </Pressable>
 
               <Pressable
+                accessibilityLabel={`Remove ${profile.fullName} from friends`}
+                accessibilityRole="button"
                 className="flex-1 rounded-full bg-[#FF3B30] py-3"
                 disabled={removeFriend.isPending}
                 onPress={handleConfirmRemoveFriend}
@@ -830,9 +745,28 @@ export default function PublicProfileScreen() {
                 )}
               </Pressable>
             </View>
-          </Animated.View>
-        </View>
-      </Modal>
+          </View>
+        </BottomSheetView>
+      </BottomSheetModal>
     </SafeAreaView>
   )
 }
+
+const styles = StyleSheet.create({
+  handleIndicator: {
+    backgroundColor: '#D9D9D9',
+    borderRadius: 9999,
+    height: 6,
+    width: 56,
+  },
+  sheetBackground: {
+    backgroundColor: colors.surface.modal,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    elevation: 18,
+    shadowColor: 'rgba(22, 22, 22, 0.18)',
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 1,
+    shadowRadius: 24,
+  },
+})
