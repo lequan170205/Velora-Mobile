@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert } from 'react-native'
 
+import { reelsApi } from '../api/reels.api'
 import {
   DEFAULT_REEL_EDIT_STATE,
   MAX_CAPTION_LENGTH,
@@ -30,7 +31,12 @@ import { sanitizeReelEditState } from '../lib/reel-crop-geometry'
 import { sanitizeTrim } from '../lib/reel-trim-geometry'
 import { extractHashtags, resolveAllowedVideoType, stripHashtagsFromCaption } from '../lib/reels'
 
-import { useCreateReel } from './useReels'
+import {
+  useAddReelToSeries,
+  useCreateReel,
+  useCreateReelSeries,
+  useDeleteReelSeries,
+} from './useReels'
 
 import type { ReelVideoProgress } from '../components/reels/ReelVideo'
 import type {
@@ -38,10 +44,11 @@ import type {
   DraftState,
   ImportState,
   ReelEditState,
+  ReelSeriesDraftSelection,
   StoredAsset,
   TimelineFrame,
 } from '../types/reel-creator'
-import type { ReelVisibility } from '../types/reel.types'
+import type { Reel, ReelVisibility } from '../types/reel.types'
 
 const DEFAULT_DURATION = durationOptions[1]
 
@@ -57,6 +64,7 @@ export function useReelCreator() {
   const [title, setTitle] = useState('')
   const [caption, setCaption] = useState('')
   const [visibility, setVisibility] = useState<ReelVisibility>('public')
+  const [seriesSelection, setSeriesSelectionState] = useState<ReelSeriesDraftSelection | null>(null)
   const [editState, setEditState] = useState<ReelEditState>(DEFAULT_REEL_EDIT_STATE)
   const [videoDurationSeconds, setVideoDurationSeconds] = useState(0)
   const [videoPlaybackPosition, setVideoPlaybackPosition] = useState(0)
@@ -70,7 +78,11 @@ export function useReelCreator() {
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null)
   const [draftSaveStatus, setDraftSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [didRestoreDraft, setDidRestoreDraft] = useState(false)
-  const { mutateAsync: createReelAsync, isPending, step } = useCreateReel()
+  const { mutateAsync: createReelAsync, isPending: isCreatingReel, step } = useCreateReel()
+  const { mutateAsync: createReelSeriesAsync, isPending: isCreatingSeries } = useCreateReelSeries()
+  const { mutateAsync: addReelToSeriesAsync, isPending: isAddingToSeries } = useAddReelToSeries()
+  const { mutateAsync: deleteReelSeriesAsync, isPending: isCleaningSeries } = useDeleteReelSeries()
+  const isPending = isCreatingReel || isCreatingSeries || isAddingToSeries || isCleaningSeries
 
   const selectedAssetType = useMemo(
     () =>
@@ -83,11 +95,17 @@ export function useReelCreator() {
   const extractedTags = useMemo(() => extractHashtags(caption), [caption])
   const sanitizedDescription = useMemo(() => stripHashtagsFromCaption(caption), [caption])
   const captionToken = useMemo(() => getComposerToken(caption), [caption])
-  const publishProgressLabel = isPending
+  const publishProgressLabel = isCreatingReel
     ? step === 'uploading'
       ? 'Uploading reel...'
       : 'Publishing...'
-    : 'Publish reel'
+    : isCreatingSeries
+      ? 'Creating series...'
+      : isAddingToSeries
+        ? 'Adding episode...'
+        : isCleaningSeries
+          ? 'Finishing...'
+          : 'Publish reel'
   const orientationMessage = useMemo(() => getOrientationMessage(selectedAsset), [selectedAsset])
   const observedSourceDurationMs = useMemo(
     () => getVideoDurationMs(selectedAsset, videoDurationSeconds),
@@ -124,6 +142,13 @@ export function useReelCreator() {
     return []
   }, [captionToken])
 
+  const setSeriesSelection = useCallback((selection: ReelSeriesDraftSelection | null) => {
+    setSeriesSelectionState(selection)
+    if (selection) {
+      setVisibility(selection.visibility)
+    }
+  }, [])
+
   const pulseHaptic = useCallback(
     (style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) => {
       void Haptics.impactAsync(style).catch(() => undefined)
@@ -141,6 +166,7 @@ export function useReelCreator() {
     setTitle('')
     setCaption('')
     setVisibility('public')
+    setSeriesSelectionState(null)
     setEditState(DEFAULT_REEL_EDIT_STATE)
     setVideoDurationSeconds(0)
     setVideoPlaybackPosition(0)
@@ -178,12 +204,22 @@ export function useReelCreator() {
             title,
             caption,
             visibility,
+            seriesSelection,
             durationOption: selectedDuration,
             editState,
             savedAt,
           }
         : null,
-    [caption, editState, selectedAsset, selectedDuration, stage, title, visibility],
+    [
+      caption,
+      editState,
+      selectedAsset,
+      selectedDuration,
+      seriesSelection,
+      stage,
+      title,
+      visibility,
+    ],
   )
 
   const applySelectedAsset = useCallback(
@@ -366,6 +402,7 @@ export function useReelCreator() {
     setTitle(availableDraft.title ?? '')
     setCaption(availableDraft.caption ?? '')
     setVisibility(availableDraft.visibility ?? 'public')
+    setSeriesSelectionState(availableDraft.seriesSelection ?? null)
     setSelectedDuration(availableDraft.durationOption ?? DEFAULT_DURATION)
     setDraftSavedAt(availableDraft.savedAt ?? Date.now())
     setDidRestoreDraft(true)
@@ -439,6 +476,37 @@ export function useReelCreator() {
       return
     }
 
+    let effectiveVisibility = visibility
+    let resolvedExistingSeries:
+      | {
+          id: string
+          title: string
+          visibility: ReelVisibility
+        }
+      | undefined
+
+    if (seriesSelection?.kind === 'existing') {
+      try {
+        const currentSeries = await reelsApi.getSeries(seriesSelection.id)
+        resolvedExistingSeries = {
+          id: currentSeries.id,
+          title: currentSeries.title,
+          visibility: currentSeries.visibility,
+        }
+        effectiveVisibility = currentSeries.visibility
+        setSeriesSelectionState({ kind: 'existing', ...resolvedExistingSeries })
+        setVisibility(currentSeries.visibility)
+      } catch {
+        Alert.alert(
+          'Series unavailable',
+          'This series changed or is no longer available. Choose another series before publishing.',
+        )
+        return
+      }
+    } else if (seriesSelection?.kind === 'new') {
+      effectiveVisibility = seriesSelection.visibility
+    }
+
     const edit = buildReelEditPayload(editState)
     const clientObservedDurationMs = getClientObservedDurationMs(
       editState.trim,
@@ -451,13 +519,14 @@ export function useReelCreator() {
       title: finalTitle,
       description: sanitizedDescription,
       tags: extractedTags,
-      visibility,
+      visibility: effectiveVisibility,
       clientObservedDurationMs,
       edit,
       ...(previewThumbnailUri ? { localThumbnailUri: previewThumbnailUri } : {}),
     }
 
     let lastError: Error | null = null
+    let createdReel: Reel | null = null
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
@@ -465,14 +534,8 @@ export function useReelCreator() {
           pulseHaptic()
         }
 
-        const createdReel = await createReelAsync(payload)
-        await saveDraftSnapshot(null)
-        resetCreatorState()
-        router.replace({
-          pathname: '/reels/[id]',
-          params: { id: createdReel.id, source: 'profile', returnTo: 'profile' },
-        })
-        return
+        createdReel = await createReelAsync(payload)
+        break
       } catch (error) {
         lastError = error as Error & { response?: { data?: { message?: string } } }
         if ((error as { reelCreated?: boolean }).reelCreated) {
@@ -481,16 +544,78 @@ export function useReelCreator() {
       }
     }
 
-    Alert.alert(
-      'Publish failed',
-      (lastError as (Error & { response?: { data?: { message?: string } } }) | null)?.response?.data
-        ?.message ||
-        lastError?.message ||
-        'Velora could not upload this reel.',
-    )
+    if (!createdReel) {
+      Alert.alert(
+        'Publish failed',
+        (lastError as (Error & { response?: { data?: { message?: string } } }) | null)?.response
+          ?.data?.message ||
+          lastError?.message ||
+          'Velora could not upload this reel.',
+      )
+      return
+    }
+
+    let attachedSeriesId: string | null = null
+    let attachmentError: unknown = null
+    let createdSeriesId: string | null = null
+
+    if (seriesSelection) {
+      try {
+        if (seriesSelection.kind === 'new') {
+          const createdSeries = await createReelSeriesAsync({
+            title: seriesSelection.title,
+            ...(seriesSelection.description ? { description: seriesSelection.description } : {}),
+            visibility: effectiveVisibility,
+          })
+          createdSeriesId = createdSeries.id
+          attachedSeriesId = createdSeries.id
+        } else {
+          attachedSeriesId = resolvedExistingSeries?.id ?? seriesSelection.id
+        }
+
+        await addReelToSeriesAsync({
+          seriesId: attachedSeriesId,
+          data: { reelId: createdReel.id },
+        })
+      } catch (error) {
+        attachmentError = error
+        if (createdSeriesId) {
+          await deleteReelSeriesAsync(createdSeriesId).catch(() => undefined)
+        }
+        attachedSeriesId = null
+      }
+    }
+
+    await saveDraftSnapshot(null)
+    resetCreatorState()
+
+    if (attachedSeriesId) {
+      router.replace({
+        pathname: '/series/[id]' as never,
+        params: { id: attachedSeriesId, reelId: createdReel.id },
+      })
+      return
+    }
+
+    router.replace({
+      pathname: '/reels/[id]',
+      params: { id: createdReel.id, source: 'profile', returnTo: 'profile' },
+    })
+
+    if (attachmentError) {
+      const message =
+        (attachmentError as Error & { response?: { data?: { message?: string } } })?.response?.data
+          ?.message ||
+        (attachmentError as Error)?.message ||
+        'The reel is published, but Velora could not add it to the series.'
+      Alert.alert('Reel published', message)
+    }
   }, [
+    addReelToSeriesAsync,
     caption,
     createReelAsync,
+    createReelSeriesAsync,
+    deleteReelSeriesAsync,
     editState,
     extractedTags,
     observedSourceDurationMs,
@@ -502,6 +627,7 @@ export function useReelCreator() {
     selectedAsset,
     selectedAssetType,
     previewThumbnailUri,
+    seriesSelection,
     title,
     visibility,
   ])
@@ -556,6 +682,7 @@ export function useReelCreator() {
           title: draft.title ?? '',
           caption: draft.caption ?? '',
           visibility: draft.visibility ?? 'public',
+          seriesSelection: draft.seriesSelection ?? null,
           durationOption: draft.durationOption ?? DEFAULT_DURATION,
           editState: sanitizeReelEditState(
             draft.editState,
@@ -693,6 +820,7 @@ export function useReelCreator() {
     setCaption,
     setSelectedDuration,
     setTitle,
+    setSeriesSelection,
     setVisibility,
     stage,
     thumbnailUri,
@@ -705,6 +833,7 @@ export function useReelCreator() {
     videoDurationSeconds,
     videoPlaybackPosition,
     visibility,
+    seriesSelection,
   }
 }
 

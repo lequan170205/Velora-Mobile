@@ -51,7 +51,7 @@ test('publish builds fit and crop payloads with visibility and observed duration
   assert.match(creatorHook, /const edit = buildReelEditPayload\(editState\)/)
   assert.match(creatorHook, /getClientObservedDurationMs\(/)
   assert.match(creatorLib, /export const buildReelEditPayload/)
-  assert.match(creatorHook, /visibility,\n\s+clientObservedDurationMs/)
+  assert.match(creatorHook, /visibility: effectiveVisibility,\n\s+clientObservedDurationMs/)
   assert.match(creatorHook, /previewThumbnailUri \? \{ localThumbnailUri: previewThumbnailUri \}/)
   assert.match(reelsHook, /visibility,\n\s+clientObservedDurationMs,\n\s+edit,/)
   assert.match(

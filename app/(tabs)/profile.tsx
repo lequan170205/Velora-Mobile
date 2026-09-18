@@ -23,12 +23,12 @@ import {
 } from '../../src/components/reels/ReelThumbnailGrid'
 import { useFriends } from '../../src/hooks/useFriends'
 import { useUpdateAvatar } from '../../src/hooks/useProfile'
-import { useReelsFeed } from '../../src/hooks/useReels'
+import { useOwnedReelSeries, useReelsFeed } from '../../src/hooks/useReels'
 import { getDisplayName, getInitials, getProfileHandle } from '../../src/lib/profile'
 import { useAuthStore } from '../../src/stores/authStore'
 
 import type { FriendSummary } from '../../src/types/friend.types'
-import type { Reel, ReelVisibility } from '../../src/types/reel.types'
+import type { Reel, ReelSeries, ReelVisibility } from '../../src/types/reel.types'
 
 const PROFILE_REELS_LIMIT = 24
 const RFC_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -122,6 +122,38 @@ function ReelsLoadingGrid({ tileSize }: { tileSize: number }) {
   return <ReelThumbnailGridSkeleton tileSize={tileSize} />
 }
 
+function SeriesHighlight({ series, onPress }: { series: ReelSeries; onPress: () => void }) {
+  const cover = series.reels.find((reel) => reel.thumbnailUrl)?.thumbnailUrl
+
+  return (
+    <SafeTouchableOpacity
+      className="mr-3 overflow-hidden rounded-[22px] bg-surface-muted p-2"
+      style={{ width: 154 }}
+      hitSlop={0}
+      activeOpacity={0.82}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${series.title}`}
+    >
+      <View className="h-[96px] overflow-hidden rounded-[18px] bg-bg-primary">
+        {cover ? (
+          <Image source={{ uri: cover }} contentFit="cover" style={{ width: 138, height: 96 }} />
+        ) : (
+          <View className="flex-1 items-center justify-center">
+            <MaterialIcons name="video-library" size={24} color="#A89D94" />
+          </View>
+        )}
+      </View>
+      <AppText className="mt-2 text-sm2 font-semibold text-text-primary" numberOfLines={1}>
+        {series.title}
+      </AppText>
+      <AppText className="mt-0.5 text-xs2 text-text-secondary">
+        {series.reels.length} {series.reels.length === 1 ? 'episode' : 'episodes'}
+      </AppText>
+    </SafeTouchableOpacity>
+  )
+}
+
 export default function ProfileScreen() {
   const router = useRouter()
   const { width: windowWidth } = useWindowDimensions()
@@ -165,6 +197,12 @@ export default function ProfileScreen() {
   } = useReelsFeed(profileReelsParams, {
     enabled: Boolean(user?.id),
   })
+  const {
+    data: seriesData,
+    isPending: isSeriesPending,
+    isRefetching: isSeriesRefetching,
+    refetch: refetchSeries,
+  } = useOwnedReelSeries({ limit: 6 }, { enabled: Boolean(user?.id) })
 
   const profileFeedItems = useMemo(
     () => reelsData?.pages.flatMap((page) => page.items) ?? [],
@@ -177,6 +215,10 @@ export default function ProfileScreen() {
 
     return profileFeedItems.filter((reel) => reel.userId === user?.id)
   }, [hasValidProfileUserId, profileFeedItems, user?.id])
+  const ownedSeries = useMemo(
+    () => seriesData?.pages.flatMap((page) => page.items).slice(0, 6) ?? [],
+    [seriesData],
+  )
   const friendsValue = isFriendsPending && friends.length === 0 ? '...' : String(friends.length)
   const friendHighlights = friends.slice(0, 7)
   const extraFriendsCount = Math.max(friends.length - friendHighlights.length, 0)
@@ -222,10 +264,10 @@ export default function ProfileScreen() {
   }, [updateAvatar])
 
   const handleRefresh = useCallback(() => {
-    void Promise.all([refetchFriends(), refetchReels()])
-  }, [refetchFriends, refetchReels])
+    void Promise.all([refetchFriends(), refetchReels(), refetchSeries()])
+  }, [refetchFriends, refetchReels, refetchSeries])
 
-  const isRefreshing = isFriendsRefetching || isReelsRefetching
+  const isRefreshing = isFriendsRefetching || isReelsRefetching || isSeriesRefetching
 
   const renderReelItem = useCallback(
     ({ item, index }: { item: Reel; index: number }) => {
@@ -410,6 +452,72 @@ export default function ProfileScreen() {
                     Friends you add will appear here.
                   </AppText>
                 </View>
+              )}
+            </View>
+
+            <View className="mt-6">
+              <View className="flex-row items-center justify-between">
+                <AppText className="text-xs2 font-semibold uppercase tracking-[1.4px] text-text-muted">
+                  Series
+                </AppText>
+                <AppPressable
+                  className="py-1"
+                  onPress={() => router.push('/series' as never)}
+                  accessibilityRole="button"
+                  accessibilityLabel="View all series"
+                >
+                  <AppText className="text-sm2 font-semibold text-brand">View all</AppText>
+                </AppPressable>
+              </View>
+
+              {isSeriesPending || ownedSeries.length > 0 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingTop: 10, paddingRight: 20 }}
+                >
+                  {isSeriesPending && ownedSeries.length === 0
+                    ? Array.from({ length: 3 }).map((_, index) => (
+                        <View
+                          key={`series-skeleton-${index}`}
+                          className="mr-3 h-[148px] rounded-[22px] bg-surface-muted"
+                          style={{ width: 154 }}
+                        />
+                      ))
+                    : ownedSeries.map((series) => (
+                        <SeriesHighlight
+                          key={series.id}
+                          series={series}
+                          onPress={() =>
+                            router.push({
+                              pathname: '/series/[id]' as never,
+                              params: { id: series.id },
+                            })
+                          }
+                        />
+                      ))}
+                </ScrollView>
+              ) : (
+                <AppPressable
+                  className="mt-3 min-h-16 flex-row items-center rounded-[22px] bg-surface-muted px-4 py-3"
+                  activeOpacity={0.82}
+                  onPress={() => router.push('/series' as never)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Create your first series"
+                >
+                  <View className="h-11 w-11 items-center justify-center rounded-[16px] bg-surface-accent">
+                    <MaterialIcons name="video-library" size={21} color="#D85A21" />
+                  </View>
+                  <View className="ml-3 flex-1">
+                    <AppText className="text-sm2 font-semibold text-text-primary">
+                      Create your first series
+                    </AppText>
+                    <AppText className="mt-0.5 text-xs2 text-text-secondary">
+                      Group related reels into episodes.
+                    </AppText>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={21} color="#A89D94" />
+                </AppPressable>
               )}
             </View>
 

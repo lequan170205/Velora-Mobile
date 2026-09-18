@@ -14,6 +14,13 @@ const reelsHook = read('src/hooks/useReels.ts')
 const reelFeedItem = read('src/components/reels/ReelFeedItem.tsx')
 const reelsViewer = read('src/components/reels/ReelsViewer.tsx')
 const seriesScreen = read('app/series/[id].tsx')
+const seriesManageScreen = read('app/series/[id]/manage.tsx')
+const ownedSeriesScreen = read('app/series/index.tsx')
+const profileScreen = read('app/(tabs)/profile.tsx')
+const reelEditScreen = read('app/reels/[id]/edit.tsx')
+const publishStage = read('src/components/reels/create/publish-stage.tsx')
+const seriesPicker = read('src/components/reels/series/ReelSeriesPickerSheet.tsx')
+const reelCreatorHook = read('src/hooks/useReelCreator.ts')
 const reelCacheMappers = read('src/database/reels/reelCacheMappers.ts')
 const databaseSchema = read('src/database/schema.ts')
 const databaseMigrations = read('src/database/migrations.ts')
@@ -65,6 +72,8 @@ test('reel and series types align with the backend contract', () => {
   assert.match(reelTypes, /export interface UpdateReelSeriesPayload/)
   assert.match(reelTypes, /export interface AddReelToSeriesPayload/)
   assert.match(reelTypes, /export interface ReorderReelSeriesPayload/)
+  assert.match(reelTypes, /export interface ListReelSeriesParams/)
+  assert.match(reelTypes, /export interface PaginatedReelSeries/)
 })
 
 test('series API operations normalize every returned reel through the shared normalizer', () => {
@@ -85,6 +94,14 @@ test('series API operations normalize every returned reel through the shared nor
     reelsApi,
     /patch<ReelSeries>\([\s\S]*\/content\/series\/\$\{seriesId\}\/reels\/order/,
   )
+  assert.match(reelsApi, /get<PaginatedReelSeries>\('\/content\/series'/)
+})
+
+test('owned Series pagination uses opaque cursors and a focused Series-list query key', () => {
+  assert.match(reelsHook, /export function useOwnedReelSeries/)
+  assert.match(reelsHook, /getNextPageParam: \(lastPage\) => lastPage\.nextCursor \?\? undefined/)
+  assert.match(reelsHook, /reelsApi\.listOwnedSeries/)
+  assert.match(reelsHook, /queryKeys\.reels\.seriesList\(viewerId, queryParams\)/)
 })
 
 test('series hooks use focused query keys and do not invalidate recommendation sessions', () => {
@@ -179,6 +196,61 @@ test('series screen preserves backend order and starts at the requested episode 
   assert.match(seriesScreen, /series\.title/)
   assert.match(seriesScreen, /series\.description/)
   assert.match(seriesScreen, /series\.reels\.length/)
+  assert.match(seriesScreen, /\/series\/\[id\]\/manage/)
+})
+
+test('publish flow uploads once before Series creation or attachment and keeps audience in sync', () => {
+  const publishStart = reelCreatorHook.indexOf('const handlePublish = useCallback')
+  const publishEnd = reelCreatorHook.indexOf('const handleEditorProgress', publishStart)
+  const publishFlow = reelCreatorHook.slice(publishStart, publishEnd)
+
+  assert.ok(publishFlow.indexOf('createReelAsync(payload)') < publishFlow.indexOf('createReelSeriesAsync'))
+  assert.ok(publishFlow.indexOf('createReelAsync(payload)') < publishFlow.indexOf('addReelToSeriesAsync'))
+  assert.match(publishFlow, /effectiveVisibility = currentSeries\.visibility/)
+  assert.match(publishFlow, /deleteReelSeriesAsync\(createdSeriesId\)/)
+  assert.match(publishFlow, /Alert\.alert\('Reel published'/)
+  assert.match(publishStage, /ReelSeriesPickerSheet/)
+  assert.match(publishStage, /Episodes in a series share the same audience/)
+  assert.match(publishStage, /label: 'Friends'/)
+  assert.match(seriesPicker, /Create new series/)
+  assert.match(seriesPicker, /No series/)
+})
+
+test('reel edit Series changes use rollback-safe remove, visibility, and add ordering', () => {
+  const removeIndex = reelEditScreen.indexOf('removeFromSeries.mutateAsync')
+  const visibilityIndex = reelEditScreen.indexOf('updateReel.mutateAsync', removeIndex)
+  const addIndex = reelEditScreen.indexOf('addToSeries.mutateAsync', visibilityIndex)
+
+  assert.ok(removeIndex >= 0)
+  assert.ok(visibilityIndex > removeIndex)
+  assert.ok(addIndex > visibilityIndex)
+  assert.match(reelEditScreen, /oldEpisodeNumber/)
+  assert.match(reelEditScreen, /seriesId: oldSeriesId/)
+  assert.match(reelEditScreen, /episodeNumber: oldEpisodeNumber/)
+  assert.match(reelEditScreen, /Episodes in a series share the same audience/)
+  assert.match(reelEditScreen, /createAndSelectSeries/)
+  assert.match(reelEditScreen, /deleteSeries\.mutateAsync\(created\.id\)/)
+})
+
+test('owner management supports metadata, audience, reorder, remove, and safe Series deletion', () => {
+  assert.match(seriesManageScreen, /useUpdateReelSeries/)
+  assert.match(seriesManageScreen, /useReorderReelSeries/)
+  assert.match(seriesManageScreen, /useRemoveReelFromSeries/)
+  assert.match(seriesManageScreen, /useDeleteReelSeries/)
+  assert.match(seriesManageScreen, /Changing the audience updates every episode in this series/)
+  assert.match(seriesManageScreen, /Move episodes, then save the order once/)
+  assert.match(seriesManageScreen, /Reels stay published; only the Series is removed/)
+  assert.match(seriesManageScreen, /response\?\.status === 409/)
+})
+
+test('profile and owned-Series screen expose owner Series discovery and creation', () => {
+  assert.match(profileScreen, /useOwnedReelSeries\(\{ limit: 6 \}/)
+  assert.match(profileScreen, /SeriesHighlight/)
+  assert.match(profileScreen, /router\.push\('\/series' as never\)/)
+  assert.match(ownedSeriesScreen, /useOwnedReelSeries\(\{ limit: 20 \}\)/)
+  assert.match(ownedSeriesScreen, /initialMode="create"/)
+  assert.match(ownedSeriesScreen, /useCreateReelSeries/)
+  assert.match(ownedSeriesScreen, /fetchNextPage/)
 })
 
 test('series playback uses ReelsViewer local context as a strict non-paginating boundary', () => {

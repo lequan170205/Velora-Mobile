@@ -36,6 +36,20 @@ export type ReelEditState = {
   trim: ReelTrim | null
 }
 
+export type ReelSeriesDraftSelection =
+  | {
+      kind: 'existing'
+      id: string
+      title: string
+      visibility: ReelVisibility
+    }
+  | {
+      kind: 'new'
+      title: string
+      description?: string
+      visibility: ReelVisibility
+    }
+
 export type StoredAsset = Pick<
   ImagePickerAsset,
   'uri' | 'fileName' | 'mimeType' | 'duration' | 'width' | 'height'
@@ -47,6 +61,7 @@ export type DraftState = {
   title: string
   caption: string
   visibility: ReelVisibility
+  seriesSelection?: ReelSeriesDraftSelection | null
   durationOption: DurationOption
   editState: ReelEditState
   savedAt: number
