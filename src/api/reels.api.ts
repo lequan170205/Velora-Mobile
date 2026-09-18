@@ -15,8 +15,10 @@ import type {
   ReelContextParams,
   ReelContextResponse,
   CreateReelShareLinkPayload,
+  ListReelSeriesParams,
   ListReelsParams,
   ListReelsResponse,
+  PaginatedReelSeries,
   PaginatedFriendsReels,
   RecommendedReelsPage,
   ReelDetail,
@@ -132,6 +134,13 @@ const hydrateMissingReelAuthor = async (reel: ReelDetail): Promise<ReelDetail> =
 }
 
 export const reelsApi = {
+  listOwnedSeries: async (params: ListReelSeriesParams = {}) => {
+    const response = await apiClient.get<PaginatedReelSeries>('/content/series', { params })
+    return {
+      ...response.data,
+      items: response.data.items.map(normalizeReelSeriesResponse),
+    }
+  },
   createSeries: async (data: CreateReelSeriesPayload) => {
     const response = await apiClient.post<ReelSeries>('/content/series', data)
     return normalizeReelSeriesResponse(response.data)

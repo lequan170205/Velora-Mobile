@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { ReelsViewer } from '../../src/components/reels/ReelsViewer'
 import { useReelSeries } from '../../src/hooks/useReels'
+import { useAuthStore } from '../../src/stores/authStore'
 
 const firstParam = (value?: string | string[]) => (Array.isArray(value) ? value[0] : value)
 
@@ -20,7 +21,9 @@ export default function ReelSeriesScreen() {
   }>()
   const seriesId = firstParam(params.id)
   const requestedReelId = firstParam(params.reelId)
+  const userId = useAuthStore((state) => state.user?.id)
   const { data: series, isPending, isError, error, refetch } = useReelSeries(seriesId)
+  const isOwner = Boolean(series && userId === series.ownerId)
   const initialReelId = useMemo(() => {
     if (!series?.reels.length) {
       return undefined
@@ -109,6 +112,20 @@ export default function ReelSeriesScreen() {
         <Text className="mt-2 text-center text-base2 text-white/70">
           This series has no episodes yet.
         </Text>
+        {isOwner ? (
+          <TouchableOpacity
+            accessibilityLabel="Manage series"
+            accessibilityRole="button"
+            className="mt-6 min-h-11 flex-row items-center justify-center rounded-full bg-brand px-5"
+            activeOpacity={0.84}
+            onPress={() =>
+              router.push({ pathname: '/series/[id]/manage' as never, params: { id: series.id } })
+            }
+          >
+            <MaterialIcons name="settings" size={18} color="#FFFFFF" />
+            <Text className="ml-2 font-semibold text-white">Manage series</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
     )
   }
@@ -139,6 +156,21 @@ export default function ReelSeriesScreen() {
           </Text>
         ) : null}
       </View>
+
+      {isOwner ? (
+        <TouchableOpacity
+          accessibilityLabel="Manage series"
+          accessibilityRole="button"
+          className="absolute right-4 z-40 h-11 w-11 items-center justify-center rounded-full border border-white/14 bg-black/52"
+          style={{ top: insets.top + 96 }}
+          activeOpacity={0.78}
+          onPress={() =>
+            router.push({ pathname: '/series/[id]/manage' as never, params: { id: series.id } })
+          }
+        >
+          <MaterialIcons name="settings" size={20} color="#FFFFFF" />
+        </TouchableOpacity>
+      ) : null}
     </View>
   )
 }

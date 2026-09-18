@@ -36,8 +36,10 @@ import type {
   AllowedVideoType,
   CreateReelSeriesPayload,
   CreateReelPayload,
+  ListReelSeriesParams,
   ListReelsParams,
   ListReelsResponse,
+  PaginatedReelSeries,
   PaginatedFriendsReels,
   RecommendedReelsPage,
   ReelContextParams,
@@ -61,6 +63,7 @@ const REELS_QUERY_STALE_TIME_MS = 30 * 1000
 const REEL_STATUS_POLL_INTERVAL_MS = 3000
 
 type ReelsInfiniteData = InfiniteData<ListReelsResponse, string | undefined>
+type ReelSeriesInfiniteData = InfiniteData<PaginatedReelSeries, string | undefined>
 type ReelContextData = ReelContextResponse
 
 const flattenReelFeedPages = (pages: readonly { items: ReelFeedListItem[] }[]) => {
@@ -787,6 +790,45 @@ export function useReelContext(
   })
 }
 
+const refreshOwnedReelSeriesLists = (queryClient: QueryClient, viewerId: string) => {
+  void queryClient.invalidateQueries({
+    queryKey: queryKeys.reels.seriesLists(viewerId),
+  })
+}
+
+export function useOwnedReelSeries(
+  params: ListReelSeriesParams = {},
+  options: { enabled?: boolean } = {},
+) {
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
+  const queryParams = useMemo(
+    () => ({
+      ...(params.visibility ? { visibility: params.visibility } : {}),
+      ...(params.limit ? { limit: params.limit } : {}),
+    }),
+    [params.limit, params.visibility],
+  )
+
+  return useInfiniteQuery<
+    PaginatedReelSeries,
+    Error,
+    ReelSeriesInfiniteData,
+    QueryKey,
+    string | undefined
+  >({
+    queryKey: queryKeys.reels.seriesList(viewerId, queryParams),
+    queryFn: ({ pageParam }) =>
+      reelsApi.listOwnedSeries({
+        ...queryParams,
+        ...(pageParam ? { cursor: pageParam } : {}),
+      }),
+    initialPageParam: params.cursor,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    enabled: Boolean(viewerId !== 'anonymous') && (options.enabled ?? true),
+    staleTime: REELS_QUERY_STALE_TIME_MS,
+  })
+}
+
 export function useReelSeries(id?: string, options: { enabled?: boolean } = {}) {
   const queryClient = useQueryClient()
   const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
@@ -820,6 +862,7 @@ export function useCreateReelSeries() {
     mutationFn: (data: CreateReelSeriesPayload) => reelsApi.createSeries(data),
     onSuccess: (series) => {
       reconcileReelSeries(queryClient, viewerId, series)
+      refreshOwnedReelSeriesLists(queryClient, viewerId)
     },
   })
 }
@@ -833,6 +876,7 @@ export function useUpdateReelSeries() {
       reelsApi.updateSeries(id, data),
     onSuccess: (series) => {
       reconcileReelSeries(queryClient, viewerId, series)
+      refreshOwnedReelSeriesLists(queryClient, viewerId)
     },
   })
 }
@@ -854,6 +898,7 @@ export function useDeleteReelSeries() {
         updateReelSeriesCaches(queryClient, viewerId, reel.id)
       })
       queryClient.removeQueries({ queryKey: queryKeys.reels.series(viewerId, id) })
+      refreshOwnedReelSeriesLists(queryClient, viewerId)
     },
   })
 }
@@ -867,6 +912,7 @@ export function useAddReelToSeries() {
       reelsApi.addReelToSeries(seriesId, data),
     onSuccess: (series) => {
       reconcileReelSeries(queryClient, viewerId, series)
+      refreshOwnedReelSeriesLists(queryClient, viewerId)
     },
   })
 }
@@ -881,6 +927,7 @@ export function useRemoveReelFromSeries() {
     onSuccess: (series, { reelId }) => {
       reconcileReelSeries(queryClient, viewerId, series)
       updateReelSeriesCaches(queryClient, viewerId, reelId)
+      refreshOwnedReelSeriesLists(queryClient, viewerId)
     },
   })
 }
@@ -894,6 +941,7 @@ export function useReorderReelSeries() {
       reelsApi.reorderSeries(seriesId, data),
     onSuccess: (series) => {
       reconcileReelSeries(queryClient, viewerId, series)
+      refreshOwnedReelSeriesLists(queryClient, viewerId)
     },
   })
 }

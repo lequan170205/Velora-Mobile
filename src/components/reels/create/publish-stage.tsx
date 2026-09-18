@@ -1,5 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import React from 'react'
+import React, { useRef } from 'react'
 import {
   KeyboardAvoidingView,
   Platform,
@@ -12,9 +12,12 @@ import {
 import Animated, { FadeIn } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import type { BottomSheetModal } from '@gorhom/bottom-sheet'
+
 import { MAX_CAPTION_LENGTH } from '../../../constants/reel-creator'
 import { getCreatorPreviewContentFit } from '../../../lib/reel-creator'
 import { formatTrimDurationLabel, getTrimDurationMs } from '../../../lib/reel-trim-geometry'
+import { ReelSeriesPickerSheet } from '../series/ReelSeriesPickerSheet'
 
 import { CropThumbnail } from './crop-preview'
 import { GlassIconButton } from './shared-ui'
@@ -28,11 +31,13 @@ const visibilityOptions: {
   value: ReelVisibility
 }[] = [
   { icon: 'public', label: 'Public', value: 'public' },
+  { icon: 'group', label: 'Friends', value: 'friends' },
   { icon: 'lock-outline', label: 'Private', value: 'private' },
 ]
 
 export function PublishStage({ controller }: { controller: ReelCreatorController }) {
   const insets = useSafeAreaInsets()
+  const seriesSheetRef = useRef<BottomSheetModal>(null)
   const previewContentFit = getCreatorPreviewContentFit(controller.selectedAsset)
   const isCropActive = controller.editState.framing === 'crop' && controller.editState.crop
   const sourceWidth =
@@ -256,43 +261,92 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
 
           <View className="mt-3">
             <Text style={{ color: 'rgba(46,36,30,0.66)', fontSize: 12, fontWeight: '800' }}>
+              Series
+            </Text>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Choose reel series"
+              className="mt-2 min-h-14 flex-row items-center rounded-[22px] bg-[#F7F2EC] px-4 py-3"
+              activeOpacity={0.84}
+              disabled={controller.isPending}
+              onPress={() => seriesSheetRef.current?.present()}
+            >
+              <View className="h-11 w-11 items-center justify-center rounded-[16px] bg-white">
+                <MaterialIcons
+                  name={controller.seriesSelection ? 'video-library' : 'playlist-add'}
+                  size={21}
+                  color="#D85A21"
+                />
+              </View>
+              <View className="ml-3 flex-1">
+                <Text style={{ color: '#17120F', fontWeight: '800' }} numberOfLines={1}>
+                  {controller.seriesSelection?.title ?? 'No series'}
+                </Text>
+                <Text className="mt-0.5 text-xs2" style={{ color: 'rgba(46,36,30,0.58)' }}>
+                  {controller.seriesSelection
+                    ? 'This reel will publish as the next episode.'
+                    : 'Keep this reel standalone or add it to a series.'}
+                </Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={21} color="rgba(46,36,30,0.42)" />
+            </TouchableOpacity>
+          </View>
+
+          <View className="mt-3">
+            <Text style={{ color: 'rgba(46,36,30,0.66)', fontSize: 12, fontWeight: '800' }}>
               Visibility
             </Text>
-            <View className="mt-2 flex-row gap-2">
-              {visibilityOptions.map((option) => {
-                const isActive = controller.visibility === option.value
+            {controller.seriesSelection ? (
+              <View className="mt-2 min-h-12 flex-row items-center rounded-[20px] bg-[#FFF0E8] px-4 py-3">
+                <MaterialIcons name="lock-outline" size={18} color="#D85A21" />
+                <View className="ml-3 flex-1">
+                  <Text style={{ color: '#17120F', fontWeight: '800' }}>
+                    {controller.visibility === 'friends'
+                      ? 'Friends'
+                      : controller.visibility === 'private'
+                        ? 'Private'
+                        : 'Public'}
+                  </Text>
+                  <Text className="mt-0.5 text-xs2" style={{ color: 'rgba(46,36,30,0.58)' }}>
+                    Episodes in a series share the same audience.
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              <View className="mt-2 flex-row gap-2">
+                {visibilityOptions.map((option) => {
+                  const isActive = controller.visibility === option.value
 
-                return (
-                  <TouchableOpacity
-                    key={option.value}
-                    className={`flex-1 flex-row items-center justify-center rounded-full px-3 py-3 ${
-                      isActive ? 'bg-[#17120F]' : 'bg-[#F7F2EC]'
-                    }`}
-                    activeOpacity={0.84}
-                    disabled={controller.isPending}
-                    onPress={() => {
-                      controller.setVisibility(option.value)
-                    }}
-                  >
-                    <MaterialIcons
-                      name={option.icon}
-                      size={17}
-                      color={isActive ? '#FFFFFF' : '#17120F'}
-                    />
-                    <Text
-                      className="ml-2"
-                      style={{
-                        color: isActive ? '#FFFFFF' : '#17120F',
-                        fontSize: 13,
-                        fontWeight: '800',
-                      }}
+                  return (
+                    <TouchableOpacity
+                      key={option.value}
+                      className={`flex-1 items-center justify-center rounded-[18px] px-2 py-3 ${
+                        isActive ? 'bg-[#17120F]' : 'bg-[#F7F2EC]'
+                      }`}
+                      activeOpacity={0.84}
+                      disabled={controller.isPending}
+                      onPress={() => controller.setVisibility(option.value)}
                     >
-                      {option.label}
-                    </Text>
-                  </TouchableOpacity>
-                )
-              })}
-            </View>
+                      <MaterialIcons
+                        name={option.icon}
+                        size={17}
+                        color={isActive ? '#FFFFFF' : '#17120F'}
+                      />
+                      <Text
+                        className="mt-1"
+                        style={{
+                          color: isActive ? '#FFFFFF' : '#17120F',
+                          fontSize: 12,
+                          fontWeight: '800',
+                        }}
+                      >
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  )
+                })}
+              </View>
+            )}
           </View>
         </View>
 
@@ -311,6 +365,34 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
           </Text>
         </TouchableOpacity>
       </Animated.View>
+
+      <ReelSeriesPickerSheet
+        sheetRef={seriesSheetRef}
+        {...(controller.seriesSelection?.kind === 'existing'
+          ? { selectedSeriesId: controller.seriesSelection.id }
+          : {})}
+        initialVisibility={controller.visibility}
+        onSelect={(series) => {
+          controller.setSeriesSelection(
+            series
+              ? {
+                  kind: 'existing',
+                  id: series.id,
+                  title: series.title,
+                  visibility: series.visibility,
+                }
+              : null,
+          )
+        }}
+        onCreate={(payload) => {
+          controller.setSeriesSelection({
+            kind: 'new',
+            title: payload.title,
+            ...(payload.description ? { description: payload.description } : {}),
+            visibility: payload.visibility ?? controller.visibility,
+          })
+        }}
+      />
     </KeyboardAvoidingView>
   )
 }

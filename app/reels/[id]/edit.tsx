@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons'
 import { Image } from 'expo-image'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -16,11 +16,21 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { reelsApi } from '@/api/reels.api'
 import { GlassIconButton } from '@/components/reels/create/shared-ui'
+import { ReelSeriesPickerSheet } from '@/components/reels/series/ReelSeriesPickerSheet'
 import { MAX_CAPTION_LENGTH, bannedHashtags } from '@/constants/reel-creator'
-import { useReelDetail, useUpdateReel } from '@/hooks/useReels'
+import {
+  useAddReelToSeries,
+  useCreateReelSeries,
+  useDeleteReelSeries,
+  useReelDetail,
+  useRemoveReelFromSeries,
+  useUpdateReel,
+} from '@/hooks/useReels'
 import { extractHashtags, stripHashtagsFromCaption } from '@/lib/reels'
-import type { ReelVisibility } from '@/types/reel.types'
+import type { CreateReelSeriesPayload, ReelSeries, ReelVisibility } from '@/types/reel.types'
+import type { BottomSheetModal } from '@gorhom/bottom-sheet'
 
 const buildCaptionValue = (description?: string, tags: string[] = []) => {
   const tagLine = tags
@@ -47,9 +57,15 @@ export default function EditReelDetailsScreen() {
     enabled: Boolean(reelId),
   })
   const updateReel = useUpdateReel()
+  const createSeries = useCreateReelSeries()
+  const deleteSeries = useDeleteReelSeries()
+  const addToSeries = useAddReelToSeries()
+  const removeFromSeries = useRemoveReelFromSeries()
+  const seriesSheetRef = useRef<BottomSheetModal>(null)
   const [title, setTitle] = useState('')
   const [caption, setCaption] = useState('')
   const [visibility, setVisibility] = useState<ReelVisibility>('public')
+  const [isUpdatingSeries, setIsUpdatingSeries] = useState(false)
 
   useEffect(() => {
     if (!reel) {
@@ -68,6 +84,91 @@ export default function EditReelDetailsScreen() {
       caption.trim() !== buildCaptionValue(reel.description, reel.tags).trim() ||
       visibility !== reel.visibility),
   )
+  const isBusy = updateReel.isPending || isUpdatingSeries
+
+  const applySeriesSelection = async (targetSeries: ReelSeries | null) => {
+    if (!reelId || !reel || isUpdatingSeries) return
+
+    const oldSeriesId = reel.series?.id
+    if (targetSeries?.id === oldSeriesId) return
+
+    setIsUpdatingSeries(true)
+    let removedOldSeries = false
+    let changedVisibility = false
+    let oldEpisodeNumber = reel.series?.episodeNumber
+    const oldVisibility = reel.visibility
+
+    try {
+      let oldSeries: ReelSeries | null = null
+      if (oldSeriesId) {
+        oldSeries = await reelsApi.getSeries(oldSeriesId)
+        oldEpisodeNumber =
+          oldSeries.reels.find((episode) => episode.id === reelId)?.series?.episodeNumber ??
+          oldEpisodeNumber
+      }
+
+      if (!targetSeries) {
+        if (oldSeriesId) {
+          await removeFromSeries.mutateAsync({ seriesId: oldSeriesId, reelId })
+        }
+        return
+      }
+
+      const latestTarget = await reelsApi.getSeries(targetSeries.id)
+
+      if (oldSeriesId) {
+        await removeFromSeries.mutateAsync({ seriesId: oldSeriesId, reelId })
+        removedOldSeries = true
+      }
+
+      if (oldVisibility !== latestTarget.visibility) {
+        await updateReel.mutateAsync({ id: reelId, data: { visibility: latestTarget.visibility } })
+        setVisibility(latestTarget.visibility)
+        changedVisibility = true
+      }
+
+      await addToSeries.mutateAsync({
+        seriesId: latestTarget.id,
+        data: { reelId },
+      })
+    } catch (seriesError) {
+      if (changedVisibility) {
+        await updateReel
+          .mutateAsync({ id: reelId, data: { visibility: oldVisibility } })
+          .then(() => setVisibility(oldVisibility))
+          .catch(() => undefined)
+      }
+
+      if (removedOldSeries && oldSeriesId) {
+        await addToSeries
+          .mutateAsync({
+            seriesId: oldSeriesId,
+            data: { reelId, ...(oldEpisodeNumber ? { episodeNumber: oldEpisodeNumber } : {}) },
+          })
+          .catch(() => undefined)
+      }
+
+      const message =
+        (seriesError as Error & { response?: { data?: { message?: string } } })?.response?.data
+          ?.message ||
+        (seriesError as Error)?.message ||
+        'Velora could not update this reel series.'
+      Alert.alert('Series update failed', message)
+      throw seriesError
+    } finally {
+      setIsUpdatingSeries(false)
+    }
+  }
+
+  const createAndSelectSeries = async (payload: CreateReelSeriesPayload) => {
+    const created = await createSeries.mutateAsync(payload)
+    try {
+      await applySeriesSelection(created)
+    } catch (error) {
+      await deleteSeries.mutateAsync(created.id).catch(() => undefined)
+      throw error
+    }
+  }
 
   const handleSave = async () => {
     if (!reelId || !reel) {
@@ -191,16 +292,16 @@ export default function EditReelDetailsScreen() {
 
           <TouchableOpacity
             className={`absolute right-0 rounded-full px-5 py-3 ${
-              hasChanges && !updateReel.isPending ? 'bg-[#FF7A45]' : 'bg-[#E9DDD2]'
+              hasChanges && !isBusy ? 'bg-[#FF7A45]' : 'bg-[#E9DDD2]'
             }`}
             activeOpacity={0.84}
-            disabled={!hasChanges || updateReel.isPending}
+            disabled={!hasChanges || isBusy}
             onPress={() => {
               void handleSave()
             }}
           >
             <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>
-              {updateReel.isPending ? 'Saving' : 'Save'}
+              {isBusy ? 'Saving' : 'Save'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -236,7 +337,7 @@ export default function EditReelDetailsScreen() {
                   style={{ color: 'rgba(46,36,30,0.62)' }}
                   numberOfLines={2}
                 >
-                  Update title, caption, hashtags, and visibility.
+                  Update title, caption, hashtags, visibility, and series.
                 </Text>
               </View>
             </View>
@@ -263,7 +364,7 @@ export default function EditReelDetailsScreen() {
                 placeholderTextColor="rgba(46,36,30,0.38)"
                 value={title}
                 onChangeText={setTitle}
-                editable={!updateReel.isPending}
+                editable={!isBusy}
                 selectionColor="#FF7A45"
               />
             </View>
@@ -280,7 +381,7 @@ export default function EditReelDetailsScreen() {
                 multiline
                 value={caption}
                 onChangeText={setCaption}
-                editable={!updateReel.isPending}
+                editable={!isBusy}
                 selectionColor="#FF7A45"
                 textAlignVertical="top"
               />
@@ -289,38 +390,96 @@ export default function EditReelDetailsScreen() {
 
           <View className="mt-3 rounded-[28px] bg-white px-4 py-4">
             <Text className="font-heading text-lg" style={{ color: '#17120F' }}>
+              Series
+            </Text>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Change reel series"
+              className="mt-3 min-h-14 flex-row items-center rounded-[22px] bg-[#F7F2EC] px-4 py-3"
+              activeOpacity={0.84}
+              disabled={isBusy}
+              onPress={() => seriesSheetRef.current?.present()}
+            >
+              <View className="h-11 w-11 items-center justify-center rounded-[16px] bg-white">
+                <MaterialIcons
+                  name={reel.series ? 'video-library' : 'playlist-add'}
+                  size={21}
+                  color="#D85A21"
+                />
+              </View>
+              <View className="ml-3 flex-1">
+                <Text style={{ color: '#17120F', fontWeight: '800' }} numberOfLines={1}>
+                  {reel.series?.title ?? 'No series'}
+                </Text>
+                <Text className="mt-0.5 text-xs2" style={{ color: 'rgba(46,36,30,0.58)' }}>
+                  {reel.series
+                    ? `Episode ${reel.series.episodeNumber} · Tap to move or remove`
+                    : 'Add this reel to an episode collection'}
+                </Text>
+              </View>
+              {isUpdatingSeries ? (
+                <ActivityIndicator color="#FF7A45" size="small" />
+              ) : (
+                <MaterialIcons name="chevron-right" size={21} color="rgba(46,36,30,0.42)" />
+              )}
+            </TouchableOpacity>
+          </View>
+
+          <View className="mt-3 rounded-[28px] bg-white px-4 py-4">
+            <Text className="font-heading text-lg" style={{ color: '#17120F' }}>
               Visibility
             </Text>
-            <View className="mt-3 flex-row gap-2">
-              {(visibility === 'friends'
-                ? (['public', 'friends', 'private'] as const)
-                : (['public', 'private'] as const)
-              ).map((option) => (
-                <TouchableOpacity
-                  key={option}
-                  className={`flex-1 rounded-full px-4 py-3 ${
-                    visibility === option ? 'bg-[#FF7A45]' : 'bg-[#F7F2EC]'
-                  }`}
-                  activeOpacity={0.84}
-                  onPress={() => {
-                    setVisibility(option)
-                  }}
-                >
-                  <Text
-                    className="text-center capitalize"
-                    style={{
-                      color: visibility === option ? '#FFFFFF' : '#17120F',
-                      fontWeight: '800',
-                    }}
-                  >
-                    {option}
+            {reel.series ? (
+              <View className="mt-3 min-h-12 flex-row items-center rounded-[20px] bg-[#FFF0E8] px-4 py-3">
+                <MaterialIcons name="lock-outline" size={18} color="#D85A21" />
+                <View className="ml-3 flex-1">
+                  <Text className="capitalize" style={{ color: '#17120F', fontWeight: '800' }}>
+                    {visibility}
                   </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+                  <Text className="mt-0.5 text-xs2" style={{ color: 'rgba(46,36,30,0.58)' }}>
+                    Episodes in a series share the same audience.
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              <View className="mt-3 flex-row gap-2">
+                {(['public', 'friends', 'private'] as const).map((option) => (
+                  <TouchableOpacity
+                    key={option}
+                    className={`min-h-12 flex-1 items-center justify-center rounded-[18px] px-2 ${
+                      visibility === option ? 'bg-[#FF7A45]' : 'bg-[#F7F2EC]'
+                    }`}
+                    activeOpacity={0.84}
+                    disabled={isBusy}
+                    onPress={() => setVisibility(option)}
+                  >
+                    <Text
+                      className="text-center capitalize"
+                      style={{
+                        color: visibility === option ? '#FFFFFF' : '#17120F',
+                        fontSize: 12,
+                        fontWeight: '800',
+                      }}
+                    >
+                      {option}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
           </View>
         </ScrollView>
       </View>
+
+      <ReelSeriesPickerSheet
+        sheetRef={seriesSheetRef}
+        {...(reel.series?.id ? { selectedSeriesId: reel.series.id } : {})}
+        initialVisibility={visibility}
+        onSelect={applySeriesSelection}
+        onCreate={createAndSelectSeries}
+        title="Move to series"
+        subtitle="Choose another series, start a new one, or keep this reel standalone."
+      />
     </KeyboardAvoidingView>
   )
 }

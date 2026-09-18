@@ -101,6 +101,17 @@ export interface ReelSeries {
   reels: ReelFeedListItem[]
 }
 
+export interface ListReelSeriesParams {
+  visibility?: ReelVisibility
+  limit?: number
+  cursor?: string
+}
+
+export interface PaginatedReelSeries {
+  items: ReelSeries[]
+  nextCursor: string | null
+}
+
 export interface CreateReelSeriesPayload {
   title: string
   description?: string
