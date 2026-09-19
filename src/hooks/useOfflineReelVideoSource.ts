@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   cacheTemporaryReelVideo,
   getCachedTemporaryReelVideo,
+  getSyncCachedTemporaryReelVideo,
   getTemporaryReelVideoCacheStatus,
   subscribeTemporaryReelVideoCacheStatus,
 } from '../lib/offlineReelVideoCache'
@@ -26,8 +27,12 @@ export function useOfflineReelVideoSource(
   options: UseOfflineReelVideoSourceOptions = {},
 ) {
   const { isOnline } = useNetworkStatus()
-  const [offlineRecord, setOfflineRecord] = useState<TemporaryReelVideoCacheRecord | null>(null)
-  const [cacheStatus, setCacheStatus] = useState<TemporaryReelVideoCacheStatus>('NOT_CACHED')
+  const [offlineRecord, setOfflineRecord] = useState<TemporaryReelVideoCacheRecord | null>(() =>
+    reel.id ? getSyncCachedTemporaryReelVideo(reel.id) : null,
+  )
+  const [cacheStatus, setCacheStatus] = useState<TemporaryReelVideoCacheStatus>(() =>
+    offlineRecord ? 'CACHED' : 'NOT_CACHED',
+  )
 
   const shouldPrepareOfflineVideo =
     (options.enabled ?? true) &&
@@ -46,7 +51,11 @@ export function useOfflineReelVideoSource(
   useEffect(() => {
     let isMounted = true
 
-    setOfflineRecord(null)
+    const syncRecord = reel.id ? getSyncCachedTemporaryReelVideo(reel.id) : null
+    setOfflineRecord(syncRecord)
+    if (syncRecord) {
+      setCacheStatus('CACHED')
+    }
 
     if (!reel.id) {
       return () => {
@@ -55,7 +64,7 @@ export function useOfflineReelVideoSource(
     }
 
     void getCachedTemporaryReelVideo(reel.id).then((record) => {
-      if (isMounted) {
+      if (isMounted && record) {
         setOfflineRecord(record)
       }
     })
@@ -107,7 +116,8 @@ export function useOfflineReelVideoSource(
   ])
 
   return useMemo(() => {
-    const shouldUseOfflineVideo = Boolean(offlineRecord) && (!isOnline || options.preferOffline)
+    const shouldUseOfflineVideo =
+      Boolean(offlineRecord) && (!isOnline || options.preferOffline !== false)
 
     const uri =
       shouldUseOfflineVideo && offlineRecord

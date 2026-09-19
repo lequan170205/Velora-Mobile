@@ -24,7 +24,8 @@ import type { MD3Theme } from 'react-native-paper'
 
 const BAR_H = 60
 
-const REELS_INDEX = 2
+export const REELS_TAB_INDEX = 2
+const REELS_INDEX = REELS_TAB_INDEX
 export const MESSAGES_TAB_INDEX = 0
 export const PROFILE_TAB_INDEX = 4
 

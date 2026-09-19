@@ -94,3 +94,17 @@ test('playback coordinator plays desired reel upon registration and does not pau
     /if\s*\(\s*this\.desiredReelId\s*===\s*reelId\s*&&\s*this\.playingReelId\s*!==\s*reelId\s*\)/,
   )
 })
+
+test('chat shared reel metadata preserves orientation and merges into reel feed item displayReel', () => {
+  const chatReels = read('src/lib/chatReels.ts')
+  assert.match(chatReels, /reelSourceOrientation/)
+  assert.match(chatReels, /reelSourceAspectRatio/)
+  assert.match(chatReels, /reelPlaybackPresentation/)
+  assert.match(chatReels, /sourceOrientation: ReelSourceOrientation/)
+  assert.match(reelFeedItem, /nextReel\.sourceOrientation = reelDetail\.sourceOrientation/)
+  assert.match(reelFeedItem, /nextReel\.sourceAspectRatio = reelDetail\.sourceAspectRatio/)
+  assert.match(reelFeedItem, /nextReel\.sourceEffectiveWidth = reelDetail\.sourceEffectiveWidth/)
+  assert.match(reelFeedItem, /nextReel\.sourceEffectiveHeight = reelDetail\.sourceEffectiveHeight/)
+  assert.match(reelFeedItem, /!reel\.sourceOrientation && !reel\.playbackPresentation/)
+})
+

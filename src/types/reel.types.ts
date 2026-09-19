@@ -84,6 +84,8 @@ export interface Reel extends Partial<ReelMediaState> {
   author?: ReelAuthor | null
   series?: ReelSeriesSummary
   recommendation?: RecommendationMetadata
+  transcript?: string
+  transcriptSegments?: ReelTranscriptSegment[]
   edit?: ReelEditPayload
   playbackPresentation?: ReelPlaybackPresentation
 }
@@ -125,8 +127,17 @@ export interface UpdateReelSeriesPayload {
 }
 
 export interface AddReelToSeriesPayload {
-  reelId: string
-  episodeNumber?: number
+  reelIds: string[]
+}
+
+export interface ListSeriesCandidateReelsParams {
+  limit?: number
+  cursor?: string
+}
+
+export interface PaginatedSeriesCandidateReels {
+  items: Reel[]
+  nextCursor: string | null
 }
 
 export interface ReorderReelSeriesPayload {

@@ -42,6 +42,7 @@ import {
 } from '@/lib/offlineReelVideoCache'
 import { prefetchReelAssets, prefetchReelsForTemporaryOfflinePlayback } from '@/lib/reel-prefetch'
 import { getReelCachePolicyForNetworkState } from '@/lib/reelCachePolicy'
+import { readCachedReelFeedPage } from '@/lib/reelOfflineCache'
 import {
   deduplicateReelsById,
   ReelPlaybackCoordinator,
@@ -98,6 +99,12 @@ interface ReelsViewerProps {
   returnConversationId?: string | undefined
   returnTo?: string | undefined
   returnUsername?: string | undefined
+  headerTitle?: string
+  headerRight?: React.ReactNode
+  isSeriesPlayback?: boolean | undefined
+  onOpenSeriesEpisodes?: (() => void) | undefined
+  seriesEpisodeCount?: number | undefined
+  onActiveReelChange?: (reel: Reel, index: number) => void
   tabBarHeight?: number
 }
 
@@ -160,6 +167,12 @@ export function ReelsViewer({
   returnConversationId,
   returnTo,
   returnUsername,
+  headerTitle,
+  headerRight,
+  isSeriesPlayback = false,
+  onOpenSeriesEpisodes,
+  seriesEpisodeCount,
+  onActiveReelChange,
 }: ReelsViewerProps) {
   const router = useRouter()
   const insets = useSafeAreaInsets()
@@ -220,6 +233,51 @@ export function ReelsViewer({
     friends: [],
     'for-you': [],
   })
+
+  useEffect(() => {
+    let isMounted = true
+    const hydrateCachedFeed = async () => {
+      try {
+        const [cachedRecommended, cachedFriends] = await Promise.all([
+          readCachedReelFeedPage({
+            recommended: true,
+            visibility: 'public',
+            limit: DEFAULT_REELS_LIMIT,
+          }),
+          readCachedReelFeedPage({
+            visibility: 'friends',
+            limit: DEFAULT_REELS_LIMIT,
+          }),
+        ])
+
+        if (!isMounted) return
+
+        setFeedFallbackReels((current) => {
+          const nextForYou =
+            current['for-you'].length > 0 ? current['for-you'] : (cachedRecommended?.items ?? [])
+          const nextFriends =
+            current.friends.length > 0 ? current.friends : (cachedFriends?.items ?? [])
+
+          if (nextForYou === current['for-you'] && nextFriends === current.friends) {
+            return current
+          }
+
+          return {
+            'for-you': nextForYou,
+            friends: nextFriends,
+          }
+        })
+      } catch {
+        // Non-blocking offline cache hydration
+      }
+    }
+
+    void hydrateCachedFeed()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   const scrollToReelIndex = useCallback((index: number) => {
     const nextIndex = Math.max(0, index)
@@ -985,9 +1043,13 @@ export function ReelsViewer({
 
       setIsActiveReelPausedByUser(false)
       activeReelIdRef.current = nextReelId
+      handledRequestedReelIdRef.current = nextReelId
       setActiveReelId(nextReelId)
+      if (reels[safeIndex]) {
+        onActiveReelChange?.(reels[safeIndex], safeIndex)
+      }
     },
-    [isFocused, reels, selectedFeedTab, viewportHeight],
+    [isFocused, onActiveReelChange, reels, selectedFeedTab, viewportHeight],
   )
 
   const handleFeedTabChange = useCallback(
@@ -1076,11 +1138,21 @@ export function ReelsViewer({
     currentPageIndexRef.current = requestedReelIndex
     activeReelIdRef.current = reelId
     setActiveReelId(reelId)
+    if (reels[requestedReelIndex]) {
+      onActiveReelChange?.(reels[requestedReelIndex], requestedReelIndex)
+    }
 
     requestAnimationFrame(() => {
       scrollToReelIndex(requestedReelIndex)
     })
-  }, [reelId, requestedReelIndex, scrollToReelIndex, shouldUseReelContext])
+  }, [
+    onActiveReelChange,
+    reelId,
+    reels,
+    requestedReelIndex,
+    scrollToReelIndex,
+    shouldUseReelContext,
+  ])
 
   useEffect(() => {
     if (
@@ -1653,6 +1725,9 @@ export function ReelsViewer({
             liveTranscriptionEnabled={isActiveItem && liveTranscriptionEnabled}
             playbackSpeed={playbackSpeed}
             bottomContentInset={bottomContentInset}
+            isSeriesPlayback={isSeriesPlayback}
+            onOpenSeriesEpisodes={onOpenSeriesEpisodes}
+            seriesEpisodeCount={seriesEpisodeCount}
             onToggleMuted={handleToggleMuted}
             onClearDisplay={handleClearDisplay}
             onRestoreDisplay={handleRestoreDisplay}
@@ -1729,6 +1804,9 @@ export function ReelsViewer({
       handleIntentionalPauseChange,
       setLiveTranscriptionEnabled,
       setPlaybackSpeed,
+      isSeriesPlayback,
+      onOpenSeriesEpisodes,
+      seriesEpisodeCount,
       viewportHeight,
     ],
   )
@@ -2047,15 +2125,35 @@ export function ReelsViewer({
           style={{ paddingTop: insets.top + 18, elevation: 30, opacity: clearDisplay ? 0 : 1 }}
         >
           {mode === 'context' ? (
-            <TouchableOpacity
-              accessibilityLabel="Go back"
-              accessibilityRole="button"
-              className="h-12 w-12 items-center justify-center rounded-full border border-white/16 bg-black/44"
-              activeOpacity={0.72}
-              onPress={handleExitContext}
-            >
-              <MaterialIcons name="arrow-back" size={28} color="#FFFFFF" />
-            </TouchableOpacity>
+            <View className="flex-row items-center justify-between">
+              <TouchableOpacity
+                accessibilityLabel="Go back"
+                accessibilityRole="button"
+                className="h-11 w-11 items-center justify-center rounded-full"
+                activeOpacity={0.72}
+                onPress={handleExitContext}
+              >
+                <MaterialIcons name="arrow-back" size={26} color="#FFFFFF" />
+              </TouchableOpacity>
+              {headerTitle ? (
+                <View className="flex-1 items-center px-2">
+                  <Text
+                    className="font-heading text-[17px] font-bold text-white"
+                    style={{
+                      textShadowColor: 'rgba(0, 0, 0, 0.65)',
+                      textShadowOffset: { width: 0, height: 1 },
+                      textShadowRadius: 3,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {headerTitle}
+                  </Text>
+                </View>
+              ) : (
+                <View className="flex-1" />
+              )}
+              {headerRight ? headerRight : <View className="h-11 w-11" />}
+            </View>
           ) : (
             <View className="h-12 flex-row items-center justify-end">
               {!isOfflineAlertVisible ? (

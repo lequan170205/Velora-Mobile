@@ -153,8 +153,8 @@ function EmptyReelsState() {
   )
 }
 
-function ReelsLoadingGrid({ tileSize }: { tileSize: number }) {
-  return <ReelThumbnailGridSkeleton tileSize={tileSize} />
+function ReelsLoadingGrid({ tileSize, tileHeight }: { tileSize: number; tileHeight: number }) {
+  return <ReelThumbnailGridSkeleton tileSize={tileSize} tileHeight={tileHeight} />
 }
 
 function FriendHighlight({ friend, onPress }: { friend: FriendSummary; onPress: () => void }) {
@@ -208,7 +208,8 @@ export default function PublicProfileScreen() {
   const queryClient = useQueryClient()
   const insets = useSafeAreaInsets()
   const { width: windowWidth } = useWindowDimensions()
-  const tileSize = useMemo(() => Math.floor((windowWidth - 4) / 3), [windowWidth])
+  const tileSize = useMemo(() => (windowWidth - 4) / 3, [windowWidth])
+  const tileHeight = useMemo(() => Math.round(tileSize * 1.33), [tileSize])
   const isMountedRef = useRef(true)
   const { username } = useLocalSearchParams<{ username?: string }>()
   const normalizedUsername = useMemo(
@@ -439,10 +440,12 @@ export default function PublicProfileScreen() {
           }}
           reel={item}
           tileSize={tileSize}
+          tileHeight={tileHeight}
+          disableMargins
         />
       )
     },
-    [normalizedUsername, router, tileSize],
+    [normalizedUsername, router, tileHeight, tileSize],
   )
 
   if (isProfileLoading) {
@@ -466,6 +469,7 @@ export default function PublicProfileScreen() {
       <FlatList
         data={publicReels}
         numColumns={3}
+        columnWrapperStyle={{ gap: 2, marginBottom: 2 }}
         keyExtractor={(item) => item.id}
         renderItem={renderReelItem}
         showsVerticalScrollIndicator={false}
@@ -665,7 +669,11 @@ export default function PublicProfileScreen() {
           </View>
         }
         ListEmptyComponent={
-          isReelsPending ? <ReelsLoadingGrid tileSize={tileSize} /> : <EmptyReelsState />
+          isReelsPending ? (
+            <ReelsLoadingGrid tileSize={tileSize} tileHeight={tileHeight} />
+          ) : (
+            <EmptyReelsState />
+          )
         }
         ListFooterComponent={
           isFetchingNextPage ? (

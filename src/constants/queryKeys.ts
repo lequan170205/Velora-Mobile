@@ -38,6 +38,11 @@ export const queryKeys = {
     seriesList: (viewerId: string, params?: Record<string, unknown>) =>
       ['reels', viewerId, 'series-list', params ?? {}] as const,
     series: (viewerId: string, id: string) => ['reels', viewerId, 'series', id] as const,
+    allSeriesCandidates: (viewerId: string) => ['reels', viewerId, 'series-candidates'] as const,
+    seriesCandidates: (viewerId: string, seriesId: string) =>
+      ['reels', viewerId, 'series-candidates', seriesId] as const,
+    seriesCandidateList: (viewerId: string, seriesId: string, params?: Record<string, unknown>) =>
+      ['reels', viewerId, 'series-candidates', seriesId, params ?? {}] as const,
   },
   search: {
     all: ['search'] as const,

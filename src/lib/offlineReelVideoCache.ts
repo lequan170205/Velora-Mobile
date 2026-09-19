@@ -101,11 +101,18 @@ const failedDownloadBackoffByReelId = new Map<
   string,
   { failureCount: number; retryAfter: number }
 >()
+const memoryCachedRecordsByReelId = new Map<string, TemporaryReelVideoCacheRecord>()
 
 let activeDownloadCount = 0
 let areDownloadsEnabledByLifecycle = true
 let areDownloadsEnabledByPreference = true
 let downloadSessionVersion = 0
+
+export const getSyncCachedTemporaryReelVideo = (
+  reelId: string,
+): TemporaryReelVideoCacheRecord | null => {
+  return memoryCachedRecordsByReelId.get(reelId) ?? null
+}
 
 const areDownloadsEnabled = () => areDownloadsEnabledByLifecycle && areDownloadsEnabledByPreference
 
@@ -229,6 +236,10 @@ const removeRecords = async (records: ReelVideoCacheRecordModel[]) => {
   if (records.length === 0) {
     return
   }
+
+  records.forEach((record) => {
+    memoryCachedRecordsByReelId.delete(record.reelId)
+  })
 
   await deleteReelVideoCacheRecords(records)
   await Promise.all(records.map((record) => removeReelCacheDirectory(record.reelId)))
@@ -367,6 +378,7 @@ const upsertIndexRecord = async (
   record: TemporaryReelVideoCacheRecord,
   options: TemporaryReelVideoCacheCleanupOptions = {},
 ) => {
+  memoryCachedRecordsByReelId.set(record.reelId, record)
   await upsertReelVideoCacheRecord(toReelVideoCacheRecordInput(record))
   await evictTemporaryReelVideoCache(await getAllReelVideoCacheRecords(), options)
 }
@@ -757,10 +769,12 @@ export const getCachedTemporaryReelVideo = async (
   const record = await findReelVideoCacheRecordByReelId(reelId)
 
   if (!record) {
+    memoryCachedRecordsByReelId.delete(reelId)
     return null
   }
 
   if (!(await fileExists(record.localManifestUri))) {
+    memoryCachedRecordsByReelId.delete(reelId)
     await removeRecords([record])
     return null
   }
@@ -770,6 +784,7 @@ export const getCachedTemporaryReelVideo = async (
     lastAccessedAt: Date.now(),
   }
 
+  memoryCachedRecordsByReelId.set(reelId, updatedRecord)
   await upsertReelVideoCacheRecord(toReelVideoCacheRecordInput(updatedRecord))
   notifyCacheStatus(reelId, 'CACHED')
 
@@ -927,6 +942,7 @@ export const setTemporaryReelVideoCacheUserPreferenceEnabled = (enabled: boolean
 export const clearTemporaryReelVideoCache = async () => {
   downloadSessionVersion += 1
   failedDownloadBackoffByReelId.clear()
+  memoryCachedRecordsByReelId.clear()
 
   const queuedJobs = [...downloadJobs.values()].filter((job) => job.status === 'QUEUED')
   const queuedReelIds = queuedJobs.map((job) => job.reel.id)

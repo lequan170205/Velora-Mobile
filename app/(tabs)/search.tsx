@@ -836,7 +836,7 @@ export default function SearchScreen() {
     enabled: shouldLoadRecommendedUsers,
     limit: 20,
   })
-  const tileSize = useMemo(() => Math.floor((windowWidth - 4) / 3), [windowWidth])
+  const tileSize = useMemo(() => (windowWidth - 4) / 3, [windowWidth])
   const searchSuggestionChips = useMemo(
     () =>
       (searchSuggestionsData?.suggestions ?? []).map((suggestion) => ({

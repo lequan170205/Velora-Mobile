@@ -320,7 +320,7 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
                   return (
                     <TouchableOpacity
                       key={option.value}
-                      className={`flex-1 items-center justify-center rounded-[18px] px-2 py-3 ${
+                      className={`flex-1 flex-row items-center justify-center rounded-[18px] px-2 py-3 ${
                         isActive ? 'bg-[#17120F]' : 'bg-[#F7F2EC]'
                       }`}
                       activeOpacity={0.84}
@@ -333,12 +333,13 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
                         color={isActive ? '#FFFFFF' : '#17120F'}
                       />
                       <Text
-                        className="mt-1"
+                        className="ml-2"
                         style={{
                           color: isActive ? '#FFFFFF' : '#17120F',
                           fontSize: 12,
                           fontWeight: '800',
                         }}
+                        numberOfLines={1}
                       >
                         {option.label}
                       </Text>

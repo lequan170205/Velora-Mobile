@@ -111,33 +111,48 @@ export const updateCachedReelIfPresent = async (reel: Reel) => {
   ])
 }
 
+export const updateCachedReelsSeriesIfPresent = async (
+  updates: { reelId: string; series?: ReelSeriesSummary | undefined }[],
+) => {
+  if (updates.length === 0) {
+    return
+  }
+
+  const existingRecords = await getCachedReelsByReelIds(updates.map((update) => update.reelId))
+
+  if (existingRecords.length === 0) {
+    return
+  }
+
+  const updatesByReelId = new Map(updates.map((update) => [update.reelId, update.series]))
+  const updatedAt = Date.now()
+
+  const reelInputs = existingRecords.map((existingRecord) => {
+    const cachedReel = deserializeCachedReelToReel(existingRecord)
+    const updatedReel: Reel = { ...cachedReel }
+    const series = updatesByReelId.get(existingRecord.reelId)
+
+    if (series) {
+      updatedReel.series = series
+    } else {
+      delete updatedReel.series
+    }
+
+    return {
+      ...serializeReelToCachedReelInput(updatedReel),
+      cachedAt: existingRecord.cachedAt,
+      lastAccessedAt: updatedAt,
+    }
+  })
+
+  await upsertCachedReels(reelInputs)
+}
+
 export const updateCachedReelSeriesIfPresent = async (
   reelId: string,
   series?: ReelSeriesSummary,
 ) => {
-  const [existingRecord] = await getCachedReelsByReelIds([reelId])
-
-  if (!existingRecord) {
-    return
-  }
-
-  const cachedReel = deserializeCachedReelToReel(existingRecord)
-  const updatedReel: Reel = { ...cachedReel }
-
-  if (series) {
-    updatedReel.series = series
-  } else {
-    delete updatedReel.series
-  }
-
-  const updatedAt = Date.now()
-  await upsertCachedReels([
-    {
-      ...serializeReelToCachedReelInput(updatedReel),
-      cachedAt: existingRecord.cachedAt,
-      lastAccessedAt: updatedAt,
-    },
-  ])
+  await updateCachedReelsSeriesIfPresent([{ reelId, series }])
 }
 
 export const readCachedReelFeedPage = async (

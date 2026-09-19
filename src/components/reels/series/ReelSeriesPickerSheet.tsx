@@ -214,8 +214,8 @@ export function ReelSeriesPickerSheet({
                     accessibilityLabel={`${option.label} series visibility`}
                     className={
                       selected
-                        ? 'min-h-12 flex-1 items-center justify-center rounded-[18px] bg-brand px-2'
-                        : 'min-h-12 flex-1 items-center justify-center rounded-[18px] bg-surface-muted px-2'
+                        ? 'min-h-12 flex-1 flex-row items-center justify-center rounded-[18px] bg-brand px-2'
+                        : 'min-h-12 flex-1 flex-row items-center justify-center rounded-[18px] bg-surface-muted px-2'
                     }
                     disabled={isSubmitting}
                     onPress={() => setNewVisibility(option.value)}
@@ -228,9 +228,10 @@ export function ReelSeriesPickerSheet({
                     <Text
                       className={
                         selected
-                          ? 'mt-1 text-xs2 font-semibold text-white'
-                          : 'mt-1 text-xs2 font-semibold text-text-primary'
+                          ? 'ml-2 text-xs2 font-semibold text-white'
+                          : 'ml-2 text-xs2 font-semibold text-text-primary'
                       }
+                      numberOfLines={1}
                     >
                       {option.label}
                     </Text>
@@ -253,7 +254,15 @@ export function ReelSeriesPickerSheet({
               {isSubmitting ? (
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
-                <Text className="font-semibold text-white">Create series</Text>
+                <Text
+                  className={
+                    newTitle.trim() && !isSubmitting
+                      ? 'font-semibold text-white'
+                      : 'font-semibold text-text-tertiary'
+                  }
+                >
+                  Create series
+                </Text>
               )}
             </Pressable>
           </View>

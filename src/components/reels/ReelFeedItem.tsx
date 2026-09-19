@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons'
+import { Ionicons, MaterialIcons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'
 import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -61,6 +61,9 @@ interface ReelFeedItemProps {
   liveTranscriptionEnabled: boolean
   playbackSpeed: ReelPlaybackSpeed
   bottomContentInset?: number | undefined
+  isSeriesPlayback?: boolean | undefined
+  onOpenSeriesEpisodes?: (() => void) | undefined
+  seriesEpisodeCount?: number | undefined
   onToggleMuted: () => void
   onClearDisplay: () => void
   onRestoreDisplay: () => void
@@ -290,6 +293,9 @@ const ReelFeedItemComponent = function ReelFeedItem({
   liveTranscriptionEnabled,
   playbackSpeed,
   bottomContentInset = 0,
+  isSeriesPlayback = false,
+  onOpenSeriesEpisodes,
+  seriesEpisodeCount,
   onToggleMuted,
   onClearDisplay,
   onRestoreDisplay,
@@ -334,7 +340,8 @@ const ReelFeedItemComponent = function ReelFeedItem({
       !reel.author?.username ||
       !reel.author?.avatarUrl ||
       reel.tags.length === 0 ||
-      !reel.description?.trim())
+      !reel.description?.trim() ||
+      (!reel.sourceOrientation && !reel.playbackPresentation))
   const { data: reelDetail } = useReelDetail(reel.id, {
     enabled: shouldFetchReelDetail,
   })
@@ -369,6 +376,38 @@ const ReelFeedItemComponent = function ReelFeedItem({
       nextReel.thumbnailUrl = reelDetail.thumbnailUrl
     }
 
+    if (reelDetail?.sourceOrientation && !nextReel.sourceOrientation) {
+      nextReel.sourceOrientation = reelDetail.sourceOrientation
+    }
+
+    if (
+      typeof reelDetail?.sourceAspectRatio === 'number' &&
+      Number.isFinite(reelDetail.sourceAspectRatio) &&
+      !nextReel.sourceAspectRatio
+    ) {
+      nextReel.sourceAspectRatio = reelDetail.sourceAspectRatio
+    }
+
+    if (typeof reelDetail?.sourceEffectiveWidth === 'number' && !nextReel.sourceEffectiveWidth) {
+      nextReel.sourceEffectiveWidth = reelDetail.sourceEffectiveWidth
+    }
+
+    if (typeof reelDetail?.sourceEffectiveHeight === 'number' && !nextReel.sourceEffectiveHeight) {
+      nextReel.sourceEffectiveHeight = reelDetail.sourceEffectiveHeight
+    }
+
+    if (typeof reelDetail?.sourceWidth === 'number' && !nextReel.sourceWidth) {
+      nextReel.sourceWidth = reelDetail.sourceWidth
+    }
+
+    if (typeof reelDetail?.sourceHeight === 'number' && !nextReel.sourceHeight) {
+      nextReel.sourceHeight = reelDetail.sourceHeight
+    }
+
+    if (reelDetail?.edit && !nextReel.edit) {
+      nextReel.edit = reelDetail.edit
+    }
+
     if (reelDetail?.playbackPresentation && !nextReel.playbackPresentation) {
       nextReel.playbackPresentation = reelDetail.playbackPresentation
     }
@@ -377,16 +416,30 @@ const ReelFeedItemComponent = function ReelFeedItem({
       nextReel.series = reelDetail.series
     }
 
+    if (reelDetail?.transcriptSegments?.length) {
+      nextReel.transcriptSegments = reelDetail.transcriptSegments
+    }
+
     return nextReel
   }, [processingStatus, reel, reelDetail])
   const offlineVideoSource = useOfflineReelVideoSource(displayReel, {
     enabled: shouldWarmVideo,
+    preferOffline: true,
     shouldPrepareOfflineVideo: typeof offlineVideoCachePriority === 'number',
     ...(typeof offlineVideoCachePriority === 'number'
       ? { cachePriority: offlineVideoCachePriority }
       : {}),
   })
-  const videoSourceKey = `${displayReel.id}:${offlineVideoSource.uri}`
+  const activePlaybackUriRef = useRef<string | null>(null)
+
+  if (!isActive) {
+    activePlaybackUriRef.current = offlineVideoSource.uri
+  } else if (!activePlaybackUriRef.current) {
+    activePlaybackUriRef.current = offlineVideoSource.uri
+  }
+
+  const resolvedVideoUri = activePlaybackUriRef.current || offlineVideoSource.uri
+  const videoSourceKey = `${displayReel.id}:${resolvedVideoUri}`
 
   if (playerIdentityRef.current.sourceKey !== videoSourceKey) {
     playerIdentityRef.current = {
@@ -418,8 +471,8 @@ const ReelFeedItemComponent = function ReelFeedItem({
     [timelinePreviewRatio],
   )
   const playbackState = useMemo(
-    () => getPlaybackState(displayReel, offlineVideoSource.uri),
-    [displayReel, offlineVideoSource.uri],
+    () => getPlaybackState(displayReel, resolvedVideoUri),
+    [displayReel, resolvedVideoUri],
   )
   const descriptionText = displayReel.description?.trim() || description?.trim()
   const titleText = displayReel.title?.trim()
@@ -465,13 +518,14 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const effectivePosition = isScrubbing ? scrubPosition : playbackPosition
   const timelinePosition = pendingSeekPosition ?? effectivePosition
   const activeTranscriptText = getActiveTranscriptText(
-    reelDetail?.transcriptSegments,
+    reelDetail?.transcriptSegments ?? displayReel.transcriptSegments,
     timelinePosition,
   )
   const bufferedRatio = durationSeconds > 0 ? clamp(bufferedPosition / durationSeconds, 0, 1) : 0
   const safeBottomContentInset = Math.max(0, bottomContentInset)
   const scrubRailBottom = safeBottomContentInset
-  const metadataBottom = safeBottomContentInset + METADATA_GAP_ABOVE_SCRUB_RAIL
+  const metadataBottom =
+    safeBottomContentInset + (isSeriesPlayback ? 8 : METADATA_GAP_ABOVE_SCRUB_RAIL)
   const transcriptOverlayBottom = metadataBottom + Math.max(metadataCopyHeight, 52) + 12
   const timelineLabel = formatPlaybackTime(timelinePosition)
   const timelineChipWidth = TIMELINE_CHIP_WIDTH
@@ -997,7 +1051,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
             {shouldRenderVideo ? (
               <ReelVideo
                 ref={setVideoRef}
-                uri={offlineVideoSource.uri}
+                uri={resolvedVideoUri}
                 {...(posterUri ? { posterUri } : {})}
                 shouldPlay={isActive && !isPausedByUser && !hasPlaybackError}
                 playbackRate={playbackSpeed}
@@ -1282,17 +1336,35 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
         <View
           pointerEvents={clearDisplay ? 'none' : 'box-none'}
-          className="absolute inset-x-0"
+          className="absolute inset-x-0 z-30"
           style={[{ bottom: metadataBottom }, clearDisplay ? { opacity: 0 } : undefined]}
         >
-          <View className="px-4">
+          <View
+            className="px-4"
+            onLayout={({ nativeEvent }) => {
+              setMetadataCopyHeight(nativeEvent.layout.height)
+            }}
+          >
             <View className="flex-row items-start">
-              <View
-                className="max-w-[82%] flex-1 pr-3"
-                onLayout={({ nativeEvent }) => {
-                  setMetadataCopyHeight(nativeEvent.layout.height)
-                }}
-              >
+              <View className="max-w-[82%] flex-1 pr-3">
+                {displayReel.series && !isSeriesPlayback ? (
+                  <TouchableOpacity
+                    accessibilityLabel={`Open ${displayReel.series.title}, episode ${displayReel.series.episodeNumber}`}
+                    accessibilityRole="button"
+                    activeOpacity={0.82}
+                    className="-ml-1 mb-2.5 max-w-full self-start flex-row items-center rounded-full border border-white/10 bg-black/55 px-3 py-1.5"
+                    onPress={handleSeriesPress}
+                  >
+                    <Ionicons name="albums-outline" size={14} color="#FFB18E" />
+                    <Text
+                      className="ml-1.5 flex-shrink text-xs2 font-semibold text-white"
+                      numberOfLines={1}
+                    >
+                      {displayReel.series.title} · Episode {displayReel.series.episodeNumber}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+
                 <View className="flex-row items-center">
                   <TouchableOpacity
                     accessibilityLabel={
@@ -1341,24 +1413,6 @@ const ReelFeedItemComponent = function ReelFeedItem({
                     </Text>
                   </TouchableOpacity>
                 </View>
-
-                {displayReel.series ? (
-                  <TouchableOpacity
-                    accessibilityLabel={`Open ${displayReel.series.title}, episode ${displayReel.series.episodeNumber}`}
-                    accessibilityRole="button"
-                    activeOpacity={0.82}
-                    className="mt-1 min-h-11 max-w-full self-start flex-row items-center rounded-full bg-black/36 px-3 py-2"
-                    onPress={handleSeriesPress}
-                  >
-                    <Ionicons name="albums-outline" size={15} color="#FFB18E" />
-                    <Text
-                      className="ml-1.5 flex-shrink text-sm2 font-semibold text-white"
-                      numberOfLines={1}
-                    >
-                      {displayReel.series.title} · Episode {displayReel.series.episodeNumber}
-                    </Text>
-                  </TouchableOpacity>
-                ) : null}
 
                 {captionText ? (
                   <View className="mt-2">
@@ -1426,6 +1480,32 @@ const ReelFeedItemComponent = function ReelFeedItem({
                 ) : null}
               </View>
             </View>
+
+            {isSeriesPlayback && onOpenSeriesEpisodes ? (
+              <TouchableOpacity
+                accessibilityLabel={`Open ${displayReel.series?.title ?? 'series'} episodes list`}
+                accessibilityRole="button"
+                activeOpacity={0.86}
+                className="-mx-1 mt-4 flex-row items-center justify-between rounded-full border border-white/15 bg-[#1C1816]/92 px-4 py-2.5 shadow-lg"
+                onPress={onOpenSeriesEpisodes}
+              >
+                <View className="flex-1 flex-row items-center pr-2">
+                  <MaterialIcons name="video-library" size={17} color="#FF6B2C" />
+                  <Text
+                    className="ml-2 font-heading text-xs2 font-bold text-white"
+                    numberOfLines={1}
+                  >
+                    {displayReel.series?.title} · {seriesEpisodeCount ?? 0}{' '}
+                    {(seriesEpisodeCount ?? 0) === 1 ? 'episode' : 'episodes'}
+                  </Text>
+                </View>
+                <MaterialIcons
+                  name="keyboard-arrow-up"
+                  size={20}
+                  color="rgba(255, 255, 255, 0.7)"
+                />
+              </TouchableOpacity>
+            ) : null}
           </View>
         </View>
 
@@ -1496,6 +1576,9 @@ const areReelFeedItemPropsEqual = (previous: ReelFeedItemProps, next: ReelFeedIt
   previous.liveTranscriptionEnabled === next.liveTranscriptionEnabled &&
   previous.playbackSpeed === next.playbackSpeed &&
   previous.bottomContentInset === next.bottomContentInset &&
+  previous.isSeriesPlayback === next.isSeriesPlayback &&
+  previous.onOpenSeriesEpisodes === next.onOpenSeriesEpisodes &&
+  previous.seriesEpisodeCount === next.seriesEpisodeCount &&
   previous.onToggleMuted === next.onToggleMuted &&
   previous.onClearDisplay === next.onClearDisplay &&
   previous.onRestoreDisplay === next.onRestoreDisplay &&

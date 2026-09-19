@@ -575,7 +575,7 @@ export function useReelCreator() {
 
         await addReelToSeriesAsync({
           seriesId: attachedSeriesId,
-          data: { reelId: createdReel.id },
+          data: { reelIds: [createdReel.id] },
         })
       } catch (error) {
         attachmentError = error

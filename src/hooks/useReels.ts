@@ -6,6 +6,7 @@ import {
   cacheReelFeedPage,
   readCachedReelFeedPage,
   updateCachedReelIfPresent,
+  updateCachedReelsSeriesIfPresent,
   updateCachedReelSeriesIfPresent,
 } from '@/lib/reelOfflineCache'
 import type { InfiniteData, QueryClient, QueryKey } from '@tanstack/react-query'
@@ -36,9 +37,11 @@ import type {
   AllowedVideoType,
   CreateReelSeriesPayload,
   CreateReelPayload,
+  ListSeriesCandidateReelsParams,
   ListReelSeriesParams,
   ListReelsParams,
   ListReelsResponse,
+  PaginatedSeriesCandidateReels,
   PaginatedReelSeries,
   PaginatedFriendsReels,
   RecommendedReelsPage,
@@ -64,6 +67,10 @@ const REEL_STATUS_POLL_INTERVAL_MS = 3000
 
 type ReelsInfiniteData = InfiniteData<ListReelsResponse, string | undefined>
 type ReelSeriesInfiniteData = InfiniteData<PaginatedReelSeries, string | undefined>
+type ReelSeriesCandidatesInfiniteData = InfiniteData<
+  PaginatedSeriesCandidateReels,
+  string | undefined
+>
 type ReelContextData = ReelContextResponse
 
 const flattenReelFeedPages = (pages: readonly { items: ReelFeedListItem[] }[]) => {
@@ -258,7 +265,7 @@ const updateReelSeriesInContextData = (
   }
 }
 
-const updateReelSeriesCaches = (
+const updateReelSeriesMemoryCaches = (
   queryClient: QueryClient,
   viewerId: string,
   reelId: string,
@@ -285,6 +292,15 @@ const updateReelSeriesCaches = (
   queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(viewerId), (current) =>
     current?.map((item) => (item.id === reelId ? withReelSeries(item, series) : item)),
   )
+}
+
+const updateReelSeriesCaches = (
+  queryClient: QueryClient,
+  viewerId: string,
+  reelId: string,
+  series?: ReelSeriesSummary,
+) => {
+  updateReelSeriesMemoryCaches(queryClient, viewerId, reelId, series)
   void updateCachedReelSeriesIfPresent(reelId, series)
 }
 
@@ -298,11 +314,17 @@ const reconcileReelSeries = (
     queryClient.setQueryData(queryKeys.reels.series(viewerId, series.id), series)
   }
 
+  const offlineUpdates: { reelId: string; series?: ReelSeriesSummary | undefined }[] = []
   series.reels.forEach((reel) => {
     if (reel.series) {
-      updateReelSeriesCaches(queryClient, viewerId, reel.id, reel.series)
+      updateReelSeriesMemoryCaches(queryClient, viewerId, reel.id, reel.series)
+      offlineUpdates.push({ reelId: reel.id, series: reel.series })
     }
   })
+
+  if (offlineUpdates.length > 0) {
+    void updateCachedReelsSeriesIfPresent(offlineUpdates)
+  }
 }
 
 const removeReelFromInfiniteData = (
@@ -484,6 +506,37 @@ const toSharedReelMessage = (
   if (reelDescription) enrichedMedia.reelDescription = reelDescription
   if (thumbnailUrl) enrichedMedia.thumbnailUrl = thumbnailUrl
   if (fileUrl) enrichedMedia.fileUrl = fileUrl
+  if (sourceReel?.sourceOrientation) {
+    enrichedMedia.reelSourceOrientation = sourceReel.sourceOrientation
+    enrichedMedia.sourceOrientation = sourceReel.sourceOrientation
+  }
+  if (
+    typeof sourceReel?.sourceAspectRatio === 'number' &&
+    Number.isFinite(sourceReel.sourceAspectRatio)
+  ) {
+    enrichedMedia.reelSourceAspectRatio = sourceReel.sourceAspectRatio
+    enrichedMedia.sourceAspectRatio = sourceReel.sourceAspectRatio
+  }
+  if (sourceReel?.playbackPresentation) {
+    enrichedMedia.reelPlaybackPresentation = sourceReel.playbackPresentation
+    enrichedMedia.playbackPresentation = sourceReel.playbackPresentation
+  }
+  const resolvedWidth =
+    typeof sourceReel?.sourceEffectiveWidth === 'number' &&
+    Number.isFinite(sourceReel.sourceEffectiveWidth)
+      ? sourceReel.sourceEffectiveWidth
+      : typeof sourceReel?.sourceWidth === 'number' && Number.isFinite(sourceReel.sourceWidth)
+        ? sourceReel.sourceWidth
+        : undefined
+  const resolvedHeight =
+    typeof sourceReel?.sourceEffectiveHeight === 'number' &&
+    Number.isFinite(sourceReel.sourceEffectiveHeight)
+      ? sourceReel.sourceEffectiveHeight
+      : typeof sourceReel?.sourceHeight === 'number' && Number.isFinite(sourceReel.sourceHeight)
+        ? sourceReel.sourceHeight
+        : undefined
+  if (typeof resolvedWidth === 'number') enrichedMedia.width = resolvedWidth
+  if (typeof resolvedHeight === 'number') enrichedMedia.height = resolvedHeight
 
   return {
     id: share.message.id,
@@ -642,8 +695,18 @@ export function useRecommendedReelsFeed(params: { enabled?: boolean; limit?: num
   )
   const recommendedLimit = normalizedParams.limit
   const excludeRecentlySeen = normalizedParams.excludeRecentlySeen
-  const isRecommendedFeedEnabled = Boolean(userId) && (params.enabled ?? true)
+  const isRecommendedFeedEnabled = params.enabled ?? true
   const queryKey = queryKeys.reels.recommended(viewerId, excludeRecentlySeen)
+  const cacheParams: CacheableFeedParams = useMemo(
+    () => ({
+      limit: recommendedLimit,
+      excludeRecentlySeen,
+      viewerId,
+      recommended: true,
+      visibility: 'public',
+    }),
+    [excludeRecentlySeen, recommendedLimit, viewerId],
+  )
   const recommendedQueryOptions = useMemo(
     () => ({
       queryKey,
@@ -656,25 +719,47 @@ export function useRecommendedReelsFeed(params: { enabled?: boolean; limit?: num
           session.reset()
         }
 
-        const response = await reelsApi.getRecommendedReels(
-          session.getRequestParams({
-            limit: recommendedLimit,
-            excludeRecentlySeen,
-            ...(pageParam ? { cursor: pageParam } : {}),
-          }),
-        )
+        try {
+          const response = await reelsApi.getRecommendedReels(
+            session.getRequestParams({
+              limit: recommendedLimit,
+              excludeRecentlySeen,
+              ...(pageParam ? { cursor: pageParam } : {}),
+            }),
+          )
 
-        if (!pageParam && excludeRecentlySeen && response.items.length === 0) {
-          const fallbackResponse = await reelsApi.getRecommendedReels({
-            excludeRecentlySeen: false,
-            limit: recommendedLimit,
-          })
-          session.capture(fallbackResponse)
-          return fallbackResponse
+          if (!pageParam && excludeRecentlySeen && response.items.length === 0) {
+            const fallbackResponse = await reelsApi.getRecommendedReels({
+              excludeRecentlySeen: false,
+              limit: recommendedLimit,
+            })
+            session.capture(fallbackResponse)
+            void cacheReelFeedPage(
+              { ...cacheParams, excludeRecentlySeen: false },
+              pageParam,
+              fallbackResponse,
+            )
+            return fallbackResponse
+          }
+
+          session.capture(response)
+          void cacheReelFeedPage(cacheParams, pageParam, response)
+          return response
+        } catch (error) {
+          const cachedResponse = await readCachedReelFeedPage(cacheParams, pageParam)
+
+          if (cachedResponse) {
+            return {
+              ...cachedResponse,
+              feedSessionId: cachedResponse.feedSessionId ?? session.getFeedSessionId() ?? '',
+              algorithmVersion: cachedResponse.algorithmVersion ?? '',
+              generatedAt: cachedResponse.generatedAt ?? new Date().toISOString(),
+              nextCursor: cachedResponse.nextCursor ?? null,
+            } as RecommendedReelsPage
+          }
+
+          throw error
         }
-
-        session.capture(response)
-        return response
       },
       getNextPageParam: (lastPage: RecommendedReelsPage) => lastPage.nextCursor ?? undefined,
       retry: (failureCount: number, error: unknown) => {
@@ -683,7 +768,7 @@ export function useRecommendedReelsFeed(params: { enabled?: boolean; limit?: num
       },
       staleTime: REELS_QUERY_STALE_TIME_MS,
     }),
-    [excludeRecentlySeen, isRecommendedFeedEnabled, queryKey, recommendedLimit],
+    [cacheParams, excludeRecentlySeen, isRecommendedFeedEnabled, queryKey, recommendedLimit],
   )
 
   const query = useInfiniteQuery(recommendedQueryOptions)
@@ -796,6 +881,14 @@ const refreshOwnedReelSeriesLists = (queryClient: QueryClient, viewerId: string)
   })
 }
 
+const refreshSeriesCandidates = (queryClient: QueryClient, viewerId: string, seriesId?: string) => {
+  void queryClient.invalidateQueries({
+    queryKey: seriesId
+      ? queryKeys.reels.seriesCandidates(viewerId, seriesId)
+      : queryKeys.reels.allSeriesCandidates(viewerId),
+  })
+}
+
 export function useOwnedReelSeries(
   params: ListReelSeriesParams = {},
   options: { enabled?: boolean } = {},
@@ -825,6 +918,44 @@ export function useOwnedReelSeries(
     initialPageParam: params.cursor,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: Boolean(viewerId !== 'anonymous') && (options.enabled ?? true),
+    staleTime: REELS_QUERY_STALE_TIME_MS,
+  })
+}
+
+export function useReelSeriesCandidates(
+  seriesId?: string,
+  params: ListSeriesCandidateReelsParams = {},
+  options: { enabled?: boolean } = {},
+) {
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
+  const queryParams = useMemo(
+    () => ({
+      ...(params.limit ? { limit: params.limit } : {}),
+    }),
+    [params.limit],
+  )
+
+  return useInfiniteQuery<
+    PaginatedSeriesCandidateReels,
+    Error,
+    ReelSeriesCandidatesInfiniteData,
+    QueryKey,
+    string | undefined
+  >({
+    queryKey: queryKeys.reels.seriesCandidateList(viewerId, seriesId || 'unknown', queryParams),
+    queryFn: ({ pageParam }) => {
+      if (!seriesId) {
+        throw new Error('Missing reel series id')
+      }
+
+      return reelsApi.getSeriesCandidateReels(seriesId, {
+        ...queryParams,
+        ...(pageParam ? { cursor: pageParam } : {}),
+      })
+    },
+    initialPageParam: params.cursor,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    enabled: Boolean(seriesId && viewerId !== 'anonymous') && (options.enabled ?? true),
     staleTime: REELS_QUERY_STALE_TIME_MS,
   })
 }
@@ -877,6 +1008,7 @@ export function useUpdateReelSeries() {
     onSuccess: (series) => {
       reconcileReelSeries(queryClient, viewerId, series)
       refreshOwnedReelSeriesLists(queryClient, viewerId)
+      refreshSeriesCandidates(queryClient, viewerId, series.id)
     },
   })
 }
@@ -894,11 +1026,18 @@ export function useDeleteReelSeries() {
       return { id, series }
     },
     onSuccess: ({ id, series }) => {
-      series.reels.forEach((reel) => {
-        updateReelSeriesCaches(queryClient, viewerId, reel.id)
+      const offlineUpdates: { reelId: string; series?: ReelSeriesSummary | undefined }[] = []
+      series?.reels?.forEach((reel) => {
+        updateReelSeriesMemoryCaches(queryClient, viewerId, reel.id)
+        offlineUpdates.push({ reelId: reel.id })
       })
+      if (offlineUpdates.length > 0) {
+        void updateCachedReelsSeriesIfPresent(offlineUpdates)
+      }
+      queryClient.setQueryData(queryKeys.reels.series(viewerId, id), null)
       queryClient.removeQueries({ queryKey: queryKeys.reels.series(viewerId, id) })
       refreshOwnedReelSeriesLists(queryClient, viewerId)
+      refreshSeriesCandidates(queryClient, viewerId, id)
     },
   })
 }
@@ -910,9 +1049,10 @@ export function useAddReelToSeries() {
   return useMutation({
     mutationFn: ({ seriesId, data }: { seriesId: string; data: AddReelToSeriesPayload }) =>
       reelsApi.addReelToSeries(seriesId, data),
-    onSuccess: (series) => {
+    onSuccess: (series, { seriesId }) => {
       reconcileReelSeries(queryClient, viewerId, series)
       refreshOwnedReelSeriesLists(queryClient, viewerId)
+      refreshSeriesCandidates(queryClient, viewerId, seriesId)
     },
   })
 }
@@ -924,10 +1064,11 @@ export function useRemoveReelFromSeries() {
   return useMutation({
     mutationFn: ({ seriesId, reelId }: { seriesId: string; reelId: string }) =>
       reelsApi.removeReelFromSeries(seriesId, reelId),
-    onSuccess: (series, { reelId }) => {
+    onSuccess: (series, { seriesId, reelId }) => {
       reconcileReelSeries(queryClient, viewerId, series)
       updateReelSeriesCaches(queryClient, viewerId, reelId)
       refreshOwnedReelSeriesLists(queryClient, viewerId)
+      refreshSeriesCandidates(queryClient, viewerId, seriesId)
     },
   })
 }
@@ -1247,6 +1388,16 @@ export function useDeleteReel() {
       )
       void queryClient.invalidateQueries({ queryKey: queryKeys.reels.lists(viewerId) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.reels.contexts(viewerId) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.reels.seriesLists(viewerId) })
+      void queryClient.invalidateQueries({
+        predicate: (query) =>
+          query.queryKey[0] === 'reels' &&
+          query.queryKey[1] === viewerId &&
+          query.queryKey[2] === 'series',
+      })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.reels.allSeriesCandidates(viewerId),
+      })
     },
   })
 }

@@ -4,7 +4,7 @@ import { warmTemporaryReelVideoCache } from './offlineReelVideoCache'
 
 import type { Reel } from '../types/reel.types'
 
-const MAX_PREFETCHED_URLS = 120
+const MAX_PREFETCHED_URLS = 160
 const prefetchedUrls = new Set<string>()
 
 const rememberPrefetchedUrl = (url: string) => {
@@ -56,6 +56,31 @@ const fetchTextQuietly = async (url: string) => {
   }
 }
 
+const fetchBinaryQuietly = async (url: string) => {
+  if (hasPrefetchedUrl(url)) {
+    return
+  }
+
+  try {
+    rememberPrefetchedUrl(url)
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Accept: '*/*',
+      },
+    })
+
+    if (!response.ok) {
+      return
+    }
+
+    await response.blob()
+  } catch {
+    // Silently ignore prefetch network errors
+  }
+}
+
 const getFirstVariantPlaylistUrl = (masterUrl: string, masterPlaylistText: string) => {
   const lines = masterPlaylistText
     .split('\n')
@@ -75,6 +100,41 @@ const getFirstVariantPlaylistUrl = (masterUrl: string, masterPlaylistText: strin
   }
 
   return null
+}
+
+const getInitialSegmentUrls = (mediaPlaylistUrl: string, mediaPlaylistText: string) => {
+  const lines = mediaPlaylistText
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  const segmentUrls: string[] = []
+
+  for (const line of lines) {
+    if (line.startsWith('#EXT-X-MAP:')) {
+      const uriMatch = line.match(/URI=["']?([^"']+)["']?/)
+      if (uriMatch?.[1]) {
+        const initUrl = toAbsoluteUrl(mediaPlaylistUrl, uriMatch[1])
+        if (initUrl) {
+          segmentUrls.push(initUrl)
+        }
+      }
+      continue
+    }
+
+    if (line.startsWith('#')) {
+      continue
+    }
+
+    const segmentUrl = toAbsoluteUrl(mediaPlaylistUrl, line)
+    if (segmentUrl) {
+      segmentUrls.push(segmentUrl)
+      // Only prefetch the first media segment to prime playback without wasting bandwidth
+      break
+    }
+  }
+
+  return segmentUrls
 }
 
 export const prefetchReelAssets = async (
@@ -99,13 +159,25 @@ export const prefetchReelAssets = async (
     return
   }
 
-  const firstVariantPlaylistUrl = getFirstVariantPlaylistUrl(reel.streamUrl, masterPlaylistText)
+  const isMediaPlaylist = masterPlaylistText.includes('#EXTINF:')
+  const variantPlaylistUrl = isMediaPlaylist
+    ? reel.streamUrl
+    : getFirstVariantPlaylistUrl(reel.streamUrl, masterPlaylistText)
 
-  if (!firstVariantPlaylistUrl) {
+  if (!variantPlaylistUrl) {
     return
   }
 
-  await fetchTextQuietly(firstVariantPlaylistUrl)
+  const variantPlaylistText = isMediaPlaylist
+    ? masterPlaylistText
+    : await fetchTextQuietly(variantPlaylistUrl)
+
+  if (!variantPlaylistText) {
+    return
+  }
+
+  const segmentUrls = getInitialSegmentUrls(variantPlaylistUrl, variantPlaylistText)
+  await Promise.all(segmentUrls.map((segmentUrl) => fetchBinaryQuietly(segmentUrl)))
 }
 
 export const prefetchReelsForTemporaryOfflinePlayback = (

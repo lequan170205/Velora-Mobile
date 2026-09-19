@@ -3,21 +3,26 @@ import { isAxiosError } from 'axios'
 import { Image } from 'expo-image'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native'
+import {
+  NestableDraggableFlatList,
+  NestableScrollContainer,
+  ScaleDecorator,
+} from 'react-native-draggable-flatlist'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { GlassIconButton } from '@/components/reels/create/shared-ui'
+import { ReelEpisodePickerSheet } from '@/components/reels/series/ReelEpisodePickerSheet'
 import {
   useDeleteReelSeries,
   useReelSeries,
@@ -27,6 +32,9 @@ import {
 } from '@/hooks/useReels'
 import { useAuthStore } from '@/stores/authStore'
 import type { Reel, ReelVisibility } from '@/types/reel.types'
+import type { BottomSheetModal } from '@gorhom/bottom-sheet'
+
+import type { RenderItemParams } from 'react-native-draggable-flatlist'
 
 const firstParam = (value?: string | string[]) => (Array.isArray(value) ? value[0] : value)
 
@@ -40,6 +48,18 @@ const visibilityOptions: {
   { icon: 'lock-outline', label: 'Private', value: 'private' },
 ]
 
+export const isBroadeningSeriesVisibility = (
+  currentVisibility: ReelVisibility,
+  nextVisibility: ReelVisibility,
+): boolean => {
+  const rank: Record<ReelVisibility, number> = {
+    private: 0,
+    friends: 1,
+    public: 2,
+  }
+  return rank[nextVisibility] > rank[currentVisibility]
+}
+
 const errorMessage = (error: unknown, fallback: string) =>
   (error as Error & { response?: { data?: { message?: string } } })?.response?.data?.message ||
   (error as Error)?.message ||
@@ -49,8 +69,9 @@ export default function ManageReelSeriesScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const userId = useAuthStore((state) => state.user?.id)
-  const params = useLocalSearchParams<{ id?: string | string[] }>()
+  const params = useLocalSearchParams<{ id?: string | string[]; openPicker?: string }>()
   const seriesId = firstParam(params.id)
+  const episodePickerRef = useRef<BottomSheetModal>(null)
   const { data: series, isPending, isError, error, refetch } = useReelSeries(seriesId)
   const updateSeries = useUpdateReelSeries()
   const deleteSeries = useDeleteReelSeries()
@@ -60,6 +81,35 @@ export default function ManageReelSeriesScreen() {
   const [description, setDescription] = useState('')
   const [visibility, setVisibility] = useState<ReelVisibility>('public')
   const [orderedReels, setOrderedReels] = useState<Reel[]>([])
+  const [activeTab, setActiveTab] = useState<'episodes' | 'settings'>('episodes')
+
+  const handleSelectVisibility = (nextVisibility: ReelVisibility) => {
+    if (nextVisibility === visibility) return
+    if (series && isBroadeningSeriesVisibility(series.visibility, nextVisibility)) {
+      Alert.alert(
+        'Broaden series audience?',
+        'Changing the audience updates every episode in this series and makes them visible to more people.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Update',
+            onPress: () => setVisibility(nextVisibility),
+          },
+        ],
+      )
+      return
+    }
+    setVisibility(nextVisibility)
+  }
+
+  useEffect(() => {
+    if (params.openPicker === 'true') {
+      const timer = setTimeout(() => {
+        episodePickerRef.current?.present()
+      }, 350)
+      return () => clearTimeout(timer)
+    }
+  }, [params.openPicker])
 
   useEffect(() => {
     if (!series) return
@@ -85,20 +135,6 @@ export default function ManageReelSeriesScreen() {
     deleteSeries.isPending ||
     removeEpisode.isPending ||
     reorderSeries.isPending
-
-  const moveEpisode = (index: number, offset: -1 | 1) => {
-    const nextIndex = index + offset
-    if (nextIndex < 0 || nextIndex >= orderedReels.length) return
-    setOrderedReels((current) => {
-      const next = [...current]
-      const currentEpisode = next[index]
-      const targetEpisode = next[nextIndex]
-      if (!currentEpisode || !targetEpisode) return current
-      next[index] = targetEpisode
-      next[nextIndex] = currentEpisode
-      return next
-    })
-  }
 
   const handleSaveDetails = async () => {
     if (!seriesId || !series || !metadataChanged) return
@@ -166,6 +202,55 @@ export default function ManageReelSeriesScreen() {
     ])
   }
 
+  const renderEpisodeItem = ({ item: reel, drag, getIndex, isActive }: RenderItemParams<Reel>) => {
+    const episodeIndex = getIndex() ?? 0
+
+    return (
+      <ScaleDecorator>
+        <View className="flex-row items-center rounded-[22px] bg-[#F7F2EC] p-3">
+          <View className="h-16 w-12 overflow-hidden rounded-[14px] bg-white">
+            {reel.thumbnailUrl ? (
+              <Image
+                source={{ uri: reel.thumbnailUrl }}
+                contentFit="cover"
+                style={{ width: 48, height: 64 }}
+              />
+            ) : (
+              <View className="flex-1 items-center justify-center">
+                <MaterialIcons name="movie" size={20} color="rgba(46,36,30,0.36)" />
+              </View>
+            )}
+          </View>
+          <View className="ml-3 min-w-0 flex-1">
+            <Text style={{ color: '#17120F', fontWeight: '800' }} numberOfLines={1}>
+              {episodeIndex + 1}. {reel.title || 'Untitled reel'}
+            </Text>
+          </View>
+          <TouchableOpacity
+            accessibilityLabel={`Reorder episode ${episodeIndex + 1}`}
+            accessibilityHint="Long press and drag to change the episode order"
+            accessibilityRole="button"
+            className="ml-2 h-11 w-11 items-center justify-center rounded-[15px] bg-white"
+            delayLongPress={180}
+            disabled={isBusy || isActive}
+            onLongPress={drag}
+          >
+            <MaterialIcons name="drag-handle" size={22} color="#17120F" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            accessibilityLabel={`Remove ${reel.title || 'episode'} from series`}
+            accessibilityRole="button"
+            className="ml-2 h-11 w-11 items-center justify-center rounded-[15px] bg-white"
+            disabled={isBusy}
+            onPress={() => confirmRemoveEpisode(reel)}
+          >
+            <MaterialIcons name="remove-circle-outline" size={21} color="#D85A21" />
+          </TouchableOpacity>
+        </View>
+      </ScaleDecorator>
+    )
+  }
+
   const confirmDeleteSeries = () => {
     if (!seriesId) return
     Alert.alert('Delete series?', 'Reels stay published; only the Series is removed.', [
@@ -176,7 +261,12 @@ export default function ManageReelSeriesScreen() {
         onPress: () => {
           void deleteSeries
             .mutateAsync(seriesId)
-            .then(() => router.replace('/series' as never))
+            .then(() => {
+              if (router.canDismiss()) {
+                router.dismissAll()
+              }
+              router.replace('/(tabs)/profile' as never)
+            })
             .catch((deleteError) =>
               Alert.alert(
                 'Series not deleted',
@@ -274,224 +364,263 @@ export default function ManageReelSeriesScreen() {
           </View>
         </View>
 
-        <ScrollView
+        {/* Segmented Tab Switcher */}
+        <View className="mt-2.5 flex-row rounded-full bg-white/80 p-1 border border-[#EBE5DF]">
+          <TouchableOpacity
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeTab === 'episodes' }}
+            accessibilityLabel="Episodes tab"
+            className={`h-10 flex-1 flex-row items-center justify-center rounded-full ${
+              activeTab === 'episodes' ? 'bg-[#17120F]' : 'bg-transparent'
+            }`}
+            activeOpacity={0.8}
+            onPress={() => setActiveTab('episodes')}
+          >
+            <MaterialIcons
+              name="video-library"
+              size={17}
+              color={activeTab === 'episodes' ? '#FFFFFF' : '#8A8379'}
+            />
+            <Text
+              className="ml-1.5 text-xs2 font-bold"
+              style={{ color: activeTab === 'episodes' ? '#FFFFFF' : '#17120F' }}
+            >
+              Episodes
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeTab === 'settings' }}
+            accessibilityLabel="Settings tab"
+            className={`h-10 flex-1 flex-row items-center justify-center rounded-full ${
+              activeTab === 'settings' ? 'bg-[#17120F]' : 'bg-transparent'
+            }`}
+            activeOpacity={0.8}
+            onPress={() => setActiveTab('settings')}
+          >
+            <MaterialIcons
+              name="settings"
+              size={17}
+              color={activeTab === 'settings' ? '#FFFFFF' : '#8A8379'}
+            />
+            <Text
+              className="ml-1.5 text-xs2 font-bold"
+              style={{ color: activeTab === 'settings' ? '#FFFFFF' : '#17120F' }}
+            >
+              Settings
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <NestableScrollContainer
           className="mt-3 flex-1"
-          contentContainerStyle={{ paddingBottom: 20 }}
+          contentContainerStyle={{ paddingBottom: 24 }}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <View className="rounded-[28px] bg-white p-4">
-            <Text className="font-heading text-lg" style={{ color: '#17120F' }}>
-              Details
-            </Text>
-            <View className="mt-3 rounded-[22px] bg-[#F7F2EC] px-4 py-3">
-              <Text style={{ color: 'rgba(46,36,30,0.66)', fontSize: 12, fontWeight: '800' }}>
-                Title
-              </Text>
-              <TextInput
-                className="mt-1 text-base2"
-                style={{ color: '#17120F', padding: 0 }}
-                value={title}
-                onChangeText={setTitle}
-                editable={!isBusy}
-                maxLength={220}
-                selectionColor="#FF7A45"
-              />
-            </View>
-            <View className="mt-3 rounded-[22px] bg-[#F7F2EC] px-4 py-3">
-              <Text style={{ color: 'rgba(46,36,30,0.66)', fontSize: 12, fontWeight: '800' }}>
-                Description · optional
-              </Text>
-              <TextInput
-                className="mt-2 min-h-20 text-base2"
-                style={{ color: '#17120F', padding: 0 }}
-                value={description}
-                onChangeText={setDescription}
-                editable={!isBusy}
-                maxLength={2000}
-                multiline
-                textAlignVertical="top"
-                selectionColor="#FF7A45"
-              />
-            </View>
-
-            <Text
-              className="mt-4 text-xs2 font-semibold uppercase tracking-[1px]"
-              style={{ color: 'rgba(46,36,30,0.58)' }}
-            >
-              Audience
-            </Text>
-            <View className="mt-2 flex-row gap-2">
-              {visibilityOptions.map((option) => {
-                const selected = visibility === option.value
-                return (
+          {activeTab === 'episodes' ? (
+            <View className="rounded-[28px] bg-white p-4">
+              <View className="flex-row items-center justify-between">
+                <View>
+                  <Text className="font-heading text-lg" style={{ color: '#17120F' }}>
+                    Episodes
+                  </Text>
+                  <Text className="mt-1 text-xs2" style={{ color: 'rgba(46,36,30,0.58)' }}>
+                    Long-press a handle to reorder, then save once.
+                  </Text>
+                </View>
+                <View>
                   <TouchableOpacity
-                    key={option.value}
                     accessibilityRole="button"
-                    accessibilityState={{ selected }}
-                    className={`min-h-14 flex-1 items-center justify-center rounded-[18px] px-2 ${selected ? 'bg-[#17120F]' : 'bg-[#F7F2EC]'}`}
-                    activeOpacity={0.84}
+                    accessibilityLabel="Add episodes to series"
+                    className="flex-row items-center rounded-full bg-[#FFF0E8] px-3 py-1.5"
                     disabled={isBusy}
-                    onPress={() => setVisibility(option.value)}
+                    onPress={() => episodePickerRef.current?.present()}
                   >
-                    <MaterialIcons
-                      name={option.icon}
-                      size={18}
-                      color={selected ? '#FFFFFF' : '#17120F'}
-                    />
-                    <Text
-                      className="mt-1"
-                      style={{
-                        color: selected ? '#FFFFFF' : '#17120F',
-                        fontSize: 12,
-                        fontWeight: '800',
-                      }}
-                    >
-                      {option.label}
+                    <MaterialIcons name="add" size={16} color="#D85A21" />
+                    <Text className="ml-0.5 text-xs2 font-bold" style={{ color: '#D85A21' }}>
+                      Add
                     </Text>
                   </TouchableOpacity>
-                )
-              })}
-            </View>
-            <Text className="mt-2 text-xs2 leading-4" style={{ color: 'rgba(46,36,30,0.58)' }}>
-              Changing the audience updates every episode in this series.
-            </Text>
-
-            <TouchableOpacity
-              className={`mt-4 min-h-12 items-center justify-center rounded-[20px] px-5 ${metadataChanged && !isBusy ? 'bg-[#FF7A45]' : 'bg-[#E9DDD2]'}`}
-              disabled={!metadataChanged || isBusy}
-              onPress={() => void handleSaveDetails()}
-            >
-              <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>
-                {updateSeries.isPending ? 'Saving…' : 'Save details'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <View className="mt-3 rounded-[28px] bg-white p-4">
-            <View className="flex-row items-center justify-between">
-              <View>
-                <Text className="font-heading text-lg" style={{ color: '#17120F' }}>
-                  Episodes
-                </Text>
-                <Text className="mt-1 text-xs2" style={{ color: 'rgba(46,36,30,0.58)' }}>
-                  Move episodes, then save the order once.
-                </Text>
+                </View>
               </View>
-              <Text style={{ color: 'rgba(46,36,30,0.48)', fontSize: 12 }}>
-                {orderedReels.length}
-              </Text>
-            </View>
 
-            {orderedReels.length === 0 ? (
-              <View className="mt-4 items-center rounded-[22px] bg-[#F7F2EC] px-5 py-7">
-                <MaterialIcons name="video-library" size={28} color="rgba(46,36,30,0.36)" />
-                <Text className="mt-3" style={{ color: '#17120F', fontWeight: '800' }}>
-                  No episodes yet
+              {orderedReels.length === 0 ? (
+                <View className="mt-4 items-center rounded-[22px] bg-[#F7F2EC] px-5 py-7">
+                  <MaterialIcons name="video-library" size={28} color="rgba(46,36,30,0.36)" />
+                  <Text className="mt-3" style={{ color: '#17120F', fontWeight: '800' }}>
+                    No episodes yet
+                  </Text>
+                  <Text
+                    className="mt-1 text-center text-xs2"
+                    style={{ color: 'rgba(46,36,30,0.58)' }}
+                  >
+                    Add a reel from its edit screen or choose from your published reels below.
+                  </Text>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Select from your reels"
+                    className="mt-4 flex-row items-center justify-center rounded-full bg-[#FF7A45] px-4 py-2.5"
+                    disabled={isBusy}
+                    onPress={() => episodePickerRef.current?.present()}
+                  >
+                    <MaterialIcons name="add" size={18} color="#FFFFFF" />
+                    <Text className="ml-1 text-xs2 font-bold text-white">
+                      Select from your reels
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <NestableDraggableFlatList
+                  data={orderedReels}
+                  keyExtractor={(reel) => reel.id}
+                  renderItem={renderEpisodeItem}
+                  onDragEnd={({ data }) => setOrderedReels(data)}
+                  scrollEnabled={false}
+                  containerStyle={{ marginTop: 12 }}
+                  contentContainerStyle={{ gap: 8 }}
+                />
+              )}
+
+              {orderedReels.length > 1 ? (
+                <TouchableOpacity
+                  className={`mt-4 min-h-12 items-center justify-center rounded-[20px] px-5 ${orderChanged && !isBusy ? 'bg-[#17120F]' : 'bg-[#E9DDD2]'}`}
+                  disabled={!orderChanged || isBusy}
+                  onPress={() => void handleSaveOrder()}
+                >
+                  <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>
+                    {reorderSeries.isPending ? 'Saving order…' : 'Save episode order'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : (
+            <>
+              <View className="rounded-[28px] bg-white p-4">
+                <Text className="font-heading text-lg" style={{ color: '#17120F' }}>
+                  Details
                 </Text>
+                <View className="mt-3 rounded-[22px] bg-[#F7F2EC] px-4 py-3">
+                  <Text style={{ color: 'rgba(46,36,30,0.66)', fontSize: 12, fontWeight: '800' }}>
+                    Title
+                  </Text>
+                  <TextInput
+                    className="mt-1 text-base2"
+                    style={{ color: '#17120F', padding: 0 }}
+                    value={title}
+                    onChangeText={setTitle}
+                    editable={!isBusy}
+                    maxLength={220}
+                    selectionColor="#FF7A45"
+                  />
+                </View>
+                <View className="mt-3 rounded-[22px] bg-[#F7F2EC] px-4 py-3">
+                  <Text style={{ color: 'rgba(46,36,30,0.66)', fontSize: 12, fontWeight: '800' }}>
+                    Description · optional
+                  </Text>
+                  <TextInput
+                    className="mt-2 min-h-20 text-base2"
+                    style={{ color: '#17120F', padding: 0 }}
+                    value={description}
+                    onChangeText={setDescription}
+                    editable={!isBusy}
+                    maxLength={2000}
+                    multiline
+                    textAlignVertical="top"
+                    selectionColor="#FF7A45"
+                  />
+                </View>
+
                 <Text
-                  className="mt-1 text-center text-xs2"
+                  className="mt-4 text-xs2 font-semibold uppercase tracking-[1px]"
                   style={{ color: 'rgba(46,36,30,0.58)' }}
                 >
-                  Add a reel from its edit screen or when publishing.
+                  Audience
                 </Text>
-              </View>
-            ) : (
-              <View className="mt-3 gap-2">
-                {orderedReels.map((reel, index) => (
-                  <View
-                    key={reel.id}
-                    className="flex-row items-center rounded-[22px] bg-[#F7F2EC] p-3"
-                  >
-                    <View className="h-16 w-12 overflow-hidden rounded-[14px] bg-white">
-                      {reel.thumbnailUrl ? (
-                        <Image
-                          source={{ uri: reel.thumbnailUrl }}
-                          contentFit="cover"
-                          style={{ width: 48, height: 64 }}
+                <View className="mt-2 flex-row gap-2">
+                  {visibilityOptions.map((option) => {
+                    const selected = visibility === option.value
+                    return (
+                      <TouchableOpacity
+                        key={option.value}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                        className={`min-h-[42px] flex-1 flex-row items-center justify-center rounded-[14px] px-2 py-2 ${selected ? 'bg-[#17120F]' : 'bg-[#F7F2EC]'}`}
+                        activeOpacity={0.84}
+                        disabled={isBusy}
+                        onPress={() => handleSelectVisibility(option.value)}
+                      >
+                        <MaterialIcons
+                          name={option.icon}
+                          size={16}
+                          color={selected ? '#FFFFFF' : '#17120F'}
                         />
-                      ) : (
-                        <View className="flex-1 items-center justify-center">
-                          <MaterialIcons name="movie" size={20} color="rgba(46,36,30,0.36)" />
-                        </View>
-                      )}
-                    </View>
-                    <View className="ml-3 min-w-0 flex-1">
-                      <Text style={{ color: '#17120F', fontWeight: '800' }} numberOfLines={1}>
-                        {index + 1}. {reel.title || 'Untitled reel'}
-                      </Text>
-                      <View className="mt-2 flex-row gap-2">
-                        <TouchableOpacity
-                          accessibilityLabel={`Move episode ${index + 1} up`}
-                          accessibilityRole="button"
-                          className="h-11 w-11 items-center justify-center rounded-[15px] bg-white"
-                          disabled={index === 0 || isBusy}
-                          style={{ opacity: index === 0 ? 0.38 : 1 }}
-                          onPress={() => moveEpisode(index, -1)}
+                        <Text
+                          className="ml-1.5"
+                          style={{
+                            color: selected ? '#FFFFFF' : '#17120F',
+                            fontSize: 11.5,
+                            fontWeight: '800',
+                          }}
+                          numberOfLines={1}
                         >
-                          <MaterialIcons name="keyboard-arrow-up" size={22} color="#17120F" />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          accessibilityLabel={`Move episode ${index + 1} down`}
-                          accessibilityRole="button"
-                          className="h-11 w-11 items-center justify-center rounded-[15px] bg-white"
-                          disabled={index === orderedReels.length - 1 || isBusy}
-                          style={{ opacity: index === orderedReels.length - 1 ? 0.38 : 1 }}
-                          onPress={() => moveEpisode(index, 1)}
-                        >
-                          <MaterialIcons name="keyboard-arrow-down" size={22} color="#17120F" />
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                    <TouchableOpacity
-                      accessibilityLabel={`Remove ${reel.title || 'episode'} from series`}
-                      accessibilityRole="button"
-                      className="ml-2 h-11 w-11 items-center justify-center rounded-[15px] bg-white"
-                      disabled={isBusy}
-                      onPress={() => confirmRemoveEpisode(reel)}
-                    >
-                      <MaterialIcons name="remove-circle-outline" size={21} color="#D85A21" />
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </View>
-            )}
-
-            {orderedReels.length > 1 ? (
-              <TouchableOpacity
-                className={`mt-4 min-h-12 items-center justify-center rounded-[20px] px-5 ${orderChanged && !isBusy ? 'bg-[#17120F]' : 'bg-[#E9DDD2]'}`}
-                disabled={!orderChanged || isBusy}
-                onPress={() => void handleSaveOrder()}
-              >
-                <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>
-                  {reorderSeries.isPending ? 'Saving order…' : 'Save episode order'}
+                          {option.label}
+                        </Text>
+                      </TouchableOpacity>
+                    )
+                  })}
+                </View>
+                <Text className="mt-2 text-xs2 leading-4" style={{ color: 'rgba(46,36,30,0.58)' }}>
+                  Changing the audience updates every episode in this series.
                 </Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
 
-          <View className="mt-3 rounded-[28px] bg-white p-4">
-            <Text className="font-heading text-lg" style={{ color: '#17120F' }}>
-              Series controls
-            </Text>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Delete series"
-              className="mt-3 min-h-12 flex-row items-center justify-center rounded-[20px] bg-[#FFF0E8] px-5"
-              disabled={isBusy}
-              onPress={confirmDeleteSeries}
-            >
-              <MaterialIcons name="delete-outline" size={19} color="#D85A21" />
-              <Text className="ml-2" style={{ color: '#D85A21', fontWeight: '800' }}>
-                Delete series
-              </Text>
-            </TouchableOpacity>
-            <Text className="mt-2 text-center text-xs2" style={{ color: 'rgba(46,36,30,0.54)' }}>
-              Deleting a series never deletes its reels.
-            </Text>
-          </View>
-        </ScrollView>
+                <TouchableOpacity
+                  className={`mt-4 min-h-12 items-center justify-center rounded-[20px] px-5 ${metadataChanged && !isBusy ? 'bg-[#FF7A45]' : 'bg-[#E9DDD2]'}`}
+                  disabled={!metadataChanged || isBusy}
+                  onPress={() => void handleSaveDetails()}
+                >
+                  <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>
+                    {updateSeries.isPending ? 'Saving…' : 'Save details'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View className="mt-3 rounded-[28px] bg-white p-4">
+                <Text className="font-heading text-lg" style={{ color: '#17120F' }}>
+                  Series controls
+                </Text>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Delete series"
+                  className="mt-3 min-h-12 flex-row items-center justify-center rounded-[20px] bg-[#FFF0E8] px-5"
+                  disabled={isBusy}
+                  onPress={confirmDeleteSeries}
+                >
+                  <MaterialIcons name="delete-outline" size={19} color="#D85A21" />
+                  <Text className="ml-2" style={{ color: '#D85A21', fontWeight: '800' }}>
+                    Delete series
+                  </Text>
+                </TouchableOpacity>
+                <Text
+                  className="mt-2 text-center text-xs2"
+                  style={{ color: 'rgba(46,36,30,0.54)' }}
+                >
+                  Reels stay published; only the Series is removed.
+                </Text>
+              </View>
+            </>
+          )}
+        </NestableScrollContainer>
       </View>
+
+      <ReelEpisodePickerSheet
+        sheetRef={episodePickerRef}
+        seriesId={seriesId ?? ''}
+        onEpisodesAdded={() => {
+          void refetch()
+        }}
+      />
     </KeyboardAvoidingView>
   )
 }

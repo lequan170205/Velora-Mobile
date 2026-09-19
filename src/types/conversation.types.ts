@@ -1,4 +1,8 @@
-import type { ReelFeedListItem } from './reel.types'
+import type {
+  ReelFeedListItem,
+  ReelPlaybackPresentation,
+  ReelSourceOrientation,
+} from './reel.types'
 import type { UserSummary } from './user.types'
 
 export interface ChatParticipant {
@@ -93,6 +97,12 @@ export interface MessageMedia {
   width?: number
   height?: number
   durationMs?: number
+  reelSourceOrientation?: ReelSourceOrientation
+  reelSourceAspectRatio?: number
+  reelPlaybackPresentation?: ReelPlaybackPresentation
+  sourceOrientation?: ReelSourceOrientation
+  sourceAspectRatio?: number
+  playbackPresentation?: ReelPlaybackPresentation
   status?: MessageMediaStatus
   failureReason?: string
 

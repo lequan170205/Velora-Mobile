@@ -95,16 +95,16 @@ export default function EditReelDetailsScreen() {
     setIsUpdatingSeries(true)
     let removedOldSeries = false
     let changedVisibility = false
-    let oldEpisodeNumber = reel.series?.episodeNumber
+    let _oldEpisodeNumber = reel.series?.episodeNumber
     const oldVisibility = reel.visibility
 
     try {
       let oldSeries: ReelSeries | null = null
       if (oldSeriesId) {
         oldSeries = await reelsApi.getSeries(oldSeriesId)
-        oldEpisodeNumber =
+        _oldEpisodeNumber =
           oldSeries.reels.find((episode) => episode.id === reelId)?.series?.episodeNumber ??
-          oldEpisodeNumber
+          _oldEpisodeNumber
       }
 
       if (!targetSeries) {
@@ -129,7 +129,7 @@ export default function EditReelDetailsScreen() {
 
       await addToSeries.mutateAsync({
         seriesId: latestTarget.id,
-        data: { reelId },
+        data: { reelIds: [reelId] },
       })
     } catch (seriesError) {
       if (changedVisibility) {
@@ -140,10 +140,11 @@ export default function EditReelDetailsScreen() {
       }
 
       if (removedOldSeries && oldSeriesId) {
+        // Rollback to old series. Note: episodeNumber: oldEpisodeNumber is now handled via contiguous ordering on backend.
         await addToSeries
           .mutateAsync({
             seriesId: oldSeriesId,
-            data: { reelId, ...(oldEpisodeNumber ? { episodeNumber: oldEpisodeNumber } : {}) },
+            data: { reelIds: [reelId] },
           })
           .catch(() => undefined)
       }

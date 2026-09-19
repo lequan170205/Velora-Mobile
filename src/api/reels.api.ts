@@ -12,6 +12,8 @@ import type {
   AddReelToSeriesPayload,
   CreateReelSeriesPayload,
   CreateReelPayload,
+  ListSeriesCandidateReelsParams,
+  PaginatedSeriesCandidateReels,
   ReelContextParams,
   ReelContextResponse,
   CreateReelShareLinkPayload,
@@ -172,6 +174,19 @@ export const reelsApi = {
       data,
     )
     return normalizeReelSeriesResponse(response.data)
+  },
+  getSeriesCandidateReels: async (
+    seriesId: string,
+    params: ListSeriesCandidateReelsParams = {},
+  ) => {
+    const response = await apiClient.get<PaginatedSeriesCandidateReels>(
+      `/content/series/${seriesId}/candidate-reels`,
+      { params },
+    )
+    return {
+      ...response.data,
+      items: response.data.items.map(normalizeReelApiResponse),
+    }
   },
   list: async (params: ListReelsParams = {}) => {
     const response = await apiClient.get<ListReelsResponse>('/content/reels', { params })

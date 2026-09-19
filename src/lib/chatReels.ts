@@ -1,5 +1,11 @@
 import type { Message } from '../types/conversation.types'
-import type { Reel, ReelAuthor, ReelFeedListItem } from '../types/reel.types'
+import type {
+  Reel,
+  ReelAuthor,
+  ReelFeedListItem,
+  ReelPlaybackPresentation,
+  ReelSourceOrientation,
+} from '../types/reel.types'
 
 export const CHAT_SHARED_REEL_FALLBACK_ID_PREFIX = 'shared-message:'
 const ROUTE_REEL_CONTEXT_STATUS_VALUES = new Set(['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'])
@@ -90,6 +96,13 @@ const normalizeRouteReel = (value: unknown): Reel | null => {
   const message = getTrimmedString(value.message)
   const progress = getFiniteNumber(value.progress)
   const author = normalizeRouteReelAuthor(value.author)
+  const sourceOrientation = getTrimmedString(value.sourceOrientation)
+  const sourceAspectRatio = getFiniteNumber(value.sourceAspectRatio)
+  const sourceEffectiveWidth = getFiniteNumber(value.sourceEffectiveWidth)
+  const sourceEffectiveHeight = getFiniteNumber(value.sourceEffectiveHeight)
+  const sourceWidth = getFiniteNumber(value.sourceWidth)
+  const sourceHeight = getFiniteNumber(value.sourceHeight)
+  const playbackPresentation = getTrimmedString(value.playbackPresentation)
 
   return {
     id,
@@ -115,6 +128,15 @@ const normalizeRouteReel = (value: unknown): Reel | null => {
     streamUrl,
     createdAt,
     ...(author ? { author } : {}),
+    ...(sourceOrientation ? { sourceOrientation: sourceOrientation as ReelSourceOrientation } : {}),
+    ...(sourceAspectRatio !== null ? { sourceAspectRatio } : {}),
+    ...(sourceEffectiveWidth !== null ? { sourceEffectiveWidth } : {}),
+    ...(sourceEffectiveHeight !== null ? { sourceEffectiveHeight } : {}),
+    ...(sourceWidth !== null ? { sourceWidth } : {}),
+    ...(sourceHeight !== null ? { sourceHeight } : {}),
+    ...(playbackPresentation
+      ? { playbackPresentation: playbackPresentation as ReelPlaybackPresentation }
+      : {}),
   }
 }
 
@@ -170,6 +192,45 @@ export const buildSharedReelFromMessage = (message: Message): Reel | null => {
     Boolean(media.reelOwnerId) ||
     Boolean(media.reelOwnerAvatarUrl)
 
+  const rawOrientation =
+    (media.reelSourceOrientation as ReelSourceOrientation | undefined) ??
+    (media.sourceOrientation as ReelSourceOrientation | undefined)
+  const sourceOrientation: ReelSourceOrientation | undefined =
+    rawOrientation === 'PORTRAIT' || rawOrientation === 'LANDSCAPE' || rawOrientation === 'SQUARE'
+      ? rawOrientation
+      : typeof media.width === 'number' && typeof media.height === 'number' && media.height > 0
+        ? media.width / media.height >= 1.1
+          ? 'LANDSCAPE'
+          : media.width / media.height <= 0.9
+            ? 'PORTRAIT'
+            : 'SQUARE'
+        : undefined
+
+  const sourceAspectRatio =
+    (typeof media.reelSourceAspectRatio === 'number' &&
+    Number.isFinite(media.reelSourceAspectRatio) &&
+    media.reelSourceAspectRatio > 0
+      ? media.reelSourceAspectRatio
+      : undefined) ??
+    (typeof media.sourceAspectRatio === 'number' &&
+    Number.isFinite(media.sourceAspectRatio) &&
+    media.sourceAspectRatio > 0
+      ? media.sourceAspectRatio
+      : undefined) ??
+    (typeof media.width === 'number' && typeof media.height === 'number' && media.height > 0
+      ? media.width / media.height
+      : undefined)
+
+  const rawPresentation =
+    (media.reelPlaybackPresentation as ReelPlaybackPresentation | undefined) ??
+    (media.playbackPresentation as ReelPlaybackPresentation | undefined)
+  const playbackPresentation: ReelPlaybackPresentation | undefined =
+    rawPresentation === 'PORTRAIT_COVER' || rawPresentation === 'FIT_WITH_LETTERBOX'
+      ? rawPresentation
+      : sourceOrientation === 'LANDSCAPE'
+        ? 'FIT_WITH_LETTERBOX'
+        : undefined
+
   return {
     id: routeId,
     userId: ownerId,
@@ -193,6 +254,15 @@ export const buildSharedReelFromMessage = (message: Message): Reel | null => {
       : {}),
     ...(thumbnailKey ? { thumbnailKey } : {}),
     ...(thumbnailUrl ? { thumbnailUrl } : {}),
+    ...(sourceOrientation ? { sourceOrientation } : {}),
+    ...(typeof sourceAspectRatio === 'number' ? { sourceAspectRatio } : {}),
+    ...(playbackPresentation ? { playbackPresentation } : {}),
+    ...(typeof media.width === 'number'
+      ? { sourceEffectiveWidth: media.width, sourceWidth: media.width }
+      : {}),
+    ...(typeof media.height === 'number'
+      ? { sourceEffectiveHeight: media.height, sourceHeight: media.height }
+      : {}),
     streamUrl,
     createdAt: message.createdAt,
   }
@@ -203,6 +273,18 @@ export const buildChatReelMediaFromReel = (
 ): NonNullable<Message['media']> => {
   const normalizedTags = normalizeStringArray(reel.tags)
   const thumbnailUrl = reel.thumbnailUrl ?? reel.localThumbnailUri
+  const resolvedWidth =
+    typeof reel.sourceEffectiveWidth === 'number' && Number.isFinite(reel.sourceEffectiveWidth)
+      ? reel.sourceEffectiveWidth
+      : typeof reel.sourceWidth === 'number' && Number.isFinite(reel.sourceWidth)
+        ? reel.sourceWidth
+        : undefined
+  const resolvedHeight =
+    typeof reel.sourceEffectiveHeight === 'number' && Number.isFinite(reel.sourceEffectiveHeight)
+      ? reel.sourceEffectiveHeight
+      : typeof reel.sourceHeight === 'number' && Number.isFinite(reel.sourceHeight)
+        ? reel.sourceHeight
+        : undefined
 
   return {
     fileKey: reel.mediaKey,
@@ -217,6 +299,26 @@ export const buildChatReelMediaFromReel = (
     ...(reel.title ? { reelTitle: reel.title } : {}),
     ...(reel.description ? { reelDescription: reel.description } : {}),
     ...(normalizedTags.length > 0 ? { reelTags: normalizedTags } : {}),
+    ...(reel.sourceOrientation
+      ? {
+          reelSourceOrientation: reel.sourceOrientation,
+          sourceOrientation: reel.sourceOrientation,
+        }
+      : {}),
+    ...(typeof reel.sourceAspectRatio === 'number' && Number.isFinite(reel.sourceAspectRatio)
+      ? {
+          reelSourceAspectRatio: reel.sourceAspectRatio,
+          sourceAspectRatio: reel.sourceAspectRatio,
+        }
+      : {}),
+    ...(reel.playbackPresentation
+      ? {
+          reelPlaybackPresentation: reel.playbackPresentation,
+          playbackPresentation: reel.playbackPresentation,
+        }
+      : {}),
+    ...(typeof resolvedWidth === 'number' ? { width: resolvedWidth } : {}),
+    ...(typeof resolvedHeight === 'number' ? { height: resolvedHeight } : {}),
     status: 'ready',
   }
 }

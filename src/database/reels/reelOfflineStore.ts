@@ -175,12 +175,21 @@ export const upsertCachedReels = async (inputs: CachedReelInput[]) => {
     return
   }
 
-  const existingRecords = await getCachedReelsByReelIds(inputs.map((input) => input.reelId))
-  const existingByReelId = new Map(existingRecords.map((record) => [record.reelId, record]))
+  const uniqueInputs = Array.from(
+    inputs
+      .reduce((map, input) => {
+        map.set(input.reelId, input)
+        return map
+      }, new Map<string, CachedReelInput>())
+      .values(),
+  )
 
   await database.write(async () => {
+    const existingRecords = await getCachedReelsByReelIds(uniqueInputs.map((input) => input.reelId))
+    const existingByReelId = new Map(existingRecords.map((record) => [record.reelId, record]))
+
     await database.batch(
-      ...inputs.map((input) => {
+      ...uniqueInputs.map((input) => {
         const existingRecord = existingByReelId.get(input.reelId)
 
         if (existingRecord) {
@@ -200,9 +209,9 @@ export const upsertCachedReels = async (inputs: CachedReelInput[]) => {
 }
 
 export const upsertCachedReelFeedPage = async (input: CachedReelFeedPageInput) => {
-  const existingRecord = await findCachedReelFeedPageByCacheKey(input.cacheKey)
-
   await database.write(async () => {
+    const existingRecord = await findCachedReelFeedPageByCacheKey(input.cacheKey)
+
     if (existingRecord) {
       await existingRecord.update((record) => {
         applyCachedReelFeedPageInput(record, input)
@@ -225,12 +234,14 @@ export const touchCachedReelFeedPageAndReels = async ({
   reels: CachedReelModel[]
   touchedAt: number
 }) => {
+  const uniqueReels = Array.from(new Map(reels.map((reel) => [reel.id, reel])).values())
+
   await database.write(async () => {
     await database.batch(
       page.prepareUpdate((record) => {
         record.lastAccessedAt = touchedAt
       }),
-      ...reels.map((reel) =>
+      ...uniqueReels.map((reel) =>
         reel.prepareUpdate((record) => {
           record.lastAccessedAt = touchedAt
         }),
@@ -244,8 +255,10 @@ export const deleteCachedReelFeedPages = async (records: CachedReelFeedPageModel
     return
   }
 
+  const uniqueRecords = Array.from(new Map(records.map((record) => [record.id, record])).values())
+
   await database.write(async () => {
-    await database.batch(...records.map((record) => record.prepareDestroyPermanently()))
+    await database.batch(...uniqueRecords.map((record) => record.prepareDestroyPermanently()))
   })
 }
 
@@ -254,8 +267,10 @@ export const deleteCachedReels = async (records: CachedReelModel[]) => {
     return
   }
 
+  const uniqueRecords = Array.from(new Map(records.map((record) => [record.id, record])).values())
+
   await database.write(async () => {
-    await database.batch(...records.map((record) => record.prepareDestroyPermanently()))
+    await database.batch(...uniqueRecords.map((record) => record.prepareDestroyPermanently()))
   })
 }
 

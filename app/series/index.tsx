@@ -223,7 +223,10 @@ export default function OwnedReelSeriesScreen() {
         onCreate={async (payload) => {
           try {
             const created = await createSeries.mutateAsync(payload)
-            router.push({ pathname: '/series/[id]/manage' as never, params: { id: created.id } })
+            router.push({
+              pathname: '/series/[id]/manage' as never,
+              params: { id: created.id, openPicker: 'true' },
+            })
           } catch (createError) {
             Alert.alert('Series not created', getErrorMessage(createError))
             throw createError
