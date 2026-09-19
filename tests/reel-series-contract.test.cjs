@@ -325,7 +325,10 @@ test('owner management supports metadata, audience, reorder, remove, and safe Se
     /min-h-\[42px\] flex-1 flex-row items-center justify-center rounded-\[14px\]/,
   )
   assert.match(seriesManageScreen, /NestableDraggableFlatList/)
-  assert.match(seriesManageScreen, /Long-press a handle to reorder, then save once/)
+  assert.match(
+    seriesManageScreen,
+    /Long-press (?:a handle|an episode) to reorder, then save once/,
+  )
   assert.match(seriesManageScreen, /onDragEnd=\{\(\{ data \}\) => setOrderedReels\(data\)\}/)
   assert.doesNotMatch(seriesManageScreen, /Episodes \(\{orderedReels\.length\}\)/)
   assert.match(seriesManageScreen, /Reels stay published; only the Series is removed/)

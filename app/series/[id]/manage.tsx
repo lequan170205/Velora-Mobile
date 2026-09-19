@@ -17,7 +17,7 @@ import {
 import {
   NestableDraggableFlatList,
   NestableScrollContainer,
-  ScaleDecorator,
+  ShadowDecorator,
 } from 'react-native-draggable-flatlist'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -206,8 +206,19 @@ export default function ManageReelSeriesScreen() {
     const episodeIndex = getIndex() ?? 0
 
     return (
-      <ScaleDecorator>
-        <View className="flex-row items-center rounded-[22px] bg-[#F7F2EC] p-3">
+      <ShadowDecorator elevation={6} radius={8} opacity={0.15}>
+        <TouchableOpacity
+          accessibilityLabel={`Episode ${episodeIndex + 1}: ${reel.title || 'Untitled reel'}`}
+          accessibilityHint="Long press and drag to change the episode order"
+          accessibilityRole="button"
+          activeOpacity={0.92}
+          delayLongPress={180}
+          disabled={isBusy || isActive}
+          onLongPress={drag}
+          className={`flex-row items-center rounded-[22px] p-3 border ${
+            isActive ? 'bg-white border-[#FF7A45]/30 shadow-md' : 'bg-[#F7F2EC] border-transparent'
+          }`}
+        >
           <View className="h-16 w-12 overflow-hidden rounded-[14px] bg-white">
             {reel.thumbnailUrl ? (
               <Image
@@ -227,27 +238,17 @@ export default function ManageReelSeriesScreen() {
             </Text>
           </View>
           <TouchableOpacity
-            accessibilityLabel={`Reorder episode ${episodeIndex + 1}`}
-            accessibilityHint="Long press and drag to change the episode order"
-            accessibilityRole="button"
-            className="ml-2 h-11 w-11 items-center justify-center rounded-[15px] bg-white"
-            delayLongPress={180}
-            disabled={isBusy || isActive}
-            onLongPress={drag}
-          >
-            <MaterialIcons name="drag-handle" size={22} color="#17120F" />
-          </TouchableOpacity>
-          <TouchableOpacity
             accessibilityLabel={`Remove ${reel.title || 'episode'} from series`}
             accessibilityRole="button"
             className="ml-2 h-11 w-11 items-center justify-center rounded-[15px] bg-white"
             disabled={isBusy}
             onPress={() => confirmRemoveEpisode(reel)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <MaterialIcons name="remove-circle-outline" size={21} color="#D85A21" />
           </TouchableOpacity>
-        </View>
-      </ScaleDecorator>
+        </TouchableOpacity>
+      </ShadowDecorator>
     )
   }
 
@@ -427,7 +428,7 @@ export default function ManageReelSeriesScreen() {
                     Episodes
                   </Text>
                   <Text className="mt-1 text-xs2" style={{ color: 'rgba(46,36,30,0.58)' }}>
-                    Long-press a handle to reorder, then save once.
+                    Long-press an episode to reorder, then save once.
                   </Text>
                 </View>
                 <View>
@@ -478,8 +479,8 @@ export default function ManageReelSeriesScreen() {
                   renderItem={renderEpisodeItem}
                   onDragEnd={({ data }) => setOrderedReels(data)}
                   scrollEnabled={false}
-                  containerStyle={{ marginTop: 12 }}
-                  contentContainerStyle={{ gap: 8 }}
+                  containerStyle={{ marginTop: 12, overflow: 'visible' }}
+                  contentContainerStyle={{ gap: 8, overflow: 'visible' }}
                 />
               )}
 
