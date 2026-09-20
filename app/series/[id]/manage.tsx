@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { isAxiosError } from 'axios'
 import { Image } from 'expo-image'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { router, useLocalSearchParams } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -9,6 +9,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
@@ -66,7 +67,6 @@ const errorMessage = (error: unknown, fallback: string) =>
   fallback
 
 export default function ManageReelSeriesScreen() {
-  const router = useRouter()
   const insets = useSafeAreaInsets()
   const userId = useAuthStore((state) => state.user?.id)
   const params = useLocalSearchParams<{ id?: string | string[]; openPicker?: string }>()
@@ -213,34 +213,32 @@ export default function ManageReelSeriesScreen() {
           accessibilityRole="button"
           activeOpacity={0.92}
           delayLongPress={180}
-          disabled={isBusy || isActive}
+          disabled={isBusy}
           onLongPress={drag}
-          className={`flex-row items-center rounded-[22px] p-3 border ${
-            isActive ? 'bg-white border-[#FF7A45]/30 shadow-md' : 'bg-[#F7F2EC] border-transparent'
-          }`}
+          style={[styles.episodeCard, isActive && styles.episodeCardActive]}
         >
-          <View className="h-16 w-12 overflow-hidden rounded-[14px] bg-white">
+          <View style={styles.thumbnailContainer}>
             {reel.thumbnailUrl ? (
               <Image
                 source={{ uri: reel.thumbnailUrl }}
                 contentFit="cover"
-                style={{ width: 48, height: 64 }}
+                style={styles.thumbnail}
               />
             ) : (
-              <View className="flex-1 items-center justify-center">
+              <View style={styles.thumbnailPlaceholder}>
                 <MaterialIcons name="movie" size={20} color="rgba(46,36,30,0.36)" />
               </View>
             )}
           </View>
-          <View className="ml-3 min-w-0 flex-1">
-            <Text style={{ color: '#17120F', fontWeight: '800' }} numberOfLines={1}>
+          <View style={styles.episodeTitleContainer}>
+            <Text style={styles.episodeTitle} numberOfLines={1}>
               {episodeIndex + 1}. {reel.title || 'Untitled reel'}
             </Text>
           </View>
           <TouchableOpacity
             accessibilityLabel={`Remove ${reel.title || 'episode'} from series`}
             accessibilityRole="button"
-            className="ml-2 h-11 w-11 items-center justify-center rounded-[15px] bg-white"
+            style={styles.removeButton}
             disabled={isBusy}
             onPress={() => confirmRemoveEpisode(reel)}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -479,6 +477,7 @@ export default function ManageReelSeriesScreen() {
                   renderItem={renderEpisodeItem}
                   onDragEnd={({ data }) => setOrderedReels(data)}
                   scrollEnabled={false}
+                  activationDistance={1}
                   containerStyle={{ marginTop: 12, overflow: 'visible' }}
                   contentContainerStyle={{ gap: 8, overflow: 'visible' }}
                 />
@@ -625,3 +624,58 @@ export default function ManageReelSeriesScreen() {
     </KeyboardAvoidingView>
   )
 }
+
+const styles = (StyleSheet?.create ?? (<T extends Record<string, unknown>>(s: T): T => s))({
+  episodeCard: {
+    alignItems: 'center',
+    backgroundColor: '#F7F2EC',
+    borderColor: 'transparent',
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: 'row',
+    padding: 12,
+  },
+  episodeCardActive: {
+    backgroundColor: '#FFFFFF',
+    borderColor: 'rgba(255, 122, 69, 0.35)',
+    elevation: 6,
+    shadowColor: '#17120F',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+  },
+  episodeTitle: {
+    color: '#17120F',
+    fontWeight: '800',
+  },
+  episodeTitleContainer: {
+    flex: 1,
+    marginLeft: 12,
+    minWidth: 0,
+  },
+  removeButton: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 15,
+    height: 44,
+    justifyContent: 'center',
+    marginLeft: 8,
+    width: 44,
+  },
+  thumbnail: {
+    height: 64,
+    width: 48,
+  },
+  thumbnailContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    height: 64,
+    overflow: 'hidden',
+    width: 48,
+  },
+  thumbnailPlaceholder: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+  },
+})
