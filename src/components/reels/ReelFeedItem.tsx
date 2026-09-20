@@ -110,9 +110,95 @@ const TRANSCRIPT_WORDS_PER_CUE = 6
 const TRANSCRIPT_SILENCE_HIDE_SECONDS = 0.18
 const TRANSCRIPT_PHRASE_GAP_SECONDS = 0.35
 
-const getTimedTranscriptWords = (segments: ReelTranscriptSegment[] | undefined) =>
-  (segments ?? []).flatMap((segment) => {
-    const words = segment.text.trim().split(/\s+/).filter(Boolean)
+const normalizeTranscriptSegments = (
+  rawSegments: unknown,
+  fallbackTranscript?: string | null,
+  durationSeconds?: number,
+): ReelTranscriptSegment[] => {
+  let segments: unknown = rawSegments
+  if (typeof segments === 'string') {
+    try {
+      segments = JSON.parse(segments)
+    } catch {
+      segments = undefined
+    }
+  }
+
+  if (Array.isArray(segments) && segments.length > 0) {
+    const parsed = segments
+      .map((seg, idx): ReelTranscriptSegment | null => {
+        if (!seg || typeof seg !== 'object') return null
+        const s = seg as Record<string, unknown>
+        const text = typeof s.text === 'string' ? s.text : typeof s.word === 'string' ? s.word : ''
+        const start =
+          typeof s.start === 'number'
+            ? s.start
+            : typeof s.startTime === 'number'
+              ? s.startTime
+              : typeof s.start_time === 'number'
+                ? s.start_time
+                : Number(s.start ?? s.startTime ?? s.start_time)
+        const end =
+          typeof s.end === 'number'
+            ? s.end
+            : typeof s.endTime === 'number'
+              ? s.endTime
+              : typeof s.end_time === 'number'
+                ? s.end_time
+                : Number(s.end ?? s.endTime ?? s.end_time)
+
+        if (!text || Number.isNaN(start) || Number.isNaN(end)) {
+          return null
+        }
+
+        return {
+          id: typeof s.id === 'number' ? s.id : idx,
+          start,
+          end,
+          text,
+        }
+      })
+      .filter((s): s is ReelTranscriptSegment => s !== null)
+
+    if (parsed.length > 0) {
+      return parsed
+    }
+  }
+
+  if (typeof fallbackTranscript === 'string' && fallbackTranscript.trim().length > 0) {
+    const words = fallbackTranscript.trim().split(/\s+/).filter(Boolean)
+    if (words.length > 0) {
+      const totalDuration =
+        typeof durationSeconds === 'number' && durationSeconds > 0 ? durationSeconds : 30
+      const wordsPerSegment = 6
+      const chunkCount = Math.ceil(words.length / wordsPerSegment)
+      const segmentDuration = totalDuration / chunkCount
+      const fallbackSegments: ReelTranscriptSegment[] = []
+
+      for (let i = 0; i < chunkCount; i++) {
+        const chunkWords = words.slice(i * wordsPerSegment, (i + 1) * wordsPerSegment)
+        fallbackSegments.push({
+          id: i,
+          start: i * segmentDuration,
+          end: (i + 1) * segmentDuration,
+          text: chunkWords.join(' '),
+        })
+      }
+      return fallbackSegments
+    }
+  }
+
+  return []
+}
+
+const getTimedTranscriptWords = (
+  segments: ReelTranscriptSegment[] | undefined,
+  fallbackTranscript?: string,
+  duration?: number,
+) => {
+  const safeSegments = normalizeTranscriptSegments(segments, fallbackTranscript, duration)
+  return safeSegments.flatMap((segment) => {
+    const words = (segment.text || '').trim().split(/\s+/).filter(Boolean)
     if (words.length === 0) return []
     if (words.length === 1) {
       return [{ text: words[0], start: segment.start, end: segment.end }]
@@ -125,12 +211,15 @@ const getTimedTranscriptWords = (segments: ReelTranscriptSegment[] | undefined) 
       end: segment.start + (duration * (index + 1)) / words.length,
     }))
   })
+}
 
 const getActiveTranscriptText = (
   segments: ReelTranscriptSegment[] | undefined,
   position: number,
+  fallbackTranscript?: string,
+  duration?: number,
 ) => {
-  const words = getTimedTranscriptWords(segments)
+  const words = getTimedTranscriptWords(segments, fallbackTranscript, duration)
   if (words.length === 0) return ''
 
   let chunkStart = 0
@@ -420,6 +509,10 @@ const ReelFeedItemComponent = function ReelFeedItem({
       nextReel.transcriptSegments = reelDetail.transcriptSegments
     }
 
+    if (reelDetail?.transcript && !nextReel.transcript) {
+      nextReel.transcript = reelDetail.transcript
+    }
+
     return nextReel
   }, [processingStatus, reel, reelDetail])
   const offlineVideoSource = useOfflineReelVideoSource(displayReel, {
@@ -520,6 +613,8 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const activeTranscriptText = getActiveTranscriptText(
     reelDetail?.transcriptSegments ?? displayReel.transcriptSegments,
     timelinePosition,
+    reelDetail?.transcript ?? displayReel.transcript,
+    durationSeconds,
   )
   const bufferedRatio = durationSeconds > 0 ? clamp(bufferedPosition / durationSeconds, 0, 1) : 0
   const safeBottomContentInset = Math.max(0, bottomContentInset)

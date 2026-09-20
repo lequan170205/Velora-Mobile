@@ -135,6 +135,10 @@ export default function ManageReelSeriesScreen() {
     if (!series || orderedReels.length !== series.reels.length) return false
     return orderedReels.some((reel, index) => reel.id !== series.reels[index]?.id)
   }, [orderedReels, series])
+  const flatListExtraData = useMemo(
+    () => ({ activeDrag, orderedReels }),
+    [activeDrag, orderedReels],
+  )
   const isBusy =
     updateSeries.isPending ||
     deleteSeries.isPending ||
@@ -208,19 +212,22 @@ export default function ManageReelSeriesScreen() {
   }
 
   const renderEpisodeItem = ({ item: reel, drag, getIndex, isActive }: RenderItemParams<Reel>) => {
-    let displayIndex = getIndex() ?? 0
+    const itemIndex = orderedReels.findIndex((r) => r.id === reel.id)
+    const baseIndex = itemIndex >= 0 ? itemIndex : (getIndex() ?? 0)
+    let displayIndex = baseIndex
+
     if (activeDrag) {
       if (reel.id === activeDrag.id) {
         displayIndex = activeDrag.toIndex
       } else {
         const { fromIndex, toIndex } = activeDrag
         if (fromIndex > toIndex) {
-          if (displayIndex >= toIndex && displayIndex < fromIndex) {
-            displayIndex += 1
+          if (baseIndex >= toIndex && baseIndex < fromIndex) {
+            displayIndex = baseIndex + 1
           }
         } else if (fromIndex < toIndex) {
-          if (displayIndex > fromIndex && displayIndex <= toIndex) {
-            displayIndex -= 1
+          if (baseIndex > fromIndex && baseIndex <= toIndex) {
+            displayIndex = baseIndex - 1
           }
         }
       }
@@ -496,7 +503,7 @@ export default function ManageReelSeriesScreen() {
               ) : (
                 <NestableDraggableFlatList
                   data={orderedReels}
-                  extraData={activeDrag}
+                  extraData={flatListExtraData}
                   keyExtractor={(reel) => reel.id}
                   renderItem={renderEpisodeItem}
                   onDragBegin={(index) =>
@@ -509,8 +516,10 @@ export default function ManageReelSeriesScreen() {
                   onPlaceholderIndexChange={(index) =>
                     setActiveDrag((prev) => (prev ? { ...prev, toIndex: index } : null))
                   }
-                  onRelease={() => setActiveDrag(null)}
-                  onDragEnd={({ data }) => setOrderedReels(data)}
+                  onDragEnd={({ data }) => {
+                    setOrderedReels(data)
+                    setActiveDrag(null)
+                  }}
                   scrollEnabled={false}
                   activationDistance={5}
                   containerStyle={{ marginTop: 12, overflow: 'visible' }}
