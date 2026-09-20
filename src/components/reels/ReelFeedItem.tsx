@@ -110,11 +110,7 @@ const TRANSCRIPT_WORDS_PER_CUE = 6
 const TRANSCRIPT_SILENCE_HIDE_SECONDS = 0.18
 const TRANSCRIPT_PHRASE_GAP_SECONDS = 0.35
 
-const normalizeTranscriptSegments = (
-  rawSegments: unknown,
-  fallbackTranscript?: string | null,
-  durationSeconds?: number,
-): ReelTranscriptSegment[] => {
+const normalizeTranscriptSegments = (rawSegments: unknown): ReelTranscriptSegment[] => {
   let segments: unknown = rawSegments
   if (typeof segments === 'string') {
     try {
@@ -165,38 +161,11 @@ const normalizeTranscriptSegments = (
     }
   }
 
-  if (typeof fallbackTranscript === 'string' && fallbackTranscript.trim().length > 0) {
-    const words = fallbackTranscript.trim().split(/\s+/).filter(Boolean)
-    if (words.length > 0) {
-      const totalDuration =
-        typeof durationSeconds === 'number' && durationSeconds > 0 ? durationSeconds : 30
-      const wordsPerSegment = 6
-      const chunkCount = Math.ceil(words.length / wordsPerSegment)
-      const segmentDuration = totalDuration / chunkCount
-      const fallbackSegments: ReelTranscriptSegment[] = []
-
-      for (let i = 0; i < chunkCount; i++) {
-        const chunkWords = words.slice(i * wordsPerSegment, (i + 1) * wordsPerSegment)
-        fallbackSegments.push({
-          id: i,
-          start: i * segmentDuration,
-          end: (i + 1) * segmentDuration,
-          text: chunkWords.join(' '),
-        })
-      }
-      return fallbackSegments
-    }
-  }
-
   return []
 }
 
-const getTimedTranscriptWords = (
-  segments: ReelTranscriptSegment[] | undefined,
-  fallbackTranscript?: string,
-  duration?: number,
-) => {
-  const safeSegments = normalizeTranscriptSegments(segments, fallbackTranscript, duration)
+const getTimedTranscriptWords = (segments: ReelTranscriptSegment[] | undefined) => {
+  const safeSegments = normalizeTranscriptSegments(segments)
   return safeSegments.flatMap((segment) => {
     const words = (segment.text || '').trim().split(/\s+/).filter(Boolean)
     if (words.length === 0) return []
@@ -216,10 +185,8 @@ const getTimedTranscriptWords = (
 const getActiveTranscriptText = (
   segments: ReelTranscriptSegment[] | undefined,
   position: number,
-  fallbackTranscript?: string,
-  duration?: number,
 ) => {
-  const words = getTimedTranscriptWords(segments, fallbackTranscript, duration)
+  const words = getTimedTranscriptWords(segments)
   if (words.length === 0) return ''
 
   let chunkStart = 0
@@ -505,8 +472,11 @@ const ReelFeedItemComponent = function ReelFeedItem({
       nextReel.series = reelDetail.series
     }
 
-    if (reelDetail?.transcriptSegments?.length) {
-      nextReel.transcriptSegments = reelDetail.transcriptSegments
+    if (reelDetail?.transcriptSegments) {
+      const normalizedSegments = normalizeTranscriptSegments(reelDetail.transcriptSegments)
+      if (normalizedSegments.length > 0) {
+        nextReel.transcriptSegments = normalizedSegments
+      }
     }
 
     if (reelDetail?.transcript && !nextReel.transcript) {
@@ -613,8 +583,6 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const activeTranscriptText = getActiveTranscriptText(
     reelDetail?.transcriptSegments ?? displayReel.transcriptSegments,
     timelinePosition,
-    reelDetail?.transcript ?? displayReel.transcript,
-    durationSeconds,
   )
   const bufferedRatio = durationSeconds > 0 ? clamp(bufferedPosition / durationSeconds, 0, 1) : 0
   const safeBottomContentInset = Math.max(0, bottomContentInset)
