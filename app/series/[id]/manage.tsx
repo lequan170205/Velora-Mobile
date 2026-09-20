@@ -82,6 +82,11 @@ export default function ManageReelSeriesScreen() {
   const [visibility, setVisibility] = useState<ReelVisibility>('public')
   const [orderedReels, setOrderedReels] = useState<Reel[]>([])
   const [activeTab, setActiveTab] = useState<'episodes' | 'settings'>('episodes')
+  const [activeDrag, setActiveDrag] = useState<{
+    id: string
+    fromIndex: number
+    toIndex: number
+  } | null>(null)
 
   const handleSelectVisibility = (nextVisibility: ReelVisibility) => {
     if (nextVisibility === visibility) return
@@ -203,18 +208,33 @@ export default function ManageReelSeriesScreen() {
   }
 
   const renderEpisodeItem = ({ item: reel, drag, getIndex, isActive }: RenderItemParams<Reel>) => {
-    const episodeIndex = getIndex() ?? 0
+    let displayIndex = getIndex() ?? 0
+    if (activeDrag) {
+      if (reel.id === activeDrag.id) {
+        displayIndex = activeDrag.toIndex
+      } else {
+        const { fromIndex, toIndex } = activeDrag
+        if (fromIndex > toIndex) {
+          if (displayIndex >= toIndex && displayIndex < fromIndex) {
+            displayIndex += 1
+          }
+        } else if (fromIndex < toIndex) {
+          if (displayIndex > fromIndex && displayIndex <= toIndex) {
+            displayIndex -= 1
+          }
+        }
+      }
+    }
 
     return (
       <ShadowDecorator elevation={6} radius={8} opacity={0.15}>
         <TouchableOpacity
-          accessibilityLabel={`Episode ${episodeIndex + 1}: ${reel.title || 'Untitled reel'}`}
-          accessibilityHint="Long press and drag to change the episode order"
+          accessibilityLabel={`Episode ${displayIndex + 1}: ${reel.title || 'Untitled reel'}`}
+          accessibilityHint="Drag to change the episode order"
           accessibilityRole="button"
           activeOpacity={0.92}
-          delayLongPress={180}
           disabled={isBusy}
-          onLongPress={drag}
+          onPressIn={drag}
           style={[styles.episodeCard, isActive && styles.episodeCardActive]}
         >
           <View style={styles.thumbnailContainer}>
@@ -232,7 +252,7 @@ export default function ManageReelSeriesScreen() {
           </View>
           <View style={styles.episodeTitleContainer}>
             <Text style={styles.episodeTitle} numberOfLines={1}>
-              {episodeIndex + 1}. {reel.title || 'Untitled reel'}
+              {displayIndex + 1}. {reel.title || 'Untitled reel'}
             </Text>
           </View>
           <TouchableOpacity
@@ -240,6 +260,9 @@ export default function ManageReelSeriesScreen() {
             accessibilityRole="button"
             style={styles.removeButton}
             disabled={isBusy}
+            onPressIn={(e) => {
+              e.stopPropagation()
+            }}
             onPress={() => confirmRemoveEpisode(reel)}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
@@ -370,7 +393,7 @@ export default function ManageReelSeriesScreen() {
             accessibilityState={{ selected: activeTab === 'episodes' }}
             accessibilityLabel="Episodes tab"
             className={`h-10 flex-1 flex-row items-center justify-center rounded-full ${
-              activeTab === 'episodes' ? 'bg-[#17120F]' : 'bg-transparent'
+              activeTab === 'episodes' ? 'bg-[#FF7A45]' : 'bg-transparent'
             }`}
             activeOpacity={0.8}
             onPress={() => setActiveTab('episodes')}
@@ -393,7 +416,7 @@ export default function ManageReelSeriesScreen() {
             accessibilityState={{ selected: activeTab === 'settings' }}
             accessibilityLabel="Settings tab"
             className={`h-10 flex-1 flex-row items-center justify-center rounded-full ${
-              activeTab === 'settings' ? 'bg-[#17120F]' : 'bg-transparent'
+              activeTab === 'settings' ? 'bg-[#FF7A45]' : 'bg-transparent'
             }`}
             activeOpacity={0.8}
             onPress={() => setActiveTab('settings')}
@@ -426,7 +449,7 @@ export default function ManageReelSeriesScreen() {
                     Episodes
                   </Text>
                   <Text className="mt-1 text-xs2" style={{ color: 'rgba(46,36,30,0.58)' }}>
-                    Long-press an episode to reorder, then save once.
+                    Drag an episode to reorder, then save once.
                   </Text>
                 </View>
                 <View>
@@ -473,19 +496,31 @@ export default function ManageReelSeriesScreen() {
               ) : (
                 <NestableDraggableFlatList
                   data={orderedReels}
+                  extraData={activeDrag}
                   keyExtractor={(reel) => reel.id}
                   renderItem={renderEpisodeItem}
+                  onDragBegin={(index) =>
+                    setActiveDrag({
+                      id: orderedReels[index]?.id ?? '',
+                      fromIndex: index,
+                      toIndex: index,
+                    })
+                  }
+                  onPlaceholderIndexChange={(index) =>
+                    setActiveDrag((prev) => (prev ? { ...prev, toIndex: index } : null))
+                  }
+                  onRelease={() => setActiveDrag(null)}
                   onDragEnd={({ data }) => setOrderedReels(data)}
                   scrollEnabled={false}
-                  activationDistance={1}
+                  activationDistance={5}
                   containerStyle={{ marginTop: 12, overflow: 'visible' }}
-                  contentContainerStyle={{ gap: 8, overflow: 'visible' }}
+                  contentContainerStyle={{ overflow: 'visible' }}
                 />
               )}
 
               {orderedReels.length > 1 ? (
                 <TouchableOpacity
-                  className={`mt-4 min-h-12 items-center justify-center rounded-[20px] px-5 ${orderChanged && !isBusy ? 'bg-[#17120F]' : 'bg-[#E9DDD2]'}`}
+                  className={`mt-4 min-h-12 items-center justify-center rounded-[20px] px-5 ${orderChanged && !isBusy ? 'bg-[#FF7A45]' : 'bg-[#E9DDD2]'}`}
                   disabled={!orderChanged || isBusy}
                   onPress={() => void handleSaveOrder()}
                 >
@@ -546,7 +581,7 @@ export default function ManageReelSeriesScreen() {
                         key={option.value}
                         accessibilityRole="button"
                         accessibilityState={{ selected }}
-                        className={`min-h-[42px] flex-1 flex-row items-center justify-center rounded-[14px] px-2 py-2 ${selected ? 'bg-[#17120F]' : 'bg-[#F7F2EC]'}`}
+                        className={`min-h-[42px] flex-1 flex-row items-center justify-center rounded-[14px] px-2 py-2 ${selected ? 'bg-[#FF7A45]' : 'bg-[#F7F2EC]'}`}
                         activeOpacity={0.84}
                         disabled={isBusy}
                         onPress={() => handleSelectVisibility(option.value)}
@@ -633,6 +668,7 @@ const styles = (StyleSheet?.create ?? (<T extends Record<string, unknown>>(s: T)
     borderRadius: 22,
     borderWidth: 1,
     flexDirection: 'row',
+    marginBottom: 8,
     padding: 12,
   },
   episodeCardActive: {
