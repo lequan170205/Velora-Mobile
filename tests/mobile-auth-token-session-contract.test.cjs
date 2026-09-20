@@ -27,26 +27,27 @@ const compileModule = (relativePath, requireMock) => {
 
 test('token session persists only the refresh token before exposing the access token', async () => {
   const secureStoreCalls = []
-  let storedRefreshToken = null
+  const storedValues = new Map()
   let resolveWrite
   const writeGate = new Promise((resolve) => {
     resolveWrite = resolve
   })
   const SecureStore = {
     AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 'AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY',
-    getItemAsync: async () => storedRefreshToken,
+    getItemAsync: async (key) => storedValues.get(key) ?? null,
     setItemAsync: async (key, value, options) => {
       secureStoreCalls.push({ operation: 'set', key, value, options })
       await writeGate
-      storedRefreshToken = value
+      storedValues.set(key, value)
     },
     deleteItemAsync: async (key, options) => {
       secureStoreCalls.push({ operation: 'delete', key, options })
-      storedRefreshToken = null
+      storedValues.delete(key)
     },
   }
   const { authTokenSession } = compileModule('src/lib/auth/tokenSession.ts', (specifier) => {
     if (specifier === 'expo-secure-store') return SecureStore
+    if (specifier === '../uuid') return { createUuid: () => 'refresh-request-id' }
     return require(specifier)
   })
 
@@ -74,8 +75,12 @@ test('token session persists only the refresh token before exposing the access t
   await authTokenSession.clear()
   assert.equal(authTokenSession.getAccessToken(), null)
   assert.equal(await authTokenSession.getRefreshToken(), null)
-  assert.equal(secureStoreCalls.at(-1).operation, 'delete')
-  assert.equal(secureStoreCalls.at(-1).key, 'velora.auth.refresh-token')
+  assert.equal(
+    secureStoreCalls.filter(
+      (call) => call.operation === 'delete' && call.key === 'velora.auth.refresh-token',
+    ).length,
+    1,
+  )
 })
 
 const loadAuthApi = ({ post, refreshToken = 'latest-refresh-token', refreshAccessToken }) => {

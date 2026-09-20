@@ -56,9 +56,12 @@ export const refreshAccessToken = () => {
         return null
       }
 
+      const refreshRequestId = await authTokenSession.getOrCreateRefreshRequestId()
+
       try {
         const response = await apiClient.post<MobileAuthTokenPair>('/auth/mobile/refresh', {
           refreshToken,
+          refreshRequestId,
         })
 
         await authTokenSession.installTokenPair(response.data)

@@ -10,6 +10,7 @@ const loadApiClient = ({
   post,
   getAccessToken = () => 'access-token',
   getRefreshToken = async () => 'refresh-token',
+  getOrCreateRefreshRequestId = async () => 'refresh-request-id',
   installTokenPair = async () => undefined,
   clear = async () => undefined,
 }) => {
@@ -61,6 +62,7 @@ const loadApiClient = ({
           authTokenSession: {
             getAccessToken,
             getRefreshToken,
+            getOrCreateRefreshRequestId,
             installTokenPair,
             clear,
           },
@@ -144,7 +146,7 @@ test('concurrent 401 responses share one refresh request before retrying', async
   const firstRequest = responseErrorHandler(unauthorizedRequest())
   const secondRequest = responseErrorHandler(unauthorizedRequest())
 
-  await Promise.resolve()
+  await new Promise((resolve) => setImmediate(resolve))
 
   assert.equal(refreshCalls, 1)
 
@@ -152,6 +154,31 @@ test('concurrent 401 responses share one refresh request before retrying', async
   await Promise.all([firstRequest, secondRequest])
 
   assert.equal(clientRequests.length, 2)
+})
+
+test('refresh retries reuse the same request ID after a lost response', async () => {
+  const requestBodies = []
+  let refreshCalls = 0
+  const networkError = Object.assign(new Error('timeout'), { isAxiosError: true })
+  const { apiClientModule } = loadApiClient({
+    getOrCreateRefreshRequestId: async () => 'refresh-request-id',
+    post: async (_url, body) => {
+      requestBodies.push(body)
+      refreshCalls += 1
+
+      if (refreshCalls === 1) throw networkError
+
+      return { data: { accessToken: 'new-access', refreshToken: 'new-refresh' } }
+    },
+  })
+
+  await assert.rejects(apiClientModule.refreshAccessToken(), (error) => error === networkError)
+  await apiClientModule.refreshAccessToken()
+
+  assert.deepEqual(requestBodies, [
+    { refreshToken: 'refresh-token', refreshRequestId: 'refresh-request-id' },
+    { refreshToken: 'refresh-token', refreshRequestId: 'refresh-request-id' },
+  ])
 })
 
 test('refresh preserves the stored session on network failure', async () => {
