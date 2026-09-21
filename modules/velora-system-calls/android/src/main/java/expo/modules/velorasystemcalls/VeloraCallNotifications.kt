@@ -9,8 +9,12 @@ import android.app.PendingIntent
 import android.app.Person
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 
 object VeloraCallNotifications {
   private const val CALL_CHANNEL_ID = "velora_calls"
@@ -25,6 +29,8 @@ object VeloraCallNotifications {
   private const val EXPIRY_ALARM_SALT = 4
   private const val PENDING_ANSWER_WATCHDOG_ALARM_SALT = 6
   private const val PENDING_ANSWER_WATCHDOG_MS = 25_000L
+  private const val BRAND_COLOR = 0xFFFF6B2C.toInt()
+  private val mainHandler = Handler(Looper.getMainLooper())
 
   fun showIncomingCall(context: Context, rawPayload: Map<String, Any?>) {
     val payload = VeloraSystemCallStore.normalizePayload(rawPayload)
@@ -46,6 +52,40 @@ object VeloraCallNotifications {
     }
     expiresAtMs?.let { scheduleIncomingCallExpiration(context, callId, it) }
     ensureCallChannel(context)
+
+    notificationManager(context).notify(ringingNotificationId(callId), buildIncomingNotification(context, payload, null))
+
+    // The avatar is a pure visual enhancement: post the call notification
+    // immediately, then upgrade it with the caller's photo once (if) the
+    // fetch completes while the call is still ringing.
+    val avatarUrl = payload["initiatorAvatarUrl"] as? String
+    if (!avatarUrl.isNullOrBlank()) {
+      Thread {
+        val source = VeloraCallAvatars.fetchAvatar(avatarUrl) ?: return@Thread
+        val avatar = try {
+          VeloraCallAvatars.circular(source, 256)
+        } catch (_: Exception) {
+          null
+        } ?: return@Thread
+
+        mainHandler.post {
+          val currentCall = VeloraSystemCallStore.getCurrentCall(context)
+          if (currentCall?.callId != callId || currentCall.phase != "ringing") {
+            return@post
+          }
+          notificationManager(context)
+            .notify(ringingNotificationId(callId), buildIncomingNotification(context, payload, avatar))
+        }
+      }.start()
+    }
+  }
+
+  private fun buildIncomingNotification(
+    context: Context,
+    payload: Map<String, Any?>,
+    avatar: Bitmap?,
+  ): Notification {
+    val callId = payload["callId"] as String
 
     val fullScreenIntent = Intent(context, VeloraIncomingCallActivity::class.java).apply {
       flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -97,21 +137,34 @@ object VeloraCallNotifications {
       .setAutoCancel(false)
       .setFullScreenIntent(fullScreenPendingIntent, true)
       .setPriority(Notification.PRIORITY_MAX)
+      .setColor(BRAND_COLOR)
+
+    if (avatar != null) {
+      builder.setLargeIcon(avatar)
+    }
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+      val caller = Person.Builder().setName(callerName)
+      if (avatar != null) {
+        caller.setIcon(Icon.createWithBitmap(avatar))
+      }
       builder.setStyle(
         Notification.CallStyle.forIncomingCall(
-          Person.Builder().setName(callerName).build(),
+          caller.build(),
           rejectPendingIntent,
           answerPendingIntent,
         ),
       )
     } else {
-      builder.addAction(Notification.Action.Builder(smallIcon, "Decline", rejectPendingIntent).build())
-      builder.addAction(Notification.Action.Builder(smallIcon, "Answer", answerPendingIntent).build())
+      builder.addAction(
+        Notification.Action.Builder(R.drawable.ic_velora_call_decline, "Decline", rejectPendingIntent).build(),
+      )
+      builder.addAction(
+        Notification.Action.Builder(R.drawable.ic_velora_call_answer, "Answer", answerPendingIntent).build(),
+      )
     }
 
-    notificationManager(context).notify(ringingNotificationId(callId), builder.build())
+    return builder.build()
   }
 
   fun registerOutgoingCall(context: Context, payload: Map<String, Any?>) {
@@ -342,6 +395,7 @@ object VeloraCallNotifications {
       .setCategory(Notification.CATEGORY_CALL)
       .setOngoing(true)
       .setPriority(Notification.PRIORITY_HIGH)
+      .setColor(BRAND_COLOR)
 
     if (callId != null) {
       builder.setContentIntent(returnToCallPendingIntent(context, callId))
