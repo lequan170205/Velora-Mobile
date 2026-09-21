@@ -1222,9 +1222,9 @@ const MessageBubbleComponent = function MessageBubble({
                     collapsable={false}
                     className={cn('relative', isOwn ? 'items-end' : 'items-start')}
                   >
-                    {showSenderName && !isOwn && !isGroupedTop ? (
+                    {showSenderName && !isOwn && !isGroupedTop && !replyPreviewMeta ? (
                       <Text
-                        className="mb-0.5 ml-1 text-[12px] font-semibold text-text-secondary"
+                        className="mb-0.5 ml-1.5 text-[12px] font-medium text-text-muted"
                         numberOfLines={1}
                       >
                         {senderDisplayName}
