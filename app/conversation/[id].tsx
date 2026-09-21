@@ -3,7 +3,7 @@ import { FlashList, type ListRenderItemInfo } from '@shopify/flash-list'
 import { BlurView } from 'expo-blur'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Platform, TouchableOpacity, useColorScheme, View } from 'react-native'
+import { ActivityIndicator, Platform, TouchableOpacity, View } from 'react-native'
 import { GestureDetector } from 'react-native-gesture-handler'
 import Animated, { useAnimatedStyle, withTiming, withSpring } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -16,6 +16,7 @@ import {
 import { ConversationMessageRow } from '../../src/components/chat/conversation/ConversationMessageRow'
 import { MessageContextMenu } from '../../src/components/chat/MessageContextMenu'
 import { MessageInput } from '../../src/components/chat/MessageInput'
+import { colors } from '../../src/constants/theme'
 import {
   type ConversationComposerTimelineActions,
   useConversationComposerRuntime,
@@ -357,6 +358,7 @@ export default function ChatScreen() {
           repliedMessage={repliedMessage}
           layout={layout}
           isOwn={isOwn}
+          showSenderName={isGroup}
           primaryStatusLabel={primaryStatusLabel}
           readReceiptParticipants={readReceiptParticipants}
           timestampRevealGesture={timestampRevealGesture}
@@ -382,6 +384,7 @@ export default function ChatScreen() {
       handleScrollToMessage,
       handleOpenContextMenu,
       handleOpenMedia,
+      isGroup,
       layoutByIdRef,
       messageById,
       participantsMap,
@@ -399,9 +402,6 @@ export default function ChatScreen() {
     (item: Message, index: number) => getConversationMessageKey(item, index),
     [],
   )
-
-  const colorScheme = useColorScheme()
-  const isDark = colorScheme === 'dark'
 
   const loadingIndicatorStyle = useAnimatedStyle(() => {
     const isVisible = currentIsFetchingOlder && !isInitialMessagesLoading
@@ -488,13 +488,13 @@ export default function ChatScreen() {
                           className="flex-row items-center justify-center rounded-full bg-surface-card px-3.5 py-2 border border-border-light"
                           style={{ elevation: 4 }}
                         >
-                          <ActivityIndicator size="small" color="#FF6B2C" />
+                          <ActivityIndicator size="small" color={colors.brand.primary} />
                         </View>
                       ) : (
                         <View
                           style={{
                             borderRadius: 24,
-                            shadowColor: '#000',
+                            shadowColor: '#000000',
                             shadowOffset: { width: 0, height: 4 },
                             shadowOpacity: 0.12,
                             shadowRadius: 12,
@@ -503,18 +503,16 @@ export default function ChatScreen() {
                           <View style={{ borderRadius: 24, overflow: 'hidden' }}>
                             <BlurView
                               intensity={65}
-                              tint={isDark ? 'dark' : 'light'}
+                              tint="light"
                               style={{
                                 flexDirection: 'row',
                                 alignItems: 'center',
                                 paddingHorizontal: 14,
                                 paddingVertical: 8,
-                                backgroundColor: isDark
-                                  ? 'rgba(30, 30, 30, 0.4)'
-                                  : 'rgba(255, 255, 255, 0.4)',
+                                backgroundColor: 'rgba(255, 255, 255, 0.4)',
                               }}
                             >
-                              <ActivityIndicator size="small" color="#FF6B2C" />
+                              <ActivityIndicator size="small" color={colors.brand.primary} />
                             </BlurView>
                           </View>
                         </View>
@@ -571,7 +569,11 @@ export default function ChatScreen() {
                         boxShadow: '0 10px 24px rgba(22, 22, 22, 0.10)',
                       }}
                     >
-                      <MaterialIcons name="keyboard-arrow-down" size={24} color="#161616" />
+                      <MaterialIcons
+                        name="keyboard-arrow-down"
+                        size={24}
+                        color={colors.text.primary}
+                      />
                     </TouchableOpacity>
                   </Animated.View>
                 </View>

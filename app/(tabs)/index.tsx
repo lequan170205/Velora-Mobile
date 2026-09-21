@@ -3,7 +3,7 @@ import { useIsFocused } from '@react-navigation/native'
 import { useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'expo-router'
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { AppState, FlatList, ScrollView, View } from 'react-native'
+import { AppState, FlatList, RefreshControl, ScrollView, View } from 'react-native'
 import Animated, {
   FadeInDown,
   ReduceMotion,
@@ -151,7 +151,17 @@ export default function ConversationsScreen() {
   const [searchQuery, setSearchQuery] = useState('')
   const deferredSearchQuery = useDeferredValue(searchQuery)
   const [relativeTimeTick, setRelativeTimeTick] = useState(() => Date.now())
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const warmedConversationSignatureRef = useRef('')
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true)
+    try {
+      await refetch()
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [refetch])
 
   const filteredConversations = useMemo(() => {
     if (!conversations) return []
@@ -352,6 +362,14 @@ export default function ConversationsScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentInsetAdjustmentBehavior="automatic"
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.brand.primary}
+            colors={[colors.brand.primary]}
+          />
+        }
         contentContainerStyle={{
           // The tab bar overlays the list (frosted glass), so clear content
           // past it. SafeAreaView already pads the bottom inset slice.

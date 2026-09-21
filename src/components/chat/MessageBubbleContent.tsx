@@ -5,6 +5,7 @@ import { typography } from '../../constants/theme'
 import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../lib/chatMedia'
 import { cn } from '../../lib/cn'
 import { formatDurationLabel } from '../../lib/reels'
+import { RECALLED_PREVIEW_TEXT } from '../../lib/replyPreview'
 
 import { AiCitationList } from './AiCitationList'
 import { ChatMediaBubble } from './ChatMediaBubble'
@@ -86,7 +87,7 @@ export function MessageBubbleContent({
             },
           ]}
         >
-          Tin nhắn đã thu hồi
+          {RECALLED_PREVIEW_TEXT}
         </Text>
       )
     }
@@ -98,7 +99,7 @@ export function MessageBubbleContent({
           isOwn ? 'text-white/60' : 'text-text-muted',
         )}
       >
-        Tin nhắn đã thu hồi
+        {RECALLED_PREVIEW_TEXT}
       </Text>
     )
   }

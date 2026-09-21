@@ -4,6 +4,7 @@ import Animated, { FadeInDown, ReduceMotion } from 'react-native-reanimated'
 
 import { useConversationNavigation } from '../../hooks/useConversationNavigation'
 import { formatConversationPreviewAge } from '../../lib/conversationPreviewTime'
+import { RECALLED_PREVIEW_TEXT } from '../../lib/replyPreview'
 import { useAuthStore } from '../../stores/authStore'
 import { useChatStore } from '../../stores/chatStore'
 import { AppText } from '../base/AppText'
@@ -95,7 +96,7 @@ const ConversationItemComponent = function ConversationItem({
         onPressIn={() => {
           prefetchConversation(conversation.id)
         }}
-        activeOpacity={0.65}
+        activeOpacity={0.75}
         accessibilityRole="button"
         accessibilityLabel={accessibilitySummary}
         accessibilityHint="Opens conversation"
@@ -165,7 +166,7 @@ const ConversationItemComponent = function ConversationItem({
 }
 
 const LASTMSG_MAP: Record<string, string> = {
-  '🚫 Message recalled': 'Tin nhắn đã thu hồi',
+  '🚫 Message recalled': RECALLED_PREVIEW_TEXT,
 }
 
 export const ConversationItem = memo(ConversationItemComponent, (prevProps, nextProps) => {

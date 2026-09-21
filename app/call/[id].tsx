@@ -431,7 +431,7 @@ export default function ActiveCallScreen() {
         />
       ) : (
         <IconButton
-          icon="videocam-off"
+          icon="videocam"
           label="Switch to video call"
           disabled={controlsDisabled}
           onPress={() => void switchCallType('VIDEO')}

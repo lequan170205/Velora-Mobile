@@ -12,6 +12,7 @@ import { mediaApi } from '../../../src/api/media.api'
 import { AppPressable, AppText, AppTextInput } from '../../../src/components/base'
 import { SafeTouchableOpacity } from '../../../src/components/common/SafeTouchableOpacity'
 import { queryKeys } from '../../../src/constants/queryKeys'
+import { colors } from '../../../src/constants/theme'
 import { removeConversationLocalData } from '../../../src/database/conversationBootstrap'
 import { useFriends } from '../../../src/hooks/useFriends'
 import { useAuthStore } from '../../../src/stores/authStore'
@@ -351,7 +352,7 @@ export default function GroupInfoScreen() {
   if (isConversationLoading || !conversation) {
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-bg-primary">
-        <ActivityIndicator color="#FF6B2C" />
+        <ActivityIndicator color={colors.brand.primary} />
       </SafeAreaView>
     )
   }
@@ -523,7 +524,7 @@ export default function GroupInfoScreen() {
                 accessibilityLabel="Change group photo"
               >
                 {isUpdatingPicture ? (
-                  <ActivityIndicator size="small" color="#FF6B2C" />
+                  <ActivityIndicator size="small" color={colors.brand.primary} />
                 ) : (
                   <MaterialIcons name="photo-camera" size={19} color="#161616" />
                 )}
@@ -537,7 +538,7 @@ export default function GroupInfoScreen() {
               onPress={removeGroupPicture}
               disabled={isUpdatingPicture}
             >
-              <AppText className="text-xs2 font-medium text-[#D84A3A]">Remove photo</AppText>
+              <AppText className="text-xs2 font-medium text-status-error">Remove photo</AppText>
             </SafeTouchableOpacity>
           ) : null}
 
@@ -671,7 +672,7 @@ export default function GroupInfoScreen() {
 
           {areMembersLoading ? (
             <View className="items-center py-8">
-              <ActivityIndicator color="#FF6B2C" />
+              <ActivityIndicator color={colors.brand.primary} />
             </View>
           ) : (
             members.map((member) => {
@@ -737,15 +738,18 @@ export default function GroupInfoScreen() {
             disabled={leaveGroup.isPending || !currentRole}
             onPress={handleLeavePress}
           >
-            <View className="h-10 w-10 items-center justify-center rounded-full bg-[#FFF0EC]">
+            <View
+              className="h-10 w-10 items-center justify-center rounded-full"
+              style={{ backgroundColor: colors.surface.error }}
+            >
               {leaveGroup.isPending ? (
-                <ActivityIndicator size="small" color="#D84A3A" />
+                <ActivityIndicator size="small" color={colors.status.error} />
               ) : (
-                <MaterialIcons name="logout" size={20} color="#D84A3A" />
+                <MaterialIcons name="logout" size={20} color={colors.status.error} />
               )}
             </View>
             <View className="ml-3 flex-1">
-              <AppText className="font-semibold text-[#D84A3A]">Leave group</AppText>
+              <AppText className="font-semibold text-status-error">Leave group</AppText>
               {isOwner ? (
                 <AppText className="mt-0.5 text-xs2 text-text-muted">
                   Transfer ownership before leaving.
@@ -832,10 +836,15 @@ export default function GroupInfoScreen() {
                   disabled={removeMember.isPending}
                   onPress={() => closeMemberActionsAndRun(selectedMember, confirmRemoveMember)}
                 >
-                  <View className="h-10 w-10 items-center justify-center rounded-full bg-[#FFF0EC]">
-                    <MaterialIcons name="person-remove" size={20} color="#D84A3A" />
+                  <View
+                    className="h-10 w-10 items-center justify-center rounded-full"
+                    style={{ backgroundColor: colors.surface.error }}
+                  >
+                    <MaterialIcons name="person-remove" size={20} color={colors.status.error} />
                   </View>
-                  <AppText className="ml-3 font-medium text-[#D84A3A]">Remove from group</AppText>
+                  <AppText className="ml-3 font-medium text-status-error">
+                    Remove from group
+                  </AppText>
                 </SafeTouchableOpacity>
               ) : null}
 

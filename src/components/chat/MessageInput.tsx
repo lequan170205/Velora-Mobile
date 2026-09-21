@@ -6,6 +6,7 @@ import {
   Alert,
   Image,
   Keyboard,
+  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -72,7 +73,7 @@ const BRAND = colors.brand.primary
 const TEXT_PRIMARY = colors.text.primary
 const TEXT_SECONDARY = colors.text.secondary
 const TEXT_MUTED = colors.text.tertiary
-const ACCESSORY_SLOT_WIDTH = 164
+const ACCESSORY_SLOT_WIDTH = 38
 const VIDEO_FILE_URI_PATTERN = /\.(mp4|m4v|mov|webm)(?:[?#].*)?$/i
 
 const getComposerReplyThumbnailUri = (
@@ -194,7 +195,6 @@ interface ComposerAccessorySlotProps {
   // SharedValue drives the animation entirely on the UI thread — no JS re-renders on keystrokes
   hasTextProgress: SharedValue<number>
   onAttach: () => void
-  onMic: () => void
   onSend: () => void
 }
 
@@ -202,7 +202,6 @@ const ComposerAccessorySlot = memo(function ComposerAccessorySlot({
   hasText,
   hasTextProgress,
   onAttach,
-  onMic,
   onSend,
 }: ComposerAccessorySlotProps) {
   const sendPressScale = useSharedValue(1)
@@ -262,25 +261,8 @@ const ComposerAccessorySlot = memo(function ComposerAccessorySlot({
         ]}
       >
         <ComposerIconButton
-          accessibilityLabel="Record voice message"
-          icon="mic-none"
-          onPress={onMic}
-        />
-        <ComposerIconButton
           accessibilityLabel="Open attachment options"
           icon="image"
-          onPress={onAttach}
-        />
-        <ComposerIconButton
-          accessibilityLabel="Open emoji picker"
-          icon="mood"
-          onPress={() => {
-            /* emoji picker placeholder */
-          }}
-        />
-        <ComposerIconButton
-          accessibilityLabel="Open more attachment options"
-          icon="add-circle-outline"
           onPress={onAttach}
         />
       </Animated.View>
@@ -387,11 +369,6 @@ const MessageInputComponent = function MessageInput(
     [hasTextProgress, onChangeText],
   )
 
-  const handleMicPress = useCallback(() => {
-    // eslint-disable-next-line no-console
-    console.log('Voice message placeholder')
-  }, [])
-
   const waitForKeyboardToHide = useCallback(() => {
     return new Promise<void>((resolve) => {
       let settled = false
@@ -427,7 +404,10 @@ const MessageInputComponent = function MessageInput(
 
     const permission = await ImagePicker.requestCameraPermissionsAsync()
     if (permission.status !== 'granted') {
-      Alert.alert('Permission denied', 'Velora needs camera access to take a photo.')
+      Alert.alert('Permission denied', 'Velora needs camera access to take a photo.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+      ])
       return
     }
 
@@ -686,7 +666,6 @@ const MessageInputComponent = function MessageInput(
           onAttach={() => {
             void handleOpenAttachmentLauncher()
           }}
-          onMic={handleMicPress}
           onSend={handleSend}
         />
       </Animated.View>

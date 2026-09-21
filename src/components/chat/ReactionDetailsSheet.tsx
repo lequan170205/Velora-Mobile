@@ -26,7 +26,7 @@ const INITIAL_SNAP_POINT = '46%'
 const EXPANDED_SNAP_POINT = '72%'
 
 const getActorLabel = (reaction: MessageReactionDetail, currentUserId?: string) => {
-  if (reaction.userId === currentUserId) return 'Bạn'
+  if (reaction.userId === currentUserId) return 'You'
 
   const fullName = reaction.user?.fullName?.trim()
   if (fullName) return fullName
@@ -34,7 +34,7 @@ const getActorLabel = (reaction: MessageReactionDetail, currentUserId?: string) 
   const username = reaction.user?.username?.trim().replace(/^@+/, '')
   if (username) return `@${username}`
 
-  return 'Người dùng'
+  return 'User'
 }
 
 const getActorInitial = (label: string) => {
@@ -192,12 +192,12 @@ export function ReactionDetailsSheet({
               paddingBottom: bottomPadding,
             }}
           >
-            <Text className="mb-3 text-sm text-text-muted">Không thể tải danh sách reactions.</Text>
+            <Text className="mb-3 text-sm text-text-muted">Couldn&apos;t load reactions.</Text>
             <TouchableOpacity
               onPress={() => void refetch()}
               className="rounded-full bg-surface-input px-4 py-2"
             >
-              <Text className="font-medium text-text-primary">Thử lại</Text>
+              <Text className="font-medium text-text-primary">Try again</Text>
             </TouchableOpacity>
           </View>
         ) : visibleReactions.length === 0 ? (
@@ -209,7 +209,7 @@ export function ReactionDetailsSheet({
               paddingBottom: bottomPadding,
             }}
           >
-            <Text className="text-sm text-text-muted">Chưa có reaction nào.</Text>
+            <Text className="text-sm text-text-muted">No reactions yet.</Text>
           </View>
         ) : (
           <BottomSheetScrollView

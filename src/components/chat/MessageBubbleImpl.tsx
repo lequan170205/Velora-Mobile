@@ -61,8 +61,9 @@ import type {
 } from '../../types/conversation.types'
 import type { ReelFeedListItem } from '../../types/reel.types'
 
-// Valid emojis for reactions (matching backend)
-export const VALID_EMOJIS = ['👍', '❤️', '😂', '😢', '😮', '😡', '👏', '🎉']
+// Valid emojis for reactions; canonical list lives with the other context-menu
+// constants so every picker stays in sync with the backend validator.
+export { VALID_EMOJIS } from './MessageContextMenu/constants'
 
 const REPLY_PREVIEW_FALLBACK_LABELS: Record<ReplyPreviewData['type'], string> = {
   text: 'Message',
@@ -440,6 +441,7 @@ interface MessageBubbleProps {
   isGroupedTop?: boolean
   isGroupedBottom?: boolean
   showAvatar?: boolean
+  showSenderName?: boolean
   senderInfo?: ChatParticipant | Message['sender'] | null
   onReactionPress?: (emoji: string) => void
   onReply?: () => void
@@ -477,6 +479,7 @@ const MessageBubbleComponent = function MessageBubble({
   isGroupedTop,
   isGroupedBottom,
   showAvatar,
+  showSenderName = false,
   senderInfo: senderInfoProp,
   onReactionPress,
   onReply,
@@ -741,10 +744,6 @@ const MessageBubbleComponent = function MessageBubble({
       zIndex: highlightProgress.value > 0 ? 2 : 0,
     }
   })
-
-  const bubbleVisibilityStyle = useAnimatedStyle(() => ({
-    opacity: 1,
-  }))
 
   const timestampColumnStyle = useAnimatedStyle(() => {
     const revealProgress = timestampRevealProgress?.value ?? 0
@@ -1223,6 +1222,14 @@ const MessageBubbleComponent = function MessageBubble({
                     collapsable={false}
                     className={cn('relative', isOwn ? 'items-end' : 'items-start')}
                   >
+                    {showSenderName && !isOwn && showAvatar ? (
+                      <Text
+                        className="mb-0.5 ml-1 text-[12px] font-semibold text-text-secondary"
+                        numberOfLines={1}
+                      >
+                        {senderDisplayName}
+                      </Text>
+                    ) : null}
                     {replyPreviewMeta ? (
                       <View
                         className={cn('mb-1 mt-2', isOwn ? 'items-end' : 'items-start')}
@@ -1455,9 +1462,7 @@ const MessageBubbleComponent = function MessageBubble({
                       }
                     >
                       <View className="relative">
-                        <Animated.View
-                          style={[bubbleWrapStyle, bubbleVisibilityStyle, { flexShrink: 0 }]}
-                        >
+                        <Animated.View style={[bubbleWrapStyle, { flexShrink: 0 }]}>
                           <View className="relative">
                             <Animated.View
                               pointerEvents="none"
@@ -1526,6 +1531,7 @@ const MessageBubbleComponent = function MessageBubble({
                           <Pressable
                             key={emoji}
                             onPress={() => onReactionPress?.(emoji)}
+                            hitSlop={6}
                             className={cn(
                               'flex-row items-center rounded-full px-2 py-1 bg-surface-input',
                             )}
@@ -1704,6 +1710,7 @@ export const MessageBubble = memo(MessageBubbleComponent, (prevProps, nextProps)
     areReactionsEqual(prevProps.message.reactions, nextProps.message.reactions) &&
     prevProps.isOwn === nextProps.isOwn &&
     prevProps.showAvatar === nextProps.showAvatar &&
+    prevProps.showSenderName === nextProps.showSenderName &&
     prevProps.primaryStatusLabel === nextProps.primaryStatusLabel &&
     prevProps.readReceiptParticipants === nextProps.readReceiptParticipants &&
     areSenderInfosEqual(prevProps.senderInfo, nextProps.senderInfo) &&

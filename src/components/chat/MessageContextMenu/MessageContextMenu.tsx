@@ -34,6 +34,7 @@ import { scheduleOnRN } from 'react-native-worklets'
 
 import { useAddReaction, useRemoveReaction } from '../../../hooks/useMessageActions'
 import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../../lib/chatMedia'
+import { RECALLED_PREVIEW_TEXT } from '../../../lib/replyPreview'
 import { useAuthStore } from '../../../stores/authStore'
 import { MessageBubbleContent } from '../MessageBubbleContent'
 
@@ -785,7 +786,7 @@ function ReactionButton({
       <AnimatedPressable
         onPress={handlePress}
         accessibilityRole="button"
-        accessibilityLabel={`Thả cảm xúc ${emoji}`}
+        accessibilityLabel={`React with ${emoji}`}
         hitSlop={4}
         style={[styles.reactionButton, animatedStyle]}
       >
@@ -955,7 +956,7 @@ function getContextReplyPreview(
   return {
     content:
       resolvedReplyTarget && isMessageRecalled(resolvedReplyTarget)
-        ? 'Tin nhắn đã thu hồi'
+        ? RECALLED_PREVIEW_TEXT
         : normalizedContent && !isUriLike
           ? normalizedContent
           : fallbackContent,

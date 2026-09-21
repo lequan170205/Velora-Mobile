@@ -16,6 +16,7 @@ type ConversationMessageRowProps = {
   repliedMessage?: Message | null
   layout: MessageLayout
   isOwn: boolean
+  showSenderName: boolean
   primaryStatusLabel: string | null
   readReceiptParticipants: ChatParticipant[]
   timestampRevealGesture?: ReturnType<typeof Gesture.Pan>
@@ -37,6 +38,7 @@ export const ConversationMessageRow = memo(
     repliedMessage,
     layout,
     isOwn,
+    showSenderName,
     primaryStatusLabel,
     readReceiptParticipants,
     timestampRevealGesture,
@@ -86,6 +88,7 @@ export const ConversationMessageRow = memo(
           timestampRevealProgress={timestampRevealProgress}
           isOwn={isOwn}
           showAvatar={layout.showAvatar}
+          showSenderName={showSenderName}
           senderInfo={senderInfo ?? null}
           isGroupedTop={layout.isGroupedTop}
           isGroupedBottom={layout.isGroupedBottom}
@@ -106,6 +109,7 @@ export const ConversationMessageRow = memo(
     prevProps.repliedMessage === nextProps.repliedMessage &&
     prevProps.layout === nextProps.layout &&
     prevProps.isOwn === nextProps.isOwn &&
+    prevProps.showSenderName === nextProps.showSenderName &&
     prevProps.primaryStatusLabel === nextProps.primaryStatusLabel &&
     prevProps.readReceiptParticipants === nextProps.readReceiptParticipants &&
     prevProps.timestampRevealGesture === nextProps.timestampRevealGesture &&

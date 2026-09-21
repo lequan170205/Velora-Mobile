@@ -41,10 +41,10 @@ test('reaction details always open on All and remain filterable by emoji', () =>
 })
 
 test('reaction actors preserve historical identity fallbacks and identify the current user', () => {
-  assert.match(reactionSheet, /reaction\.userId === currentUserId\) return 'Bạn'/)
+  assert.match(reactionSheet, /reaction\.userId === currentUserId\) return 'You'/)
   assert.match(reactionSheet, /reaction\.user\?\.fullName/)
   assert.match(reactionSheet, /reaction\.user\?\.username/)
-  assert.match(reactionSheet, /return 'Người dùng'/)
+  assert.match(reactionSheet, /return 'User'/)
 })
 
 test('open reaction details refresh when realtime reaction state changes', () => {

@@ -2,13 +2,15 @@ import { getResolvedMediaPosterUri, getResolvedMediaUri } from './chatMedia'
 
 import type { Conversation, Message, ReplyPreviewData } from '../types/conversation.types'
 
-export const RECALLED_PREVIEW_TEXT = 'Tin nhắn đã thu hồi'
+export const RECALLED_PREVIEW_TEXT = 'Message recalled'
 export const REEL_PREVIEW_FALLBACK_TEXT = 'Reel'
 
 const RECALLED_PREVIEW_ALIASES = new Set([
   RECALLED_PREVIEW_TEXT,
   'Message recalled',
   'message recalled',
+  // Legacy Vietnamese recall text persisted in older offline reply previews.
+  'Tin nhắn đã thu hồi',
 ])
 
 const GENERIC_REEL_PREVIEW_ALIASES = new Set([
