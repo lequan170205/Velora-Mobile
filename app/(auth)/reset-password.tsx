@@ -9,10 +9,7 @@ import { OtpCodeInput } from '../../src/components/auth/OtpCodeInput'
 import { cn } from '../../src/lib/cn'
 
 const inputClassName = (isFocused: boolean) =>
-  cn(
-    'rounded-[20px] px-4 py-3.5',
-    isFocused ? 'bg-surface-cream-focus' : 'bg-surface-cream',
-  )
+  cn('rounded-[20px] px-4 py-3.5', isFocused ? 'bg-surface-cream-focus' : 'bg-surface-cream')
 
 export default function ResetPasswordScreen() {
   const router = useRouter()

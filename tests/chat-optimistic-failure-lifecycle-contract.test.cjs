@@ -6,10 +6,10 @@ const test = require('node:test')
 const chatStorePath = path.resolve(__dirname, '../src/stores/chatStore.ts')
 
 const getBlock = (source, startMarker, endMarker) => {
-  const start = source.indexOf(startMarker)
+  const start = source.indexOf(`\n      ${startMarker}`)
   assert.notEqual(start, -1, `missing start marker: ${startMarker}`)
 
-  const end = source.indexOf(endMarker, start)
+  const end = source.indexOf(`\n      ${endMarker}`, start)
   assert.notEqual(end, -1, `missing end marker: ${endMarker}`)
 
   return source.slice(start, end)

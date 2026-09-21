@@ -15,10 +15,7 @@ const isFailedOptimisticMessage = (message: Message) => {
   return String(message.status ?? '').toUpperCase() === 'FAILED'
 }
 
-const compareAnchorPosition = (
-  left: OptimisticSortAnchorLike,
-  right: OptimisticSortAnchorLike,
-) => {
+const compareAnchorPosition = (left: OptimisticSortAnchorLike, right: OptimisticSortAnchorLike) => {
   if (left.frontierCreatedAtMs !== right.frontierCreatedAtMs) {
     return left.frontierCreatedAtMs - right.frontierCreatedAtMs
   }
@@ -85,9 +82,7 @@ export const settleTextOptimisticSortAnchors = <TAnchor extends OptimisticSortAn
   return changed ? nextAnchors : anchorsByIdentity
 }
 
-export const removeOptimisticSortAnchorsWithTextLease = <
-  TAnchor extends OptimisticSortAnchorLike,
->(
+export const removeOptimisticSortAnchorsWithTextLease = <TAnchor extends OptimisticSortAnchorLike>(
   messages: Message[],
   anchorsByIdentity: Record<string, TAnchor>,
   identityKeys: string[],
@@ -102,9 +97,7 @@ export const removeOptimisticSortAnchorsWithTextLease = <
   return settleTextOptimisticSortAnchors(messages, anchorsByIdentity)
 }
 
-export const pruneSettledTextOptimisticSortAnchors = <
-  TAnchor extends OptimisticSortAnchorLike,
->(
+export const pruneSettledTextOptimisticSortAnchors = <TAnchor extends OptimisticSortAnchorLike>(
   optimisticMessages: Record<string, Message[]>,
   optimisticSortAnchors: Record<string, Record<string, TAnchor>>,
 ) => {
