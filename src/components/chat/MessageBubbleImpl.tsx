@@ -1216,20 +1216,23 @@ const MessageBubbleComponent = function MessageBubble({
                 style={stackSwipeStyle}
                 className={cn('max-w-[78%]', isOwn ? 'items-end' : 'items-start')}
               >
+                {/* Kept outside messageCardRef on purpose: the card is measured
+                    for the context-menu anchor/preview heights, which must not
+                    include this label (the preview replica has no name). */}
+                {showSenderName && !isOwn && !isGroupedTop && !replyPreviewMeta ? (
+                  <Text
+                    className="mb-0.5 ml-1.5 text-[12px] font-medium text-text-muted"
+                    numberOfLines={1}
+                  >
+                    {senderDisplayName}
+                  </Text>
+                ) : null}
                 <GestureDetector gesture={bubbleGesture}>
                   <View
                     ref={messageCardRef}
                     collapsable={false}
                     className={cn('relative', isOwn ? 'items-end' : 'items-start')}
                   >
-                    {showSenderName && !isOwn && !isGroupedTop && !replyPreviewMeta ? (
-                      <Text
-                        className="mb-0.5 ml-1.5 text-[12px] font-medium text-text-muted"
-                        numberOfLines={1}
-                      >
-                        {senderDisplayName}
-                      </Text>
-                    ) : null}
                     {replyPreviewMeta ? (
                       <View
                         className={cn('mb-1 mt-2', isOwn ? 'items-end' : 'items-start')}
