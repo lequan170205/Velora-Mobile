@@ -4,6 +4,7 @@ import type {
   ReelMediaStatus,
   ReelProcessingState,
   ReelProcessingStatusResponse,
+  ReelTranscriptSegment,
 } from '../types/reel.types'
 
 export type NormalizedReelProcessingState = {
@@ -41,6 +42,58 @@ const isMediaStatus = (value: unknown): value is ReelMediaStatus =>
 
 const isIndexStatus = (value: unknown): value is ReelIndexStatus =>
   typeof value === 'string' && INDEX_STATUSES.includes(value as ReelIndexStatus)
+
+export const normalizeTranscriptSegments = (rawSegments: unknown): ReelTranscriptSegment[] => {
+  let segments: unknown = rawSegments
+  if (typeof segments === 'string') {
+    try {
+      segments = JSON.parse(segments)
+    } catch {
+      segments = undefined
+    }
+  }
+
+  if (Array.isArray(segments) && segments.length > 0) {
+    const parsed = segments
+      .map((raw, index): ReelTranscriptSegment | null => {
+        if (!raw || typeof raw !== 'object') {
+          return null
+        }
+
+        const candidate = raw as Record<string, unknown>
+        const rawStart = candidate.start ?? candidate.startTime ?? candidate.start_time
+        const rawEnd = candidate.end ?? candidate.endTime ?? candidate.end_time
+        const start = typeof rawStart === 'number' ? rawStart : parseFloat(String(rawStart))
+        const end = typeof rawEnd === 'number' ? rawEnd : parseFloat(String(rawEnd))
+
+        const rawText =
+          candidate.text ??
+          candidate.word ??
+          candidate.content ??
+          candidate.transcript ??
+          candidate.caption
+        const text = typeof rawText === 'string' ? rawText.trim() : ''
+
+        if (!Number.isFinite(start) || !Number.isFinite(end) || !text) {
+          return null
+        }
+
+        return {
+          id: typeof candidate.id === 'number' ? candidate.id : index,
+          start: Math.max(0, start),
+          end: Math.max(start, end),
+          text,
+        }
+      })
+      .filter((segment): segment is ReelTranscriptSegment => segment !== null)
+
+    if (parsed.length > 0) {
+      return parsed
+    }
+  }
+
+  return []
+}
 
 export const mapLegacyProcessingStatusToMediaStatus = (
   status?: ReelProcessingState | null,
@@ -99,6 +152,9 @@ export const normalizeReelProcessingState = (
 export const normalizeReelApiResponse = <T extends Reel>(reel: T): T => {
   const processing = normalizeReelProcessingState(reel)
   const hlsMasterUrl = reel.hlsMasterUrl || reel.streamUrl
+  const transcriptSegments = reel.transcriptSegments
+    ? normalizeTranscriptSegments(reel.transcriptSegments)
+    : undefined
 
   return {
     ...reel,
@@ -106,6 +162,7 @@ export const normalizeReelApiResponse = <T extends Reel>(reel: T): T => {
     mediaStatus: processing.mediaStatus,
     indexStatus: processing.indexStatus,
     ...(hlsMasterUrl ? { hlsMasterUrl, streamUrl: hlsMasterUrl } : {}),
+    ...(transcriptSegments && transcriptSegments.length > 0 ? { transcriptSegments } : {}),
   } as T
 }
 

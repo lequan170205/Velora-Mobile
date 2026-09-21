@@ -42,6 +42,7 @@ import {
 } from '../../src/hooks/useFriendMutations'
 import { useFriends, useFriendshipStatus } from '../../src/hooks/useFriends'
 import { useReelsFeed } from '../../src/hooks/useReels'
+import { serializeChatReelRouteContext } from '../../src/lib/chatReels'
 import { cn } from '../../src/lib/cn'
 import { getInitials } from '../../src/lib/profile'
 import { useAuthStore } from '../../src/stores/authStore'
@@ -428,6 +429,7 @@ export default function PublicProfileScreen() {
         <ReelThumbnailTile
           index={index}
           onPress={() => {
+            const contextReelsParam = serializeChatReelRouteContext(publicReels)
             router.push({
               pathname: '/reels/[id]',
               params: {
@@ -435,6 +437,7 @@ export default function PublicProfileScreen() {
                 source: 'profile',
                 returnTo: 'user-profile',
                 returnUsername: normalizedUsername,
+                ...(contextReelsParam ? { contextReels: contextReelsParam } : {}),
               },
             })
           }}
@@ -445,7 +448,7 @@ export default function PublicProfileScreen() {
         />
       )
     },
-    [normalizedUsername, router, tileHeight, tileSize],
+    [normalizedUsername, publicReels, router, tileHeight, tileSize],
   )
 
   if (isProfileLoading) {

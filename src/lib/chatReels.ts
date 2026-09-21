@@ -1,10 +1,14 @@
+import { normalizeTranscriptSegments } from './reelProcessing'
+
 import type { Message } from '../types/conversation.types'
 import type {
   Reel,
   ReelAuthor,
   ReelFeedListItem,
   ReelPlaybackPresentation,
+  ReelSeriesSummary,
   ReelSourceOrientation,
+  ReelTranscriptSegment,
 } from '../types/reel.types'
 
 export const CHAT_SHARED_REEL_FALLBACK_ID_PREFIX = 'shared-message:'
@@ -104,6 +108,22 @@ const normalizeRouteReel = (value: unknown): Reel | null => {
   const sourceHeight = getFiniteNumber(value.sourceHeight)
   const playbackPresentation = getTrimmedString(value.playbackPresentation)
 
+  const rawSeries = isRecord(value.series) ? value.series : null
+  const seriesId = rawSeries ? getTrimmedString(rawSeries.id) : null
+  const seriesTitle = rawSeries ? getTrimmedString(rawSeries.title) : null
+  const seriesEpisodeNumber = rawSeries ? getFiniteNumber(rawSeries.episodeNumber) : null
+  const series: ReelSeriesSummary | undefined =
+    seriesId && seriesTitle && seriesEpisodeNumber !== null && seriesEpisodeNumber >= 1
+      ? {
+          id: seriesId,
+          title: seriesTitle,
+          episodeNumber: seriesEpisodeNumber,
+        }
+      : undefined
+
+  const transcriptSegments = normalizeTranscriptSegments(value.transcriptSegments)
+  const transcript = getTrimmedString(value.transcript)
+
   return {
     id,
     userId,
@@ -128,6 +148,9 @@ const normalizeRouteReel = (value: unknown): Reel | null => {
     streamUrl,
     createdAt,
     ...(author ? { author } : {}),
+    ...(series ? { series } : {}),
+    ...(transcriptSegments.length > 0 ? { transcriptSegments } : {}),
+    ...(transcript ? { transcript } : {}),
     ...(sourceOrientation ? { sourceOrientation: sourceOrientation as ReelSourceOrientation } : {}),
     ...(sourceAspectRatio !== null ? { sourceAspectRatio } : {}),
     ...(sourceEffectiveWidth !== null ? { sourceEffectiveWidth } : {}),
@@ -231,6 +254,8 @@ export const buildSharedReelFromMessage = (message: Message): Reel | null => {
         ? 'FIT_WITH_LETTERBOX'
         : undefined
 
+  const mediaRecord = media as Record<string, unknown>
+
   return {
     id: routeId,
     userId: ownerId,
@@ -257,6 +282,13 @@ export const buildSharedReelFromMessage = (message: Message): Reel | null => {
     ...(sourceOrientation ? { sourceOrientation } : {}),
     ...(typeof sourceAspectRatio === 'number' ? { sourceAspectRatio } : {}),
     ...(playbackPresentation ? { playbackPresentation } : {}),
+    ...(isRecord(mediaRecord.series)
+      ? { series: mediaRecord.series as unknown as ReelSeriesSummary }
+      : {}),
+    ...(Array.isArray(mediaRecord.transcriptSegments)
+      ? { transcriptSegments: mediaRecord.transcriptSegments as unknown as ReelTranscriptSegment[] }
+      : {}),
+    ...(typeof mediaRecord.transcript === 'string' ? { transcript: mediaRecord.transcript } : {}),
     ...(typeof media.width === 'number'
       ? { sourceEffectiveWidth: media.width, sourceWidth: media.width }
       : {}),
@@ -299,6 +331,9 @@ export const buildChatReelMediaFromReel = (
     ...(reel.title ? { reelTitle: reel.title } : {}),
     ...(reel.description ? { reelDescription: reel.description } : {}),
     ...(normalizedTags.length > 0 ? { reelTags: normalizedTags } : {}),
+    ...(reel.series ? { series: reel.series } : {}),
+    ...(reel.transcriptSegments?.length ? { transcriptSegments: reel.transcriptSegments } : {}),
+    ...(reel.transcript ? { transcript: reel.transcript } : {}),
     ...(reel.sourceOrientation
       ? {
           reelSourceOrientation: reel.sourceOrientation,

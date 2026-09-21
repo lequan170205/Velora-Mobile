@@ -28,6 +28,7 @@ import { ReelSeriesPickerSheet } from '../../src/components/reels/series/ReelSer
 import { useFriends } from '../../src/hooks/useFriends'
 import { useUpdateAvatar } from '../../src/hooks/useProfile'
 import { useCreateReelSeries, useOwnedReelSeries, useReelsFeed } from '../../src/hooks/useReels'
+import { serializeChatReelRouteContext } from '../../src/lib/chatReels'
 import { getDisplayName, getInitials, getProfileHandle } from '../../src/lib/profile'
 import { useAuthStore } from '../../src/stores/authStore'
 
@@ -389,9 +390,15 @@ export default function ProfileScreen() {
         <ReelThumbnailTile
           index={index}
           onPress={() => {
+            const contextReelsParam = serializeChatReelRouteContext(profileReels)
             router.push({
               pathname: '/reels/[id]',
-              params: { id: item.id, source: 'profile', returnTo: 'profile' },
+              params: {
+                id: item.id,
+                source: 'profile',
+                returnTo: 'profile',
+                ...(contextReelsParam ? { contextReels: contextReelsParam } : {}),
+              },
             })
           }}
           reel={item}
@@ -401,7 +408,7 @@ export default function ProfileScreen() {
         />
       )
     },
-    [router, tileHeight, tileSize],
+    [profileReels, router, tileHeight, tileSize],
   )
 
   if (!user) {

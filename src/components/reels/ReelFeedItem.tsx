@@ -470,10 +470,17 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
     if (reelDetail?.series) {
       nextReel.series = reelDetail.series
+    } else if (sourceReel.series && !nextReel.series) {
+      nextReel.series = sourceReel.series
     }
 
     if (reelDetail?.transcriptSegments) {
       const normalizedSegments = normalizeTranscriptSegments(reelDetail.transcriptSegments)
+      if (normalizedSegments.length > 0) {
+        nextReel.transcriptSegments = normalizedSegments
+      }
+    } else if (nextReel.transcriptSegments) {
+      const normalizedSegments = normalizeTranscriptSegments(nextReel.transcriptSegments)
       if (normalizedSegments.length > 0) {
         nextReel.transcriptSegments = normalizedSegments
       }
