@@ -261,6 +261,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const activeAtMsRef = useRef<number | null>(null)
   const remoteAudioFallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const peerLeftTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const groupInvitationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reconnectRecoveryInFlightRef = useRef(false)
   const controlPlaneRecoveringRef = useRef(false)
@@ -427,6 +428,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const clearPeerLeftFallback = useCallback(() => {
     clearTimeoutRef(peerLeftTimeoutRef)
+  }, [])
+
+  const clearGroupInvitationTimeout = useCallback(() => {
+    clearTimeoutRef(groupInvitationTimeoutRef)
   }, [])
 
   const clearReconnectTimeout = useCallback(() => {
@@ -643,6 +648,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       clearAudioFlowConfirmation()
       clearRemoteAudioFallback()
       clearPeerLeftFallback()
+      clearGroupInvitationTimeout()
       clearReconnectTimeout()
       clearMediaTransportDisconnectTimeouts()
       clearWaitRegistry(waitRegistryRef.current)
@@ -708,6 +714,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     },
     [
       clearAudioFlowConfirmation,
+      clearGroupInvitationTimeout,
       clearMediaTransportDisconnectTimeouts,
       clearPeerLeftFallback,
       clearReconnectTimeout,
@@ -960,6 +967,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       teardownInProgressRef.current = true
       invalidateCallSetup()
+      clearGroupInvitationTimeout()
       clearSocketDisconnectGraceTimeout()
       const endingCallId = activeCallIdRef.current ?? useCallStore.getState().callId
       debugCall(
@@ -1020,6 +1028,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     [
       cancelAudioSessionWait,
       callScreenTelemetryCallIdsRef,
+      clearGroupInvitationTimeout,
       clearSocketDisconnectGraceTimeout,
       disposeMediaRuntime,
       invalidateCallSetup,
@@ -1294,6 +1303,27 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     await teardownOnce('reject_incoming_call')
   }, [ensureCallSocketConnected, isCurrentCall, teardownOnce])
 
+  const armGroupInvitationTimeout = useCallback(
+    (
+      payload: Pick<IncomingCallPayload, 'callId' | 'expiresAt' | 'isGroupCall' | 'ringTimeoutMs'>,
+    ) => {
+      clearGroupInvitationTimeout()
+      if (!payload.isGroupCall) return
+      const expiresAtMs = Date.parse(payload.expiresAt)
+      const timeoutMs = Number.isFinite(expiresAtMs)
+        ? Math.max(0, expiresAtMs - Date.now())
+        : payload.ringTimeoutMs
+
+      groupInvitationTimeoutRef.current = setTimeout(() => {
+        const state = useCallStore.getState()
+        if (state.callId !== payload.callId || state.phase !== 'incoming_ringing') return
+        void veloraSystemCalls.dismissIncomingCall(payload.callId)
+        void teardownOnce('group_invitation_expired')
+      }, timeoutMs)
+    },
+    [clearGroupInvitationTimeout, teardownOnce],
+  )
+
   const emitIncomingAcceptTerminalIntent = useCallback(
     (socket: CallSocket, callId: string, reason?: string) => {
       // `leave_call` is only authorized once the accepting transition has
@@ -1321,6 +1351,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (!callId) {
         return
       }
+
+      clearGroupInvitationTimeout()
 
       useCallStore.getState().patch({ phase: 'ending' })
       const wasAcceptingIncomingCall = acceptingIncomingCallIdRef.current === callId
@@ -1351,7 +1383,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       await teardownOnce('end_call')
     },
-    [currentUserId, ensureCallSocketConnected, flushPendingServerEndIntents, teardownOnce],
+    [
+      clearGroupInvitationTimeout,
+      currentUserId,
+      ensureCallSocketConnected,
+      flushPendingServerEndIntents,
+      teardownOnce,
+    ],
   )
 
   const recordCallScreenVisible = useCallback((visibleCallId: string) => {
@@ -1404,8 +1442,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         callId: payload.callId,
         conversationId: payload.conversationId,
         peerUserId: peerInfo.peerUserId,
-        peerName: payload.initiatorDisplayName || peerInfo.peerName || 'Unknown',
-        peerAvatarUrl: payload.initiatorAvatarUrl ?? peerInfo.peerAvatarUrl,
+        peerName:
+          (payload.isGroupCall ? payload.groupName : payload.initiatorDisplayName) ||
+          peerInfo.peerName ||
+          'Unknown',
+        peerAvatarUrl:
+          (payload.isGroupCall ? payload.groupAvatarUrl : payload.initiatorAvatarUrl) ??
+          peerInfo.peerAvatarUrl,
+        isGroupCall: payload.isGroupCall === true,
         callType: payload.callType,
         muted: false,
         cameraEnabled: false,
@@ -1419,8 +1463,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         durationSec: 0,
       })
       void veloraSystemCalls.presentIncomingCall(nativePayload)
+      armGroupInvitationTimeout(payload)
     },
-    [currentUserId, queryClient],
+    [armGroupInvitationTimeout, currentUserId, queryClient],
   )
 
   const prepareIncomingCallFromPayload = useCallback(
@@ -1445,8 +1490,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         callId: callState.callId,
         conversationId: callState.conversationId,
         peerUserId: peerInfo.peerUserId,
-        peerName: callState.initiatorDisplayName || peerInfo.peerName || 'Unknown',
-        peerAvatarUrl: callState.initiatorAvatarUrl ?? peerInfo.peerAvatarUrl,
+        peerName:
+          (callState.isGroupCall ? callState.groupName : callState.initiatorDisplayName) ||
+          peerInfo.peerName ||
+          'Unknown',
+        peerAvatarUrl:
+          (callState.isGroupCall ? callState.groupAvatarUrl : callState.initiatorAvatarUrl) ??
+          peerInfo.peerAvatarUrl,
+        isGroupCall: callState.isGroupCall === true,
         callType: callState.callType,
         muted: false,
         cameraEnabled: false,
@@ -1459,10 +1510,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         error: null,
         durationSec: 0,
       })
+      armGroupInvitationTimeout(callState)
 
       return true
     },
-    [currentUserId, queryClient],
+    [armGroupInvitationTimeout, currentUserId, queryClient],
   )
 
   const prepareIncomingCallFromState = useCallback(
@@ -1535,6 +1587,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (!callId) {
         return
       }
+
+      clearGroupInvitationTimeout()
 
       if (acceptingIncomingCallIdRef.current === callId) {
         return
@@ -1988,6 +2042,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     [
       assertCallSetupCurrent,
       beginCallSetup,
+      clearGroupInvitationTimeout,
       currentUserId,
       ensureMicPermission,
       ensureCameraPermission,
@@ -2072,7 +2127,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         const joined = await emitAndWaitForEvent<'initiate_call', 'call_joined'>(
           socket,
           'initiate_call',
-          { conversationId: input.conversationId, targetUserId: input.peerUserId, callType },
+          {
+            conversationId: input.conversationId,
+            ...(input.peerUserId ? { targetUserId: input.peerUserId } : {}),
+            callType,
+          },
           {
             event: 'call_joined',
             timeoutMs: CALL_JOINED_TIMEOUT_MS,
@@ -2081,7 +2140,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
               payload.role === 'host' &&
               payload.session.conversationId === input.conversationId &&
               payload.session.initiatorId === currentUserId &&
-              payload.session.targetUserId === input.peerUserId &&
+              (input.isGroupCall
+                ? payload.session.isGroupCall === true
+                : payload.session.targetUserId === input.peerUserId) &&
               payload.session.callType === callType,
           },
         )
@@ -2103,9 +2164,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           direction: 'outgoing',
           callId: joined.callId,
           conversationId: input.conversationId,
-          peerUserId: input.peerUserId,
+          peerUserId: input.peerUserId ?? null,
           peerName: input.peerName ?? 'Unknown',
           peerAvatarUrl: input.peerAvatarUrl ?? null,
+          isGroupCall: joined.session.isGroupCall === true,
           callType,
           muted: false,
           cameraEnabled: callType === 'VIDEO',
@@ -2126,23 +2188,25 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         const answerWaitTimeoutMs = getOutgoingRingWaitTimeoutMs(joined.noAnswerTimeoutMs)
         let answerOutcome: 'answered' | 'ended' | 'rejected'
         try {
-          answerOutcome = await Promise.race([
-            waitForEventWhere(socket, 'call_answered', {
-              timeoutMs: answerWaitTimeoutMs,
-              registry: answerWaitRegistry,
-              filter: (payload: CallAnsweredPayload) => payload.callId === joined.callId,
-            }).then(() => 'answered' as const),
-            waitForEventWhere(socket, 'call_ended', {
-              timeoutMs: answerWaitTimeoutMs,
-              registry: answerWaitRegistry,
-              filter: (payload) => payload.callId === joined.callId,
-            }).then(() => 'ended' as const),
-            waitForEventWhere(socket, 'call_rejected', {
-              timeoutMs: answerWaitTimeoutMs,
-              registry: answerWaitRegistry,
-              filter: (payload) => payload.callId === joined.callId,
-            }).then(() => 'rejected' as const),
-          ])
+          answerOutcome = joined.session.isGroupCall
+            ? 'answered'
+            : await Promise.race([
+                waitForEventWhere(socket, 'call_answered', {
+                  timeoutMs: answerWaitTimeoutMs,
+                  registry: answerWaitRegistry,
+                  filter: (payload: CallAnsweredPayload) => payload.callId === joined.callId,
+                }).then(() => 'answered' as const),
+                waitForEventWhere(socket, 'call_ended', {
+                  timeoutMs: answerWaitTimeoutMs,
+                  registry: answerWaitRegistry,
+                  filter: (payload) => payload.callId === joined.callId,
+                }).then(() => 'ended' as const),
+                waitForEventWhere(socket, 'call_rejected', {
+                  timeoutMs: answerWaitTimeoutMs,
+                  registry: answerWaitRegistry,
+                  filter: (payload) => payload.callId === joined.callId,
+                }).then(() => 'rejected' as const),
+              ])
         } finally {
           waitRegistryRef.current.delete(cancelAnswerWaits)
           clearWaitRegistry(answerWaitRegistry)
@@ -2897,6 +2961,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
+      if (useCallStore.getState().isGroupCall) return
+
       clearPeerLeftFallback()
       peerLeftTimeoutRef.current = setTimeout(() => {
         void teardownOnce('peer_left', {
@@ -3044,6 +3110,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       clearNativeActionRetryTimeout()
       clearRemoteAudioFallback()
       clearPeerLeftFallback()
+      clearGroupInvitationTimeout()
       clearMediaTransportDisconnectTimeouts()
       clearWaitRegistry(waitRegistry)
       cancelAllAudioSessionWaits()
@@ -3052,6 +3119,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     clearNativeActionRetryTimeout,
     cancelAllAudioSessionWaits,
     clearMediaTransportDisconnectTimeouts,
+    clearGroupInvitationTimeout,
     clearPeerLeftFallback,
     clearRemoteAudioFallback,
     clearSocketDisconnectGraceTimeout,

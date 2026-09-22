@@ -90,6 +90,7 @@ type ConversationHeaderProps = {
   presenceLabel: string
   queuedMessageCount: number
   showCallActions: boolean
+  showVideoCallAction: boolean
   onBack: () => void
   onOpenGroupInfo: () => void
   onStartVideoCall: () => void
@@ -109,6 +110,7 @@ export const ConversationHeader = ({
   presenceLabel,
   queuedMessageCount,
   showCallActions,
+  showVideoCallAction,
   onBack,
   onOpenGroupInfo,
   onStartVideoCall,
@@ -167,17 +169,19 @@ export const ConversationHeader = ({
 
         {showCallActions ? (
           <View className="flex-row items-center gap-1">
-            <CallActionButton
-              onPress={onStartVideoCall}
-              disabled={callActionsDisabled}
-              busy={pendingCallType === 'VIDEO'}
-              icon="videocam"
-              accessibilityLabel={
-                pendingCallType === 'VIDEO'
-                  ? `Starting video call with ${displayName}`
-                  : `Video call ${displayName}`
-              }
-            />
+            {showVideoCallAction ? (
+              <CallActionButton
+                onPress={onStartVideoCall}
+                disabled={callActionsDisabled}
+                busy={pendingCallType === 'VIDEO'}
+                icon="videocam"
+                accessibilityLabel={
+                  pendingCallType === 'VIDEO'
+                    ? `Starting video call with ${displayName}`
+                    : `Video call ${displayName}`
+                }
+              />
+            ) : null}
             <CallActionButton
               onPress={onStartVoiceCall}
               disabled={callActionsDisabled}

@@ -14,6 +14,9 @@ export type NativeCallPayload = {
   callType: CallType
   initiatorDisplayName: string
   initiatorAvatarUrl?: string
+  isGroupCall?: boolean
+  groupName?: string
+  groupAvatarUrl?: string
   ringTimeoutMs: number
   expiresAt: string
   /** The signed-in account that owned the native CallKit action. */

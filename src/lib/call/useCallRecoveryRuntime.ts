@@ -527,6 +527,7 @@ export const useCallRecoveryRuntime = ({
     (payload: PeerReconnectingPayload) => {
       if (!isCurrentCall(payload.callId) || payload.userId === currentUserId) return
       const state = useCallStore.getState()
+      if (state.isGroupCall) return
       if (state.phase !== 'active') return
 
       reconnectModeRef.current = 'peer'
@@ -560,6 +561,7 @@ export const useCallRecoveryRuntime = ({
   const handlePeerReconnected = useCallback(
     (payload: PeerReconnectedPayload) => {
       if (!isCurrentCall(payload.callId) || payload.userId === currentUserId) return
+      if (useCallStore.getState().isGroupCall) return
       if (reconnectModeRef.current !== 'peer') return
       const state = useCallStore.getState()
       if (state.phase !== 'reconnecting') return

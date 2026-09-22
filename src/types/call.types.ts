@@ -30,6 +30,10 @@ export interface CallSessionPayload {
   conversationId: string
   initiatorId: string
   targetUserId: string
+  isGroupCall?: boolean
+  invitedUserIds?: string[]
+  groupName?: string
+  groupAvatarUrl?: string
   recipientUserId?: string
   initiatorDisplayName?: string
   initiatorAvatarUrl?: string
@@ -46,7 +50,7 @@ export interface CallSessionPayload {
 
 export interface InitiateCallPayload {
   conversationId: string
-  targetUserId: string
+  targetUserId?: string
   callType: CallType
 }
 
@@ -168,6 +172,9 @@ export interface IncomingCallPayload {
   ringTimeoutMs: number
   expiresAt: string
   callType: CallType
+  isGroupCall?: boolean
+  groupName?: string
+  groupAvatarUrl?: string
 }
 
 export interface CallJoinedPayload {
@@ -446,6 +453,7 @@ export interface CallUiState {
   peerUserId: string | null
   peerName: string | null
   peerAvatarUrl: string | null
+  isGroupCall: boolean
   callType: CallType | null
   muted: boolean
   speakerEnabled: boolean
@@ -464,9 +472,10 @@ export interface CallUiState {
 
 export interface StartCallInput {
   conversationId: string
-  peerUserId: string
+  peerUserId?: string
   peerName?: string
   peerAvatarUrl?: string
+  isGroupCall?: boolean
 }
 
 export type StartVoiceCallInput = StartCallInput

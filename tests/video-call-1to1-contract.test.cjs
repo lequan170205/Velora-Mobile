@@ -215,11 +215,9 @@ test('conversation video entry point remains direct-chat only', () => {
   const header = read('src/components/chat/conversation/ConversationHeader.tsx')
   assert.match(screen, /const \{ startVideoCall, startVoiceCall \} = useCall\(\)/)
   assert.match(screen, /const handleStartVideoCall =/)
-  assert.match(
-    screen,
-    /callPhase === 'idle' && !currentConversation\?\.isGroup && Boolean\(otherUserId\)/,
-  )
+  assert.match(screen, /showVideoCallAction=\{!currentConversation\?\.isGroup\}/)
   assert.match(header, /showCallActions \? \(/)
+  assert.match(header, /showVideoCallAction \? \(/)
   assert.match(header, /onPress=\{onStartVideoCall\}/)
   assert.match(header, /icon="videocam"/)
 })
@@ -393,7 +391,7 @@ test('minimized calls use native resume surfaces and a draggable global return c
   assert.match(floatingCallButton, /backgroundColor: colors\.bubble\.outgoing/)
   assert.match(floatingCallButton, /ReduceMotion\.System/)
   assert.doesNotMatch(floatingCallButton, /useCallStore\(\)/)
-  assert.match(screen, /callPhase === 'idle' && !currentConversation\?\.isGroup/)
+  assert.match(screen, /callPhase === 'idle' && \(currentConversation\?\.isGroup === true/)
   assert.match(callScreen, /veloraSystemCalls\.usesNativeCallUi \? \(/)
   assert.match(android, /setContentIntent\(returnToCallPendingIntent\(context, callId\)\)/)
   assert.match(android, /Uri\.parse\("antigravity:\/\/\/call\/\$callId"\)/)

@@ -263,6 +263,7 @@ export default function ActiveCallScreen() {
     callType,
     cameraEnabled,
     durationSec,
+    isGroupCall,
     localStreamUrl,
     muted,
     peerAvatarUrl,
@@ -429,14 +430,14 @@ export default function ActiveCallScreen() {
           disabled={controlsDisabled}
           onPress={() => void toggleCamera()}
         />
-      ) : (
+      ) : !isGroupCall ? (
         <IconButton
           icon="videocam"
           label="Switch to video call"
           disabled={controlsDisabled}
           onPress={() => void switchCallType('VIDEO')}
         />
-      )}
+      ) : null}
 
       <IconButton
         icon={muted ? 'mic-off' : 'mic'}

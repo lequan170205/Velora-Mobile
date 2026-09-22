@@ -213,8 +213,8 @@ export default function ChatScreen() {
   const startOutgoingCall = useCallback(
     async (callType: 'VOICE' | 'VIDEO') => {
       if (
-        !otherUserId ||
-        currentConversation?.isGroup ||
+        (!otherUserId && !currentConversation?.isGroup) ||
+        (callType === 'VIDEO' && currentConversation?.isGroup) ||
         callStartInFlightRef.current ||
         callPhase !== 'idle'
       ) {
@@ -227,9 +227,10 @@ export default function ChatScreen() {
       try {
         const input = {
           conversationId,
-          peerUserId: otherUserId,
+          ...(otherUserId ? { peerUserId: otherUserId } : {}),
           ...(displayName ? { peerName: displayName } : {}),
           ...(avatarUrl ? { peerAvatarUrl: avatarUrl } : {}),
+          ...(currentConversation?.isGroup ? { isGroupCall: true } : {}),
         }
 
         if (callType === 'VIDEO') await startVideoCall({ ...input })
@@ -252,7 +253,7 @@ export default function ChatScreen() {
   )
 
   const handleStartVoiceCall = useCallback(() => {
-    if (!otherUserId || currentConversation?.isGroup) {
+    if (!otherUserId && !currentConversation?.isGroup) {
       return
     }
     void startOutgoingCall('VOICE')
@@ -452,8 +453,9 @@ export default function ChatScreen() {
           presenceLabel={presenceLabel}
           queuedMessageCount={queuedMessageCount}
           showCallActions={
-            callPhase === 'idle' && !currentConversation?.isGroup && Boolean(otherUserId)
+            callPhase === 'idle' && (currentConversation?.isGroup === true || Boolean(otherUserId))
           }
+          showVideoCallAction={!currentConversation?.isGroup}
           onBack={handleBack}
           onOpenGroupInfo={handleOpenGroupInfo}
           onStartVideoCall={handleStartVideoCall}

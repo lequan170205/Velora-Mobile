@@ -568,7 +568,7 @@ test('conversation change and unmount cleanup retain every owned resource action
   )
 })
 
-test('group receipts and direct-only call entry points remain distinct', () => {
+test('group receipts and voice-only group call entry remain distinct', () => {
   const bundle = readBundle()
   const receiptBlock = findBlock('const latestOutgoingMessage =', 'const latestOutgoingIndex =')
 
@@ -576,7 +576,8 @@ test('group receipts and direct-only call entry points remain distinct', () => {
   assert.match(receiptBlock, /newestParticipantMessage/)
   assert.match(receiptBlock, /newestReadOutgoingMessage/)
   assert.match(receiptBlock, /readReceiptMap\.set/)
-  assert.match(bundle, /if \(!otherUserId \|\| currentConversation\?\.isGroup\)/)
+  assert.match(bundle, /if \(!otherUserId && !currentConversation\?\.isGroup\)/)
+  assert.match(bundle, /callType === 'VIDEO' && currentConversation\?\.isGroup/)
   assert.match(bundle, /startVoiceCall\(\{/)
   assert.match(bundle, /startVideoCall\(\{/)
 })

@@ -296,5 +296,8 @@ export const toNativeIncomingCallPayload = (
   }
 
   if (payload.initiatorAvatarUrl) nativePayload.initiatorAvatarUrl = payload.initiatorAvatarUrl
+  if (payload.isGroupCall) nativePayload.isGroupCall = true
+  if (payload.groupName) nativePayload.groupName = payload.groupName
+  if (payload.groupAvatarUrl) nativePayload.groupAvatarUrl = payload.groupAvatarUrl
   return nativePayload
 }

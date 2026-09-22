@@ -12,6 +12,9 @@ export type CallStateResponse = {
   status: 'initiated' | 'ringing' | 'accepting' | 'active' | 'cancelled' | 'ended' | 'rejected'
   initiatorDisplayName: string
   initiatorAvatarUrl?: string
+  isGroupCall?: boolean
+  groupName?: string
+  groupAvatarUrl?: string
   ringTimeoutMs: number
   expiresAt: string
 }
