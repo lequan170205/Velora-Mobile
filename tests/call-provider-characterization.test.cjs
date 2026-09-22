@@ -242,10 +242,22 @@ test('an End during a native accept terminalizes both sides of the accept race',
     endSource,
     [
       'const wasAcceptingIncomingCall = acceptingIncomingCallIdRef.current === callId',
-      'emitIncomingAcceptTerminalIntent(connectedSocket, callId, reason)',
+      'pendingServerEndIntentsRef.current.set(callId',
+      'flushPendingServerEndIntents(socket)',
+      'ensureCallSocketConnected(callId)',
       "await teardownOnce('end_call')",
     ],
     'incoming accept End ordering',
+  )
+  assert.match(
+    providerSource,
+    /pendingServerEndIntentsRef\.current\.delete\(payload\.callId\)[\s\S]*?if \(!isCurrentCall\(payload\.callId\)\)/,
+    'terminal replay must confirm pending End after local teardown resets the call store',
+  )
+  assert.match(
+    providerSource,
+    /recentTerminalCalls[\s\S]*?handleTerminalCall\(terminalCall, 'socket_ready_replay'\)[\s\S]*?flushPendingServerEndIntents\(socket\)/,
+    'authenticated socket readiness must retry pending End after terminal replay',
   )
 })
 
@@ -823,6 +835,26 @@ test('local reconnect prefers ICE restart and rebuilds media only after restart 
   )
 })
 
+test('remote consumer setup failure releases the server consumer before retry', () => {
+  const mediaRuntime = read('src/lib/call/useCallMediaTransportRuntime.ts')
+  const consumeSource = sliceBetween(
+    mediaRuntime,
+    'const consumeRemoteProducer = useCallback(',
+    'const flushQueuedRemoteProducers = useCallback(',
+  )
+
+  assertOrdered(
+    consumeSource,
+    [
+      'pendingServerConsumerId = consumerCreated.consumerId',
+      '} catch (error) {',
+      'closeRemoteConsumer(callId, pendingServerConsumerId)',
+      'consumer.close()',
+    ],
+    'partial remote consumer rollback',
+  )
+})
+
 test('peer reconnect disposes remote consumers without disposing local media', () => {
   const recoveryRuntime = read('src/lib/call/useCallRecoveryRuntime.ts')
   const peerRecoverySource = sliceBetween(
@@ -835,6 +867,21 @@ test('peer reconnect disposes remote consumers without disposing local media', (
   assert.match(peerRecoverySource, /resetRemoteConsumerRuntime\(\)/)
   assert.doesNotMatch(peerRecoverySource, /disposeMediaRuntime/)
   assert.doesNotMatch(peerRecoverySource, /deactivateLocalVideo/)
+
+  const resetConsumerSource = sliceBetween(
+    providerSource,
+    'const resetRemoteConsumerRuntime = useCallback(',
+    'const deriveRemoteVideoState = useCallback(',
+  )
+  assertOrdered(
+    resetConsumerSource,
+    [
+      'requestCloseRemoteConsumer(callId, consumer.id)',
+      'consumer.close()',
+      'consumerMapRef.current.clear()',
+    ],
+    'peer reconnect consumer cleanup order',
+  )
 })
 
 test('native answers are auth-gated, deduplicated and use the signed CallKit payload first', () => {

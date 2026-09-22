@@ -125,6 +125,12 @@ export interface ResumeConsumerPayload {
   consumerId: string
 }
 
+export interface CloseConsumerPayload {
+  callId: string
+  consumerId: string
+  requestId?: string
+}
+
 export interface RestartIcePayload {
   callId: string
   transportId: string
@@ -284,6 +290,13 @@ export interface ConsumerResumedPayload {
   consumerId: string
 }
 
+export interface ConsumerClosedAckPayload {
+  callId: string
+  consumerId: string
+  status: 'closed' | 'already_closed'
+  requestId?: string
+}
+
 export interface IceRestartedPayload {
   callId: string
   transportId: string
@@ -385,6 +398,7 @@ export interface CallServerEvents {
   producer_closed: (payload: ProducerClosedPayload) => void
   consumer_created: (payload: ConsumerCreatedPayload) => void
   consumer_resumed: (payload: ConsumerResumedPayload) => void
+  consumer_closed_ack: (payload: ConsumerClosedAckPayload) => void
   ice_restarted: (payload: IceRestartedPayload) => void
   audio_bitrate_updated: (payload: AudioBitrateUpdatedPayload) => void
   call_type_changed: (payload: CallTypeChangedPayload) => void
@@ -413,6 +427,7 @@ export interface CallClientEvents {
   close_producer: (payload: CloseProducerPayload) => void
   consume: (payload: ConsumePayload) => void
   resume_consumer: (payload: ResumeConsumerPayload) => void
+  close_consumer: (payload: CloseConsumerPayload) => void
   restart_ice: (payload: RestartIcePayload) => void
   set_audio_bitrate: (payload: SetAudioBitratePayload) => void
   set_call_type: (payload: SetCallTypePayload) => void

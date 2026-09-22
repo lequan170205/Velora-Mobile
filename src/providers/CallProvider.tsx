@@ -121,6 +121,16 @@ type PendingLocalVideoProducerClosure = {
   producerId: string
 }
 
+type PendingServerEndIntent = {
+  callId: string
+  accountId: string
+  reason?: string
+  acceptingIncomingCall: boolean
+  expiresAtMs: number
+}
+
+const SERVER_END_INTENT_TTL_MS = 60_000
+
 const debugCall = (...args: Parameters<typeof console.warn>) => {
   if (__DEV__) {
     console.warn(...args)
@@ -203,6 +213,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   )
   const inFlightLocalVideoProducerClosuresRef = useRef(new Set<string>())
   const localVideoProducerClosurePromisesRef = useRef(new Map<string, Promise<void>>())
+  const pendingServerEndIntentsRef = useRef(new Map<string, PendingServerEndIntent>())
   const cachedDeviceRef = useRef<CachedMediasoupDevice | null>(null)
   const consumerMapRef = useRef<Map<string, MediasoupTypes.Consumer<Record<string, unknown>>>>(
     new Map(),
@@ -586,6 +597,47 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     ],
   )
 
+  const requestCloseRemoteConsumer = useCallback((callId: string, consumerId: string) => {
+    const socket = socketRef.current
+    if (!socket?.connected || !callSocketAuthenticatedRef.current) return
+
+    socket.emit('close_consumer', {
+      callId,
+      consumerId,
+      requestId: createCallRequestId('close-consumer'),
+    })
+  }, [])
+
+  const flushPendingServerEndIntents = useCallback((socket: CallSocket | null) => {
+    if (!socket?.connected || !callSocketAuthenticatedRef.current) return
+
+    const accountId = useAuthStore.getState().user?.id
+    if (!accountId) return
+
+    const now = Date.now()
+    for (const [callId, intent] of pendingServerEndIntentsRef.current) {
+      if (intent.expiresAtMs <= now || intent.accountId !== accountId) {
+        pendingServerEndIntentsRef.current.delete(callId)
+        continue
+      }
+
+      if (intent.acceptingIncomingCall) {
+        socket.emit('reject_call', {
+          callId,
+          reason: intent.reason ?? 'cancelled',
+        })
+      }
+      socket.emit('leave_call', {
+        callId,
+        ...(intent.reason ? { reason: intent.reason } : {}),
+      })
+
+      // Keep the intent until call_ended (live or terminal replay) confirms
+      // the server observed a terminal transition. If the socket drops while
+      // this packet is in flight, the next authenticated socket_ready retries.
+    }
+  }, [])
+
   const resetRuntimeRefs = useCallback(
     (options?: { preserveActiveCall?: boolean }) => {
       clearAudioFlowConfirmation()
@@ -747,6 +799,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const resetRemoteConsumerRuntime = useCallback(() => {
     const currentConsumers = [...consumerMapRef.current.values()]
     const remoteStream = remoteStreamRef.current
+    const callId = activeCallIdRef.current ?? useCallStore.getState().callId
 
     // Recovery intentionally discards media consumers. Remember every video
     // producer that was present before the discard so a delayed event from
@@ -765,6 +818,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     )
 
     currentConsumers.forEach((consumer) => {
+      if (callId) {
+        requestCloseRemoteConsumer(callId, consumer.id)
+      }
       try {
         consumer.close()
       } catch {
@@ -793,7 +849,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       remoteStreamUrl: null,
       remoteVideoState: useCallStore.getState().callType === 'VIDEO' ? 'waiting' : 'idle',
     })
-  }, [clearRemoteConsumerRetryState])
+  }, [clearRemoteConsumerRetryState, requestCloseRemoteConsumer])
 
   const deriveRemoteVideoState = useCallback((): RemoteVideoState => {
     const state = useCallStore.getState()
@@ -1062,6 +1118,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       // A PushKit cold launch can have a native CallKit call even while the JS call store
       // is still idle. Always end the native system call by callId before checking JS state.
       veloraSystemCalls.dismissIncomingCall(payload.callId)
+      pendingServerEndIntentsRef.current.delete(payload.callId)
 
       if (!isCurrentCall(payload.callId)) {
         debugCall(
@@ -1137,6 +1194,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     getCurrentCallId,
     assertCallSetupCurrent,
     isCallSetupCurrent,
+    closeRemoteConsumer: requestCloseRemoteConsumer,
     clearReconnectTimeout,
     clearRemoteAudioFallback,
     confirmAudioFlow,
@@ -1266,34 +1324,34 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       useCallStore.getState().patch({ phase: 'ending' })
       const wasAcceptingIncomingCall = acceptingIncomingCallIdRef.current === callId
-      const emitServerEndIntent = (connectedSocket: CallSocket) => {
-        if (wasAcceptingIncomingCall) {
-          emitIncomingAcceptTerminalIntent(connectedSocket, callId, reason)
-          return
-        }
-        connectedSocket.emit('leave_call', {
-          callId,
-          ...(reason ? { reason } : {}),
-        })
-      }
+      const accountId = useAuthStore.getState().user?.id ?? currentUserId
 
-      if (socket?.connected) {
-        emitServerEndIntent(socket)
-      } else if (wasAcceptingIncomingCall) {
-        // A local End must still win if it happens while the cold-path socket
-        // connection is pending. Capture the accepting state before teardown,
-        // then send both terminal intents once the authenticated socket exists.
-        void ensureCallSocketConnected(callId)
-          .then((connectedSocket) => {
-            if (useAuthStore.getState().user?.id !== currentUserId) return
-            emitServerEndIntent(connectedSocket)
-          })
-          .catch(() => undefined)
+      if (accountId) {
+        pendingServerEndIntentsRef.current.set(callId, {
+          callId,
+          accountId,
+          reason,
+          acceptingIncomingCall: wasAcceptingIncomingCall,
+          expiresAtMs: Date.now() + SERVER_END_INTENT_TTL_MS,
+        })
+        flushPendingServerEndIntents(socket)
+
+        if (!socket?.connected || !callSocketAuthenticatedRef.current) {
+          // Keep the terminal command independent from local teardown. If the
+          // first authenticated reconnect loses the packet, socket_ready will
+          // replay it again until the server confirms call_ended.
+          void ensureCallSocketConnected(callId)
+            .then((connectedSocket) => {
+              if (useAuthStore.getState().user?.id !== accountId) return
+              flushPendingServerEndIntents(connectedSocket)
+            })
+            .catch(() => undefined)
+        }
       }
 
       await teardownOnce('end_call')
     },
-    [currentUserId, emitIncomingAcceptTerminalIntent, ensureCallSocketConnected, teardownOnce],
+    [currentUserId, ensureCallSocketConnected, flushPendingServerEndIntents, teardownOnce],
   )
 
   const recordCallScreenVisible = useCallback((visibleCallId: string) => {
@@ -2545,6 +2603,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socketConnectPromiseRef.current = null
       authRestorePromiseRef.current = null
       callSocketAuthenticatedRef.current = false
+      pendingServerEndIntentsRef.current.clear()
       void teardownOnce('auth_account_changed')
     }
     prewarmCredentialOwnerRef.current = currentUserId
@@ -2568,6 +2627,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socketRef.current?.removeAllListeners()
       socketRef.current?.disconnect()
       socketRef.current = null
+      pendingServerEndIntentsRef.current.clear()
       void teardownOnce('auth_lost')
       return
     }
@@ -2589,6 +2649,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       ;(payload?.recentTerminalCalls ?? []).forEach((terminalCall) => {
         handleTerminalCall(terminalCall, 'socket_ready_replay')
       })
+      flushPendingServerEndIntents(socket)
     }
 
     const handleConnect = () => {
@@ -2940,6 +3001,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     deriveRemoteVideoState,
     deactivateLocalVideo,
     flushPendingLocalVideoProducerClosures,
+    flushPendingServerEndIntents,
     beginReconnectRecovery,
     clearSocketDisconnectGraceTimeout,
     controlPlaneRecoveringRef,
@@ -2977,6 +3039,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       callSocketPromises.clear()
       socketConnectPromiseRef.current = null
       callSocketAuthenticatedRef.current = false
+      pendingServerEndIntentsRef.current.clear()
       stopTimer()
       clearNativeActionRetryTimeout()
       clearRemoteAudioFallback()

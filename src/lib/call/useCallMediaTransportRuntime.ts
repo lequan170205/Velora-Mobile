@@ -100,6 +100,7 @@ type MediaTransportRuntimeOptions = {
   getCurrentCallId: () => string | null
   assertCallSetupCurrent: (setupToken: number, callId: string) => void
   isCallSetupCurrent: (setupToken: number, callId: string) => boolean
+  closeRemoteConsumer: (callId: string, consumerId: string) => void
   clearReconnectTimeout: () => void
   clearRemoteAudioFallback: () => void
   confirmAudioFlow: () => void
@@ -157,6 +158,7 @@ export const useCallMediaTransportRuntime = ({
   getCurrentCallId,
   assertCallSetupCurrent,
   isCallSetupCurrent,
+  closeRemoteConsumer,
   clearReconnectTimeout,
   clearRemoteAudioFallback,
   confirmAudioFlow,
@@ -447,6 +449,7 @@ export const useCallMediaTransportRuntime = ({
 
       consumingProducerIdsRef.current.add(payload.producerId)
       let pendingConsumer: MediasoupTypes.Consumer<Record<string, unknown>> | null = null
+      let pendingServerConsumerId: string | null = null
       try {
         const consumerCreated = await emitAndWaitForEvent<'consume', 'consumer_created'>(
           socket,
@@ -465,6 +468,7 @@ export const useCallMediaTransportRuntime = ({
               eventPayload.callId === callId && eventPayload.producerId === payload.producerId,
           },
         )
+        pendingServerConsumerId = consumerCreated.consumerId
         assertCallSetupCurrent(setupToken, callId)
 
         const consumer = await recvTransport.consume({
@@ -512,6 +516,7 @@ export const useCallMediaTransportRuntime = ({
         if (payload.kind === 'video') {
           useCallStore.getState().patch({ remoteVideoState: deriveRemoteVideoState() })
           pendingConsumer = null
+          pendingServerConsumerId = null
           return
         }
 
@@ -539,7 +544,12 @@ export const useCallMediaTransportRuntime = ({
         }
         if (wasWaitingForPeerAudio) startTimer(useCallStore.getState().durationSec)
         pendingConsumer = null
+        pendingServerConsumerId = null
       } catch (error) {
+        if (pendingServerConsumerId) {
+          closeRemoteConsumer(callId, pendingServerConsumerId)
+          pendingServerConsumerId = null
+        }
         if (pendingConsumer) {
           const consumer = pendingConsumer
           const remoteStream = remoteStreamRef.current
@@ -685,6 +695,7 @@ export const useCallMediaTransportRuntime = ({
       confirmAudioFlow,
       clearReconnectTimeout,
       clearRemoteAudioFallback,
+      closeRemoteConsumer,
       currentUserId,
       deriveRemoteVideoState,
       deviceRef,
