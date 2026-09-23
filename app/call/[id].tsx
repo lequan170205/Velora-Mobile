@@ -1,9 +1,11 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import BottomSheet, {
   BottomSheetBackdrop,
+  BottomSheetScrollView,
   BottomSheetView,
   type BottomSheetBackdropProps,
 } from '@gorhom/bottom-sheet'
+import { useQuery } from '@tanstack/react-query'
 import { useKeepAwake } from 'expo-keep-awake'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -19,7 +21,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { Image, Platform, useWindowDimensions, View } from 'react-native'
+import { Alert, Image, Platform, useWindowDimensions, View } from 'react-native'
 import Animated, {
   Easing,
   FadeIn,
@@ -32,8 +34,10 @@ import Animated, {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RTCView } from 'react-native-webrtc'
 
+import { conversationApi } from '../../src/api/conversation.api'
 import { AppPressable } from '../../src/components/base/AppPressable'
 import { AppText } from '../../src/components/base/AppText'
+import { queryKeys } from '../../src/constants/queryKeys'
 import { colors } from '../../src/constants/theme'
 import { veloraSystemCalls } from '../../src/lib/systemCalls/veloraSystemCalls'
 import { useCall } from '../../src/providers/CallProvider'
@@ -262,7 +266,10 @@ export default function ActiveCallScreen() {
     callId,
     callType,
     cameraEnabled,
+    conversationId,
+    direction,
     durationSec,
+    groupParticipantIds,
     isGroupCall,
     localStreamUrl,
     muted,
@@ -284,6 +291,21 @@ export default function ActiveCallScreen() {
   const controlsSheetRef = useRef<BottomSheet>(null)
   const switchToVoiceAfterSheetDismissRef = useRef(false)
   const currentUser = useAuthStore((state) => state.user)
+  const { data: groupMembers = [] } = useQuery({
+    queryKey: queryKeys.conversations.members(conversationId ?? ''),
+    queryFn: () =>
+      conversationId ? conversationApi.getMembers(conversationId) : Promise.resolve([]),
+    enabled: isGroupCall && Boolean(conversationId),
+    staleTime: 60_000,
+  })
+  const groupPeopleIds = useMemo(
+    () =>
+      isGroupCall
+        ? [...new Set([...(currentUser?.id ? [currentUser.id] : []), ...groupParticipantIds])]
+        : [],
+    [currentUser?.id, groupParticipantIds, isGroupCall],
+  )
+  const isGroupHost = isGroupCall && direction === 'outgoing'
   const chromeProgress = useSharedValue(1)
   const isLandscape = width > height
   const systemTopInset =
@@ -337,6 +359,17 @@ export default function ActiveCallScreen() {
     participantsSheetRef.current?.snapToIndex(0)
   }, [])
 
+  const handleEndCallPress = useCallback(() => {
+    if (!isGroupHost) {
+      void endCall()
+      return
+    }
+    Alert.alert('End group call?', 'This will end the call for everyone.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'End for everyone', style: 'destructive', onPress: () => void endCall() },
+    ])
+  }, [endCall, isGroupHost])
+
   useKeepAwake()
 
   useEffect(() => {
@@ -373,10 +406,13 @@ export default function ActiveCallScreen() {
     if (phase === 'connecting') return 'Connecting…'
     if (phase === 'reconnecting') return 'Reconnecting…'
     if (phase === 'ending') return 'Ending…'
-    if (phase === 'active' && remoteAudioState === 'waiting') return 'Waiting for audio…'
+    if (phase === 'active' && isGroupCall && groupPeopleIds.length < 2)
+      return 'Waiting for others to join…'
+    if (phase === 'active' && remoteAudioState === 'waiting')
+      return isGroupCall ? 'Connecting group audio…' : 'Waiting for audio…'
     if (phase === 'active') return formatDuration(durationSec)
     return ''
-  }, [durationSec, phase, remoteAudioState])
+  }, [durationSec, groupPeopleIds.length, isGroupCall, phase, remoteAudioState])
 
   const reconnectSecondsLeft =
     reconnectDeadlineMs && phase === 'reconnecting'
@@ -413,7 +449,9 @@ export default function ActiveCallScreen() {
       activeOpacity={0.64}
       onPress={handleOpenParticipants}
       accessibilityRole="button"
-      accessibilityLabel="Show participants"
+      accessibilityLabel={
+        isGroupCall ? `Show ${groupPeopleIds.length} participants` : 'Show participants'
+      }
       accessibilityState={{ expanded: participantsVisible }}
     >
       <MaterialIcons name="people-outline" size={27} color={colors.call.textPrimary} />
@@ -481,13 +519,39 @@ export default function ActiveCallScreen() {
 
       <IconButton
         icon="call-end"
-        label="End call"
+        label={isGroupHost ? 'End call for everyone' : isGroupCall ? 'Leave call' : 'End call'}
         destructive
         size={52}
-        onPress={() => void endCall()}
+        onPress={handleEndCallPress}
       />
     </CallDock>
   )
+
+  const participantRows = isGroupCall
+    ? groupPeopleIds.map((userId, index) => {
+        const member = groupMembers.find((item) => item.userId === userId)
+        const isYou = userId === currentUser?.id
+        return {
+          id: userId,
+          name: isYou
+            ? 'You'
+            : member?.user.fullName ||
+              member?.user.name ||
+              member?.user.username ||
+              `Member ${index + 1}`,
+          avatarUrl: isYou ? (currentUser?.picture ?? null) : (member?.user.picture ?? null),
+          subtitle: isYou && currentUser?.username ? `@${currentUser.username}` : null,
+        }
+      })
+    : [
+        {
+          id: 'self',
+          name: 'You',
+          avatarUrl: currentUser?.picture ?? null,
+          subtitle: currentUser?.username ? `@${currentUser.username}` : null,
+        },
+        { id: 'peer', name: peerName || 'Unknown', avatarUrl: peerAvatarUrl, subtitle: null },
+      ]
 
   const participantsSheet = (
     <BottomSheet
@@ -503,7 +567,7 @@ export default function ActiveCallScreen() {
       handleIndicatorStyle={{ backgroundColor: colors.call.sheetHandle, width: 40 }}
       onChange={(index) => setParticipantsVisible(index >= 0)}
     >
-      <BottomSheetView style={{ flex: 1, paddingBottom: Math.max(insets.bottom, 16) }}>
+      <BottomSheetView style={{ flex: 1 }}>
         <View className="flex-row items-center justify-between px-5">
           <View className="h-11 w-11" />
           <AppText
@@ -523,52 +587,39 @@ export default function ActiveCallScreen() {
         </View>
 
         <View className="mt-3 h-px" style={{ backgroundColor: colors.call.controlBorder }} />
-        <View className="px-5">
+        <BottomSheetScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{
+            paddingHorizontal: 20,
+            paddingBottom: Math.max(insets.bottom, 16),
+          }}
+        >
           <AppText
             className="mb-3 mt-6 text-[18px] font-bold"
             style={{ color: colors.call.textPrimary }}
           >
-            In this call
+            {isGroupCall ? `In this call · ${groupPeopleIds.length}` : 'In this call'}
           </AppText>
-
-          <View className="flex-row items-center py-3">
-            <PeerAvatar
-              avatarUrl={currentUser?.picture ?? null}
-              name={
-                currentUser?.fullName ||
-                `${currentUser?.firstName ?? ''} ${currentUser?.lastName ?? ''}`.trim() ||
-                'You'
-              }
-              size={56}
-            />
-            <View className="ml-4 min-w-0 flex-1">
-              <AppText
-                className="text-[17px] font-semibold"
-                style={{ color: colors.call.textPrimary }}
-              >
-                You
-              </AppText>
-              {currentUser?.username ? (
-                <AppText className="mt-0.5 text-sm" style={{ color: colors.call.textSecondary }}>
-                  @{currentUser.username}
+          {participantRows.map((person) => (
+            <View key={person.id} className="flex-row items-center py-3">
+              <PeerAvatar avatarUrl={person.avatarUrl} name={person.name} size={56} />
+              <View className="ml-4 min-w-0 flex-1">
+                <AppText
+                  className="text-[17px] font-semibold"
+                  style={{ color: colors.call.textPrimary }}
+                  numberOfLines={1}
+                >
+                  {person.name}
                 </AppText>
-              ) : null}
+                {person.subtitle ? (
+                  <AppText className="mt-0.5 text-sm" style={{ color: colors.call.textSecondary }}>
+                    {person.subtitle}
+                  </AppText>
+                ) : null}
+              </View>
             </View>
-          </View>
-
-          <View className="flex-row items-center py-3">
-            <PeerAvatar avatarUrl={peerAvatarUrl} name={peerName} size={56} />
-            <View className="ml-4 min-w-0 flex-1">
-              <AppText
-                className="text-[17px] font-semibold"
-                style={{ color: colors.call.textPrimary }}
-                numberOfLines={1}
-              >
-                {peerName || 'Unknown'}
-              </AppText>
-            </View>
-          </View>
-        </View>
+          ))}
+        </BottomSheetScrollView>
       </BottomSheetView>
     </BottomSheet>
   )
@@ -908,6 +959,11 @@ export default function ActiveCallScreen() {
           >
             {statusLabel}
           </AppText>
+          {isGroupCall && phase === 'active' ? (
+            <AppText className="mt-2 text-center text-sm" style={{ color: colors.call.textMuted }}>
+              {groupPeopleIds.length} {groupPeopleIds.length === 1 ? 'person' : 'people'} in call
+            </AppText>
+          ) : null}
           {phase === 'reconnecting' && reconnectSecondsLeft !== null ? (
             <AppText className="mt-2 text-sm" style={{ color: colors.call.textMuted }}>
               {reconnectSecondsLeft}s remaining
@@ -921,6 +977,14 @@ export default function ActiveCallScreen() {
           style={bottomChromeStyle}
         >
           {activeControls}
+          {isGroupCall ? (
+            <AppText
+              className="mt-2 text-center text-sm"
+              style={{ color: colors.call.textSecondary }}
+            >
+              {isGroupHost ? 'End call for everyone' : 'Leave call'}
+            </AppText>
+          ) : null}
         </Animated.View>
       </SafeAreaView>
       {participantsSheet}

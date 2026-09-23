@@ -98,6 +98,7 @@ import type {
   IncomingCallPayload,
   IncomingCallAcceptancePayload,
   LocalVideoSyncState,
+  NewPeerPayload,
   NewProducerPayload,
   PeerLeftPayload,
   ProducerClosedPayload,
@@ -1456,6 +1457,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           (payload.isGroupCall ? payload.groupAvatarUrl : payload.initiatorAvatarUrl) ??
           peerInfo.peerAvatarUrl,
         isGroupCall: payload.isGroupCall === true,
+        groupParticipantIds: [],
         callType: payload.callType,
         muted: false,
         cameraEnabled: false,
@@ -1504,6 +1506,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           (callState.isGroupCall ? callState.groupAvatarUrl : callState.initiatorAvatarUrl) ??
           peerInfo.peerAvatarUrl,
         isGroupCall: callState.isGroupCall === true,
+        groupParticipantIds: [],
         callType: callState.callType,
         muted: false,
         cameraEnabled: false,
@@ -1974,6 +1977,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         useCallStore.getState().patch({
           phase: 'connecting',
           isGroupCall: joined.session.isGroupCall === true,
+          groupParticipantIds: joined.session.isGroupCall ? joined.session.participantIds : [],
           peerName: joined.session.isGroupCall
             ? joined.session.groupName || 'Group call'
             : useCallStore.getState().peerName,
@@ -2204,6 +2208,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           peerName: input.peerName ?? 'Unknown',
           peerAvatarUrl: input.peerAvatarUrl ?? null,
           isGroupCall: joined.session.isGroupCall === true,
+          groupParticipantIds: joined.session.isGroupCall ? joined.session.participantIds : [],
           callType,
           muted: false,
           cameraEnabled: callType === 'VIDEO',
@@ -2997,7 +3002,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
-      if (useCallStore.getState().isGroupCall) return
+      const state = useCallStore.getState()
+      if (state.isGroupCall) {
+        useCallStore.getState().patch({
+          groupParticipantIds: state.groupParticipantIds.filter((id) => id !== payload.userId),
+        })
+        return
+      }
 
       clearPeerLeftFallback()
       peerLeftTimeoutRef.current = setTimeout(() => {
@@ -3016,6 +3027,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         closedRemoteVideoProducerIdsRef.current.delete(payload.producerId)
       }
       void consumeRemoteProducer(payload)
+    }
+
+    const handleNewPeer = (payload: NewPeerPayload) => {
+      if (!isCurrentCall(payload.callId)) return
+      const state = useCallStore.getState()
+      if (!state.isGroupCall || state.groupParticipantIds.includes(payload.userId)) return
+      useCallStore.getState().patch({
+        groupParticipantIds: [...state.groupParticipantIds, payload.userId],
+      })
     }
 
     const handleCallAnswered = (payload: CallAnsweredPayload) => {
@@ -3066,6 +3086,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     socket.on('call_socket_ready', handleSocketReady)
     socket.on('disconnect', handleDisconnect)
     socket.on('incoming_call', handleIncomingCallEvent)
+    socket.on('new_peer', handleNewPeer)
     socket.on('new_producer', handleNewProducer)
     socket.on('producer_closed', handleProducerClosed)
     socket.on('call_type_changed', handleCallTypeChanged)
@@ -3089,6 +3110,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socket.off('peer_left', handlePeerLeft)
       socket.off('call_ended', handleCallEnded)
       socket.off('incoming_call', handleIncomingCallEvent)
+      socket.off('new_peer', handleNewPeer)
       socket.off('new_producer', handleNewProducer)
       socket.off('producer_closed', handleProducerClosed)
       socket.off('call_type_changed', handleCallTypeChanged)

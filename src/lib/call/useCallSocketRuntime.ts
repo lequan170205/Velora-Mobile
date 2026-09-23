@@ -248,7 +248,7 @@ export const useCallSocketRuntime = ({
         if (state.phase === 'incoming_ringing') return
         const action = incomingAnswerActionRef.current
         if (action?.callId !== callId) throw new Error('group_answer_action_unavailable')
-        await emitAndWaitForEvent<'rejoin_call', 'call_rejoined'>(
+        const rejoined = await emitAndWaitForEvent<'rejoin_call', 'call_rejoined'>(
           socket,
           'rejoin_call',
           { callId, actionId: action.actionId },
@@ -259,10 +259,13 @@ export const useCallSocketRuntime = ({
             filter: (payload) => payload.callId === callId,
           },
         )
+        if (useCallStore.getState().callId === callId) {
+          useCallStore.getState().patch({ groupParticipantIds: rejoined.session.participantIds })
+        }
         return
       }
 
-      await emitAndWaitForEvent<'join_call', 'call_joined'>(
+      const joined = await emitAndWaitForEvent<'join_call', 'call_joined'>(
         socket,
         'join_call',
         { callId },
@@ -273,6 +276,9 @@ export const useCallSocketRuntime = ({
           filter: (payload) => payload.callId === callId,
         },
       )
+      if (state.isGroupCall && useCallStore.getState().callId === callId) {
+        useCallStore.getState().patch({ groupParticipantIds: joined.session.participantIds })
+      }
       debugCall(
         '[Call] setup_call_membership_restored',
         JSON.stringify({

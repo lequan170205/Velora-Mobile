@@ -237,6 +237,7 @@ export const useCallRecoveryRuntime = ({
       const recoveredCallType = rejoined.session.callType
       useCallStore.getState().patch({
         callType: recoveredCallType,
+        groupParticipantIds: rejoined.session.isGroupCall ? rejoined.session.participantIds : [],
         remoteVideoState: recoveredCallType === 'VIDEO' ? 'waiting' : 'idle',
       })
       if (recoveredCallType === 'VOICE') {

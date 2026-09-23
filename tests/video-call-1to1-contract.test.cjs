@@ -195,7 +195,7 @@ test('Connecting exposes only the reliable End action', () => {
     controls,
     /icon=\{muted \? 'mic-off' : 'mic'\}[\s\S]{0,260}disabled=\{controlsDisabled\}/,
   )
-  assert.match(controls, /icon="call-end"[\s\S]{0,180}onPress=\{\(\) => void endCall\(\)\}/)
+  assert.match(controls, /icon="call-end"[\s\S]{0,260}onPress=\{handleEndCallPress\}/)
 })
 
 test('video tiles stay edge-to-edge without artificial top or bottom vignettes', () => {

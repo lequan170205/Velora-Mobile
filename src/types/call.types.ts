@@ -456,6 +456,7 @@ export interface CallUiState {
   peerName: string | null
   peerAvatarUrl: string | null
   isGroupCall: boolean
+  groupParticipantIds: string[]
   callType: CallType | null
   muted: boolean
   speakerEnabled: boolean

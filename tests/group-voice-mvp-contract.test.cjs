@@ -18,7 +18,7 @@ test('group host skips the one-to-one answer wait and guests ignore peer-left te
   const callScreen = read('app/call/[id].tsx')
   const recovery = read('src/lib/call/useCallRecoveryRuntime.ts')
   assert.match(provider, /joined\.session\.isGroupCall\s*\? 'answered'/)
-  assert.match(provider, /if \(useCallStore\.getState\(\)\.isGroupCall\) return/)
+  assert.match(provider, /if \(state\.isGroupCall\) \{[\s\S]*groupParticipantIds: state\.groupParticipantIds\.filter/)
   assert.match(provider, /payload\.session\.isGroupCall === true/)
   assert.match(provider, /const armGroupInvitationTimeout = useCallback/)
   assert.match(provider, /teardownOnce\('group_invitation_expired'\)/)
@@ -57,6 +57,29 @@ test('microphone denial on one device leaves the group invitation open elsewhere
   const provider = read('src/providers/CallProvider.tsx')
   const denial = provider.slice(provider.indexOf("if (!hasPermission)"))
   assert.match(denial, /if \(!state\.isGroupCall\) \{\s*socket\.emit\('reject_call'/)
+})
+
+test('group People shows joined members and stays in sync across joins, leaves, and reconnects', () => {
+  const screen = read('app/call/[id].tsx')
+  const provider = read('src/providers/CallProvider.tsx')
+  const recovery = read('src/lib/call/useCallRecoveryRuntime.ts')
+  const socketRuntime = read('src/lib/call/useCallSocketRuntime.ts')
+
+  assert.match(screen, /groupPeopleIds\.map\(\(userId, index\)/)
+  assert.match(screen, /conversationApi\.getMembers\(conversationId\)/)
+  assert.match(screen, /participantRows\.map\(\(person\)/)
+  assert.match(provider, /socket\.on\('new_peer', handleNewPeer\)/)
+  assert.match(provider, /groupParticipantIds: state\.groupParticipantIds\.filter\(\(id\) => id !== payload\.userId\)/)
+  assert.match(recovery, /groupParticipantIds: rejoined\.session\.isGroupCall \? rejoined\.session\.participantIds : \[\]/)
+  assert.match(socketRuntime, /groupParticipantIds: rejoined\.session\.participantIds/)
+})
+
+test('group call labels host ending separately from guest leaving', () => {
+  const screen = read('app/call/[id].tsx')
+  assert.match(screen, /const isGroupHost = isGroupCall && direction === 'outgoing'/)
+  assert.match(screen, /Alert\.alert\('End group call\?', 'This will end the call for everyone\.'/)
+  assert.match(screen, /isGroupHost \? 'End call for everyone' : 'Leave call'/)
+  assert.match(screen, /Waiting for others to join…/)
 })
 
 test('a confirmed reservation release keeps other group devices eligible', () => {
