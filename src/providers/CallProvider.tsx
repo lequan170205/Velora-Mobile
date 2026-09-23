@@ -1364,7 +1364,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         pendingServerEndIntentsRef.current.set(callId, {
           callId,
           accountId,
-          reason,
+          ...(reason ? { reason } : {}),
           acceptingIncomingCall: wasAcceptingIncomingCall,
           expiresAtMs: Date.now() + SERVER_END_INTENT_TTL_MS,
         })
@@ -1753,10 +1753,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           error: new Error('microphone permission denied'),
           errorCode: 'server_rejected',
         })
-        socket.emit('reject_call', {
-          callId,
-          reason: 'mic_permission_denied',
-        })
+        if (!state.isGroupCall) {
+          socket.emit('reject_call', {
+            callId,
+            reason: 'mic_permission_denied',
+          })
+        }
         await teardownOnce('accept_incoming_call_permission_denied', {
           errorMessage: 'Velora needs microphone access to place calls',
           telemetryError: new Error('microphone permission denied'),
@@ -3128,6 +3130,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const waitRegistry = waitRegistryRef.current
     const callSocketPromises = callSocketPromisesRef.current
+    const pendingServerEndIntents = pendingServerEndIntentsRef.current
 
     return () => {
       invalidateCallSetup()
@@ -3139,7 +3142,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       callSocketPromises.clear()
       socketConnectPromiseRef.current = null
       callSocketAuthenticatedRef.current = false
-      pendingServerEndIntentsRef.current.clear()
+      pendingServerEndIntents.clear()
       stopTimer()
       clearNativeActionRetryTimeout()
       clearRemoteAudioFallback()

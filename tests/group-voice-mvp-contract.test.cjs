@@ -53,6 +53,12 @@ test('one busy device does not decline a group invite for every device', () => {
   assert.match(busyBranch, /if \(!payload\.isGroupCall\) \{\s*socketRef\.current\?\.emit\('reject_call'/)
 })
 
+test('microphone denial on one device leaves the group invitation open elsewhere', () => {
+  const provider = read('src/providers/CallProvider.tsx')
+  const denial = provider.slice(provider.indexOf("if (!hasPermission)"))
+  assert.match(denial, /if \(!state\.isGroupCall\) \{\s*socket\.emit\('reject_call'/)
+})
+
 test('a confirmed reservation release keeps other group devices eligible', () => {
   const provider = read('src/providers/CallProvider.tsx')
   const types = read('src/types/call.types.ts')
