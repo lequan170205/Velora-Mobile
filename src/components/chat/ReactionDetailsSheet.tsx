@@ -10,6 +10,7 @@ import { ActivityIndicator, Image, ScrollView, Text, TouchableOpacity, View } fr
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { conversationApi } from '../../api/conversation.api'
+import { colors } from '../../constants/theme'
 import { useAuthStore } from '../../stores/authStore'
 
 import type { MessageReactionDetail } from '../../types/conversation.types'
@@ -121,8 +122,8 @@ export function ReactionDetailsSheet({
       enableDynamicSizing={false}
       enablePanDownToClose
       backdropComponent={renderBackdrop}
-      backgroundStyle={{ backgroundColor: '#FFFFFF' }}
-      handleIndicatorStyle={{ backgroundColor: '#D9D9D9' }}
+      backgroundStyle={{ backgroundColor: colors.surface.modal }}
+      handleIndicatorStyle={{ backgroundColor: colors.border.strong, width: 40 }}
       onDismiss={onDismiss}
     >
       <View style={{ flex: 1, paddingHorizontal: 16 }}>
@@ -181,7 +182,7 @@ export function ReactionDetailsSheet({
               paddingBottom: bottomPadding,
             }}
           >
-            <ActivityIndicator color="#FF6B2C" />
+            <ActivityIndicator color={colors.brand.primary} />
           </View>
         ) : isError ? (
           <View

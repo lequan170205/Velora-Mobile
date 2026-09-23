@@ -27,6 +27,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { scheduleOnRN } from 'react-native-worklets'
 
+import { colors } from '../../constants/theme'
 import { formatDurationLabel } from '../../lib/reels'
 import { AppVideoPlayer } from '../video/AppVideoPlayer'
 
@@ -892,7 +893,7 @@ export function ChatMediaViewer({
   const heroUri = sourceItem.posterUri ?? sourceItem.uri
   const durationLabel =
     activeItem?.type === 'video' ? formatDurationLabel(activeItem.message.media?.durationMs) : null
-  const senderName = getSenderName(activeItem?.message)
+  const senderName = getSenderName(activeItem?.message) || conversationTitle || 'Unknown'
   const sentAt = formatShort(activeItem?.message.createdAt)
   const avatarInitials = getAvatarInitials(senderName)
 
@@ -1113,7 +1114,7 @@ const styles = StyleSheet.create({
   },
   senderAvatar: {
     alignItems: 'center',
-    backgroundColor: '#3a6fd8',
+    backgroundColor: colors.surface.accent,
     borderRadius: 17,
     flexShrink: 0,
     height: 34,
@@ -1121,9 +1122,9 @@ const styles = StyleSheet.create({
     width: 34,
   },
   senderAvatarText: {
-    color: '#FFFFFF',
+    color: colors.brand.primary,
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   senderMeta: {
     flex: 1,

@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router'
 import React, { useCallback } from 'react'
 import { Pressable, Text, View } from 'react-native'
 
+import { colors } from '../../constants/theme'
 import { queueReelInitialSeek } from '../../lib/reelPlaybackCoordinator'
 
 import type { AiRagCitation } from '../../types/conversation.types'
@@ -94,7 +95,7 @@ export function AiCitationList({ citations, conversationId }: AiCitationListProp
               accessibilityRole="button"
               accessibilityLabel={`Source: ${label}`}
               accessibilityHint={accessibilityHint}
-              className="flex-row items-center rounded-full border border-black/8 bg-black/5 px-2.5 py-1.5 active:bg-black/10"
+              className="flex-row items-center rounded-full border border-border-light bg-surface-input px-2.5 py-1.5 active:bg-surface-muted"
               onPress={() => {
                 openCitation(citation)
               }}
@@ -102,9 +103,9 @@ export function AiCitationList({ citations, conversationId }: AiCitationListProp
               <MaterialIcons
                 name={EVIDENCE_ICONS[citation.evidenceType]}
                 size={14}
-                color="#6B625C"
+                color={colors.text.secondary}
               />
-              <Text className="ml-1.5 text-xs2 font-medium text-[#5F5752]">{label}</Text>
+              <Text className="ml-1.5 text-xs2 font-medium text-text-secondary">{label}</Text>
             </Pressable>
           )
         })}

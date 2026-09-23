@@ -15,6 +15,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 
+import { colors } from '../../constants/theme'
 import {
   calculateChatMediaDisplaySize,
   getChatMediaMaxWidth,
@@ -322,7 +323,7 @@ export function ChatMediaBubble({
               <Animated.View
                 style={[
                   progressStyle,
-                  { backgroundColor: '#FF6B2C', borderRadius: 999, height: 4 },
+                  { backgroundColor: colors.brand.primary, borderRadius: 999, height: 4 },
                 ]}
               />
             </View>

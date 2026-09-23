@@ -1,6 +1,6 @@
 import * as ImagePicker from 'expo-image-picker'
 import { forwardRef, useImperativeHandle } from 'react'
-import { Alert, Platform } from 'react-native'
+import { Alert, Linking, Platform } from 'react-native'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,6 +62,10 @@ export const AttachmentLauncherSheet = forwardRef<
             Alert.alert(
               'Permission denied',
               'Velora needs photo library access to pick images and videos.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+              ],
             )
             return
           }

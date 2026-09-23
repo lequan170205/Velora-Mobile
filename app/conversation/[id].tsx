@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { ConversationHeader } from '../../src/components/chat/conversation/ConversationHeader'
 import {
+  ConversationEmptyState,
   ConversationMessageListLoadingState,
   ConversationTypingIndicator,
 } from '../../src/components/chat/conversation/ConversationLoadingState'
@@ -544,7 +545,11 @@ export default function ChatScreen() {
                     keyboardShouldPersistTaps="handled"
                     ListHeaderComponent={renderListHeader}
                     ListEmptyComponent={
-                      isInitialMessagesLoading ? <ConversationMessageListLoadingState /> : null
+                      isInitialMessagesLoading ? (
+                        <ConversationMessageListLoadingState />
+                      ) : (
+                        <ConversationEmptyState />
+                      )
                     }
                     showsVerticalScrollIndicator={false}
                     removeClippedSubviews={false}
