@@ -450,6 +450,7 @@ export const useCallMediaTransportRuntime = ({
       consumingProducerIdsRef.current.add(payload.producerId)
       let pendingConsumer: MediasoupTypes.Consumer<Record<string, unknown>> | null = null
       let pendingServerConsumerId: string | null = null
+      const consumeRequestId = createCallRequestId('consume')
       try {
         const consumerCreated = await emitAndWaitForEvent<'consume', 'consumer_created'>(
           socket,
@@ -459,13 +460,17 @@ export const useCallMediaTransportRuntime = ({
             transportId: recvTransport.id,
             producerId: payload.producerId,
             rtpCapabilities: device.rtpCapabilities as unknown as Record<string, unknown>,
+            requestId: consumeRequestId,
           },
           {
             event: 'consumer_created',
             timeoutMs: CONSUMER_CREATED_TIMEOUT_MS,
             registry: waitRegistryRef.current,
+            requestId: consumeRequestId,
             filter: (eventPayload) =>
-              eventPayload.callId === callId && eventPayload.producerId === payload.producerId,
+              eventPayload.callId === callId &&
+              eventPayload.producerId === payload.producerId &&
+              eventPayload.requestId === consumeRequestId,
           },
         )
         pendingServerConsumerId = consumerCreated.consumerId

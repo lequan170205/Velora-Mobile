@@ -118,6 +118,7 @@ export interface ConsumePayload {
   transportId: string
   producerId: string
   rtpCapabilities: Record<string, unknown>
+  requestId?: string
 }
 
 export interface ResumeConsumerPayload {
@@ -283,6 +284,7 @@ export interface ConsumerCreatedPayload {
   producerId: string
   kind: 'audio' | 'video'
   rtpParameters: Record<string, unknown>
+  requestId?: string
 }
 
 export interface ConsumerResumedPayload {

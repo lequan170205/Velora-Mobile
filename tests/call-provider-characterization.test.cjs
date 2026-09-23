@@ -835,6 +835,27 @@ test('local reconnect prefers ICE restart and rebuilds media only after restart 
   )
 })
 
+test('remote consumer retries correlate consumer_created to the exact consume attempt', () => {
+  const mediaRuntime = read('src/lib/call/useCallMediaTransportRuntime.ts')
+  const consumeSource = sliceBetween(
+    mediaRuntime,
+    'const consumeRemoteProducer = useCallback(',
+    'const flushQueuedRemoteProducers = useCallback(',
+  )
+
+  assertOrdered(
+    consumeSource,
+    [
+      "const consumeRequestId = createCallRequestId('consume')",
+      'requestId: consumeRequestId',
+      "event: 'consumer_created'",
+      'eventPayload.requestId === consumeRequestId',
+      'pendingServerConsumerId = consumerCreated.consumerId',
+    ],
+    'consumer_created request correlation',
+  )
+})
+
 test('remote consumer setup failure releases the server consumer before retry', () => {
   const mediaRuntime = read('src/lib/call/useCallMediaTransportRuntime.ts')
   const consumeSource = sliceBetween(
