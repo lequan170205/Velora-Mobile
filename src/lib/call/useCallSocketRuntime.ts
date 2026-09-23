@@ -20,6 +20,7 @@ type CallSocketRuntimeOptions = {
   activeCallIdRef: MutableRef<string | null>
   telemetrySessionRef: MutableRef<CallTelemetrySession | null>
   acceptingIncomingCallIdRef: MutableRef<string | null>
+  incomingAnswerActionRef: MutableRef<{ callId: string; actionId: string } | null>
   authRestorePromiseRef: MutableRef<Promise<void> | null>
   socketConnectPromiseRef: MutableRef<Promise<CallSocket> | null>
   callSocketPromisesRef: MutableRef<Map<string, Promise<CallSocket>>>
@@ -38,6 +39,7 @@ export const useCallSocketRuntime = ({
   activeCallIdRef,
   telemetrySessionRef,
   acceptingIncomingCallIdRef,
+  incomingAnswerActionRef,
   authRestorePromiseRef,
   socketConnectPromiseRef,
   callSocketPromisesRef,
@@ -240,6 +242,26 @@ export const useCallSocketRuntime = ({
         (state.phase === 'incoming_ringing' && acceptingIncomingCallIdRef.current === callId)
       if (!shouldRestoreMembership) return
 
+      if (state.isGroupCall && state.direction === 'incoming') {
+        // The accept request itself restores a pending answer. Once accepted,
+        // only the winning action may rejoin on a fresh socket.
+        if (state.phase === 'incoming_ringing') return
+        const action = incomingAnswerActionRef.current
+        if (action?.callId !== callId) throw new Error('group_answer_action_unavailable')
+        await emitAndWaitForEvent<'rejoin_call', 'call_rejoined'>(
+          socket,
+          'rejoin_call',
+          { callId, actionId: action.actionId },
+          {
+            event: 'call_rejoined',
+            timeoutMs: CALL_JOINED_TIMEOUT_MS,
+            registry: waitRegistryRef.current,
+            filter: (payload) => payload.callId === callId,
+          },
+        )
+        return
+      }
+
       await emitAndWaitForEvent<'join_call', 'call_joined'>(
         socket,
         'join_call',
@@ -261,7 +283,13 @@ export const useCallSocketRuntime = ({
       )
       telemetrySessionRef.current?.record('socket_rejoin_succeeded', { outcome: 'succeeded' })
     },
-    [acceptingIncomingCallIdRef, socketGenerationRef, telemetrySessionRef, waitRegistryRef],
+    [
+      acceptingIncomingCallIdRef,
+      incomingAnswerActionRef,
+      socketGenerationRef,
+      telemetrySessionRef,
+      waitRegistryRef,
+    ],
   )
 
   return {

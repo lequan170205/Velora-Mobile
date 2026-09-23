@@ -53,6 +53,9 @@ private let pendingActionJournalAllowedKeys: Set<String> = [
   "callType",
   "initiatorDisplayName",
   "initiatorAvatarUrl",
+  "isGroupCall",
+  "groupName",
+  "groupAvatarUrl",
   "ringTimeoutMs",
   "expiresAt",
   "status",
@@ -2984,6 +2987,10 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
   }
 
   private func callerName(from payload: [String: Any]) -> String {
+    if payload["isGroupCall"] as? Bool == true,
+       let groupName = nonEmptyString(payload["groupName"]) {
+      return groupName
+    }
     if let displayName = nonEmptyString(payload["callerName"])
       ?? nonEmptyString(payload["initiatorDisplayName"]) {
       return displayName

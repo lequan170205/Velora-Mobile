@@ -84,6 +84,7 @@ export interface RejectCallPayload {
 
 export interface RejoinCallPayload {
   callId: string
+  actionId?: string
 }
 
 export interface LeaveCallPayload {
@@ -217,6 +218,7 @@ export interface IncomingCallAcceptancePayload {
   }[]
   noAnswerTimeoutMs?: number
   telemetryToken?: string
+  reservationReleased?: boolean
 }
 
 export interface CallRejoinedPayload {

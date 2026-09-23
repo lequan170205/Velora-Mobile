@@ -502,6 +502,7 @@ const createRecoveryRuntime = ({
   rejoinPayload,
   rejoinDeferred = null,
   rejoinError = null,
+  groupAnswerActionId = null,
 } = {}) => {
   const state = {
     phase: 'active',
@@ -510,6 +511,8 @@ const createRecoveryRuntime = ({
     hasCameraPermission: true,
     durationSec: 12,
     remoteAudioState: 'waiting',
+    isGroupCall: groupAnswerActionId !== null,
+    direction: groupAnswerActionId !== null ? 'incoming' : 'outgoing',
   }
   const store = {
     getState: () => ({ ...state, patch: (next) => Object.assign(state, next) }),
@@ -591,6 +594,11 @@ const createRecoveryRuntime = ({
     connectedTransportIdsRef: { current: new Set() },
     activeCallIdRef,
     callAnsweredRef: { current: true },
+    incomingAnswerActionRef: {
+      current: groupAnswerActionId
+        ? { callId: state.callId, actionId: groupAnswerActionId }
+        : null,
+    },
     telemetrySessionRef: { current: null },
     reconnectRecoveryInFlightRef: recoveryInFlightRef,
     controlPlaneRecoveringRef,
@@ -722,4 +730,14 @@ test('rejoin snapshot rebuilds remote video state from active producers', async 
     ],
   )
   assert.equal(harness.state.phase, 'active')
+})
+
+test('group guest rejoin carries the winning answer action', async () => {
+  const harness = createRecoveryRuntime({ groupAnswerActionId: 'winning-action' })
+
+  await harness.runtime.recoverActiveCall()
+
+  assert.deepEqual(harness.rejoinCalls, [
+    { callId: 'call-runtime-1', actionId: 'winning-action' },
+  ])
 })

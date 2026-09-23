@@ -408,6 +408,34 @@ class VeloraNativeCallLifecycleTest {
   }
 
   @Test
+  fun `active update ends an unanswered incoming call on the other device`() {
+    val callId = "call-passive-device"
+    assertTrue(VeloraSystemCallStore.beginRingingCall(context, callId, System.currentTimeMillis() + 60_000L))
+
+    VeloraCallNotifications.handleCallStateUpdate(
+      context,
+      callStateUpdate(callId, "active", answerActionId = "winning-device-action"),
+    )
+
+    assertNull(VeloraSystemCallStore.getCurrentCall(context))
+    assertEquals("remote_end", VeloraSystemCallStore.getPendingAction(context)?.get("action"))
+    assertEquals("answered_elsewhere", VeloraSystemCallStore.getPendingAction(context)?.get("reason"))
+  }
+
+  @Test
+  fun `active update still activates an outgoing ringing call`() {
+    val callId = "call-outgoing-active"
+    assertTrue(VeloraSystemCallStore.beginRingingCall(context, callId, null))
+
+    VeloraCallNotifications.handleCallStateUpdate(
+      context,
+      callStateUpdate(callId, "active", answerActionId = "guest-action"),
+    )
+
+    assertEquals("active", VeloraSystemCallStore.getCurrentCall(context)?.phase)
+  }
+
+  @Test
   fun `active update closes the matching incoming activity`() {
     val callId = "call-activity"
     assertTrue(VeloraSystemCallStore.beginRingingCall(context, callId, null))

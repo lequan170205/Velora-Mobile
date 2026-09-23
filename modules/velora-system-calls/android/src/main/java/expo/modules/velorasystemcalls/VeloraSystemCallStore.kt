@@ -55,6 +55,9 @@ object VeloraSystemCallStore {
     "callType",
     "initiatorDisplayName",
     "initiatorAvatarUrl",
+    "isGroupCall",
+    "groupName",
+    "groupAvatarUrl",
     "ringTimeoutMs",
     "expiresAt",
     "status",
@@ -542,10 +545,14 @@ object VeloraSystemCallStore {
   }
 
   fun normalizePayload(payload: Map<String, Any?>): Map<String, Any?> {
-    return payload.mapValues { (_, value) ->
-      when (value) {
-        is Number, is Boolean, is String -> value
-        else -> value?.toString()
+    return payload.mapValues { (key, value) ->
+      if (key == "isGroupCall" && value is String) {
+        value == "true"
+      } else {
+        when (value) {
+          is Number, is Boolean, is String -> value
+          else -> value?.toString()
+        }
       }
     }
   }

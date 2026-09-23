@@ -26,3 +26,36 @@ test('group host skips the one-to-one answer wait and guests ignore peer-left te
   assert.match(recovery, /if \(state\.isGroupCall\) return/)
   assert.match(recovery, /if \(useCallStore\.getState\(\)\.isGroupCall\) return/)
 })
+
+test('cold native group invites retain their identity through display, action journal, and acceptance', () => {
+  const androidStore = read('modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraSystemCallStore.kt')
+  const androidNotification = read('modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraCallNotifications.kt')
+  const androidActivity = read('modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraIncomingCallActivity.kt')
+  const ios = read('modules/velora-system-calls/ios/VeloraSystemCallsModule.swift')
+  const provider = read('src/providers/CallProvider.tsx')
+
+  for (const source of [androidStore, ios]) {
+    assert.match(source, /"isGroupCall"/)
+    assert.match(source, /"groupName"/)
+    assert.match(source, /"groupAvatarUrl"/)
+  }
+  assert.match(androidStore, /key == "isGroupCall" && value is String/)
+  assert.match(androidNotification, /payload\["isGroupCall"\] == true\) payload\["groupName"\]/)
+  assert.match(androidActivity, /payload\["isGroupCall"\] == true\) payload\["groupName"\]/)
+  assert.match(ios, /payload\["isGroupCall"\] as\? Bool == true/)
+  assert.match(provider, /isGroupCall: joined\.session\.isGroupCall === true/)
+  assert.match(provider, /joined\.session\.groupName \|\| 'Group call'/)
+})
+
+test('one busy device does not decline a group invite for every device', () => {
+  const provider = read('src/providers/CallProvider.tsx')
+  const busyBranch = provider.slice(provider.indexOf('if (outgoingStartInFlightRef.current || isBusyPhase(currentState.phase))'))
+  assert.match(busyBranch, /if \(!payload\.isGroupCall\) \{\s*socketRef\.current\?\.emit\('reject_call'/)
+})
+
+test('a confirmed reservation release keeps other group devices eligible', () => {
+  const provider = read('src/providers/CallProvider.tsx')
+  const types = read('src/types/call.types.ts')
+  assert.match(provider, /acceptance\.outcome === 'media_unavailable' &&\s*!acceptance\.reservationReleased/)
+  assert.match(types, /reservationReleased\?: boolean/)
+})

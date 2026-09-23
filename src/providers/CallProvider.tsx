@@ -1160,6 +1160,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       activeCallIdRef,
       telemetrySessionRef,
       acceptingIncomingCallIdRef,
+      incomingAnswerActionRef,
       authRestorePromiseRef,
       socketConnectPromiseRef,
       callSocketPromisesRef,
@@ -1239,6 +1240,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     connectedTransportIdsRef,
     activeCallIdRef,
     callAnsweredRef,
+    incomingAnswerActionRef,
     telemetrySessionRef,
     reconnectRecoveryInFlightRef,
     controlPlaneRecoveringRef,
@@ -1418,10 +1420,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (outgoingStartInFlightRef.current || isBusyPhase(currentState.phase)) {
-        socketRef.current?.emit('reject_call', {
-          callId: payload.callId,
-          reason: 'busy',
-        })
+        // One busy device must not decline a group invitation for every
+        // signed-in device. The server decides account-level busy on accept.
+        if (!payload.isGroupCall) {
+          socketRef.current?.emit('reject_call', {
+            callId: payload.callId,
+            reason: 'busy',
+          })
+        }
         return
       }
 
@@ -1523,9 +1529,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   )
 
   const resumeAcceptedCall = useCallback(
-    async (callState: CallStateResponse) => {
+    async (callState: CallStateResponse, answerActionId?: string) => {
       if (callState.status !== 'active' || !prepareIncomingCallFromState(callState)) {
         return false
+      }
+
+      if (callState.isGroupCall && answerActionId) {
+        incomingAnswerActionRef.current = { callId: callState.callId, actionId: answerActionId }
       }
 
       const resumedCallId = callState.callId
@@ -1790,7 +1800,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       try {
         telemetry.recordLifecycle('server_accepting', { outcome: 'started' })
         let acceptance: IncomingCallAcceptancePayload | null = null
-        if (ATOMIC_INCOMING_CALL_ACCEPT_ENABLED) {
+        if (ATOMIC_INCOMING_CALL_ACCEPT_ENABLED || state.isGroupCall) {
           for (let attempt = 1; attempt <= INCOMING_ACCEPT_MAX_ATTEMPTS; attempt += 1) {
             try {
               acceptRequestSent = true
@@ -1897,6 +1907,23 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           acceptance.outcome === 'media_unavailable'
         ) {
           completeNativeAnswer(false, acceptance.outcome)
+          if (
+            state.isGroupCall &&
+            acceptance.outcome === 'media_unavailable' &&
+            !acceptance.reservationReleased
+          ) {
+            if (socket.connected) {
+              emitIncomingAcceptTerminalIntent(socket, callId, 'media_unavailable')
+            } else {
+              void ensureCallSocketConnected(callId)
+                .then((connectedSocket) => {
+                  if (useAuthStore.getState().user?.id === currentUserId) {
+                    emitIncomingAcceptTerminalIntent(connectedSocket, callId, 'media_unavailable')
+                  }
+                })
+                .catch(() => undefined)
+            }
+          }
           await teardownOnce('accept_incoming_call_not_available', {
             telemetryErrorCode: acceptance.outcome,
           })
@@ -1944,6 +1971,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
         useCallStore.getState().patch({
           phase: 'connecting',
+          isGroupCall: joined.session.isGroupCall === true,
+          peerName: joined.session.isGroupCall
+            ? joined.session.groupName || 'Group call'
+            : useCallStore.getState().peerName,
+          peerAvatarUrl: joined.session.isGroupCall
+            ? (joined.session.groupAvatarUrl ?? null)
+            : useCallStore.getState().peerAvatarUrl,
           remoteAudioState: 'idle',
           remoteVideoState: state.callType === 'VIDEO' ? 'waiting' : 'idle',
           localStreamUrl: null,

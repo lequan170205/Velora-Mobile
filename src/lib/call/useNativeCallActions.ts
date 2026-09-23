@@ -27,7 +27,10 @@ type NativeCallActionsOptions = {
   teardownOnce: (reason: string) => Promise<void>
   prepareIncomingCallFromState: (callState: Awaited<ReturnType<typeof getCallState>>) => boolean
   prepareIncomingCallFromPayload: (payload: NativeCallPayload) => boolean
-  resumeAcceptedCall: (callState: Awaited<ReturnType<typeof getCallState>>) => Promise<boolean>
+  resumeAcceptedCall: (
+    callState: Awaited<ReturnType<typeof getCallState>>,
+    answerActionId?: string,
+  ) => Promise<boolean>
   acceptIncomingCall: (source?: 'native' | 'ui', actionId?: string) => Promise<void>
   endCall: (reason?: string) => Promise<void>
   ensureCallSocketConnected: (callId: string) => Promise<CallSocket>
@@ -222,7 +225,7 @@ export const useNativeCallActions = ({
             return
           }
 
-          const resumed = await resumeAcceptedCall(callState)
+          const resumed = await resumeAcceptedCall(callState, action.answerActionId)
           if (!isActionAccountCurrent()) {
             await abandonActionForAccountChange()
             return

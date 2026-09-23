@@ -299,7 +299,7 @@ test('the legacy answer flow is a baked rollback mode, never an automatic atomic
   assertOrdered(
     incomingSource,
     [
-      'if (ATOMIC_INCOMING_CALL_ACCEPT_ENABLED)',
+      'if (ATOMIC_INCOMING_CALL_ACCEPT_ENABLED || state.isGroupCall)',
       "'accept_incoming_call'",
       '} else {',
       "telemetry.record('legacy_accept_rollback_mode'",
@@ -612,7 +612,7 @@ test('a crash after server acceptance resumes with rejoin instead of replaying a
 
   assert.match(nativeActions, /if \(action\.action === 'resume'\)/)
   assert.match(nativeActions, /callState\.status !== 'active'/)
-  assert.match(nativeActions, /await resumeAcceptedCall\(callState\)/)
+  assert.match(nativeActions, /await resumeAcceptedCall\(callState, action\.answerActionId\)/)
   assert.doesNotMatch(
     sliceBetween(
       nativeActions,

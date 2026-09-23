@@ -52,6 +52,7 @@ type RecoveryRuntimeOptions = {
   connectedTransportIdsRef: MutableRef<Set<string>>
   activeCallIdRef: MutableRef<string | null>
   callAnsweredRef: MutableRef<boolean>
+  incomingAnswerActionRef: MutableRef<{ callId: string; actionId: string } | null>
   telemetrySessionRef: MutableRef<CallTelemetrySession | null>
   reconnectRecoveryInFlightRef: MutableRef<boolean>
   controlPlaneRecoveringRef: MutableRef<boolean>
@@ -112,6 +113,7 @@ export const useCallRecoveryRuntime = ({
   connectedTransportIdsRef,
   activeCallIdRef,
   callAnsweredRef,
+  incomingAnswerActionRef,
   telemetrySessionRef,
   reconnectRecoveryInFlightRef,
   controlPlaneRecoveringRef,
@@ -208,10 +210,18 @@ export const useCallRecoveryRuntime = ({
     remoteVideoEnabledByProducerRef.current.clear()
     remoteVideoRevisionByProducerRef.current.clear()
     try {
+      const groupGuest = state.isGroupCall && state.direction === 'incoming'
+      const answerAction = incomingAnswerActionRef.current
+      if (groupGuest && answerAction?.callId !== state.callId) {
+        throw new Error('group_answer_action_unavailable')
+      }
       const rejoined = await emitAndWaitForEvent<'rejoin_call', 'call_rejoined'>(
         socket,
         'rejoin_call',
-        { callId: state.callId },
+        {
+          callId: state.callId,
+          ...(groupGuest ? { actionId: answerAction?.actionId ?? '' } : {}),
+        },
         {
           event: 'call_rejoined',
           timeoutMs: CALL_JOINED_TIMEOUT_MS,
@@ -395,6 +405,7 @@ export const useCallRecoveryRuntime = ({
     assertCallSetupCurrent,
     beginCallSetup,
     callAnsweredRef,
+    incomingAnswerActionRef,
     controlPlaneRecoveringRef,
     clearReconnectTimeout,
     clearRemoteVideoRuntime,

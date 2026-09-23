@@ -424,7 +424,8 @@ class VeloraIncomingCallActivity : Activity() {
   // ── Avatar ──────────────────────────────────────────────────────────────────
 
   private fun loadAvatarAsync() {
-    val avatarUrl = payload["initiatorAvatarUrl"] as? String ?: return
+    val avatarUrl = ((if (payload["isGroupCall"] == true) payload["groupAvatarUrl"] else null) as? String)
+      ?: payload["initiatorAvatarUrl"] as? String ?: return
     val callId = payload["callId"] as? String ?: return
     val generation = renderGeneration
     val displayMetrics = resources.displayMetrics
@@ -547,7 +548,9 @@ class VeloraIncomingCallActivity : Activity() {
   }
 
   private fun callerName(): String =
-    (payload["initiatorDisplayName"] as? String)
+    ((if (payload["isGroupCall"] == true) payload["groupName"] else null) as? String)
+      ?.takeIf { it.isNotBlank() }
+      ?: (payload["initiatorDisplayName"] as? String)
       ?.takeIf { it.isNotBlank() }
       ?: "Velora call"
 

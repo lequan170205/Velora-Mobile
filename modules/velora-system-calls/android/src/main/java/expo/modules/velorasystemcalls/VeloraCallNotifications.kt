@@ -58,7 +58,8 @@ object VeloraCallNotifications {
     // The avatar is a pure visual enhancement: post the call notification
     // immediately, then upgrade it with the caller's photo once (if) the
     // fetch completes while the call is still ringing.
-    val avatarUrl = payload["initiatorAvatarUrl"] as? String
+    val avatarUrl = (if (payload["isGroupCall"] == true) payload["groupAvatarUrl"] else null) as? String
+      ?: payload["initiatorAvatarUrl"] as? String
     if (!avatarUrl.isNullOrBlank()) {
       Thread {
         val source = VeloraCallAvatars.fetchAvatar(avatarUrl) ?: return@Thread
@@ -254,11 +255,15 @@ object VeloraCallNotifications {
       callId,
     )
     val winnerActionId = payload["answerActionId"] as? String
+    val currentCall = VeloraSystemCallStore.getCurrentCall(context)
+    val isUnansweredIncomingOnAnotherDevice =
+      localWinningAnswerActionId == null && currentCall?.callId == callId &&
+        currentCall.phase == "ringing" && currentCall.expiresAtMs != null
     val isExplicitlyAnsweredElsewhere =
       status == "active" &&
-        localWinningAnswerActionId != null &&
         !winnerActionId.isNullOrBlank() &&
-        localWinningAnswerActionId != winnerActionId
+        (isUnansweredIncomingOnAnotherDevice ||
+          localWinningAnswerActionId != null && localWinningAnswerActionId != winnerActionId)
 
     if (!VeloraSystemCallStore.storeRemoteCallStateUpdate(
         context,
@@ -440,7 +445,10 @@ object VeloraCallNotifications {
     }
 
   private fun callerName(payload: Map<String, Any?>): String =
-    (payload["initiatorDisplayName"] as? String)?.takeIf { it.isNotBlank() } ?: "Velora call"
+    ((if (payload["isGroupCall"] == true) payload["groupName"] else null) as? String)
+      ?.takeIf { it.isNotBlank() }
+      ?: (payload["initiatorDisplayName"] as? String)?.takeIf { it.isNotBlank() }
+      ?: "Velora call"
 
   private fun isVideoCall(payload: Map<String, Any?>): Boolean =
     (payload["callType"] as? String)?.uppercase() == "VIDEO"
