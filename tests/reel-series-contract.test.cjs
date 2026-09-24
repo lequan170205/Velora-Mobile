@@ -155,6 +155,11 @@ test('series API operations normalize every returned reel through the shared nor
     /patch<ReelSeries>\([\s\S]*\/content\/series\/\$\{seriesId\}\/reels\/order/,
   )
   assert.match(reelsApi, /get<PaginatedReelSeries>\('\/content\/series'/)
+  assert.match(
+    reelsApi,
+    /getSeriesEpisodePage:[\s\S]*get<ReelSeriesEpisodesPage>[\s\S]*\/content\/series\/\$\{id\}\/episodes[\s\S]*items: response\.data\.items\.map\(normalizeReelApiResponse\)/,
+  )
+  assert.match(reelsApi, /listOwnedSeries:[\s\S]*return response\.data/)
 })
 
 test('owned Series pagination uses opaque cursors and a focused Series-list query key', () => {
@@ -255,17 +260,62 @@ test('series indicator is conditional, accessible, and routes with Series and cu
   assert.match(reelFeedItem, /video-library/)
 })
 
-test('series screen preserves backend order and starts at the requested episode with a safe fallback', () => {
-  assert.match(seriesScreen, /useReelSeries\(seriesId\)/)
-  assert.match(seriesScreen, /series\.reels\.some\(\(reel\) => reel\.id === requestedReelId\)/)
-  assert.match(seriesScreen, /return series\.reels\[0\]\?\.id/)
-  assert.match(seriesScreen, /contextItems=\{series\.reels\}/)
-  assert.match(seriesScreen, /reelId=\{(?:activeReelId|initialReelId)\}/)
+test('series playback loads an episode window anchored on the requested reel', () => {
+  assert.match(seriesScreen, /useReelSeriesEpisodes\(seriesId, requestedReelId\)/)
+  assert.match(seriesScreen, /episodes\.some\(\(reel\) => reel\.id === requestedReelId\)/)
+  assert.match(seriesScreen, /return episodes\[0\]\?\.id/)
+  assert.match(seriesScreen, /contextItems=\{episodes\}/)
+  assert.match(seriesScreen, /reelId=\{selectedEpisodeId\}/)
   assert.match(seriesScreen, /eventSource="DIRECT"/)
   assert.match(seriesScreen, /series\.title/)
   assert.match(seriesScreen, /series\.description/)
-  assert.match(seriesScreen, /series\.reels\.length/)
+  assert.match(seriesScreen, /series\.episodeCount/)
+  assert.match(seriesScreen, /hasPreviousContextPage=\{hasPreviousPage\}/)
+  assert.match(seriesScreen, /hasNextContextPage=\{hasNextPage\}/)
   assert.match(seriesScreen, /\/series\/\[id\]\/manage/)
+})
+
+test('episode selection waits for sheet dismissal without blocking future opens', () => {
+  assert.match(
+    seriesScreen,
+    /const handleEpisodeSelect = useCallback\(\(reelId: string\) => \{\s*pendingSelectedReelIdRef\.current = reelId\s*episodesDrawerRef\.current\?\.dismiss\(\)/,
+  )
+  assert.match(seriesScreen, /onDismiss=\{handleEpisodeSheetDismiss\}/)
+  assert.doesNotMatch(seriesScreen, /pendingEpisodeSheetActionRef/)
+  assert.doesNotMatch(seriesScreen, /reopenEpisodeSheetAfterDismissRef/)
+  assert.doesNotMatch(seriesScreen, /isEpisodeSheetDismissingRef/)
+  assert.match(
+    seriesScreen,
+    /const pendingSelectedReelId = pendingSelectedReelIdRef\.current\s*pendingSelectedReelIdRef\.current = null\s*if \(pendingSelectedReelId\) \{\s*activeReelIdRef\.current = pendingSelectedReelId\s*setCurrentReelId\(pendingSelectedReelId\)\s*setSelectedReelId\(pendingSelectedReelId\)/,
+  )
+  assert.match(seriesScreen, /import \{ Pressable \} from 'react-native-gesture-handler'/)
+  assert.match(seriesScreen, /activeReelIdRef\.current = reel\.id/)
+  assert.match(seriesScreen, /const activeEpisodeIndex = Math\.max\(/)
+  assert.match(seriesScreen, /episodes\.findIndex\(\(reel\) => reel\.id === activeReelId\)/)
+  assert.match(
+    seriesScreen,
+    /getItemLayout=\{\(_, index\) => \(\{[\s\S]*length: EPISODE_ITEM_HEIGHT[\s\S]*EPISODE_ITEM_HEIGHT \* index/,
+  )
+  assert.match(seriesScreen, /enableContentPanningGesture=\{false\}/)
+  assert.match(seriesScreen, /initialScrollIndex=\{activeEpisodeIndex\}/)
+  assert.match(seriesScreen, /key=\{activeReelId \?\? 'episodes'\}/)
+  assert.doesNotMatch(seriesScreen, /scrollToOffset\(/)
+  assert.doesNotMatch(seriesScreen, /maintainVisibleContentPosition=/)
+  assert.doesNotMatch(seriesScreen, /onScrollToIndexFailed=/)
+  assert.match(
+    seriesScreen,
+    /const handleOpenEpisodes = useCallback\(\(\) => \{[\s\S]*episodesDrawerRef\.current\?\.present\(\)/,
+  )
+  assert.match(seriesScreen, /const isCurrent = reel\.id === activeReelId/)
+})
+
+test('episode sheet rows define layout on Gesture Handler Pressable styles', () => {
+  assert.match(
+    seriesScreen,
+    /style=\{\[styles\.episodeRow, isCurrent && styles\.currentEpisodeRow\]\}/,
+  )
+  assert.match(seriesScreen, /episodeRow:\s*\{[\s\S]*width: '100%'[\s\S]*flexDirection: 'row'/)
+  assert.match(seriesScreen, /episodeText:\s*\{[\s\S]*flex: 1[\s\S]*minWidth: 0/)
 })
 
 test('publish flow uploads once before Series creation or attachment and keeps audience in sync', () => {
@@ -356,7 +406,7 @@ test('profile and owned-Series screen expose owner Series discovery and creation
   assert.match(ownedSeriesScreen, /fetchNextPage/)
 })
 
-test('series playback uses ReelsViewer local context as a strict non-paginating boundary', () => {
+test('series playback uses a paged local context without falling through to unrelated feeds', () => {
   assert.match(
     reelsViewer,
     /const shouldUseLocalContext = shouldUseReelContext && contextItems\.length > 0/,
@@ -377,6 +427,33 @@ test('series playback uses ReelsViewer local context as a strict non-paginating 
     reelsViewer,
     /return contextItems\.filter\(\(item\) => !deletedReelIds\.has\(item\.id\)\)/,
   )
+  assert.match(
+    reelsViewer,
+    /if \(shouldUseLocalContext\) \{[\s\S]*onContextPageRequest\('previous'\)/,
+  )
+  assert.match(reelsViewer, /onContextPageRequest\('next'\)/)
+  assert.match(reelsViewer, /activeLocalIndex/)
+  assert.match(
+    reelsViewer,
+    /useLayoutEffect\(\(\) => \{\s*reelsRef\.current = reels\s*\}, \[reels\]\)/,
+  )
+  assert.match(
+    reelsViewer,
+    /pendingPagerSelectionReelIdRef\.current = reelsRef\.current\[nextIndex\]/,
+  )
+  assert.match(
+    reelsViewer,
+    /if \(!shouldUseLocalContext && reelId && previousSelectedReelId !== reelId\)/,
+  )
+  assert.match(reelsViewer, /if \(pendingReelId && nextReelId !== pendingReelId\) return/)
+  assert.match(reelsViewer, /useLayoutEffect\(\(\) => \{[\s\S]*activeLocalIndex/)
+  assert.match(
+    reelsViewer,
+    /const nextWindowStart = shouldUseLocalContextRef\.current[\s\S]*\? 0[\s\S]*: getPagerWindowStart/,
+  )
+  assert.match(reelsViewer, /const visiblePagerWindowStart = shouldUseLocalContext\s*\? 0/)
+  assert.match(reelsViewer, /shouldUseLocalContext\s*\? reels\s*: reels\.slice/)
+  assert.match(reelsViewer, /if \(shouldUseLocalContext\) return/)
 })
 
 test('candidate API requests target candidate-reels endpoint with pagination and normalization', async () => {

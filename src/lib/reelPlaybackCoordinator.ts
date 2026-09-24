@@ -1,6 +1,7 @@
 export interface ReelPlaybackPlayer {
   pause: () => void
   play: () => void
+  setMuted?: (muted: boolean) => void
   seekTo?: (seconds: number) => void
 }
 
@@ -44,6 +45,7 @@ export class ReelPlaybackCoordinator {
   private readonly pendingSeekTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private desiredReelId: string | null = null
   private playingReelId: string | null = null
+  private muted = false
 
   register(reelId: string, player: ReelPlaybackPlayer | null) {
     const existingSeekTimer = this.pendingSeekTimers.get(reelId)
@@ -61,9 +63,15 @@ export class ReelPlaybackCoordinator {
     }
 
     this.players.set(reelId, player)
-    this.schedulePendingSeek(reelId, player)
 
     if (this.desiredReelId === reelId) {
+      player.setMuted?.(this.muted)
+      if (this.schedulePendingSeek(reelId, player)) {
+        player.pause()
+        this.playingReelId = null
+        return
+      }
+
       player.play()
       this.playingReelId = reelId
       return
@@ -72,7 +80,17 @@ export class ReelPlaybackCoordinator {
     player.pause()
   }
 
-  transition(nextReelId: string | null) {
+  transition(nextReelId: string | null, muted = this.muted) {
+    this.muted = muted
+    const waitingForSeek = nextReelId && this.pendingSeekTimers.has(nextReelId)
+    if (
+      this.desiredReelId === nextReelId &&
+      (this.playingReelId === nextReelId || waitingForSeek)
+    ) {
+      if (nextReelId) this.players.get(nextReelId)?.setMuted?.(muted)
+      return
+    }
+
     const previousReelId = this.playingReelId
 
     if (previousReelId && previousReelId !== nextReelId) {
@@ -91,7 +109,13 @@ export class ReelPlaybackCoordinator {
       return
     }
 
-    this.schedulePendingSeek(nextReelId, nextPlayer)
+    nextPlayer.setMuted?.(muted)
+    if (this.schedulePendingSeek(nextReelId, nextPlayer)) {
+      nextPlayer.pause()
+      this.playingReelId = null
+      return
+    }
+
     nextPlayer.play()
     this.playingReelId = nextReelId
   }
@@ -115,7 +139,7 @@ export class ReelPlaybackCoordinator {
   private schedulePendingSeek(reelId: string, player: ReelPlaybackPlayer) {
     const pendingSeek = getPendingReelSeek(reelId)
     if (!pendingSeek || typeof player.seekTo !== 'function') {
-      return
+      return false
     }
 
     const existingTimer = this.pendingSeekTimers.get(reelId)
@@ -137,9 +161,15 @@ export class ReelPlaybackCoordinator {
 
       player.seekTo(latestPendingSeek.seconds)
       pendingReelSeeks.delete(reelId)
+      if (this.desiredReelId === reelId) {
+        player.setMuted?.(this.muted)
+        player.play()
+        this.playingReelId = reelId
+      }
     }, PENDING_REEL_SEEK_DELAY_MS)
 
     this.pendingSeekTimers.set(reelId, timer)
+    return true
   }
 }
 

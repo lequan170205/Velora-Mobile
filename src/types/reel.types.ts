@@ -103,6 +103,29 @@ export interface ReelSeries {
   reels: ReelFeedListItem[]
 }
 
+export interface ReelSeriesMetadata {
+  id: string
+  ownerId: string
+  title: string
+  description?: string
+  visibility: ReelVisibility
+  createdAt: string
+  updatedAt: string
+  episodeCount: number
+}
+
+export interface ReelSeriesListItem extends ReelSeriesMetadata {
+  firstReelId?: string
+  coverThumbnailUrl?: string
+}
+
+export interface ReelSeriesEpisodesPage {
+  series: ReelSeriesMetadata
+  items: ReelFeedListItem[]
+  previousCursor: string | null
+  nextCursor: string | null
+}
+
 export interface ListReelSeriesParams {
   visibility?: ReelVisibility
   limit?: number
@@ -110,8 +133,15 @@ export interface ListReelSeriesParams {
 }
 
 export interface PaginatedReelSeries {
-  items: ReelSeries[]
+  items: ReelSeriesListItem[]
   nextCursor: string | null
+}
+
+export interface ListReelSeriesEpisodesParams {
+  limit?: number
+  aroundReelId?: string
+  cursor?: string
+  direction?: 'previous' | 'next'
 }
 
 export interface CreateReelSeriesPayload {

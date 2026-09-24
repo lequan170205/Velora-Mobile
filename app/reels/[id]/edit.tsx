@@ -29,7 +29,12 @@ import {
   useUpdateReel,
 } from '@/hooks/useReels'
 import { extractHashtags, stripHashtagsFromCaption } from '@/lib/reels'
-import type { CreateReelSeriesPayload, ReelSeries, ReelVisibility } from '@/types/reel.types'
+import type {
+  CreateReelSeriesPayload,
+  ReelSeries,
+  ReelSeriesListItem,
+  ReelVisibility,
+} from '@/types/reel.types'
 import type { BottomSheetModal } from '@gorhom/bottom-sheet'
 
 const buildCaptionValue = (description?: string, tags: string[] = []) => {
@@ -86,7 +91,9 @@ export default function EditReelDetailsScreen() {
   )
   const isBusy = updateReel.isPending || isUpdatingSeries
 
-  const applySeriesSelection = async (targetSeries: ReelSeries | null) => {
+  const applySeriesSelection = async (
+    targetSeries: Pick<ReelSeriesListItem, 'id' | 'title' | 'visibility'> | null,
+  ) => {
     if (!reelId || !reel || isUpdatingSeries) return
 
     const oldSeriesId = reel.series?.id

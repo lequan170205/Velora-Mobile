@@ -1,4 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons'
+import { useQueryClient } from '@tanstack/react-query'
 import { Image } from 'expo-image'
 import * as ImagePicker from 'expo-image-picker'
 import { useRouter } from 'expo-router'
@@ -27,13 +28,18 @@ import {
 import { ReelSeriesPickerSheet } from '../../src/components/reels/series/ReelSeriesPickerSheet'
 import { useFriends } from '../../src/hooks/useFriends'
 import { useUpdateAvatar } from '../../src/hooks/useProfile'
-import { useCreateReelSeries, useOwnedReelSeries, useReelsFeed } from '../../src/hooks/useReels'
+import {
+  prefetchReelSeriesEpisodes,
+  useCreateReelSeries,
+  useOwnedReelSeries,
+  useReelsFeed,
+} from '../../src/hooks/useReels'
 import { serializeChatReelRouteContext } from '../../src/lib/chatReels'
 import { getDisplayName, getInitials, getProfileHandle } from '../../src/lib/profile'
 import { useAuthStore } from '../../src/stores/authStore'
 
 import type { FriendSummary } from '../../src/types/friend.types'
-import type { Reel, ReelSeries, ReelVisibility } from '../../src/types/reel.types'
+import type { Reel, ReelSeriesListItem, ReelVisibility } from '../../src/types/reel.types'
 
 const PROFILE_REELS_LIMIT = 24
 type ProfileContentTab = 'public' | 'series' | 'private'
@@ -182,13 +188,13 @@ function SeriesHighlight({
   cardHeight,
   onPress,
 }: {
-  series: ReelSeries
+  series: ReelSeriesListItem
   cardWidth: number
   cardHeight: number
   onPress: () => void
 }) {
-  const cover = series.reels.find((reel) => reel.thumbnailUrl)?.thumbnailUrl
-  const episodeCount = series.reels.length
+  const cover = series.coverThumbnailUrl
+  const episodeCount = series.episodeCount
   const thumbnailHeight = Math.round(cardWidth * 1.05)
   const visibilityLabel = useMemo(() => {
     switch (series.visibility) {
@@ -259,6 +265,7 @@ function SeriesHighlight({
 
 export default function ProfileScreen() {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const { width: windowWidth } = useWindowDimensions()
   const insets = useSafeAreaInsets()
   const tabBarHeight = getDockedTabBarHeight(insets.bottom)
@@ -423,7 +430,11 @@ export default function ProfileScreen() {
     <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
       <FlatList
         key={activeContentTab === 'series' ? 'series-grid-2col' : 'reels-grid-3col'}
-        data={(activeContentTab === 'series' ? ownedSeries : profileReels) as (Reel | ReelSeries)[]}
+        data={
+          (activeContentTab === 'series' ? ownedSeries : profileReels) as (
+            Reel | ReelSeriesListItem
+          )[]
+        }
         numColumns={activeContentTab === 'series' ? 2 : 3}
         columnWrapperStyle={
           activeContentTab === 'series'
@@ -433,18 +444,29 @@ export default function ProfileScreen() {
         keyExtractor={(item) => item.id}
         renderItem={({ item, index }) => {
           if (activeContentTab === 'series') {
-            const series = item as ReelSeries
+            const series = item as ReelSeriesListItem
             return (
               <SeriesHighlight
                 series={series}
                 cardWidth={seriesCardWidth}
                 cardHeight={seriesCardHeight}
-                onPress={() =>
+                onPress={() => {
+                  if (series.firstReelId) {
+                    void prefetchReelSeriesEpisodes(
+                      queryClient,
+                      user?.id ?? 'anonymous',
+                      series.id,
+                      series.firstReelId,
+                    )
+                  }
                   router.push({
                     pathname: '/series/[id]' as never,
-                    params: { id: series.id },
+                    params: {
+                      id: series.id,
+                      ...(series.firstReelId ? { reelId: series.firstReelId } : {}),
+                    },
                   })
-                }
+                }}
               />
             )
           }

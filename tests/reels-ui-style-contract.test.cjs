@@ -16,8 +16,10 @@ const reelTypes = read('src/types/reel.types.ts')
 
 test('reels viewer keeps immersive pager, refresh, offline, and recommendation boundaries', () => {
   assert.match(reelsViewer, /<PagerView/)
+  assert.doesNotMatch(reelsViewer, /<FlashList/)
   assert.match(reelsViewer, /orientation="vertical"/)
-  assert.match(reelsViewer, /scrollEnabled=\{!isTimelineInteracting\}/)
+  assert.match(reelsViewer, /offscreenPageLimit=\{2\}/)
+  assert.match(reelsViewer, /scrollEnabled=\{!isTimelineInteracting && !disablePagerSwipe\}/)
   assert.match(reelsViewer, /Gesture\.Pan\(\)/)
   assert.match(reelsViewer, /scheduleOnRN\(handleRefresh\)/)
   assert.match(reelsViewer, /<ReelOfflineSkeleton/)
@@ -43,6 +45,17 @@ test('reels viewer uses lightweight text feed tabs and an understated create act
     reelsViewer,
     /accessibilityLabel="Create reel"[\s\S]{0,220}rounded-full border/,
   )
+})
+
+test('reel video viewport ends above the docked rail and feed tabs sit closer to the safe area', () => {
+  assert.match(
+    reelsViewer,
+    /const videoViewportHeight = Math\.max\(0, viewportHeight - Math\.max\(0, bottomContentInset\)\)/,
+  )
+  assert.match(reelsViewer, /<View style=\{\{ height: videoViewportHeight \}\}>/)
+  assert.match(reelsViewer, /height=\{videoViewportHeight\}/)
+  assert.match(reelsViewer, /bottomContentInset=\{0\}/)
+  assert.match(reelsViewer, /paddingTop: insets\.top,/)
 })
 
 test('reels viewer states follow the dark glass icon, heading, copy, and CTA hierarchy', () => {

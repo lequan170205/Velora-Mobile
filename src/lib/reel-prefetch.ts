@@ -1,6 +1,6 @@
 import { Image as ExpoImage } from 'expo-image'
 
-import { warmTemporaryReelVideoCache } from './offlineReelVideoCache'
+import { isHlsReelUrl, warmTemporaryReelVideoCache } from './offlineReelVideoCache'
 
 import type { Reel } from '../types/reel.types'
 
@@ -32,7 +32,7 @@ const toAbsoluteUrl = (baseUrl: string, value: string) => {
 }
 
 const fetchTextQuietly = async (url: string) => {
-  if (hasPrefetchedUrl(url)) {
+  if (!isHlsReelUrl(url) || hasPrefetchedUrl(url)) {
     return null
   }
 
@@ -149,7 +149,7 @@ export const prefetchReelAssets = async (
     void ExpoImage.prefetch(reel.thumbnailUrl).catch(() => undefined)
   }
 
-  if (!reel.streamUrl) {
+  if (!isHlsReelUrl(reel.streamUrl)) {
     return
   }
 

@@ -1,4 +1,5 @@
 import { Ionicons, MaterialIcons } from '@expo/vector-icons'
+import { useQueryClient } from '@tanstack/react-query'
 import * as Haptics from 'expo-haptics'
 import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -22,13 +23,17 @@ import type { BottomSheetModal } from '@gorhom/bottom-sheet'
 
 import {
   useReelDetail,
+  prefetchReelSeriesEpisodes,
   useReelProcessingStatus,
   useDeleteReel,
   useReprocessReel,
 } from '../../hooks/useReels'
 import { CHAT_SHARED_REEL_FALLBACK_ID_PREFIX } from '../../lib/chatReels'
 import { getInitials } from '../../lib/profile'
-import { isCurrentReelPlayerCallback } from '../../lib/reelPlaybackCoordinator'
+import {
+  isCurrentReelPlayerCallback,
+  queueReelInitialSeek,
+} from '../../lib/reelPlaybackCoordinator'
 import {
   isReelMediaFailed,
   isReelPlayable,
@@ -365,12 +370,15 @@ const ReelFeedItemComponent = function ReelFeedItem({
 }: ReelFeedItemProps) {
   const router = useRouter()
   const { user } = useAuthStore()
+  const queryClient = useQueryClient()
   const playbackOptionsSheetRef = useRef<BottomSheetModal>(null)
   const isPlaybackOptionsPresentedRef = useRef(false)
   const videoRef = useRef<ReelVideoHandle | null>(null)
   const playerIdentityRef = useRef({ playerGeneration: 0, reelId: reel.id, sourceKey: '' })
   const lastBufferedPositionRef = useRef(0)
   const lastPlaybackPositionRef = useRef(0)
+  const isActiveRef = useRef(isActive)
+  isActiveRef.current = isActive
   const isPausedByUserRef = useRef(false)
   const [isReady, setIsReady] = useState(false)
   const [bufferedPosition, setBufferedPosition] = useState(0)
@@ -492,6 +500,18 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
     return nextReel
   }, [processingStatus, reel, reelDetail])
+
+  useEffect(() => {
+    const seriesId = displayReel.series?.id
+    if (isActive && seriesId) {
+      void prefetchReelSeriesEpisodes(
+        queryClient,
+        user?.id ?? 'anonymous',
+        seriesId,
+        displayReel.id,
+      )
+    }
+  }, [displayReel.id, displayReel.series?.id, isActive, queryClient, user?.id])
   const offlineVideoSource = useOfflineReelVideoSource(displayReel, {
     enabled: shouldWarmVideo,
     preferOffline: true,
@@ -500,6 +520,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
       ? { cachePriority: offlineVideoCachePriority }
       : {}),
   })
+  const [isUsingRemotePlaybackFallback, setIsUsingRemotePlaybackFallback] = useState(false)
   const activePlaybackUriRef = useRef<string | null>(null)
 
   if (!isActive) {
@@ -508,7 +529,9 @@ const ReelFeedItemComponent = function ReelFeedItem({
     activePlaybackUriRef.current = offlineVideoSource.uri
   }
 
-  const resolvedVideoUri = activePlaybackUriRef.current || offlineVideoSource.uri
+  const resolvedVideoUri = isUsingRemotePlaybackFallback
+    ? displayReel.streamUrl
+    : activePlaybackUriRef.current || offlineVideoSource.uri
   const videoSourceKey = `${displayReel.id}:${resolvedVideoUri}`
 
   if (playerIdentityRef.current.sourceKey !== videoSourceKey) {
@@ -523,6 +546,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const resumeAfterScrub = useSharedValue(0)
   const pendingSeekTarget = useSharedValue(-1)
   const lastScrubRatio = useSharedValue(0)
+  const scrubUpdateSample = useSharedValue(0)
   const scrubReleaseHandled = useSharedValue(0)
   const timelineInteractionProgress = useSharedValue(0)
   const timelinePreviewRatio = useSharedValue(0)
@@ -931,13 +955,18 @@ const ReelFeedItemComponent = function ReelFeedItem({
         .failOffsetY([-12, 12])
         .onStart((event) => {
           const ratio = scrubberWidth > 0 ? clamp(event.x / scrubberWidth, 0, 1) : 0
+          scrubUpdateSample.value = 0
           timelinePreviewRatio.value = ratio
           scheduleOnRN(beginScrub, event.x)
         })
         .onUpdate((event) => {
           const ratio = scrubberWidth > 0 ? clamp(event.x / scrubberWidth, 0, 1) : 0
           timelinePreviewRatio.value = ratio
-          scheduleOnRN(updateScrub, event.x)
+          // ponytail: sample seeks every sixth event; use a time-based limit if 120Hz traces still show churn.
+          scrubUpdateSample.value = (scrubUpdateSample.value + 1) % 6
+          if (scrubUpdateSample.value === 0) {
+            scheduleOnRN(updateScrub, event.x)
+          }
         })
         .onEnd((event) => {
           const ratio = scrubberWidth > 0 ? clamp(event.x / scrubberWidth, 0, 1) : 0
@@ -955,6 +984,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
       lastScrubRatio,
       playbackState.isPlayable,
       scrubberWidth,
+      scrubUpdateSample,
       timelinePreviewRatio,
       updateScrub,
     ],
@@ -1071,6 +1101,9 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
   const setVideoRef = useCallback(
     (player: ReelVideoHandle | null) => {
+      if (!player && isActiveRef.current && lastPlaybackPositionRef.current > 0) {
+        queueReelInitialSeek(displayReel.id, lastPlaybackPositionRef.current)
+      }
       videoRef.current = player
       onPlayerChange?.(displayReel.id, player)
     },
@@ -1152,6 +1185,16 @@ const ReelFeedItemComponent = function ReelFeedItem({
                       playerIdentityRef.current,
                     )
                   ) {
+                    return
+                  }
+
+                  if (
+                    offlineVideoSource.isOfflineVideoActive &&
+                    offlineVideoSource.isOnline &&
+                    !isUsingRemotePlaybackFallback
+                  ) {
+                    setIsUsingRemotePlaybackFallback(true)
+                    setHasPlaybackError(false)
                     return
                   }
 

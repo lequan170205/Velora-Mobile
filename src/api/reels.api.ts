@@ -13,6 +13,7 @@ import type {
   CreateReelSeriesPayload,
   CreateReelPayload,
   ListSeriesCandidateReelsParams,
+  ListReelSeriesEpisodesParams,
   PaginatedSeriesCandidateReels,
   ReelContextParams,
   ReelContextResponse,
@@ -21,6 +22,7 @@ import type {
   ListReelsParams,
   ListReelsResponse,
   PaginatedReelSeries,
+  ReelSeriesEpisodesPage,
   PaginatedFriendsReels,
   RecommendedReelsPage,
   ReelDetail,
@@ -138,10 +140,7 @@ const hydrateMissingReelAuthor = async (reel: ReelDetail): Promise<ReelDetail> =
 export const reelsApi = {
   listOwnedSeries: async (params: ListReelSeriesParams = {}) => {
     const response = await apiClient.get<PaginatedReelSeries>('/content/series', { params })
-    return {
-      ...response.data,
-      items: response.data.items.map(normalizeReelSeriesResponse),
-    }
+    return response.data
   },
   createSeries: async (data: CreateReelSeriesPayload) => {
     const response = await apiClient.post<ReelSeries>('/content/series', data)
@@ -150,6 +149,15 @@ export const reelsApi = {
   getSeries: async (id: string) => {
     const response = await apiClient.get<ReelSeries>(`/content/series/${id}`)
     return normalizeReelSeriesResponse(response.data)
+  },
+  getSeriesEpisodePage: async (id: string, params: ListReelSeriesEpisodesParams = {}) => {
+    const response = await apiClient.get<ReelSeriesEpisodesPage>(`/content/series/${id}/episodes`, {
+      params,
+    })
+    return {
+      ...response.data,
+      items: response.data.items.map(normalizeReelApiResponse),
+    }
   },
   updateSeries: async (id: string, data: UpdateReelSeriesPayload) => {
     const response = await apiClient.patch<ReelSeries>(`/content/series/${id}`, data)

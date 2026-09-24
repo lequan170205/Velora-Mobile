@@ -13,7 +13,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { colors } from '../../../constants/theme'
 import { useOwnedReelSeries } from '../../../hooks/useReels'
 
-import type { CreateReelSeriesPayload, ReelSeries, ReelVisibility } from '../../../types/reel.types'
+import type {
+  CreateReelSeriesPayload,
+  ReelSeriesListItem,
+  ReelVisibility,
+} from '../../../types/reel.types'
 
 interface ReelSeriesPickerSheetProps {
   sheetRef: React.RefObject<BottomSheetModal | null>
@@ -23,7 +27,9 @@ interface ReelSeriesPickerSheetProps {
   allowNone?: boolean
   title?: string
   subtitle?: string
-  onSelect: (series: ReelSeries | null) => Promise<void> | void
+  onSelect: (
+    series: Pick<ReelSeriesListItem, 'id' | 'title' | 'visibility'> | null,
+  ) => Promise<void> | void
   onCreate: (payload: CreateReelSeriesPayload) => Promise<void> | void
 }
 
@@ -348,11 +354,11 @@ export function ReelSeriesPickerSheet({
               <View className="gap-2">
                 {series.map((item) => {
                   const selected = selectedSeriesId === item.id
-                  const cover = item.reels.find((reel) => reel.thumbnailUrl)?.thumbnailUrl
+                  const cover = item.coverThumbnailUrl
                   return (
                     <Pressable
                       key={item.id}
-                      accessibilityLabel={`Select ${item.title}, ${item.reels.length} episodes, ${visibilityLabel(item.visibility)}`}
+                      accessibilityLabel={`Select ${item.title}, ${item.episodeCount} episodes, ${visibilityLabel(item.visibility)}`}
                       accessibilityRole="button"
                       accessibilityState={{ selected }}
                       className={
@@ -385,7 +391,7 @@ export function ReelSeriesPickerSheet({
                           {item.title}
                         </Text>
                         <Text className="mt-1 text-sm2 text-text-secondary">
-                          {item.reels.length} {item.reels.length === 1 ? 'episode' : 'episodes'} ·{' '}
+                          {item.episodeCount} {item.episodeCount === 1 ? 'episode' : 'episodes'} ·{' '}
                           {visibilityLabel(item.visibility)}
                         </Text>
                       </View>

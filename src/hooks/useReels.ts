@@ -1,4 +1,10 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  infiniteQueryOptions,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -39,6 +45,7 @@ import type {
   CreateReelPayload,
   ListSeriesCandidateReelsParams,
   ListReelSeriesParams,
+  ListReelSeriesEpisodesParams,
   ListReelsParams,
   ListReelsResponse,
   PaginatedSeriesCandidateReels,
@@ -51,6 +58,7 @@ import type {
   ReelDetail,
   ReelFeedListItem,
   ReelSeries,
+  ReelSeriesEpisodesPage,
   ReelSeriesSummary,
   ReelProcessingStatusResponse,
   RecommendedReelsParams,
@@ -63,10 +71,20 @@ import type {
 } from '../types/reel.types'
 
 const REELS_QUERY_STALE_TIME_MS = 30 * 1000
+const REELS_BROWSE_STALE_TIME_MS = 5 * 60 * 1000
 const REEL_STATUS_POLL_INTERVAL_MS = 3000
 
 type ReelsInfiniteData = InfiniteData<ListReelsResponse, string | undefined>
 type ReelSeriesInfiniteData = InfiniteData<PaginatedReelSeries, string | undefined>
+type ReelSeriesEpisodesPageParam = {
+  aroundReelId?: string
+  cursor?: string
+  direction?: 'previous' | 'next'
+}
+type ReelSeriesEpisodesInfiniteData = InfiniteData<
+  ReelSeriesEpisodesPage,
+  ReelSeriesEpisodesPageParam
+>
 type ReelSeriesCandidatesInfiniteData = InfiniteData<
   PaginatedSeriesCandidateReels,
   string | undefined
@@ -766,7 +784,7 @@ export function useRecommendedReelsFeed(params: { enabled?: boolean; limit?: num
         const status = isAxiosError(error) ? error.response?.status : undefined
         return !(status && status >= 400 && status < 500) && failureCount < 2
       },
-      staleTime: REELS_QUERY_STALE_TIME_MS,
+      staleTime: REELS_BROWSE_STALE_TIME_MS,
     }),
     [cacheParams, excludeRecentlySeen, isRecommendedFeedEnabled, queryKey, recommendedLimit],
   )
@@ -889,6 +907,16 @@ const refreshSeriesCandidates = (queryClient: QueryClient, viewerId: string, ser
   })
 }
 
+const refreshSeriesEpisodePages = (
+  queryClient: QueryClient,
+  viewerId: string,
+  seriesId: string,
+) => {
+  void queryClient.invalidateQueries({
+    queryKey: queryKeys.reels.seriesEpisodePages(viewerId, seriesId),
+  })
+}
+
 export function useOwnedReelSeries(
   params: ListReelSeriesParams = {},
   options: { enabled?: boolean } = {},
@@ -964,16 +992,8 @@ export function useReelSeries(id?: string, options: { enabled?: boolean } = {}) 
   const queryClient = useQueryClient()
   const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
   const query = useQuery({
-    queryKey: queryKeys.reels.series(viewerId, id || 'unknown'),
-    queryFn: () => {
-      if (!id) {
-        throw new Error('Missing reel series id')
-      }
-
-      return reelsApi.getSeries(id)
-    },
+    ...getReelSeriesQueryOptions(viewerId, id),
     enabled: Boolean(id) && (options.enabled ?? true),
-    staleTime: REELS_QUERY_STALE_TIME_MS,
   })
 
   useEffect(() => {
@@ -983,6 +1003,95 @@ export function useReelSeries(id?: string, options: { enabled?: boolean } = {}) 
   }, [query.data, queryClient, viewerId])
 
   return query
+}
+
+const getReelSeriesQueryOptions = (viewerId: string, id?: string) => ({
+  queryKey: queryKeys.reels.series(viewerId, id || 'unknown'),
+  queryFn: () => {
+    if (!id) {
+      throw new Error('Missing reel series id')
+    }
+
+    return reelsApi.getSeries(id)
+  },
+  staleTime: REELS_BROWSE_STALE_TIME_MS,
+})
+
+const SERIES_EPISODES_PAGE_SIZE = 15
+
+const getReelSeriesEpisodesQueryOptions = (
+  viewerId: string,
+  id?: string,
+  aroundReelId?: string,
+) => {
+  const initialPageParam: ReelSeriesEpisodesPageParam = aroundReelId ? { aroundReelId } : {}
+
+  return infiniteQueryOptions<
+    ReelSeriesEpisodesPage,
+    Error,
+    ReelSeriesEpisodesInfiniteData,
+    QueryKey,
+    ReelSeriesEpisodesPageParam
+  >({
+    queryKey: queryKeys.reels.seriesEpisodes(viewerId, id || 'unknown', aroundReelId),
+    queryFn: ({ pageParam }: { pageParam: ReelSeriesEpisodesPageParam }) => {
+      if (!id) {
+        throw new Error('Missing reel series id')
+      }
+
+      const params: ListReelSeriesEpisodesParams = { limit: SERIES_EPISODES_PAGE_SIZE }
+      if (pageParam.aroundReelId) {
+        params.aroundReelId = pageParam.aroundReelId
+      }
+      if (pageParam.cursor && pageParam.direction) {
+        params.cursor = pageParam.cursor
+        params.direction = pageParam.direction
+      }
+
+      return reelsApi.getSeriesEpisodePage(id, params)
+    },
+    initialPageParam,
+    getNextPageParam: (lastPage: ReelSeriesEpisodesPage) =>
+      lastPage.nextCursor ? { cursor: lastPage.nextCursor, direction: 'next' as const } : undefined,
+    getPreviousPageParam: (firstPage: ReelSeriesEpisodesPage) =>
+      firstPage.previousCursor
+        ? { cursor: firstPage.previousCursor, direction: 'previous' as const }
+        : undefined,
+    staleTime: REELS_BROWSE_STALE_TIME_MS,
+  })
+}
+
+export const prefetchReelSeriesEpisodes = (
+  queryClient: QueryClient,
+  viewerId: string,
+  id: string,
+  aroundReelId?: string,
+) =>
+  queryClient.prefetchInfiniteQuery(getReelSeriesEpisodesQueryOptions(viewerId, id, aroundReelId))
+
+export function useReelSeriesEpisodes(
+  id?: string,
+  aroundReelId?: string,
+  options: { enabled?: boolean } = {},
+) {
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
+  const query = useInfiniteQuery<
+    ReelSeriesEpisodesPage,
+    Error,
+    ReelSeriesEpisodesInfiniteData,
+    QueryKey,
+    ReelSeriesEpisodesPageParam
+  >({
+    ...getReelSeriesEpisodesQueryOptions(viewerId, id, aroundReelId),
+    enabled: Boolean(id) && (options.enabled ?? true),
+  })
+  const episodes = useMemo(() => flattenReelFeedPages(query.data?.pages ?? []), [query.data])
+
+  return {
+    ...query,
+    episodes,
+    series: query.data?.pages[0]?.series,
+  }
 }
 
 export function useCreateReelSeries() {
@@ -1009,6 +1118,7 @@ export function useUpdateReelSeries() {
       reconcileReelSeries(queryClient, viewerId, series)
       refreshOwnedReelSeriesLists(queryClient, viewerId)
       refreshSeriesCandidates(queryClient, viewerId, series.id)
+      refreshSeriesEpisodePages(queryClient, viewerId, series.id)
     },
   })
 }
@@ -1038,6 +1148,7 @@ export function useDeleteReelSeries() {
       queryClient.removeQueries({ queryKey: queryKeys.reels.series(viewerId, id) })
       refreshOwnedReelSeriesLists(queryClient, viewerId)
       refreshSeriesCandidates(queryClient, viewerId, id)
+      refreshSeriesEpisodePages(queryClient, viewerId, id)
     },
   })
 }
@@ -1053,6 +1164,7 @@ export function useAddReelToSeries() {
       reconcileReelSeries(queryClient, viewerId, series)
       refreshOwnedReelSeriesLists(queryClient, viewerId)
       refreshSeriesCandidates(queryClient, viewerId, seriesId)
+      refreshSeriesEpisodePages(queryClient, viewerId, seriesId)
     },
   })
 }
@@ -1069,6 +1181,7 @@ export function useRemoveReelFromSeries() {
       updateReelSeriesCaches(queryClient, viewerId, reelId)
       refreshOwnedReelSeriesLists(queryClient, viewerId)
       refreshSeriesCandidates(queryClient, viewerId, seriesId)
+      refreshSeriesEpisodePages(queryClient, viewerId, seriesId)
     },
   })
 }
@@ -1083,6 +1196,7 @@ export function useReorderReelSeries() {
     onSuccess: (series) => {
       reconcileReelSeries(queryClient, viewerId, series)
       refreshOwnedReelSeriesLists(queryClient, viewerId)
+      refreshSeriesEpisodePages(queryClient, viewerId, series.id)
     },
   })
 }

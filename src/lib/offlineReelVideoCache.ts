@@ -85,6 +85,8 @@ interface TemporaryReelVideoCacheCleanupOptions {
 
 const TEMP_REEL_VIDEO_CACHE_DIR = `${FileSystem.cacheDirectory ?? ''}velora-temp-reel-video-cache/`
 
+export const isHlsReelUrl = (uri?: string | null) => Boolean(uri && /\.m3u8($|[?#])/i.test(uri))
+
 const MAX_TEMP_VIDEO_CACHE_BYTES = 500 * 1024 * 1024
 const MAX_TEMP_VIDEO_CACHE_AGE_MS = 1000 * 60 * 60 * 24 * 7
 const MAX_TEMP_VIDEO_CACHE_REELS = 40
@@ -111,7 +113,13 @@ let downloadSessionVersion = 0
 export const getSyncCachedTemporaryReelVideo = (
   reelId: string,
 ): TemporaryReelVideoCacheRecord | null => {
-  return memoryCachedRecordsByReelId.get(reelId) ?? null
+  const record = memoryCachedRecordsByReelId.get(reelId)
+  if (record && !isHlsReelUrl(record.streamUrl)) {
+    memoryCachedRecordsByReelId.delete(reelId)
+    return null
+  }
+
+  return record ?? null
 }
 
 const areDownloadsEnabled = () => areDownloadsEnabledByLifecycle && areDownloadsEnabledByPreference
@@ -392,6 +400,10 @@ const toAbsoluteUrl = (baseUrl: string, value: string) => {
 }
 
 const fetchPlaylistText = async (url: string) => {
+  if (!isHlsReelUrl(url)) {
+    throw new Error('Expected an HLS playlist URL')
+  }
+
   const response = await fetch(url, {
     headers: {
       Accept: 'application/vnd.apple.mpegurl, application/x-mpegURL, text/plain, */*',
@@ -622,6 +634,10 @@ const downloadReelVideoNow = async (
   options: TemporaryReelVideoCacheCleanupOptions = {},
   sessionVersion: number,
 ): Promise<TemporaryReelVideoCacheRecord | null> => {
+  if (!isHlsReelUrl(reel.streamUrl)) {
+    return null
+  }
+
   ensureCacheDirectoryAvailable()
 
   await ensureDirectory(TEMP_REEL_VIDEO_CACHE_DIR)
@@ -773,6 +789,11 @@ export const getCachedTemporaryReelVideo = async (
     return null
   }
 
+  if (!isHlsReelUrl(record.streamUrl)) {
+    await removeRecords([record])
+    return null
+  }
+
   if (!(await fileExists(record.localManifestUri))) {
     memoryCachedRecordsByReelId.delete(reelId)
     await removeRecords([record])
@@ -795,7 +816,7 @@ export const cacheTemporaryReelVideo = async (
   reel: TemporaryReelVideoCacheInput,
   options: TemporaryReelVideoCacheOptions = {},
 ): Promise<TemporaryReelVideoCacheRecord | null> => {
-  if (!reel.streamUrl) {
+  if (!isHlsReelUrl(reel.streamUrl)) {
     return null
   }
 

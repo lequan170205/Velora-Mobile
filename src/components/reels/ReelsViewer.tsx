@@ -3,7 +3,7 @@ import { useIsFocused } from '@react-navigation/native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   AppState,
   ActivityIndicator,
@@ -16,7 +16,6 @@ import {
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import PagerView, {
   type PageScrollStateChangedNativeEvent,
-  type PageScrollStateChangedNativeEventData,
   type PagerViewOnPageScrollEvent,
   type PagerViewOnPageSelectedEvent,
 } from 'react-native-pager-view'
@@ -48,6 +47,7 @@ import {
   ReelPlaybackCoordinator,
   resolveReelIndexByIdentity,
 } from '@/lib/reelPlaybackCoordinator'
+import { useAuthStore } from '@/stores/authStore'
 
 import { reelsApi } from '../../api/reels.api'
 import { DEFAULT_REELS_LIMIT } from '../../constants/reels'
@@ -74,7 +74,17 @@ interface FeedTabState {
   scrollOffset: number
 }
 
+interface FeedFallbackState {
+  viewerId: string
+  feeds: Record<FeedTab, Reel[]>
+}
+
 const PRELOAD_RADIUS = 1
+// ponytail: cap native pages at four batches; widen if a single fling skips beyond the window.
+const PAGER_WINDOW_RADIUS = DEFAULT_REELS_LIMIT * 2
+const PAGER_WINDOW_SIZE = PAGER_WINDOW_RADIUS * 2 + 1
+const PAGE_RENDER_RADIUS = PRELOAD_RADIUS + 1
+const PAGER_WINDOW_EDGE_THRESHOLD = 4
 const PULL_TO_REFRESH_DISTANCE = 74
 const OFFLINE_ALERT_DURATION_MS = 2000
 const OFFLINE_END_PULL_DISTANCE = 88
@@ -82,8 +92,12 @@ const OFFLINE_END_REVEAL_HEIGHT = 72
 const OFFLINE_END_TRIGGER_PROGRESS = 0.64
 const OFFLINE_END_LOADING_DURATION_MS = 920
 const INITIAL_FEED_TAB_STATE: FeedTabState = { activeIndex: 0, activeReelId: null, scrollOffset: 0 }
+const EMPTY_FEED_FALLBACKS: Record<FeedTab, Reel[]> = { friends: [], 'for-you': [] }
 const shouldShowRecommendationDebugOverlay =
   __DEV__ && process.env.EXPO_PUBLIC_ENABLE_RECOMMENDATION_DEBUG === 'true'
+
+const getPagerWindowStart = (index: number, reelCount: number) =>
+  Math.max(0, Math.min(Math.max(0, reelCount - PAGER_WINDOW_SIZE), index - PAGER_WINDOW_RADIUS))
 
 type PagerViewRef = React.ElementRef<typeof PagerView>
 
@@ -104,6 +118,11 @@ interface ReelsViewerProps {
   isSeriesPlayback?: boolean | undefined
   onOpenSeriesEpisodes?: (() => void) | undefined
   seriesEpisodeCount?: number | undefined
+  disablePagerSwipe?: boolean | undefined
+  hasPreviousContextPage?: boolean | undefined
+  hasNextContextPage?: boolean | undefined
+  isFetchingContextPage?: boolean | undefined
+  onContextPageRequest?: ((direction: 'previous' | 'next') => void) | undefined
   onActiveReelChange?: (reel: Reel, index: number) => void
   tabBarHeight?: number
 }
@@ -172,11 +191,17 @@ export function ReelsViewer({
   isSeriesPlayback = false,
   onOpenSeriesEpisodes,
   seriesEpisodeCount,
+  disablePagerSwipe = false,
+  hasPreviousContextPage = false,
+  hasNextContextPage = false,
+  isFetchingContextPage = false,
+  onContextPageRequest,
   onActiveReelChange,
 }: ReelsViewerProps) {
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const isFocused = useIsFocused()
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
   const { fontScale, height: windowHeight } = useWindowDimensions()
   const { isOnline, networkState } = useNetworkStatus()
   const { isReelSavingModeHydrated, reelSavingModeEnabled } = useReelSavingMode()
@@ -196,8 +221,14 @@ export function ReelsViewer({
   const handledRequestedReelIdRef = useRef<string | null>(null)
   const currentPageIndexRef = useRef(0)
   const pagerCurrentIndexRef = useRef<number | null>(null)
-  const pagerScrollStateRef =
-    useRef<PageScrollStateChangedNativeEventData['pageScrollState']>('idle')
+  const pagerScrollStateRef = useRef<'idle' | 'dragging' | 'settling'>('idle')
+  const contextPageRequestInFlightRef = useRef(false)
+  const pagerWindowStartRef = useRef(0)
+  const pagerWindowInitializedRef = useRef(false)
+  const pendingPagerWindowIndexRef = useRef<number | null>(null)
+  const pendingPagerSelectionReelIdRef = useRef<string | null>(null)
+  const isPagerWindowRebasingRef = useRef(false)
+  const shouldUseLocalContextRef = useRef(false)
   const pagerScrollPositionRef = useRef<{ offset: number; position: number } | null>(null)
   const selectedPageIndexRef = useRef<number | null>(null)
   const pageCommitFrameRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null)
@@ -214,6 +245,8 @@ export function ReelsViewer({
   const hasShownOfflineFocusAlertRef = useRef(false)
 
   const [viewportHeight, setViewportHeight] = useState(windowHeight)
+  const [pagerWindowStart, setPagerWindowStart] = useState(0)
+  const videoViewportHeight = Math.max(0, viewportHeight - Math.max(0, bottomContentInset))
   const [activeReelId, setActiveReelId] = useState<string | null>(null)
   const [isAppActive, setIsAppActive] = useState(AppState.currentState === 'active')
   const [deletedReelIds, setDeletedReelIds] = useState<Set<string>>(() => new Set())
@@ -229,42 +262,49 @@ export function ReelsViewer({
   const [isManualRefreshing, setIsManualRefreshing] = useState(false)
   const [isSwitchingFeedTab, setIsSwitchingFeedTab] = useState(false)
   const [selectedFeedTab, setSelectedFeedTab] = useState<FeedTab>('for-you')
-  const [feedFallbackReels, setFeedFallbackReels] = useState<Record<FeedTab, Reel[]>>({
-    friends: [],
-    'for-you': [],
-  })
+  const [feedFallbackReels, setFeedFallbackReels] = useState<FeedFallbackState>(() => ({
+    viewerId,
+    feeds: EMPTY_FEED_FALLBACKS,
+  }))
+  const visibleFeedFallbackReels =
+    feedFallbackReels.viewerId === viewerId ? feedFallbackReels.feeds : EMPTY_FEED_FALLBACKS
 
   useEffect(() => {
     let isMounted = true
     const hydrateCachedFeed = async () => {
       try {
-        const [cachedRecommended, cachedFriends] = await Promise.all([
-          readCachedReelFeedPage({
-            recommended: true,
-            visibility: 'public',
-            limit: DEFAULT_REELS_LIMIT,
-          }),
-          readCachedReelFeedPage({
-            visibility: 'friends',
-            limit: DEFAULT_REELS_LIMIT,
-          }),
-        ])
+        const cachedParams = {
+          recommended: true,
+          excludeRecentlySeen: true,
+          viewerId,
+          visibility: 'public',
+          limit: DEFAULT_REELS_LIMIT,
+        } as const
+        const cachedRecommended =
+          (await readCachedReelFeedPage(cachedParams)) ??
+          (await readCachedReelFeedPage({ ...cachedParams, excludeRecentlySeen: false }))
 
         if (!isMounted) return
 
         setFeedFallbackReels((current) => {
+          const currentFeeds = current.viewerId === viewerId ? current.feeds : EMPTY_FEED_FALLBACKS
           const nextForYou =
-            current['for-you'].length > 0 ? current['for-you'] : (cachedRecommended?.items ?? [])
-          const nextFriends =
-            current.friends.length > 0 ? current.friends : (cachedFriends?.items ?? [])
+            currentFeeds['for-you'].length > 0
+              ? currentFeeds['for-you']
+              : (cachedRecommended?.items ?? [])
+          const nextFriends = currentFeeds.friends
 
-          if (nextForYou === current['for-you'] && nextFriends === current.friends) {
+          if (
+            current.viewerId === viewerId &&
+            nextForYou === currentFeeds['for-you'] &&
+            nextFriends === currentFeeds.friends
+          ) {
             return current
           }
 
           return {
-            'for-you': nextForYou,
-            friends: nextFriends,
+            viewerId,
+            feeds: { 'for-you': nextForYou, friends: nextFriends },
           }
         })
       } catch {
@@ -277,16 +317,32 @@ export function ReelsViewer({
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [viewerId])
 
   const scrollToReelIndex = useCallback((index: number) => {
-    const nextIndex = Math.max(0, index)
+    const reelCount = reelsRef.current.length
+    const nextIndex = Math.max(0, Math.min(Math.max(0, reelCount - 1), index))
     const pager = pagerRef.current
 
-    if (!pager) {
+    if (!pager || reelCount === 0) {
       return
     }
 
+    const nextWindowStart = shouldUseLocalContextRef.current
+      ? 0
+      : getPagerWindowStart(nextIndex, reelCount)
+    if (nextWindowStart !== pagerWindowStartRef.current) {
+      pagerWindowInitializedRef.current = true
+      pendingPagerSelectionReelIdRef.current = reelsRef.current[nextIndex]?.id ?? null
+      pagerWindowStartRef.current = nextWindowStart
+      pendingPagerWindowIndexRef.current = nextIndex
+      isPagerWindowRebasingRef.current = true
+      pagerCurrentIndexRef.current = nextIndex
+      setPagerWindowStart(nextWindowStart)
+      return
+    }
+
+    const localIndex = nextIndex - nextWindowStart
     if (
       pagerCurrentIndexRef.current === nextIndex &&
       pagerScrollStateRef.current === 'idle' &&
@@ -297,14 +353,14 @@ export function ReelsViewer({
 
     pagerScrollPositionRef.current = null
     selectedPageIndexRef.current = null
-
     if (pageCommitFrameRef.current !== null) {
       cancelAnimationFrame(pageCommitFrameRef.current)
       pageCommitFrameRef.current = null
     }
 
     pagerCurrentIndexRef.current = nextIndex
-    pager.setPageWithoutAnimation(nextIndex)
+    pendingPagerSelectionReelIdRef.current = reelsRef.current[nextIndex]?.id ?? null
+    pager.setPageWithoutAnimation(localIndex)
   }, [])
   const pauseAllReelPlayers = useCallback(() => {
     playbackCoordinatorRef.current.pauseAll()
@@ -321,6 +377,7 @@ export function ReelsViewer({
 
   const shouldUseReelContext = mode === 'context' && Boolean(reelId)
   const shouldUseLocalContext = shouldUseReelContext && contextItems.length > 0
+  shouldUseLocalContextRef.current = shouldUseLocalContext
   const shouldFetchReelContext = shouldUseReelContext && !shouldUseLocalContext
   const shouldLoadPublicFeed = !shouldUseReelContext
   const shouldAllowRefresh = mode === 'public'
@@ -432,14 +489,18 @@ export function ReelsViewer({
     }
 
     setFeedFallbackReels((current) => {
-      const currentIds = current[selectedFeedTab].map((reel) => reel.id)
+      const currentFeeds = current.viewerId === viewerId ? current.feeds : EMPTY_FEED_FALLBACKS
+      const currentIds = currentFeeds[selectedFeedTab].map((reel) => reel.id)
       const nextIds = publicFeedReels.map((reel) => reel.id)
 
-      if (areStringArraysEqual(currentIds, nextIds)) {
+      if (current.viewerId === viewerId && areStringArraysEqual(currentIds, nextIds)) {
         return current
       }
 
-      return { ...current, [selectedFeedTab]: publicFeedReels }
+      return {
+        viewerId,
+        feeds: { ...currentFeeds, [selectedFeedTab]: publicFeedReels },
+      }
     })
   }, [
     isPublicFeedPending,
@@ -447,6 +508,7 @@ export function ReelsViewer({
     publicFeedReels,
     selectedFeedTab,
     shouldLoadPublicFeed,
+    viewerId,
   ])
 
   const rawReels = useMemo(() => {
@@ -477,7 +539,9 @@ export function ReelsViewer({
     }
 
     if (isPublicFeedPending || isRefetchingPublicFeed) {
-      return feedFallbackReels[selectedFeedTab].filter((item) => !deletedReelIds.has(item.id))
+      return visibleFeedFallbackReels[selectedFeedTab].filter(
+        (item) => !deletedReelIds.has(item.id),
+      )
     }
 
     return publicFeedReels
@@ -485,7 +549,6 @@ export function ReelsViewer({
     contextExtraItems,
     contextItems,
     deletedReelIds,
-    feedFallbackReels,
     isPublicFeedPending,
     isRefetchingPublicFeed,
     publicFeedReels,
@@ -493,6 +556,7 @@ export function ReelsViewer({
     selectedFeedTab,
     shouldUseLocalContext,
     shouldUseReelContext,
+    visibleFeedFallbackReels,
   ])
 
   const reels = useMemo(() => deduplicateReelsById(rawReels), [rawReels])
@@ -520,6 +584,94 @@ export function ReelsViewer({
 
     return Math.max(0, Math.min(reels.length - 1, initialPageIndex))
   }, [initialPageIndex, reels.length])
+
+  const initialPagerWindowStart = shouldUseLocalContext
+    ? 0
+    : getPagerWindowStart(safeInitialPageIndex, reels.length)
+  const pagerWindowMaxStart = Math.max(0, reels.length - PAGER_WINDOW_SIZE)
+  const statePagerWindowStart = Math.max(0, Math.min(pagerWindowMaxStart, pagerWindowStart))
+  const currentGlobalPageIndex = Math.max(
+    0,
+    Math.min(
+      Math.max(0, reels.length - 1),
+      pagerCurrentIndexRef.current ?? currentPageIndexRef.current,
+    ),
+  )
+  const currentWindowLength = Math.min(PAGER_WINDOW_SIZE, reels.length - statePagerWindowStart)
+  const currentPageIsInWindow =
+    currentGlobalPageIndex >= statePagerWindowStart &&
+    currentGlobalPageIndex < statePagerWindowStart + currentWindowLength
+  const visiblePagerWindowStart = shouldUseLocalContext
+    ? 0
+    : pagerWindowInitializedRef.current && activeReelIdRef.current
+      ? currentPageIsInWindow
+        ? statePagerWindowStart
+        : getPagerWindowStart(currentGlobalPageIndex, reels.length)
+      : initialPagerWindowStart
+  if (!pagerWindowInitializedRef.current && reels.length > 0) {
+    pagerWindowStartRef.current = visiblePagerWindowStart
+  }
+  const pagerWindowReels = useMemo(
+    () =>
+      shouldUseLocalContext
+        ? reels
+        : reels.slice(visiblePagerWindowStart, visiblePagerWindowStart + PAGER_WINDOW_SIZE),
+    [reels, shouldUseLocalContext, visiblePagerWindowStart],
+  )
+  const initialPagerPage = Math.max(
+    0,
+    Math.min(pagerWindowReels.length - 1, safeInitialPageIndex - visiblePagerWindowStart),
+  )
+
+  useLayoutEffect(() => {
+    if (reels.length === 0) {
+      return
+    }
+
+    if (shouldUseLocalContext) {
+      pagerWindowInitializedRef.current = true
+      pagerWindowStartRef.current = 0
+      pendingPagerWindowIndexRef.current = null
+      isPagerWindowRebasingRef.current = false
+      if (pagerWindowStart !== 0) setPagerWindowStart(0)
+      return
+    }
+
+    pagerWindowInitializedRef.current = true
+    if (pagerWindowStart !== visiblePagerWindowStart) {
+      setPagerWindowStart(visiblePagerWindowStart)
+    }
+    if (pagerWindowStartRef.current !== visiblePagerWindowStart) {
+      const currentActiveReelId = activeReelIdRef.current
+      const activeIndexIsValid = Boolean(
+        currentActiveReelId && reels.some((item) => item.id === currentActiveReelId),
+      )
+      const currentIndex =
+        pendingPagerWindowIndexRef.current ??
+        (activeIndexIsValid ? pagerCurrentIndexRef.current : null)
+      pagerWindowStartRef.current = visiblePagerWindowStart
+
+      if (currentIndex !== null) {
+        pendingPagerWindowIndexRef.current = Math.min(reels.length - 1, currentIndex)
+        pendingPagerSelectionReelIdRef.current =
+          reels[pendingPagerWindowIndexRef.current]?.id ?? null
+        isPagerWindowRebasingRef.current = true
+      }
+    }
+
+    const pendingIndex = pendingPagerWindowIndexRef.current
+    if (pendingIndex !== null && pagerRef.current) {
+      pendingPagerWindowIndexRef.current = null
+      pagerScrollPositionRef.current = { offset: 0, position: pendingIndex }
+      selectedPageIndexRef.current = pendingIndex
+      pagerRef.current.setPageWithoutAnimation(pendingIndex - visiblePagerWindowStart)
+      pagerCurrentIndexRef.current = pendingIndex
+      currentPageIndexRef.current = pendingIndex
+      requestAnimationFrame(() => {
+        isPagerWindowRebasingRef.current = false
+      })
+    }
+  }, [pagerWindowStart, reels, shouldUseLocalContext, visiblePagerWindowStart])
 
   const effectiveActiveReelId = useMemo(() => {
     if (activeReelId) {
@@ -558,8 +710,11 @@ export function ReelsViewer({
   }, [])
 
   useEffect(() => {
-    playbackCoordinatorRef.current.transition(canPlayActiveReel ? effectiveActiveReelId : null)
-  }, [canPlayActiveReel, effectiveActiveReelId])
+    playbackCoordinatorRef.current.transition(
+      canPlayActiveReel ? effectiveActiveReelId : null,
+      isMuted,
+    )
+  }, [canPlayActiveReel, effectiveActiveReelId, isMuted])
 
   useEffect(
     () => () => {
@@ -930,7 +1085,7 @@ export function ReelsViewer({
     ],
   }))
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     reelsRef.current = reels
   }, [reels])
 
@@ -946,7 +1101,7 @@ export function ReelsViewer({
   useEffect(() => {
     const previousSelectedReelId = previousSelectedReelIdRef.current
 
-    if (reelId && previousSelectedReelId !== reelId) {
+    if (!shouldUseLocalContext && reelId && previousSelectedReelId !== reelId) {
       setContextExtraItems([])
       setContextNextCursor(null)
       handledRequestedReelIdRef.current = null
@@ -960,7 +1115,7 @@ export function ReelsViewer({
     }
 
     previousSelectedReelIdRef.current = reelId
-  }, [reelId, scrollToReelIndex])
+  }, [reelId, scrollToReelIndex, shouldUseLocalContext])
 
   useEffect(() => {
     if (!shouldUseReelContext || shouldUseLocalContext) {
@@ -1016,7 +1171,8 @@ export function ReelsViewer({
         return
       }
 
-      if (reels.length === 0) {
+      const currentReels = reelsRef.current
+      if (currentReels.length === 0) {
         currentPageIndexRef.current = 0
 
         if (activeReelIdRef.current !== null) {
@@ -1027,10 +1183,11 @@ export function ReelsViewer({
         return
       }
 
-      const safeIndex = Math.max(0, Math.min(reels.length - 1, index))
-      const nextReelId = reels[safeIndex]?.id ?? null
+      const safeIndex = Math.max(0, Math.min(currentReels.length - 1, index))
+      const nextReelId = currentReels[safeIndex]?.id ?? null
 
       currentPageIndexRef.current = safeIndex
+      pagerCurrentIndexRef.current = safeIndex
       feedTabStatesRef.current[selectedFeedTab] = {
         activeReelId: nextReelId,
         activeIndex: safeIndex,
@@ -1043,13 +1200,12 @@ export function ReelsViewer({
 
       setIsActiveReelPausedByUser(false)
       activeReelIdRef.current = nextReelId
-      handledRequestedReelIdRef.current = nextReelId
       setActiveReelId(nextReelId)
-      if (reels[safeIndex]) {
-        onActiveReelChange?.(reels[safeIndex], safeIndex)
+      if (currentReels[safeIndex]) {
+        onActiveReelChange?.(currentReels[safeIndex], safeIndex)
       }
     },
-    [isFocused, onActiveReelChange, reels, selectedFeedTab, viewportHeight],
+    [isFocused, onActiveReelChange, selectedFeedTab, viewportHeight],
   )
 
   const handleFeedTabChange = useCallback(
@@ -1064,6 +1220,7 @@ export function ReelsViewer({
       }
 
       setIsSwitchingFeedTab(true)
+      pagerScrollStateRef.current = 'idle'
       feedTabStatesRef.current[selectedFeedTab] = {
         activeReelId: effectiveActiveReelId,
         activeIndex: Math.max(0, activeIndex),
@@ -1074,6 +1231,7 @@ export function ReelsViewer({
       setIsActiveReelPausedByUser(false)
       void endCurrentReelSession('tab_switch')
       activeReelIdRef.current = null
+      pagerCurrentIndexRef.current = null
       setActiveReelId(null)
       setSelectedFeedTab(nextFeedTab)
       setIsSwitchingFeedTab(false)
@@ -1101,6 +1259,13 @@ export function ReelsViewer({
     if (!shouldLoadPublicFeed || reels.length === 0) {
       return
     }
+
+    const currentActiveReelId = activeReelIdRef.current
+    if (currentActiveReelId && reels.some((item) => item.id === currentActiveReelId)) {
+      return
+    }
+
+    if (pagerScrollStateRef.current !== 'idle') return
 
     const savedTabState = feedTabStatesRef.current[selectedFeedTab]
     const safeIndex = resolveReelIndexByIdentity(
@@ -1137,6 +1302,7 @@ export function ReelsViewer({
     handledRequestedReelIdRef.current = reelId
     currentPageIndexRef.current = requestedReelIndex
     activeReelIdRef.current = reelId
+    setIsActiveReelPausedByUser(false)
     setActiveReelId(reelId)
     if (reels[requestedReelIndex]) {
       onActiveReelChange?.(reels[requestedReelIndex], requestedReelIndex)
@@ -1153,6 +1319,33 @@ export function ReelsViewer({
     scrollToReelIndex,
     shouldUseReelContext,
   ])
+
+  useLayoutEffect(() => {
+    if (!shouldUseLocalContext || pagerScrollStateRef.current !== 'idle') {
+      return
+    }
+
+    const activeLocalIndex = activeReelIdRef.current
+      ? reels.findIndex((item) => item.id === activeReelIdRef.current)
+      : -1
+    if (activeLocalIndex < 0 || pagerCurrentIndexRef.current === activeLocalIndex) {
+      return
+    }
+
+    currentPageIndexRef.current = activeLocalIndex
+    pagerScrollPositionRef.current = null
+    selectedPageIndexRef.current = null
+    if (pageCommitFrameRef.current !== null) {
+      cancelAnimationFrame(pageCommitFrameRef.current)
+      pageCommitFrameRef.current = null
+    }
+
+    isPagerWindowRebasingRef.current = true
+    scrollToReelIndex(activeLocalIndex)
+    requestAnimationFrame(() => {
+      isPagerWindowRebasingRef.current = false
+    })
+  }, [activeReelId, reels, scrollToReelIndex, shouldUseLocalContext])
 
   useEffect(() => {
     if (
@@ -1276,6 +1469,28 @@ export function ReelsViewer({
 
   const maybeFetchNextPage = useCallback(
     (index: number) => {
+      if (shouldUseLocalContext) {
+        if (
+          !onContextPageRequest ||
+          isFetchingContextPage ||
+          contextPageRequestInFlightRef.current
+        ) {
+          return
+        }
+
+        if (index <= 2 && hasPreviousContextPage) {
+          contextPageRequestInFlightRef.current = true
+          onContextPageRequest('previous')
+          return
+        }
+
+        if (index >= Math.max(0, reels.length - 3) && hasNextContextPage) {
+          contextPageRequestInFlightRef.current = true
+          onContextPageRequest('next')
+        }
+        return
+      }
+
       const shouldPrefetch = index >= Math.max(0, reels.length - 3)
 
       if (!shouldPrefetch) {
@@ -1301,6 +1516,10 @@ export function ReelsViewer({
       fetchNextContextPage,
       fetchPublicNextPage,
       hasPublicNextPage,
+      hasNextContextPage,
+      hasPreviousContextPage,
+      isFetchingContextPage,
+      onContextPageRequest,
       isFetchingContextNextPage,
       isFetchingPublicNextPage,
       reels.length,
@@ -1309,6 +1528,49 @@ export function ReelsViewer({
       shouldUseReelContext,
     ],
   )
+
+  useEffect(() => {
+    if (!isFetchingContextPage) {
+      contextPageRequestInFlightRef.current = false
+    }
+  }, [isFetchingContextPage])
+  const maybeRecenterPagerWindow = useCallback(
+    (index: number) => {
+      if (shouldUseLocalContext) return
+
+      const reelCount = reelsRef.current.length
+      const windowStart = pagerWindowStartRef.current
+      const windowLength = Math.min(PAGER_WINDOW_SIZE, Math.max(0, reelCount - windowStart))
+      const localIndex = index - windowStart
+      const nearStart = localIndex <= PAGER_WINDOW_EDGE_THRESHOLD && windowStart > 0
+      const nearEnd =
+        localIndex >= windowLength - 1 - PAGER_WINDOW_EDGE_THRESHOLD &&
+        windowStart + windowLength < reelCount
+
+      if (!nearStart && !nearEnd) {
+        return
+      }
+
+      const nextWindowStart = getPagerWindowStart(index, reelCount)
+      if (nextWindowStart === windowStart) {
+        return
+      }
+
+      pagerWindowStartRef.current = nextWindowStart
+      pendingPagerWindowIndexRef.current = index
+      pendingPagerSelectionReelIdRef.current = reelsRef.current[index]?.id ?? null
+      isPagerWindowRebasingRef.current = true
+      setPagerWindowStart(nextWindowStart)
+    },
+    [shouldUseLocalContext],
+  )
+
+  useEffect(() => {
+    if (pagerScrollStateRef.current === 'idle' && reels.length > 0) {
+      maybeRecenterPagerWindow(currentPageIndexRef.current)
+    }
+  }, [maybeRecenterPagerWindow, reels.length])
+
   const scheduleSettledPageCommit = useCallback(() => {
     if (pageCommitFrameRef.current !== null) {
       cancelAnimationFrame(pageCommitFrameRef.current)
@@ -1316,30 +1578,53 @@ export function ReelsViewer({
 
     pageCommitFrameRef.current = requestAnimationFrame(() => {
       pageCommitFrameRef.current = null
-
-      if (pagerScrollStateRef.current !== 'idle') {
-        return
-      }
+      if (pagerScrollStateRef.current !== 'idle') return
 
       const scrollPosition = pagerScrollPositionRef.current
       const nextIndex = scrollPosition
         ? Math.round(scrollPosition.position + scrollPosition.offset)
         : selectedPageIndexRef.current
 
-      if (nextIndex === null) {
-        return
-      }
+      if (nextIndex === null) return
 
       selectedPageIndexRef.current = null
+      const previousReelId = activeReelIdRef.current
+      const nextReelId = reelsRef.current[nextIndex]?.id ?? null
+      const playback = playbackCoordinatorRef.current.getSnapshot()
+      const shouldPlayNextReel =
+        Boolean(nextReelId) &&
+        isFocused &&
+        isAppActive &&
+        !isManualRefreshing &&
+        !isSwitchingFeedTab &&
+        (playback.desiredReelId === nextReelId ||
+          nextReelId !== previousReelId ||
+          !isActiveReelPausedByUser)
+
       setActiveByIndex(nextIndex)
+      playbackCoordinatorRef.current.transition(shouldPlayNextReel ? nextReelId : null, isMuted)
       maybeFetchNextPage(nextIndex)
+      maybeRecenterPagerWindow(nextIndex)
     })
-  }, [maybeFetchNextPage, setActiveByIndex])
+  }, [
+    isActiveReelPausedByUser,
+    isAppActive,
+    isFocused,
+    isMuted,
+    isManualRefreshing,
+    isSwitchingFeedTab,
+    maybeFetchNextPage,
+    maybeRecenterPagerWindow,
+    setActiveByIndex,
+  ])
+
   const handlePageScroll = useCallback(
     (event: PagerViewOnPageScrollEvent) => {
+      if (isPagerWindowRebasingRef.current || pendingPagerSelectionReelIdRef.current) return
+
       pagerScrollPositionRef.current = {
         offset: event.nativeEvent.offset,
-        position: event.nativeEvent.position,
+        position: pagerWindowStartRef.current + event.nativeEvent.position,
       }
 
       if (pagerScrollStateRef.current === 'idle') {
@@ -1350,30 +1635,66 @@ export function ReelsViewer({
   )
   const handlePageSelected = useCallback(
     (event: PagerViewOnPageSelectedEvent) => {
-      const nextIndex = event.nativeEvent.position
+      const nextIndex = pagerWindowStartRef.current + event.nativeEvent.position
+      const nextReelId = reelsRef.current[nextIndex]?.id
+      const pendingReelId = pendingPagerSelectionReelIdRef.current
+      if (pendingReelId && nextReelId !== pendingReelId) return
+      if (pendingReelId === nextReelId) {
+        pendingPagerSelectionReelIdRef.current = null
+        isPagerWindowRebasingRef.current = false
+      }
+      if (isPagerWindowRebasingRef.current) return
+
       pagerCurrentIndexRef.current = nextIndex
       selectedPageIndexRef.current = nextIndex
 
+      if (
+        nextReelId &&
+        nextReelId !== activeReelIdRef.current &&
+        isFocused &&
+        isAppActive &&
+        !isManualRefreshing &&
+        !isSwitchingFeedTab
+      ) {
+        const playback = playbackCoordinatorRef.current.getSnapshot()
+        if (playback.desiredReelId !== nextReelId || playback.playingReelIds[0] !== nextReelId) {
+          playbackCoordinatorRef.current.transition(nextReelId, isMuted)
+        }
+      }
+
+      setActiveByIndex(nextIndex)
       if (pagerScrollStateRef.current === 'idle') {
         scheduleSettledPageCommit()
       }
     },
-    [scheduleSettledPageCommit],
+    [
+      isAppActive,
+      isFocused,
+      isManualRefreshing,
+      isMuted,
+      isSwitchingFeedTab,
+      scheduleSettledPageCommit,
+      setActiveByIndex,
+    ],
   )
   const handlePageScrollStateChanged = useCallback(
     (event: PageScrollStateChangedNativeEvent) => {
       const nextState = event.nativeEvent.pageScrollState
+      if (nextState === 'dragging') {
+        pendingPagerSelectionReelIdRef.current = null
+        isPagerWindowRebasingRef.current = false
+      }
+      if (isPagerWindowRebasingRef.current) return
+
       pagerScrollStateRef.current = nextState
 
       if (nextState === 'dragging') {
         pagerScrollPositionRef.current = null
         selectedPageIndexRef.current = null
-
         if (pageCommitFrameRef.current !== null) {
           cancelAnimationFrame(pageCommitFrameRef.current)
           pageCommitFrameRef.current = null
         }
-
         return
       }
 
@@ -1691,8 +2012,18 @@ export function ReelsViewer({
     ],
   )
 
-  const renderPagerPage = useCallback(
+  const renderReelPage = useCallback(
     (item: Reel, index: number) => {
+      if (Math.abs(index - activeIndex) > PAGE_RENDER_RADIUS) {
+        return (
+          <View
+            key={item.id}
+            collapsable={false}
+            style={{ width: '100%', height: viewportHeight, backgroundColor: '#050505' }}
+          />
+        )
+      }
+
       const isCurrentItem = effectiveActiveReelId === item.id
       const isActiveItem = isFocused && isCurrentItem && !isManualRefreshing && !isSwitchingFeedTab
       const shouldWarmVideo =
@@ -1709,36 +2040,38 @@ export function ReelsViewer({
             height: viewportHeight,
           }}
         >
-          <ReelFeedItem
-            reel={item}
-            {...(!hideDescriptions && item.description ? { description: item.description } : {})}
-            height={viewportHeight}
-            isActive={isActiveItem}
-            shouldWarmVideo={shouldWarmVideo}
-            {...(typeof offlineVideoCachePriority === 'number'
-              ? { offlineVideoCachePriority }
-              : {})}
-            enableStatusPolling={isActiveItem}
-            hideCaption={hideDescriptions}
-            isMuted={isMuted}
-            clearDisplay={clearDisplay}
-            liveTranscriptionEnabled={isActiveItem && liveTranscriptionEnabled}
-            playbackSpeed={playbackSpeed}
-            bottomContentInset={bottomContentInset}
-            isSeriesPlayback={isSeriesPlayback}
-            onOpenSeriesEpisodes={onOpenSeriesEpisodes}
-            seriesEpisodeCount={seriesEpisodeCount}
-            onToggleMuted={handleToggleMuted}
-            onClearDisplay={handleClearDisplay}
-            onRestoreDisplay={handleRestoreDisplay}
-            onLiveTranscriptionChange={setLiveTranscriptionEnabled}
-            onPlaybackSpeedChange={setPlaybackSpeed}
-            onDeleted={handleReelDeleted}
-            onIntentionalPauseChange={handleIntentionalPauseChange}
-            onPlaybackProgress={handlePlaybackProgress}
-            onTimelineInteractionChange={handleTimelineInteractionChange}
-            onPlayerChange={handlePlayerChange}
-          />
+          <View style={{ height: videoViewportHeight }}>
+            <ReelFeedItem
+              reel={item}
+              {...(!hideDescriptions && item.description ? { description: item.description } : {})}
+              height={videoViewportHeight}
+              isActive={isActiveItem}
+              shouldWarmVideo={shouldWarmVideo}
+              {...(typeof offlineVideoCachePriority === 'number'
+                ? { offlineVideoCachePriority }
+                : {})}
+              enableStatusPolling={isActiveItem}
+              hideCaption={hideDescriptions}
+              isMuted={isMuted}
+              clearDisplay={clearDisplay}
+              liveTranscriptionEnabled={isActiveItem && liveTranscriptionEnabled}
+              playbackSpeed={playbackSpeed}
+              bottomContentInset={0}
+              isSeriesPlayback={isSeriesPlayback}
+              onOpenSeriesEpisodes={onOpenSeriesEpisodes}
+              seriesEpisodeCount={seriesEpisodeCount}
+              onToggleMuted={handleToggleMuted}
+              onClearDisplay={handleClearDisplay}
+              onRestoreDisplay={handleRestoreDisplay}
+              onLiveTranscriptionChange={setLiveTranscriptionEnabled}
+              onPlaybackSpeedChange={setPlaybackSpeed}
+              onDeleted={handleReelDeleted}
+              onIntentionalPauseChange={handleIntentionalPauseChange}
+              onPlaybackProgress={handlePlaybackProgress}
+              onTimelineInteractionChange={handleTimelineInteractionChange}
+              onPlayerChange={handlePlayerChange}
+            />
+          </View>
 
           {!clearDisplay &&
           shouldShowRecommendationDebugOverlay &&
@@ -1780,7 +2113,6 @@ export function ReelsViewer({
     },
     [
       activeIndex,
-      bottomContentInset,
       effectiveActiveReelId,
       handleReelDeleted,
       handlePlayerChange,
@@ -1807,6 +2139,7 @@ export function ReelsViewer({
       isSeriesPlayback,
       onOpenSeriesEpisodes,
       seriesEpisodeCount,
+      videoViewportHeight,
       viewportHeight,
     ],
   )
@@ -1890,9 +2223,9 @@ export function ReelsViewer({
             <PagerView
               ref={pagerRef}
               style={{ flex: 1 }}
-              initialPage={safeInitialPageIndex}
+              initialPage={initialPagerPage}
               orientation="vertical"
-              scrollEnabled={!isTimelineInteracting}
+              scrollEnabled={!isTimelineInteracting && !disablePagerSwipe}
               overScrollMode="never"
               overdrag={false}
               offscreenPageLimit={2}
@@ -1900,13 +2233,12 @@ export function ReelsViewer({
               onPageSelected={handlePageSelected}
               onPageScrollStateChanged={handlePageScrollStateChanged}
             >
-              {reels.map(renderPagerPage)}
+              {pagerWindowReels.map((item, localIndex) =>
+                renderReelPage(item, visiblePagerWindowStart + localIndex),
+              )}
             </PagerView>
           ) : shouldShowOfflineSkeleton ? (
-            <ReelOfflineSkeleton
-              height={viewportHeight || windowHeight}
-              bottomContentInset={bottomContentInset}
-            />
+            <ReelOfflineSkeleton height={videoViewportHeight} bottomContentInset={0} />
           ) : (
             <View
               className="flex-1 bg-[#050505]"
@@ -2122,7 +2454,7 @@ export function ReelsViewer({
         <View
           pointerEvents={clearDisplay ? 'none' : 'box-none'}
           className="absolute inset-x-0 top-0 z-30 px-5"
-          style={{ paddingTop: insets.top + 18, elevation: 30, opacity: clearDisplay ? 0 : 1 }}
+          style={{ paddingTop: insets.top, elevation: 30, opacity: clearDisplay ? 0 : 1 }}
         >
           {mode === 'context' ? (
             <View className="flex-row items-center justify-between">

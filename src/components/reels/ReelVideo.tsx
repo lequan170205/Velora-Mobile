@@ -48,6 +48,7 @@ interface ReelVideoProps {
 export interface ReelVideoHandle {
   pause: () => void
   play: () => void
+  setMuted?: (muted: boolean) => void
   seekBy: (seconds: number) => void
   seekTo: (seconds: number) => void
 }
@@ -134,6 +135,7 @@ type PlaybackStatus = PlaybackStatusLoaded | PlaybackStatusUnloaded
 interface ExpoAvPlaybackRef {
   playAsync: () => Promise<unknown>
   pauseAsync: () => Promise<unknown>
+  setStatusAsync: (status: { isMuted?: boolean }) => Promise<unknown>
   setRateAsync: (rate: number, shouldCorrectPitch: boolean) => Promise<unknown>
   setPositionAsync: (position: number) => Promise<unknown>
   getStatusAsync: () => Promise<PlaybackStatus>
@@ -166,10 +168,10 @@ interface ExpoAvModule {
 const isHlsUri = (uri: string) => /\.m3u8($|[?#])/i.test(uri)
 
 const REEL_BUFFER_OPTIONS: VideoBufferOptions = {
-  minBufferForPlayback: 0.12,
+  minBufferForPlayback: 0.35,
   preferredForwardBufferDuration: 5,
   prioritizeTimeOverSizeThreshold: true,
-  waitsToMinimizeStalling: false,
+  waitsToMinimizeStalling: true,
 }
 
 const buildExpoVideoSource = (uri: string): ExpoVideoSource => {
@@ -314,6 +316,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
   ref,
 ) {
   const [hasRenderedFrame, setHasRenderedFrame] = useState(false)
+  const hasRenderedFrameRef = useRef(false)
   const hasCalledReadyRef = useRef(false)
   const isBufferingRef = useRef(false)
   const pendingSeekSecondsRef = useRef<number | null>(null)
@@ -350,6 +353,9 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
       play: () => {
         player.play()
       },
+      setMuted: (nextMuted: boolean) => {
+        player.muted = nextMuted
+      },
       seekBy: (seconds: number) => {
         if (typeof player.seekBy === 'function') {
           player.seekBy(seconds)
@@ -360,12 +366,15 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
       },
       seekTo: (seconds: number) => {
         pendingSeekSecondsRef.current = Math.max(0, seconds)
-        if (hasRenderedFrame || (Number.isFinite(player.duration) && player.duration > 0)) {
+        if (
+          hasRenderedFrameRef.current ||
+          (Number.isFinite(player.duration) && player.duration > 0)
+        ) {
           applyPendingSeek()
         }
       },
     }),
-    [applyPendingSeek, hasRenderedFrame, player],
+    [applyPendingSeek, player],
   )
 
   const notifyReady = useCallback(() => {
@@ -380,6 +389,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
 
   useEffect(() => {
     setHasRenderedFrame(false)
+    hasRenderedFrameRef.current = false
     hasCalledReadyRef.current = false
     isBufferingRef.current = false
   }, [uri])
@@ -463,6 +473,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
         contentFit={contentFit}
         nativeControls={nativeControls}
         onFirstFrameRender={() => {
+          hasRenderedFrameRef.current = true
           setHasRenderedFrame(true)
           isBufferingRef.current = false
 
@@ -537,6 +548,9 @@ const ExpoAvPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function ExpoAv
       },
       play: () => {
         void videoRef.current?.playAsync().catch(() => undefined)
+      },
+      setMuted: (nextMuted: boolean) => {
+        void videoRef.current?.setStatusAsync({ isMuted: nextMuted }).catch(() => undefined)
       },
       seekBy: (seconds: number) => {
         void videoRef.current

@@ -5,6 +5,7 @@ import {
   getCachedTemporaryReelVideo,
   getSyncCachedTemporaryReelVideo,
   getTemporaryReelVideoCacheStatus,
+  isHlsReelUrl,
   subscribeTemporaryReelVideoCacheStatus,
 } from '../lib/offlineReelVideoCache'
 import { useNetworkStatus } from '../providers/NetworkProvider'
@@ -38,7 +39,7 @@ export function useOfflineReelVideoSource(
     (options.enabled ?? true) &&
     (options.shouldPrepareOfflineVideo ?? true) &&
     reel.status === 'COMPLETED' &&
-    Boolean(reel.streamUrl)
+    isHlsReelUrl(reel.streamUrl)
 
   useEffect(() => {
     if (!reel.id) {

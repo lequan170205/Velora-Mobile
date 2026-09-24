@@ -2,6 +2,8 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const test = require('node:test')
+const ts = require('typescript')
+const vm = require('node:vm')
 
 const root = path.resolve(__dirname, '..')
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8')
@@ -10,6 +12,7 @@ const creatorHelpers = read('src/lib/reel-creator.ts')
 const editorStage = read('src/components/reels/create/editor-stage.tsx')
 const publishStage = read('src/components/reels/create/publish-stage.tsx')
 const reelFeedItem = read('src/components/reels/ReelFeedItem.tsx')
+const reelsViewer = read('src/components/reels/ReelsViewer.tsx')
 const reelVideo = read('src/components/reels/ReelVideo.tsx')
 const reelPlaybackCoordinator = read('src/lib/reelPlaybackCoordinator.ts')
 
@@ -53,10 +56,7 @@ test('feed fit follows explicit edit framing before legacy poster detection', ()
   assert.match(reelFeedItem, /reel\.playbackPresentation === 'FIT_WITH_LETTERBOX'/)
   assert.match(reelFeedItem, /reel\.playbackPresentation === 'PORTRAIT_COVER'/)
   assert.match(reelFeedItem, /reel\.edit\?\.framing !== 'fit'/)
-  assert.doesNotMatch(
-    reelFeedItem,
-    /sourceLengthClass === 'LONG' \? 'contain' : 'cover'/,
-  )
+  assert.doesNotMatch(reelFeedItem, /sourceLengthClass === 'LONG' \? 'contain' : 'cover'/)
   assert.match(reelFeedItem, /contentFit=\{playbackContentFit\}/g)
   assert.match(
     reelFeedItem,
@@ -87,11 +87,66 @@ test('contained feed reels keep contain foreground and add a poster immersive ba
 test('playback coordinator plays desired reel upon registration and does not pause active reel', () => {
   assert.match(
     reelPlaybackCoordinator,
-    /if\s*\(\s*this\.desiredReelId\s*===\s*reelId\s*\)\s*\{\s*player\.play\(\)/,
+    /if\s*\(\s*this\.desiredReelId\s*===\s*reelId\s*\)\s*\{\s*player\.setMuted\?\.\(this\.muted\)[\s\S]*player\.play\(\)/,
   )
   assert.doesNotMatch(
     reelPlaybackCoordinator,
     /if\s*\(\s*this\.desiredReelId\s*===\s*reelId\s*&&\s*this\.playingReelId\s*!==\s*reelId\s*\)/,
+  )
+  assert.match(reelPlaybackCoordinator, /player\.setMuted\?\.\(this\.muted\)/)
+  assert.match(
+    reelPlaybackCoordinator,
+    /nextPlayer\.setMuted\?\.\(muted\)[\s\S]*nextPlayer\.play\(\)/,
+  )
+  assert.match(
+    reelFeedItem,
+    /if \(!player && isActiveRef\.current && lastPlaybackPositionRef\.current > 0\) \{\s*queueReelInitialSeek\(displayReel\.id, lastPlaybackPositionRef\.current\)/,
+  )
+  assert.match(reelVideo, /setMuted: \(nextMuted: boolean\) => \{\s*player\.muted = nextMuted/)
+})
+
+test('focus return reapplies mute and restores a remounted reel playhead before playback', async () => {
+  const compiled = ts.transpileModule(reelPlaybackCoordinator, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2020,
+    },
+  }).outputText
+  const exports = {}
+  vm.runInNewContext(compiled, { exports, setTimeout, clearTimeout, Date, Map, Set, Array })
+  const { ReelPlaybackCoordinator, queueReelInitialSeek } = exports
+  const calls = []
+  const coordinator = new ReelPlaybackCoordinator()
+  coordinator.register('reel-1', {
+    pause: () => calls.push('pause'),
+    play: () => calls.push('play'),
+    setMuted: (muted) => calls.push(`muted:${muted}`),
+  })
+
+  coordinator.transition('reel-1', false)
+  coordinator.transition(null, false)
+  calls.length = 0
+  coordinator.transition('reel-1', false)
+
+  assert.deepEqual(calls, ['muted:false', 'play'])
+
+  queueReelInitialSeek('reel-resume-1', 12.5)
+  const resumeCalls = []
+  const resumeCoordinator = new ReelPlaybackCoordinator()
+  resumeCoordinator.transition('reel-resume-1', false)
+  resumeCoordinator.register('reel-resume-1', {
+    pause: () => resumeCalls.push('pause'),
+    play: () => resumeCalls.push('play'),
+    seekTo: (seconds) => resumeCalls.push(`seek:${seconds}`),
+    setMuted: (muted) => resumeCalls.push(`muted:${muted}`),
+  })
+  assert.deepEqual(resumeCalls, ['muted:false', 'pause'])
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  assert.deepEqual(resumeCalls, ['muted:false', 'pause', 'seek:12.5', 'muted:false', 'play'])
+
+  assert.match(
+    reelsViewer,
+    /transition\(\s*canPlayActiveReel \? effectiveActiveReelId : null,\s*isMuted,?\s*\)/,
   )
 })
 
@@ -107,4 +162,3 @@ test('chat shared reel metadata preserves orientation and merges into reel feed 
   assert.match(reelFeedItem, /nextReel\.sourceEffectiveHeight = reelDetail\.sourceEffectiveHeight/)
   assert.match(reelFeedItem, /!reel\.sourceOrientation && !reel\.playbackPresentation/)
 })
-

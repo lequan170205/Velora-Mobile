@@ -1,8 +1,9 @@
 import { MaterialIcons } from '@expo/vector-icons'
+import { useQueryClient } from '@tanstack/react-query'
 import { Image } from 'expo-image'
 import { useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import React, { useMemo, useRef } from 'react'
+import React, { useCallback, useMemo, useRef } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -16,11 +17,16 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { GlassIconButton } from '@/components/reels/create/shared-ui'
 import { ReelSeriesPickerSheet } from '@/components/reels/series/ReelSeriesPickerSheet'
-import { useCreateReelSeries, useOwnedReelSeries } from '@/hooks/useReels'
-import type { ReelSeries } from '@/types/reel.types'
+import {
+  prefetchReelSeriesEpisodes,
+  useCreateReelSeries,
+  useOwnedReelSeries,
+} from '@/hooks/useReels'
+import { useAuthStore } from '@/stores/authStore'
+import type { ReelSeriesListItem } from '@/types/reel.types'
 import type { BottomSheetModal } from '@gorhom/bottom-sheet'
 
-const visibilityLabel = (visibility: ReelSeries['visibility']) =>
+const visibilityLabel = (visibility: ReelSeriesListItem['visibility']) =>
   visibility === 'friends' ? 'Friends' : visibility === 'private' ? 'Private' : 'Public'
 
 const getErrorMessage = (error: unknown) =>
@@ -30,6 +36,8 @@ const getErrorMessage = (error: unknown) =>
 
 export default function OwnedReelSeriesScreen() {
   const router = useRouter()
+  const queryClient = useQueryClient()
+  const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
   const createSheetRef = useRef<BottomSheetModal>(null)
   const createSeries = useCreateReelSeries()
   const {
@@ -44,9 +52,18 @@ export default function OwnedReelSeriesScreen() {
   } = useOwnedReelSeries({ limit: 20 })
   const series = useMemo(() => data?.pages.flatMap((page) => page.items) ?? [], [data])
 
-  const openSeries = (item: ReelSeries) => {
-    router.push({ pathname: '/series/[id]' as never, params: { id: item.id } })
-  }
+  const openSeries = useCallback(
+    (item: ReelSeriesListItem) => {
+      if (item.firstReelId) {
+        void prefetchReelSeriesEpisodes(queryClient, viewerId, item.id, item.firstReelId)
+      }
+      router.push({
+        pathname: '/series/[id]' as never,
+        params: { id: item.id, ...(item.firstReelId ? { reelId: item.firstReelId } : {}) },
+      })
+    },
+    [queryClient, router, viewerId],
+  )
 
   return (
     <SafeAreaView className="flex-1 bg-[#F7F2EC]" edges={['top', 'bottom']}>
@@ -99,7 +116,7 @@ export default function OwnedReelSeriesScreen() {
             />
           }
           renderItem={({ item }) => {
-            const cover = item.reels.find((reel) => reel.thumbnailUrl)?.thumbnailUrl
+            const cover = item.coverThumbnailUrl
             return (
               <TouchableOpacity
                 accessibilityRole="button"
@@ -130,7 +147,7 @@ export default function OwnedReelSeriesScreen() {
                     {item.title}
                   </Text>
                   <Text className="mt-1 text-xs2" style={{ color: 'rgba(46,36,30,0.58)' }}>
-                    {item.reels.length} {item.reels.length === 1 ? 'episode' : 'episodes'} ·{' '}
+                    {item.episodeCount} {item.episodeCount === 1 ? 'episode' : 'episodes'} ·{' '}
                     {visibilityLabel(item.visibility)}
                   </Text>
                   {item.description?.trim() ? (
