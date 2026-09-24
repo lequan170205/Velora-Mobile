@@ -514,7 +514,10 @@ const ReelFeedItemComponent = function ReelFeedItem({
   }, [displayReel.id, displayReel.series?.id, isActive, queryClient, user?.id])
   const offlineVideoSource = useOfflineReelVideoSource(displayReel, {
     enabled: shouldWarmVideo,
-    preferOffline: true,
+    // Keep the native player's online HLS source stable while a background cache finishes.
+    // Switching an offscreen player from remote HLS to a local manifest recreates it and
+    // causes a visible hitch when the user swipes back.
+    preferOffline: false,
     shouldPrepareOfflineVideo: typeof offlineVideoCachePriority === 'number',
     ...(typeof offlineVideoCachePriority === 'number'
       ? { cachePriority: offlineVideoCachePriority }
@@ -523,9 +526,10 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const [isUsingRemotePlaybackFallback, setIsUsingRemotePlaybackFallback] = useState(false)
   const activePlaybackUriRef = useRef<string | null>(null)
 
-  if (!isActive) {
-    activePlaybackUriRef.current = offlineVideoSource.uri
-  } else if (!activePlaybackUriRef.current) {
+  if (
+    !activePlaybackUriRef.current ||
+    (!offlineVideoSource.isOnline && offlineVideoSource.isOfflineVideoActive)
+  ) {
     activePlaybackUriRef.current = offlineVideoSource.uri
   }
 

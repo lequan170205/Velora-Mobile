@@ -35,13 +35,11 @@ test('useOfflineReelVideoSource uses synchronous cache and defaults to preferrin
   )
 })
 
-test('ReelFeedItem requests preferred offline playback and stabilizes active playback URI', () => {
-  assert.match(reelFeedItem, /preferOffline: true/)
+test('ReelFeedItem keeps the online native source stable and uses offline playback only offline', () => {
+  assert.match(reelFeedItem, /preferOffline: false/)
   assert.match(reelFeedItem, /activePlaybackUriRef/)
-  assert.match(
-    reelFeedItem,
-    /const resolvedVideoUri = isUsingRemotePlaybackFallback\s*\? displayReel\.streamUrl\s*: activePlaybackUriRef\.current \|\| offlineVideoSource\.uri/,
-  )
+  assert.match(reelFeedItem, /offlineVideoSource\.isOfflineVideoActive/)
+  assert.match(reelFeedItem, /const resolvedVideoUri = isUsingRemotePlaybackFallback/)
   assert.match(reelFeedItem, /uri=\{resolvedVideoUri\}/)
 })
 
@@ -50,6 +48,7 @@ test('reel-prefetch parses HLS media playlist and prefetches initial segments', 
   assert.match(prefetch, /#EXT-X-MAP:/)
   assert.match(prefetch, /fetchBinaryQuietly/)
   assert.match(prefetch, /await response\.blob\(\)/)
+  assert.match(prefetch, /PREFETCH_MEDIA_SEGMENT_COUNT = 2/)
 })
 
 test('playlist prefetch and offline caching skip non-HLS video URLs', () => {

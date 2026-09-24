@@ -5,6 +5,7 @@ import { isHlsReelUrl, warmTemporaryReelVideoCache } from './offlineReelVideoCac
 import type { Reel } from '../types/reel.types'
 
 const MAX_PREFETCHED_URLS = 160
+const PREFETCH_MEDIA_SEGMENT_COUNT = 2
 const prefetchedUrls = new Set<string>()
 
 const rememberPrefetchedUrl = (url: string) => {
@@ -129,8 +130,10 @@ const getInitialSegmentUrls = (mediaPlaylistUrl: string, mediaPlaylistText: stri
     const segmentUrl = toAbsoluteUrl(mediaPlaylistUrl, line)
     if (segmentUrl) {
       segmentUrls.push(segmentUrl)
-      // Only prefetch the first media segment to prime playback without wasting bandwidth
-      break
+
+      if (segmentUrls.length >= PREFETCH_MEDIA_SEGMENT_COUNT) {
+        break
+      }
     }
   }
 
