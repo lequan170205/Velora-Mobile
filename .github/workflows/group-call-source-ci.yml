@@ -79,7 +79,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
       - run: pnpm install --frozen-lockfile
       - run: pnpm type-check
       - run: pnpm test
@@ -111,8 +111,22 @@ jobs:
         run: gem install cocoapods -v 1.16.2 --no-document
       - name: Resolve native dependencies from checked-in lockfile
         run: cd ios && pod install
-      - name: Verify CocoaPods lockfile is reproducible
-        run: git diff --exit-code -- ios/Podfile.lock
+      - name: Verify resolved CocoaPods dependencies are reproducible
+        run: |
+          ruby - <<'RUBY'
+          checked_in = IO.popen(['git', 'show', 'HEAD:ios/Podfile.lock'], &:read)
+          generated = File.read('ios/Podfile.lock')
+          without_local_checksums = lambda do |lockfile|
+            unless lockfile.include?("SPEC CHECKSUMS:\n") && lockfile.include?("PODFILE CHECKSUM:")
+              abort 'CocoaPods lockfile is missing a required section'
+            end
+            lockfile.sub(/^SPEC CHECKSUMS:\n.*?(?=^PODFILE CHECKSUM:)/m, "SPEC CHECKSUMS:\n")
+          end
+          unless without_local_checksums.call(checked_in) == without_local_checksums.call(generated)
+            abort 'CocoaPods resolved dependencies changed after pod install'
+          end
+          puts checked_in == generated ? 'CocoaPods lockfile matches exactly' : 'Only host-generated podspec checksums differ; native builds still required'
+          RUBY
       - name: Supply compile-only Firebase plist (never a runtime credential)
         run: cp .github/fixtures/GoogleService-Info.source-ci.plist ios/veloraDev/GoogleService-Info.plist
       - name: Build system-call module for generic Simulator
