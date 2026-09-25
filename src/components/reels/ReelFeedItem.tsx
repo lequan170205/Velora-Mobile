@@ -503,7 +503,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
   useEffect(() => {
     const seriesId = displayReel.series?.id
-    if (isActive && seriesId) {
+    if (isActive && seriesId && !isSeriesPlayback) {
       void prefetchReelSeriesEpisodes(
         queryClient,
         user?.id ?? 'anonymous',
@@ -511,7 +511,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
         displayReel.id,
       )
     }
-  }, [displayReel.id, displayReel.series?.id, isActive, queryClient, user?.id])
+  }, [displayReel.id, displayReel.series?.id, isActive, isSeriesPlayback, queryClient, user?.id])
   const offlineVideoSource = useOfflineReelVideoSource(displayReel, {
     enabled: shouldWarmVideo,
     // Keep the native player's online HLS source stable while a background cache finishes.

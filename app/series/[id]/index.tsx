@@ -301,14 +301,6 @@ export default function ReelSeriesScreen() {
   }, [fetchPreviousPage, hasPreviousPage, isFetchingNextPage, isFetchingPreviousPage])
 
   useEffect(() => {
-    if (isPending || !hasPreviousPage || isFetchingPreviousPage) {
-      return
-    }
-
-    requestPreviousEpisodes()
-  }, [hasPreviousPage, isFetchingPreviousPage, isPending, requestPreviousEpisodes])
-
-  useEffect(() => {
     if (!isFetchingNextPage && pendingPreviousEpisodesRequestRef.current) {
       requestPreviousEpisodes()
     }
@@ -371,7 +363,10 @@ export default function ReelSeriesScreen() {
     )
   }
 
-  if (isError || !series) {
+  const shouldHideCachedSeries =
+    isError && isAxiosError(error) && [401, 403, 404].includes(error.response?.status ?? 0)
+
+  if (!series || shouldHideCachedSeries) {
     const isNotFound = isAxiosError(error) && error.response?.status === 404
 
     return (
