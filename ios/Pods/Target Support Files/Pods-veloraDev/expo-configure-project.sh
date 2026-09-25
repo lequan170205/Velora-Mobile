@@ -46,8 +46,8 @@ with_node \
   --eval "require('expo/bin/autolinking')" \
   expo-modules-autolinking \
   generate-modules-provider  \
-  --target "/Users/leanhquan/GitHub/Velora-Mobile/ios/Pods/Target Support Files/Pods-veloraDev/ExpoModulesProvider.swift" \
-  --entitlement "/Users/leanhquan/GitHub/Velora-Mobile/ios/veloraDev/veloraDev.entitlements" \
+  --target "/Users/leanhquan/GitHub/.worktrees/velora-group-voice-mvp/ios/Pods/Target Support Files/Pods-veloraDev/ExpoModulesProvider.swift" \
+  --entitlement "/Users/leanhquan/GitHub/.worktrees/velora-group-voice-mvp/ios/veloraDev/veloraDev.entitlements" \
    \
   --platform "apple" \
   --packages "@react-native-google-signin/google-signin" "expo" "expo-application" "expo-asset" "expo-av" "expo-blur" "expo-camera" "expo-clipboard" "expo-constants" "expo-crypto" "expo-dev-launcher" "expo-dev-menu" "expo-device" "expo-document-picker" "expo-file-system" "expo-font" "expo-haptics" "expo-image" "expo-image-picker" "expo-keep-awake" "expo-linear-gradient" "expo-linking" "expo-media-library" "expo-network" "expo-router" "expo-secure-store" "expo-splash-screen" "expo-symbols" "expo-video" "expo-video-cache" "expo-video-thumbnails" "expo-web-browser" "velora-system-calls"

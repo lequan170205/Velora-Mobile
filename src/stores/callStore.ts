@@ -18,6 +18,7 @@ const initialState: CallUiState = {
   peerAvatarUrl: null,
   isGroupCall: false,
   groupParticipantIds: [],
+  groupReconnectingUserIds: [],
   callType: null,
   muted: false,
   speakerEnabled: false,

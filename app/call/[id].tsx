@@ -270,6 +270,7 @@ export default function ActiveCallScreen() {
     direction,
     durationSec,
     groupParticipantIds,
+    groupReconnectingUserIds,
     isGroupCall,
     localStreamUrl,
     muted,
@@ -531,6 +532,7 @@ export default function ActiveCallScreen() {
     ? groupPeopleIds.map((userId, index) => {
         const member = groupMembers.find((item) => item.userId === userId)
         const isYou = userId === currentUser?.id
+        const isReconnecting = groupReconnectingUserIds.includes(userId)
         return {
           id: userId,
           name: isYou
@@ -540,7 +542,12 @@ export default function ActiveCallScreen() {
               member?.user.username ||
               `Member ${index + 1}`,
           avatarUrl: isYou ? (currentUser?.picture ?? null) : (member?.user.picture ?? null),
-          subtitle: isYou && currentUser?.username ? `@${currentUser.username}` : null,
+          subtitle: isReconnecting
+            ? 'Reconnecting…'
+            : isYou && currentUser?.username
+              ? `@${currentUser.username}`
+              : null,
+          isReconnecting,
         }
       })
     : [
@@ -549,9 +556,22 @@ export default function ActiveCallScreen() {
           name: 'You',
           avatarUrl: currentUser?.picture ?? null,
           subtitle: currentUser?.username ? `@${currentUser.username}` : null,
+          isReconnecting: false,
         },
-        { id: 'peer', name: peerName || 'Unknown', avatarUrl: peerAvatarUrl, subtitle: null },
+        {
+          id: 'peer',
+          name: peerName || 'Unknown',
+          avatarUrl: peerAvatarUrl,
+          subtitle: null,
+          isReconnecting: false,
+        },
       ]
+  const joinedUserIds = new Set(groupPeopleIds)
+  const notInCallMembers = isGroupCall
+    ? groupMembers.filter(
+        (member) => member.status === 'ACTIVE' && !joinedUserIds.has(member.userId),
+      )
+    : []
 
   const participantsSheet = (
     <BottomSheet
@@ -597,11 +617,17 @@ export default function ActiveCallScreen() {
           <AppText
             className="mb-3 mt-6 text-[18px] font-bold"
             style={{ color: colors.call.textPrimary }}
+            accessibilityRole="header"
           >
             {isGroupCall ? `In this call · ${groupPeopleIds.length}` : 'In this call'}
           </AppText>
           {participantRows.map((person) => (
-            <View key={person.id} className="flex-row items-center py-3">
+            <View
+              key={person.id}
+              className="flex-row items-center py-3"
+              accessible
+              accessibilityLabel={`${person.name}, ${person.isReconnecting ? 'reconnecting to this call' : 'in this call'}`}
+            >
               <PeerAvatar avatarUrl={person.avatarUrl} name={person.name} size={56} />
               <View className="ml-4 min-w-0 flex-1">
                 <AppText
@@ -619,6 +645,39 @@ export default function ActiveCallScreen() {
               </View>
             </View>
           ))}
+          {notInCallMembers.length > 0 ? (
+            <>
+              <View className="mt-4 h-px" style={{ backgroundColor: colors.call.controlBorder }} />
+              <AppText
+                className="mb-3 mt-6 text-[18px] font-bold"
+                style={{ color: colors.call.textPrimary }}
+                accessibilityRole="header"
+              >
+                Not in call · {notInCallMembers.length}
+              </AppText>
+              {notInCallMembers.map((member) => {
+                const name =
+                  member.user.fullName || member.user.name || member.user.username || 'Member'
+                return (
+                  <View
+                    key={member.userId}
+                    className="flex-row items-center py-3"
+                    accessible
+                    accessibilityLabel={`${name}, not in call`}
+                  >
+                    <PeerAvatar avatarUrl={member.user.picture ?? null} name={name} size={56} />
+                    <AppText
+                      className="ml-4 min-w-0 flex-1 text-[17px]"
+                      style={{ color: colors.call.textSecondary }}
+                      numberOfLines={1}
+                    >
+                      {name}
+                    </AppText>
+                  </View>
+                )
+              })}
+            </>
+          ) : null}
         </BottomSheetScrollView>
       </BottomSheetView>
     </BottomSheet>

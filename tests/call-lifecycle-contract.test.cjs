@@ -58,7 +58,8 @@ test('native journal keeps action ordering, completion, expiry and watchdog guar
   assert.match(source, /action: "resume"/)
   assert.match(source, /answerActionId/)
   assert.match(source, /isExplicitlyAnsweredElsewhere/)
-  assert.match(source, /localWinningAnswerActionId != answerActionId/)
+  assert.match(source, /!matchesWinner\(localWinningAnswerActionId\)/)
+  assert.match(source, /answerActionHash == SHA256\.hash/)
   assert.match(source, /reason: isExplicitlyAnsweredElsewhere \? "answered_elsewhere" : validation\.reason/)
   assert.match(source, /completePendingActions\(callId: callId, action: "resume", outcome: "active"\)/)
   assert.match(source, /pendingAnswerWatchdogTimeout/)
@@ -115,6 +116,26 @@ test('native journal keeps action ordering, completion, expiry and watchdog guar
   assert.match(androidNotifications, /completePendingAnswer\(\s*context,\s*pendingAnswerActionId/)
   assert.match(androidNotifications, /cancelPendingAnswerWatchdog\(context, callId\)/)
   assert.match(androidNotifications, /if \(isExplicitlyAnsweredElsewhere\) "ended" else status/)
+})
+
+test('failed iOS end transaction still clears an observed active native call', () => {
+  const source = read('modules/velora-system-calls/ios/VeloraSystemCallsModule.swift')
+  const endCall = source.slice(source.indexOf('  func endCall(callId:'), source.indexOf('  func reportCallFailed(callId:'))
+  assert.match(
+    endCall,
+    /if let error \{[\s\S]*?if !self\.clearCallIfObserverConfirmsMissing\(callId: callId, uuid: uuid\) \{[\s\S]*?self\.provider\.reportCall\(with: uuid, endedAt: Date\(\), reason: \.failed\)[\s\S]*?self\.clearCall\(callId: callId\)/,
+  )
+})
+
+test('iOS diagnostics hash native identifiers and never merge opaque extras into logs', () => {
+  const source = read('modules/velora-system-calls/ios/VeloraSystemCallsModule.swift')
+  const logs = source.slice(source.indexOf('  private func logOperationalNotice('), source.indexOf('  func activateSimulatorAudioSession('))
+  assert.match(logs, /private func diagnosticHash\(/)
+  assert.match(logs, /"callIdHash": diagnosticHash\(callId\)/)
+  assert.match(logs, /"callUuidHash": diagnosticHash\(callUuid\?\.uuidString\)/)
+  assert.doesNotMatch(logs, /"callId": callId \?\? NSNull\(\)/)
+  assert.doesNotMatch(logs, /extra\.forEach/)
+  assert.doesNotMatch(logs, /payload\["errorMessage"\]/)
 })
 
 test('cold-start bridge stays UI-free and scopes prewarm work to the authenticated account', () => {

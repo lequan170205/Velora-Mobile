@@ -68,6 +68,7 @@ class FakeSocket {
 const videoState = loadTypeScriptModule(path.join(root, 'src/lib/call/callVideoState.ts'))
 const callSocket = loadTypeScriptModule(path.join(root, 'src/lib/call/callSocket.ts'), {
   'socket.io-client': { io: () => new FakeSocket() },
+  './callConstants': { GROUP_LIFECYCLE_VERSION: 2 },
   '../../api/auth.api': {
     authApi: { getSocketToken: async () => ({ accessToken: 'test-token' }) },
   },
@@ -260,10 +261,13 @@ test('short control-plane grace keeps a brief socket pause from tearing down med
   assert.equal(callConstants.DEFAULT_RECONNECT_GRACE_MS, 15_000)
 })
 
-test('diagnostic helpers expose only short IDs and stable error codes', () => {
-  assert.equal(callDebug.shortCallId('1234567890abcdef'), '12345678…def')
+test('diagnostic helpers redact IDs and expose stable error codes', () => {
+  assert.equal(callDebug.shortCallId('1234567890abcdef'), 'redacted')
+  assert.equal(callDebug.shortCallId('short-action'), 'redacted')
   assert.equal(callDebug.safeCallErrorCode(new Error('native SDK private detail')), 'unknown_error')
   assert.equal(callDebug.safeCallErrorCode(new Error('Producer not found')), 'producer_error')
+  assert.equal(callDebug.safeCallErrorCode({ code: 'answer-action-secret' }), 'unknown_error')
+  assert.equal(callDebug.safeCallErrorCode({ code: 'HTTP_409' }), 'http_409')
 })
 
 test('terminal stale media errors are never classified as retryable', () => {

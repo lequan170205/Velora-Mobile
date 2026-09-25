@@ -2,6 +2,8 @@ import { io } from 'socket.io-client'
 
 import { authApi } from '../../api/auth.api'
 
+import { GROUP_LIFECYCLE_VERSION } from './callConstants'
+
 import type { CallClientEvents, CallServerEvents, CallSocket } from '../../types/call.types'
 
 type EventCleanup = (error?: Error) => void
@@ -192,7 +194,7 @@ export const authenticateCallSocket = async (socket: CallSocket, userId?: string
       throw new Error('socket_auth_failed')
     }
 
-    socket.auth = { token: accessToken }
+    socket.auth = { token: accessToken, groupLifecycleVersion: GROUP_LIFECYCLE_VERSION }
   } catch {
     throw new Error('socket_auth_failed')
   }

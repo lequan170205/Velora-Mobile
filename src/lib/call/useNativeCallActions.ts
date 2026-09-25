@@ -7,6 +7,8 @@ import { veloraSystemCalls } from '../systemCalls/veloraSystemCalls'
 
 import { safeCallErrorCode, shortCallId } from './callDebug'
 import { isBusyPhase, isRetryableCallStateError } from './callPolicies'
+import { emitAndWaitForEvent } from './callSocket'
+import { groupWinnerAction } from './groupWinnerAction'
 
 import type { CallSocket } from '../../types/call.types'
 import type { NativeCallAction, NativeCallPayload } from '../systemCalls/veloraSystemCalls'
@@ -232,6 +234,9 @@ export const useNativeCallActions = ({
           }
           if (resumed) {
             completeNativeCallAction(action.actionId)
+          } else {
+            veloraSystemCalls.dismissIncomingCall(action.callId)
+            completeNativeCallAction(action.actionId)
           }
           return
         }
@@ -302,6 +307,9 @@ export const useNativeCallActions = ({
           callState.status === 'cancelled' ||
           callState.status === 'rejected'
         ) {
+          if (callState.isGroupCall) {
+            void groupWinnerAction.clear(currentUserId, action.callId).catch(() => undefined)
+          }
           if (isCurrentCall(action.callId)) {
             await teardownOnce('native_action_terminal_state')
           } else {
@@ -326,7 +334,51 @@ export const useNativeCallActions = ({
               completeNativeCallAction(action.actionId)
               return
             }
-            socket.emit('leave_call', { callId: action.callId, reason: 'ended' })
+            if (callState.isGroupCall && callState.initiatorId !== currentUserId) {
+              const winningActionId =
+                action.answerActionId ??
+                (await groupWinnerAction.load(currentUserId, action.callId))
+              if (!winningActionId) throw new Error('group_winner_action_missing')
+              const registry = new Set<() => void>()
+              try {
+                await emitAndWaitForEvent<'rejoin_call', 'call_rejoined'>(
+                  socket,
+                  'rejoin_call',
+                  { callId: action.callId, actionId: winningActionId },
+                  {
+                    event: 'call_rejoined',
+                    timeoutMs: 10_000,
+                    registry,
+                    filter: (payload) => payload.callId === action.callId,
+                  },
+                )
+              } catch {
+                // A previous leave may have committed while its ACK was lost.
+                // Only the server can confirm that state through call_left.
+              }
+              if (!isActionAccountCurrent()) {
+                await abandonActionForAccountChange()
+                return
+              }
+              await emitAndWaitForEvent<'leave_call', 'call_left'>(
+                socket,
+                'leave_call',
+                { callId: action.callId, reason: 'ended' },
+                {
+                  event: 'call_left',
+                  timeoutMs: 10_000,
+                  registry,
+                  filter: (payload) => payload.callId === action.callId,
+                },
+              )
+              void groupWinnerAction.clear(currentUserId, action.callId).catch(() => undefined)
+              if (!isActionAccountCurrent()) {
+                await abandonActionForAccountChange()
+                return
+              }
+            } else {
+              socket.emit('leave_call', { callId: action.callId, reason: 'ended' })
+            }
             await teardownOnce('native_end_call')
           } else {
             veloraSystemCalls.dismissIncomingCall(action.callId)

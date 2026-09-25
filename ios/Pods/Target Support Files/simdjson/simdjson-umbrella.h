@@ -10,7 +10,8 @@
 #endif
 #endif
 
-#include "../../CloudSources/simdjson/src/simdjson.h"
+#import "simdjson.h"
 
 FOUNDATION_EXPORT double simdjsonVersionNumber;
 FOUNDATION_EXPORT const unsigned char simdjsonVersionString[];
+

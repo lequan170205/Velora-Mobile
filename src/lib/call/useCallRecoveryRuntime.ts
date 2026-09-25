@@ -43,6 +43,7 @@ type RecoveryRuntimeOptions = {
   sendTransportRef: MutableRef<MediasoupTypes.Transport<Record<string, unknown>> | null>
   recvTransportRef: MutableRef<MediasoupTypes.Transport<Record<string, unknown>> | null>
   videoProducerRef: MutableRef<MediasoupTypes.Producer<Record<string, unknown>> | null>
+  consumerMapRef: MutableRef<Map<string, MediasoupTypes.Consumer<Record<string, unknown>>>>
   localVideoStateRef: MutableRef<LocalVideoSyncState>
   remoteVideoEnabledByProducerRef: MutableRef<Map<string, boolean>>
   remoteVideoRevisionByProducerRef: MutableRef<Map<string, number>>
@@ -93,6 +94,7 @@ type RecoveryRuntimeOptions = {
   clearMediaTransportDisconnectTimeout: (transportId: string) => void
   clearRemoteAudioFallback: () => void
   resetRemoteConsumerRuntime: () => void
+  pruneStaleGroupConsumers: (activeProducerIds: Set<string>) => void
 }
 
 export const useCallRecoveryRuntime = ({
@@ -104,6 +106,7 @@ export const useCallRecoveryRuntime = ({
   sendTransportRef,
   recvTransportRef,
   videoProducerRef,
+  consumerMapRef,
   localVideoStateRef,
   remoteVideoEnabledByProducerRef,
   remoteVideoRevisionByProducerRef,
@@ -140,6 +143,7 @@ export const useCallRecoveryRuntime = ({
   clearMediaTransportDisconnectTimeout,
   clearRemoteAudioFallback,
   resetRemoteConsumerRuntime,
+  pruneStaleGroupConsumers,
 }: RecoveryRuntimeOptions) => {
   const restartConnectedTransports = useCallback(
     async (socket: CallSocket, callId: string) => {
@@ -238,6 +242,11 @@ export const useCallRecoveryRuntime = ({
       useCallStore.getState().patch({
         callType: recoveredCallType,
         groupParticipantIds: rejoined.session.isGroupCall ? rejoined.session.participantIds : [],
+        groupReconnectingUserIds: rejoined.session.isGroupCall
+          ? useCallStore
+              .getState()
+              .groupReconnectingUserIds.filter((id) => rejoined.session.participantIds.includes(id))
+          : [],
         remoteVideoState: recoveredCallType === 'VIDEO' ? 'waiting' : 'idle',
       })
       if (recoveredCallType === 'VOICE') {
@@ -245,6 +254,13 @@ export const useCallRecoveryRuntime = ({
         clearRemoteVideoRuntime('idle')
       }
       try {
+        if (rejoined.session.isGroupCall) {
+          // A departed peer must not interrupt audio from surviving peers.
+          const activeProducerIds = new Set(
+            (rejoined.activeProducers ?? []).map((producer) => producer.producerId),
+          )
+          pruneStaleGroupConsumers(activeProducerIds)
+        }
         await restartConnectedTransports(socket, rejoined.callId)
         assertCallSetupCurrent(restartSetupToken, rejoined.callId)
         reconnectModeRef.current = null
@@ -280,7 +296,18 @@ export const useCallRecoveryRuntime = ({
           assertCallSetupCurrent(restartSetupToken, rejoined.callId)
         }
         markRemoteVideoSnapshotReady(recoveredCallType === 'VIDEO')
-        useCallStore.getState().patch({ phase: 'active' })
+        useCallStore.getState().patch({
+          phase: 'active',
+          ...(rejoined.session.isGroupCall
+            ? {
+                remoteAudioState: [...consumerMapRef.current.values()].some(
+                  (consumer) => consumer.kind === 'audio',
+                )
+                  ? 'connected'
+                  : 'waiting',
+              }
+            : {}),
+        })
         if (
           recoveredCallType === 'VIDEO' &&
           useCallStore.getState().hasCameraPermission === true &&
@@ -411,6 +438,7 @@ export const useCallRecoveryRuntime = ({
     clearReconnectTimeout,
     clearRemoteVideoRuntime,
     consumeRemoteProducer,
+    consumerMapRef,
     currentUserId,
     deactivateLocalVideo,
     disposeMediaRuntime,
@@ -424,6 +452,7 @@ export const useCallRecoveryRuntime = ({
     postAnswerSetup,
     reconnectModeRef,
     reconnectRecoveryInFlightRef,
+    pruneStaleGroupConsumers,
     restartConnectedTransports,
     markNativeCallActive,
     socketRef,
@@ -539,7 +568,17 @@ export const useCallRecoveryRuntime = ({
     (payload: PeerReconnectingPayload) => {
       if (!isCurrentCall(payload.callId) || payload.userId === currentUserId) return
       const state = useCallStore.getState()
-      if (state.isGroupCall) return
+      if (state.isGroupCall) {
+        if (
+          state.groupParticipantIds.includes(payload.userId) &&
+          !state.groupReconnectingUserIds.includes(payload.userId)
+        ) {
+          useCallStore.getState().patch({
+            groupReconnectingUserIds: [...state.groupReconnectingUserIds, payload.userId],
+          })
+        }
+        return
+      }
       if (state.phase !== 'active') return
 
       reconnectModeRef.current = 'peer'
@@ -573,9 +612,16 @@ export const useCallRecoveryRuntime = ({
   const handlePeerReconnected = useCallback(
     (payload: PeerReconnectedPayload) => {
       if (!isCurrentCall(payload.callId) || payload.userId === currentUserId) return
-      if (useCallStore.getState().isGroupCall) return
-      if (reconnectModeRef.current !== 'peer') return
       const state = useCallStore.getState()
+      if (state.isGroupCall) {
+        useCallStore.getState().patch({
+          groupReconnectingUserIds: state.groupReconnectingUserIds.filter(
+            (id) => id !== payload.userId,
+          ),
+        })
+        return
+      }
+      if (reconnectModeRef.current !== 'peer') return
       if (state.phase !== 'reconnecting') return
 
       useCallStore.getState().patch({

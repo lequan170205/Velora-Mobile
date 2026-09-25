@@ -1,5 +1,6 @@
 import AVFoundation
 import CallKit
+import CryptoKit
 import ExpoModulesCore
 import OSLog
 import PushKit
@@ -1132,7 +1133,10 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
           error,
           fallback: "Failed to request the end-call CallKit transaction."
         )
-        _ = self.clearCallIfObserverConfirmsMissing(callId: callId, uuid: uuid)
+        if !self.clearCallIfObserverConfirmsMissing(callId: callId, uuid: uuid) {
+          self.provider.reportCall(with: uuid, endedAt: Date(), reason: .failed)
+          self.clearCall(callId: callId)
+        }
         self.logPhaseEvent(
           layer: "callkit",
           event: "end_call_request_failed",
@@ -1314,6 +1318,13 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       validateCallStateUpdateLifecycleRevision(payload)
     let uuid = validation.callId.flatMap { uuidsByCallId[$0] }
     let answerActionId = nonEmptyString(payload["answerActionId"])
+    let answerActionHash = nonEmptyString(payload["answerActionHash"])
+    func matchesWinner(_ actionId: String?) -> Bool {
+      guard let actionId else { return false }
+      return actionId == answerActionId ||
+        answerActionHash == SHA256.hash(data: Data(actionId.utf8))
+          .map { String(format: "%02x", $0) }.joined()
+    }
     let isLocallyActive = validation.callId.map {
       activeCallIds.contains($0)
     } ?? false
@@ -1330,13 +1341,13 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     }
     let localWinningAnswerActionId = pendingAnswerActionId ?? pendingResumeAnswerActionId
     let isCurrentPendingAnswer = validation.callId.map { callId in
-      guard let answerActionId else {
-        // Older notification-service deployments do not attach an action id.
+      guard answerActionId != nil || answerActionHash != nil else {
+        // Older notification-service deployments attach no winner proof.
         // Preserve the previous safe behavior until the end-to-end rollout is
         // complete; an explicit non-matching id always wins deterministically.
         return isAnswerPending
       }
-      return pendingAnswerActionIdsByCallId[callId] == answerActionId
+      return matchesWinner(pendingAnswerActionIdsByCallId[callId])
     } ?? false
     let isCurrentPendingResume = validation.callId.map { callId in
       let pendingResume = pendingCallActions().first { pending in
@@ -1345,10 +1356,10 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       guard let pendingResume else {
         return false
       }
-      guard let answerActionId else {
+      guard answerActionId != nil || answerActionHash != nil else {
         return true
       }
-      return pendingResume["answerActionId"] as? String == answerActionId
+      return matchesWinner(pendingResume["answerActionId"] as? String)
     } ?? false
     // `completePendingAnswer(true)` deliberately marks CallKit active before
     // media setup so CallKit is fulfilled only after the server ACK. An
@@ -1357,9 +1368,9 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     // leave a ghost native call alive.
     let isExplicitlyAnsweredElsewhere =
       validation.status == "active" &&
-      answerActionId != nil &&
+      (answerActionId != nil || answerActionHash != nil) &&
       localWinningAnswerActionId != nil &&
-      localWinningAnswerActionId != answerActionId
+      !matchesWinner(localWinningAnswerActionId)
     let isIncomingCallReportInFlight = validation.callId.map {
       reportingIncomingCallIds.contains($0) && payloadsByCallId[$0]?["type"] as? String == "INCOMING_CALL"
     } ?? false
@@ -1418,8 +1429,8 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     // is safe to fulfill only when the server explicitly names this native
     // action; older action-less updates retain the normal retry/watchdog path.
     if status == "active",
-       let answerActionId,
-       pendingAnswerActionId == answerActionId {
+       let pendingAnswerActionId,
+       matchesWinner(pendingAnswerActionId) {
       guard storeRemoteCallStateUpdate(callId: callId, update: update) else {
         logPhaseEvent(
           layer: "remote-notification",
@@ -1434,7 +1445,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       }
 
       let didComplete = completePendingAnswer(
-        actionId: answerActionId,
+        actionId: pendingAnswerActionId,
         success: true,
         reason: nil
       )
@@ -1451,7 +1462,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
           ? nil
           : "The matching native answer action was no longer pending.",
         elapsedMs: elapsedMilliseconds(since: startedAt),
-        extra: ["status": status, "actionId": answerActionId]
+        extra: ["status": status, "actionId": pendingAnswerActionId]
       )
       return didComplete
     }
@@ -3478,16 +3489,21 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     elapsedMs: Int? = nil
   ) {
     let bundleId = Bundle.main.bundleIdentifier ?? "unknown"
-    let callIdValue = callId ?? "none"
-    let callUuidValue = callUuid?.uuidString ?? "none"
+    let callIdHash = diagnosticHash(callId) ?? "none"
+    let callUuidHash = diagnosticHash(callUuid?.uuidString) ?? "none"
     let successValue = success.map(String.init) ?? "unknown"
-    let errorCodeValue = errorCode ?? "none"
+    let errorCodeHash = diagnosticHash(errorCode) ?? "none"
     let elapsedValue = elapsedMs.map(String.init) ?? "none"
     let apnsEnvironment = currentApnsEnvironment() ?? "unknown"
 
     systemCallsLogger.notice(
-      "layer=\(layer, privacy: .public) event=\(event, privacy: .public) callId=\(callIdValue, privacy: .public) callUuid=\(callUuidValue, privacy: .public) success=\(successValue, privacy: .public) errorCode=\(errorCodeValue, privacy: .public) elapsedMs=\(elapsedValue, privacy: .public) monotonicMs=\(self.processMonotonicMilliseconds(), privacy: .public) appState=\(self.currentAppState(), privacy: .public) processLaunchId=\(self.processLaunchId, privacy: .public) bundleId=\(bundleId, privacy: .public) apnsEnvironment=\(apnsEnvironment, privacy: .public)"
+      "layer=\(layer, privacy: .public) event=\(event, privacy: .public) callIdHash=\(callIdHash, privacy: .public) callUuidHash=\(callUuidHash, privacy: .public) success=\(successValue, privacy: .public) errorCodeHash=\(errorCodeHash, privacy: .public) elapsedMs=\(elapsedValue, privacy: .public) monotonicMs=\(self.processMonotonicMilliseconds(), privacy: .public) appState=\(self.currentAppState(), privacy: .public) processLaunchId=\(self.processLaunchId, privacy: .public) bundleId=\(bundleId, privacy: .public) apnsEnvironment=\(apnsEnvironment, privacy: .public)"
     )
+  }
+
+  private func diagnosticHash(_ value: String?) -> String? {
+    guard let value, !value.isEmpty else { return nil }
+    return SHA256.hash(data: Data(value.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
   }
 
   private func logPhaseEvent(
@@ -3504,8 +3520,8 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     var payload: [String: Any] = [
       "layer": layer,
       "event": event,
-      "callId": callId ?? NSNull(),
-      "callUuid": callUuid?.uuidString ?? NSNull(),
+      "callIdHash": diagnosticHash(callId) as Any? ?? NSNull(),
+      "callUuidHash": diagnosticHash(callUuid?.uuidString) as Any? ?? NSNull(),
       "appState": currentAppState(),
       "processLaunchId": processLaunchId,
       "monotonicMs": processMonotonicMilliseconds(),
@@ -3515,16 +3531,25 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       payload["success"] = success
     }
     if let errorCode {
-      payload["errorCode"] = errorCode
-    }
-    if let errorMessage {
-      payload["errorMessage"] = errorMessage
+      payload["errorCodeHash"] = diagnosticHash(errorCode)
     }
     if let elapsedMs {
       payload["elapsedMs"] = elapsedMs
     }
-    extra.forEach { key, value in
-      payload[key] = value
+    if let status = extra["status"] as? String,
+       ["ringing", "active", "ended", "rejected", "cancelled", "missed"].contains(status) {
+      payload["status"] = status
+    }
+    if let endReason = extra["endReason"] as? String,
+       ["failed", "remote_ended", "unanswered", "answered_elsewhere", "declined_elsewhere", "unknown"].contains(endReason) {
+      payload["endReason"] = endReason
+    }
+    if let environment = extra["apnsEnvironment"] as? String,
+       ["development", "production"].contains(environment) {
+      payload["apnsEnvironment"] = environment
+    }
+    if let count = extra["count"] as? Int, count >= 0 {
+      payload["count"] = count
     }
 
     guard JSONSerialization.isValidJSONObject(payload),

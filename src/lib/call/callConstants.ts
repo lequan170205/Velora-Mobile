@@ -1,4 +1,5 @@
 export const CALL_JOINED_TIMEOUT_MS = 10_000
+export const GROUP_LIFECYCLE_VERSION = 2
 // This is read once while the JS bundle initializes. Operators can bake
 // EXPO_PUBLIC_CALL_ATOMIC_ACCEPT_ENABLED=false into a rollback build without
 // putting a remote-config request on the cold incoming-call path.

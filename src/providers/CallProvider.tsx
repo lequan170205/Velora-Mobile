@@ -1,4 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
+import * as Crypto from 'expo-crypto'
 import { useRouter } from 'expo-router'
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react'
 import { AppState, Platform } from 'react-native'
@@ -59,6 +60,7 @@ import {
   reconcileRemoteVideoProducerTombstones,
   shouldApplyRemoteVideoRevision,
 } from '../lib/call/callVideoState'
+import { groupWinnerAction } from '../lib/call/groupWinnerAction'
 import { type RtcQualityCounters, type RtcQualityStreak } from '../lib/call/rtcStats'
 import { useCallLocalMediaRuntime } from '../lib/call/useCallLocalMediaRuntime'
 import {
@@ -855,9 +857,61 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     remoteStreamRef.current = null
     useCallStore.getState().patch({
       remoteStreamUrl: null,
+      remoteAudioState: 'waiting',
       remoteVideoState: useCallStore.getState().callType === 'VIDEO' ? 'waiting' : 'idle',
     })
   }, [clearRemoteConsumerRetryState, requestCloseRemoteConsumer])
+
+  const pruneStaleGroupConsumers = useCallback(
+    (activeProducerIds: Set<string>) => {
+      const callId = activeCallIdRef.current
+      const remoteStream = remoteStreamRef.current
+      let removed = false
+      for (const [consumerId, consumer] of consumerMapRef.current) {
+        if (
+          activeProducerIds.has(consumer.producerId) &&
+          !consumer.closed &&
+          consumer.track.readyState !== 'ended'
+        )
+          continue
+        if (callId) requestCloseRemoteConsumer(callId, consumerId)
+        try {
+          remoteStream?.removeTrack(consumer.track as unknown as MediaStreamTrack)
+        } catch {
+          // The track may already have been detached by a concurrent close.
+        }
+        try {
+          consumer.close()
+        } catch {
+          // The native consumer may already be closed after the socket gap.
+        }
+        consumerMapRef.current.delete(consumerId)
+        removed = true
+      }
+      const liveConsumerProducerIds = new Set(
+        [...consumerMapRef.current.values()].map((consumer) => consumer.producerId),
+      )
+      for (const producerId of handledRemoteProducerIdsRef.current) {
+        if (!liveConsumerProducerIds.has(producerId))
+          handledRemoteProducerIdsRef.current.delete(producerId)
+      }
+      for (const producerId of queuedRemoteProducerMapRef.current.keys()) {
+        if (!activeProducerIds.has(producerId))
+          queuedRemoteProducerMapRef.current.delete(producerId)
+      }
+      if (removed) {
+        useCallStore.getState().patch({
+          remoteStreamUrl: remoteStream?.toURL() ?? null,
+          remoteAudioState: [...consumerMapRef.current.values()].some(
+            (consumer) => consumer.kind === 'audio',
+          )
+            ? 'connected'
+            : 'waiting',
+        })
+      }
+    },
+    [requestCloseRemoteConsumer],
+  )
 
   const deriveRemoteVideoState = useCallback((): RemoteVideoState => {
     const state = useCallStore.getState()
@@ -971,6 +1025,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       clearGroupInvitationTimeout()
       clearSocketDisconnectGraceTimeout()
       const endingCallId = activeCallIdRef.current ?? useCallStore.getState().callId
+      if (endingCallId && currentUserId && useCallStore.getState().isGroupCall) {
+        void groupWinnerAction.clear(currentUserId, endingCallId).catch(() => undefined)
+      }
       debugCall(
         '[Call] teardown_requested',
         JSON.stringify({
@@ -1031,6 +1088,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       callScreenTelemetryCallIdsRef,
       clearGroupInvitationTimeout,
       clearSocketDisconnectGraceTimeout,
+      currentUserId,
       disposeMediaRuntime,
       invalidateCallSetup,
       stopTimer,
@@ -1232,6 +1290,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     sendTransportRef,
     recvTransportRef,
     videoProducerRef,
+    consumerMapRef,
     localVideoStateRef,
     remoteVideoEnabledByProducerRef,
     remoteVideoRevisionByProducerRef,
@@ -1268,6 +1327,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     clearMediaTransportDisconnectTimeout,
     clearRemoteAudioFallback,
     resetRemoteConsumerRuntime,
+    pruneStaleGroupConsumers,
   })
 
   useEffect(() => {
@@ -1458,6 +1518,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           peerInfo.peerAvatarUrl,
         isGroupCall: payload.isGroupCall === true,
         groupParticipantIds: [],
+        groupReconnectingUserIds: [],
         callType: payload.callType,
         muted: false,
         cameraEnabled: false,
@@ -1507,6 +1568,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           peerInfo.peerAvatarUrl,
         isGroupCall: callState.isGroupCall === true,
         groupParticipantIds: [],
+        groupReconnectingUserIds: [],
         callType: callState.callType,
         muted: false,
         cameraEnabled: false,
@@ -1537,8 +1599,17 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         return false
       }
 
-      if (callState.isGroupCall && answerActionId) {
-        incomingAnswerActionRef.current = { callId: callState.callId, actionId: answerActionId }
+      if (callState.isGroupCall && currentUserId && callState.initiatorId !== currentUserId) {
+        const winningActionId =
+          answerActionId ?? (await groupWinnerAction.load(currentUserId, callState.callId))
+        if (!winningActionId) {
+          await teardownOnce('group_rejoin_proof_missing')
+          return false
+        }
+        if (answerActionId) {
+          await groupWinnerAction.save(currentUserId, callState.callId, answerActionId)
+        }
+        incomingAnswerActionRef.current = { callId: callState.callId, actionId: winningActionId }
       }
 
       const resumedCallId = callState.callId
@@ -1568,7 +1639,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         await recoverActiveCall()
 
         const resumedState = useCallStore.getState()
-        return resumedState.callId === resumedCallId && resumedState.phase === 'active'
+        const isActive = resumedState.callId === resumedCallId && resumedState.phase === 'active'
+        if (!isActive && isCurrentCall(resumedCallId)) {
+          await teardownRecoveryFailure('native_resume_incomplete')
+        }
+        return isActive
       } catch (error) {
         if (isCurrentCall(resumedCallId)) {
           await teardownRecoveryFailure('native_resume_failed')
@@ -1580,12 +1655,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       assertCallSetupCurrent,
       armReconnectTimeout,
       beginCallSetup,
+      currentUserId,
       ensureCallSocketConnected,
       isCurrentCall,
       prepareIncomingCallFromState,
       reconnectModeRef,
       recoverActiveCall,
       router,
+      teardownOnce,
       teardownRecoveryFailure,
       waitForConfiguredAudioSession,
     ],
@@ -1610,9 +1687,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const existingAction = incomingAnswerActionRef.current
       const incomingActionId =
         actionId ??
-        (existingAction?.callId === callId
-          ? existingAction.actionId
-          : `ui:${Date.now()}:${Math.random().toString(36).slice(2)}`)
+        (existingAction?.callId === callId ? existingAction.actionId : `ui:${Crypto.randomUUID()}`)
       incomingAnswerActionRef.current = { callId, actionId: incomingActionId }
       let nativeAnswerCompleted = false
       const completeNativeAnswer = (success: boolean, reason?: string) => {
@@ -1915,7 +1990,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           if (
             state.isGroupCall &&
             acceptance.outcome === 'media_unavailable' &&
-            !acceptance.reservationReleased
+            !acceptance.reservationReleased &&
+            !acceptance.retryable
           ) {
             if (socket.connected) {
               emitIncomingAcceptTerminalIntent(socket, callId, 'media_unavailable')
@@ -1957,6 +2033,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
 
         joinedCall = true
+        if (joined.session.isGroupCall && currentUserId) {
+          await groupWinnerAction.save(currentUserId, callId, incomingActionId)
+          assertCurrentCallAccount()
+        }
         telemetry.attachCall(joined.telemetryToken)
         telemetry.record('server_accept_ack', { outcome: 'succeeded' })
         telemetry.record('call_joined', { outcome: 'succeeded' })
@@ -1978,6 +2058,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           phase: 'connecting',
           isGroupCall: joined.session.isGroupCall === true,
           groupParticipantIds: joined.session.isGroupCall ? joined.session.participantIds : [],
+          groupReconnectingUserIds: [],
           peerName: joined.session.isGroupCall
             ? joined.session.groupName || 'Group call'
             : useCallStore.getState().peerName,
@@ -2209,6 +2290,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           peerAvatarUrl: input.peerAvatarUrl ?? null,
           isGroupCall: joined.session.isGroupCall === true,
           groupParticipantIds: joined.session.isGroupCall ? joined.session.participantIds : [],
+          groupReconnectingUserIds: [],
           callType,
           muted: false,
           cameraEnabled: callType === 'VIDEO',
@@ -2917,6 +2999,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       consumerMapRef.current.delete(consumerId)
       useCallStore.getState().patch({
         remoteStreamUrl: remoteStream?.toURL() ?? null,
+        ...(payload.kind === 'audio' && useCallStore.getState().isGroupCall
+          ? {
+              remoteAudioState: [...consumerMapRef.current.values()].some(
+                (remaining) => remaining.kind === 'audio',
+              )
+                ? 'connected'
+                : 'waiting',
+            }
+          : {}),
         ...(payload.kind === 'video' ? { remoteVideoState: deriveRemoteVideoState() } : {}),
       })
     }
@@ -3006,6 +3097,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (state.isGroupCall) {
         useCallStore.getState().patch({
           groupParticipantIds: state.groupParticipantIds.filter((id) => id !== payload.userId),
+          groupReconnectingUserIds: state.groupReconnectingUserIds.filter(
+            (id) => id !== payload.userId,
+          ),
         })
         return
       }
@@ -3035,6 +3129,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (!state.isGroupCall || state.groupParticipantIds.includes(payload.userId)) return
       useCallStore.getState().patch({
         groupParticipantIds: [...state.groupParticipantIds, payload.userId],
+        groupReconnectingUserIds: state.groupReconnectingUserIds.filter(
+          (id) => id !== payload.userId,
+        ),
       })
     }
 
@@ -3047,14 +3144,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         localIncomingAction &&
         acceptingIncomingCallIdRef.current === payload.callId &&
         localIncomingAction.callId === payload.callId &&
-        payload.answerActionId &&
-        localIncomingAction.actionId !== payload.answerActionId,
+        (payload.answeredElsewhere ||
+          (payload.answerActionId && localIncomingAction.actionId !== payload.answerActionId)),
       )
 
       // The atomic accept ACK can be delayed or lost. If another device that
       // shares this account won, do not wait for the local retry timeout: fail
-      // the pending CallKit action and cancel this setup generation now. Older
-      // servers omit answerActionId, so they retain the safe ACK/retry path.
+      // the pending CallKit action and cancel this setup generation now. Group
+      // calls use a device-directed flag so the winner's rejoin action stays private.
       if (otherDeviceWon && localIncomingAction) {
         veloraSystemCalls.completePendingAnswer(
           localIncomingAction.actionId,

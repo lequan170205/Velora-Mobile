@@ -18,19 +18,31 @@ test('group host skips the one-to-one answer wait and guests ignore peer-left te
   const callScreen = read('app/call/[id].tsx')
   const recovery = read('src/lib/call/useCallRecoveryRuntime.ts')
   assert.match(provider, /joined\.session\.isGroupCall\s*\? 'answered'/)
-  assert.match(provider, /if \(state\.isGroupCall\) \{[\s\S]*groupParticipantIds: state\.groupParticipantIds\.filter/)
+  assert.match(
+    provider,
+    /if \(state\.isGroupCall\) \{[\s\S]*groupParticipantIds: state\.groupParticipantIds\.filter/,
+  )
   assert.match(provider, /payload\.session\.isGroupCall === true/)
   assert.match(provider, /const armGroupInvitationTimeout = useCallback/)
   assert.match(provider, /teardownOnce\('group_invitation_expired'\)/)
   assert.match(callScreen, /\) : !isGroupCall \? \(/)
-  assert.match(recovery, /if \(state\.isGroupCall\) return/)
-  assert.match(recovery, /if \(useCallStore\.getState\(\)\.isGroupCall\) return/)
+  assert.match(
+    recovery,
+    /if \(state\.isGroupCall\) \{[\s\S]*groupReconnectingUserIds: \[\.\.\.state\.groupReconnectingUserIds, payload\.userId\]/,
+  )
+  assert.match(recovery, /groupReconnectingUserIds: state\.groupReconnectingUserIds\.filter\(/)
 })
 
 test('cold native group invites retain their identity through display, action journal, and acceptance', () => {
-  const androidStore = read('modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraSystemCallStore.kt')
-  const androidNotification = read('modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraCallNotifications.kt')
-  const androidActivity = read('modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraIncomingCallActivity.kt')
+  const androidStore = read(
+    'modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraSystemCallStore.kt',
+  )
+  const androidNotification = read(
+    'modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraCallNotifications.kt',
+  )
+  const androidActivity = read(
+    'modules/velora-system-calls/android/src/main/java/expo/modules/velorasystemcalls/VeloraIncomingCallActivity.kt',
+  )
   const ios = read('modules/velora-system-calls/ios/VeloraSystemCallsModule.swift')
   const provider = read('src/providers/CallProvider.tsx')
 
@@ -49,13 +61,18 @@ test('cold native group invites retain their identity through display, action jo
 
 test('one busy device does not decline a group invite for every device', () => {
   const provider = read('src/providers/CallProvider.tsx')
-  const busyBranch = provider.slice(provider.indexOf('if (outgoingStartInFlightRef.current || isBusyPhase(currentState.phase))'))
-  assert.match(busyBranch, /if \(!payload\.isGroupCall\) \{\s*socketRef\.current\?\.emit\('reject_call'/)
+  const busyBranch = provider.slice(
+    provider.indexOf('if (outgoingStartInFlightRef.current || isBusyPhase(currentState.phase))'),
+  )
+  assert.match(
+    busyBranch,
+    /if \(!payload\.isGroupCall\) \{\s*socketRef\.current\?\.emit\('reject_call'/,
+  )
 })
 
 test('microphone denial on one device leaves the group invitation open elsewhere', () => {
   const provider = read('src/providers/CallProvider.tsx')
-  const denial = provider.slice(provider.indexOf("if (!hasPermission)"))
+  const denial = provider.slice(provider.indexOf('if (!hasPermission)'))
   assert.match(denial, /if \(!state\.isGroupCall\) \{\s*socket\.emit\('reject_call'/)
 })
 
@@ -69,9 +86,25 @@ test('group People shows joined members and stays in sync across joins, leaves, 
   assert.match(screen, /conversationApi\.getMembers\(conversationId\)/)
   assert.match(screen, /participantRows\.map\(\(person\)/)
   assert.match(provider, /socket\.on\('new_peer', handleNewPeer\)/)
-  assert.match(provider, /groupParticipantIds: state\.groupParticipantIds\.filter\(\(id\) => id !== payload\.userId\)/)
-  assert.match(recovery, /groupParticipantIds: rejoined\.session\.isGroupCall \? rejoined\.session\.participantIds : \[\]/)
+  assert.match(
+    provider,
+    /groupParticipantIds: state\.groupParticipantIds\.filter\(\(id\) => id !== payload\.userId\)/,
+  )
+  assert.match(
+    recovery,
+    /groupParticipantIds: rejoined\.session\.isGroupCall \? rejoined\.session\.participantIds : \[\]/,
+  )
   assert.match(socketRuntime, /groupParticipantIds: rejoined\.session\.participantIds/)
+  assert.match(screen, /member\.status === 'ACTIVE' && !joinedUserIds\.has\(member\.userId\)/)
+  assert.match(screen, /Not in call · \{notInCallMembers\.length\}/)
+  assert.match(screen, /isReconnecting\s*\? 'Reconnecting…'/)
+  assert.match(screen, /reconnecting to this call/)
+  assert.match(provider, /groupReconnectingUserIds: state\.groupReconnectingUserIds\.filter\(/)
+  assert.match(recovery, /groupReconnectingUserIds: rejoined\.session\.isGroupCall/)
+  assert.match(recovery, /pruneStaleGroupConsumers\(activeProducerIds\)/)
+  assert.match(provider, /activeProducerIds\.has\(consumer\.producerId\)/)
+  assert.match(provider, /consumer\.track\.readyState !== 'ended'/)
+  assert.match(provider, /if \(!liveConsumerProducerIds\.has\(producerId\)\)/)
 })
 
 test('group call labels host ending separately from guest leaving', () => {
@@ -85,6 +118,11 @@ test('group call labels host ending separately from guest leaving', () => {
 test('a confirmed reservation release keeps other group devices eligible', () => {
   const provider = read('src/providers/CallProvider.tsx')
   const types = read('src/types/call.types.ts')
-  assert.match(provider, /acceptance\.outcome === 'media_unavailable' &&\s*!acceptance\.reservationReleased/)
+  assert.match(
+    provider,
+    /acceptance\.outcome === 'media_unavailable' &&\s*!acceptance\.reservationReleased/,
+  )
   assert.match(types, /reservationReleased\?: boolean/)
+  assert.match(provider, /!acceptance\.retryable/)
+  assert.match(types, /retryable\?: boolean/)
 })

@@ -219,6 +219,7 @@ export interface IncomingCallAcceptancePayload {
   noAnswerTimeoutMs?: number
   telemetryToken?: string
   reservationReleased?: boolean
+  retryable?: boolean
 }
 
 export interface CallRejoinedPayload {
@@ -351,6 +352,8 @@ export interface CallAnsweredPayload {
   userId: string
   /** The server-owned answer attempt that won this call. */
   answerActionId?: string
+  /** Sent only to other devices when a group invitation is accepted. */
+  answeredElsewhere?: boolean
 }
 
 export interface CallRejectedPayload {
@@ -400,6 +403,7 @@ export interface CallServerEvents {
   call_joined: (payload: CallJoinedPayload) => void
   incoming_call_acceptance: (payload: IncomingCallAcceptancePayload) => void
   call_rejoined: (payload: CallRejoinedPayload) => void
+  call_left: (payload: { callId: string }) => void
   new_peer: (payload: NewPeerPayload) => void
   transport_created: (payload: TransportCreatedPayload) => void
   transport_connected: (payload: TransportConnectedPayload) => void
@@ -457,6 +461,7 @@ export interface CallUiState {
   peerAvatarUrl: string | null
   isGroupCall: boolean
   groupParticipantIds: string[]
+  groupReconnectingUserIds: string[]
   callType: CallType | null
   muted: boolean
   speakerEnabled: boolean

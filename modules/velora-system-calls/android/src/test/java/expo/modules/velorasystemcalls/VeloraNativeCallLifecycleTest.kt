@@ -389,6 +389,45 @@ class VeloraNativeCallLifecycleTest {
   }
 
   @Test
+  fun `group answer hash confirms only the winning device without exposing its action id`() {
+    val callId = "group-hash-winner"
+    assertTrue(VeloraSystemCallStore.beginRingingCall(context, callId, null))
+    VeloraSystemCallStore.storePendingAction(context, "answer", mapOf("callId" to callId))
+    val actionId = VeloraSystemCallStore.pendingAnswerAction(context, callId)
+      ?.get("actionId") as? String
+    assertNotNull(actionId)
+
+    VeloraCallNotifications.handleCallStateUpdate(
+      context,
+      callStateUpdate(callId, "active", answerActionHash = answerHash(actionId!!)),
+    )
+
+    assertTrue(VeloraSystemCallStore.isActiveCall(context, callId))
+    assertEquals("resume", VeloraSystemCallStore.getPendingAction(context)?.get("action"))
+  }
+
+  @Test
+  fun `group answer hash ends a losing or unanswered device`() {
+    val losingCallId = "group-hash-loser"
+    assertTrue(VeloraSystemCallStore.beginRingingCall(context, losingCallId, null))
+    VeloraSystemCallStore.storePendingAction(context, "answer", mapOf("callId" to losingCallId))
+    VeloraCallNotifications.handleCallStateUpdate(
+      context,
+      callStateUpdate(losingCallId, "active", answerActionHash = answerHash("other-device")),
+    )
+    assertNull(VeloraSystemCallStore.getCurrentCall(context))
+    assertEquals("answered_elsewhere", VeloraSystemCallStore.getPendingAction(context)?.get("reason"))
+
+    val passiveCallId = "group-hash-passive"
+    assertTrue(VeloraSystemCallStore.beginRingingCall(context, passiveCallId, System.currentTimeMillis() + 60_000L))
+    VeloraCallNotifications.handleCallStateUpdate(
+      context,
+      callStateUpdate(passiveCallId, "active", answerActionHash = answerHash("other-device")),
+    )
+    assertNull(VeloraSystemCallStore.getCurrentCall(context))
+  }
+
+  @Test
   fun `active update from another answer action wins over local pending answer`() {
     val callId = "call-other-device-won"
     assertTrue(VeloraSystemCallStore.beginRingingCall(context, callId, null))
@@ -536,6 +575,7 @@ class VeloraNativeCallLifecycleTest {
     recipientUserId: String = "user-1",
     at: String = "2026-07-17T00:00:00.000Z",
     answerActionId: String? = null,
+    answerActionHash: String? = null,
     lifecycleRevision: String? = null,
   ): Map<String, Any?> = buildMap {
     put("type", "CALL_STATE_UPDATE")
@@ -544,8 +584,14 @@ class VeloraNativeCallLifecycleTest {
     put("status", status)
     put("at", at)
     answerActionId?.let { put("answerActionId", it) }
+    answerActionHash?.let { put("answerActionHash", it) }
     lifecycleRevision?.let { put("lifecycleRevision", it) }
   }
+
+  private fun answerHash(actionId: String): String = java.security.MessageDigest
+    .getInstance("SHA-256")
+    .digest(actionId.toByteArray(Charsets.UTF_8))
+    .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
   private fun futureIsoTimestamp(): String = isoTimestamp(System.currentTimeMillis() + 60_000L)
 

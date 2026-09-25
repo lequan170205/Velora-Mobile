@@ -1,0 +1,121 @@
+name: Group call source CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/call/**'
+      - 'app/conversation/**'
+      - 'src/providers/CallProvider.tsx'
+      - 'src/providers/SystemCallProvider.tsx'
+      - 'src/providers/IncomingCallPrewarmBridge.tsx'
+      - 'src/providers/FcmDebugProvider.tsx'
+      - 'src/stores/callStore.ts'
+      - 'src/lib/call/**'
+      - 'src/lib/systemCalls/**'
+      - 'src/lib/notifications/**'
+      - 'src/components/call/**'
+      - 'src/api/call*.ts'
+      - 'src/api/notification.api.ts'
+      - 'src/types/call.types.ts'
+      - 'modules/velora-system-calls/**'
+      - 'ios/**'
+      - 'android/**'
+      - 'tests/*call*.test.cjs'
+      - 'tests/*voice*.test.cjs'
+      - 'tests/*push-token*.test.cjs'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/fixtures/GoogleService-Info.source-ci.plist'
+      - '.github/fixtures/google-services.source-ci.json'
+      - '.github/workflows/group-call-source-ci.yml'
+  push:
+    branches: [main, feat/group-voice-mvp]
+    paths:
+      - 'app/call/**'
+      - 'app/conversation/**'
+      - 'src/providers/CallProvider.tsx'
+      - 'src/providers/SystemCallProvider.tsx'
+      - 'src/providers/IncomingCallPrewarmBridge.tsx'
+      - 'src/providers/FcmDebugProvider.tsx'
+      - 'src/stores/callStore.ts'
+      - 'src/lib/call/**'
+      - 'src/lib/systemCalls/**'
+      - 'src/lib/notifications/**'
+      - 'src/components/call/**'
+      - 'src/api/call*.ts'
+      - 'src/api/notification.api.ts'
+      - 'src/types/call.types.ts'
+      - 'modules/velora-system-calls/**'
+      - 'ios/**'
+      - 'android/**'
+      - 'tests/*call*.test.cjs'
+      - 'tests/*voice*.test.cjs'
+      - 'tests/*push-token*.test.cjs'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/fixtures/GoogleService-Info.source-ci.plist'
+      - '.github/fixtures/google-services.source-ci.json'
+      - '.github/workflows/group-call-source-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mobile-source-and-android-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm type-check
+      - run: pnpm test
+      - run: pnpm lint
+      - name: Generate Android project with compile-only Firebase config
+        run: |
+          cp .github/fixtures/google-services.source-ci.json google-services.json
+          CI=1 pnpm exec expo prebuild --platform android --no-install
+      - name: Android system-call native unit tests
+        run: cd android && ./gradlew :velora-system-calls:testDebugUnitTest --no-daemon
+
+  ios-native-and-app:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+      - name: Install CocoaPods 1.16.2
+        run: gem install cocoapods -v 1.16.2 --no-document
+      - name: Resolve native dependencies from checked-in lockfile
+        run: cd ios && pod install
+      - name: Verify CocoaPods lockfile is reproducible
+        run: git diff --exit-code -- ios/Podfile.lock
+      - name: Supply compile-only Firebase plist (never a runtime credential)
+        run: cp .github/fixtures/GoogleService-Info.source-ci.plist ios/veloraDev/GoogleService-Info.plist
+      - name: Build system-call module for generic Simulator
+        run: xcodebuild -workspace ios/veloraDev.xcworkspace -scheme VeloraSystemCalls -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/velora-group-call-derived" CODE_SIGNING_ALLOWED=NO build -quiet
+      - name: Build app for generic Simulator
+        run: xcodebuild -workspace ios/veloraDev.xcworkspace -scheme veloraDev -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/velora-group-call-derived" CODE_SIGNING_ALLOWED=NO build -quiet

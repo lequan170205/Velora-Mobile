@@ -2,22 +2,30 @@ import { CallSocketExceptionError } from './callSocket'
 
 /**
  * Call diagnostics are safe to print in development builds and safe to copy
- * into a bug report. Media identifiers are intentionally shortened; bearer
+ * into a bug report. Media identifiers are redacted; bearer
  * tokens, user identifiers, SDP and RTP parameters never pass through this
  * helper.
  */
 export const shortCallId = (value: string | null | undefined) => {
   if (!value) return undefined
-  if (value.length <= 12) return value
-  return `${value.slice(0, 8)}…${value.slice(-3)}`
+  return 'redacted'
 }
 
-const SAFE_ERROR_CODE = /^[a-z0-9_:-]{1,64}$/i
+const SAFE_ERROR_CODES = new Set([
+  'econnrefused',
+  'econnreset',
+  'etimedout',
+  'http_404',
+  'http_409',
+  'audio_route_override_failed',
+  'callkit_provider_unavailable',
+  'native_answer_confirmation_timeout',
+])
 
 const normalizeCode = (value: unknown) => {
   if (typeof value !== 'string') return undefined
   const normalized = value.trim().toLowerCase()
-  return SAFE_ERROR_CODE.test(normalized) ? normalized : undefined
+  return SAFE_ERROR_CODES.has(normalized) ? normalized : undefined
 }
 
 /**
