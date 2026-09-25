@@ -272,6 +272,9 @@ test('series playback loads an episode window anchored on the requested reel', (
   assert.match(seriesScreen, /series\.episodeCount/)
   assert.match(seriesScreen, /hasPreviousContextPage=\{hasPreviousPage\}/)
   assert.match(seriesScreen, /hasNextContextPage=\{hasNextPage\}/)
+  assert.match(seriesScreen, /requestPreviousEpisodes\(\)/)
+  assert.match(reelsViewer, /index <= 4 && hasPreviousContextPage/)
+  assert.match(reelsViewer, /maybeFetchNextPage\(\s*Math\.round\(pagerWindowStartRef\.current/)
   assert.match(seriesScreen, /\/series\/\[id\]\/manage/)
 })
 
@@ -286,27 +289,61 @@ test('episode selection waits for sheet dismissal without blocking future opens'
   assert.doesNotMatch(seriesScreen, /isEpisodeSheetDismissingRef/)
   assert.match(
     seriesScreen,
-    /const pendingSelectedReelId = pendingSelectedReelIdRef\.current\s*pendingSelectedReelIdRef\.current = null\s*if \(pendingSelectedReelId\) \{\s*activeReelIdRef\.current = pendingSelectedReelId\s*setCurrentReelId\(pendingSelectedReelId\)\s*setSelectedReelId\(pendingSelectedReelId\)/,
+    /const pendingSelectedReelId = pendingSelectedReelIdRef\.current\s*pendingSelectedReelIdRef\.current = null\s*if \(pendingSelectedReelId\) \{\s*activeReelIdRef\.current = pendingSelectedReelId\s*setPlayingReelId\(pendingSelectedReelId\)\s*setSelectedReelId\(pendingSelectedReelId\)/,
   )
   assert.match(seriesScreen, /import \{ Pressable \} from 'react-native-gesture-handler'/)
   assert.match(seriesScreen, /activeReelIdRef\.current = reel\.id/)
-  assert.match(seriesScreen, /const activeEpisodeIndex = Math\.max\(/)
-  assert.match(seriesScreen, /episodes\.findIndex\(\(reel\) => reel\.id === activeReelId\)/)
+  assert.match(seriesScreen, /const displayedPlayingReelId = useMemo\(/)
   assert.match(
     seriesScreen,
     /getItemLayout=\{\(_, index\) => \(\{[\s\S]*length: EPISODE_ITEM_HEIGHT[\s\S]*EPISODE_ITEM_HEIGHT \* index/,
   )
   assert.match(seriesScreen, /enableContentPanningGesture=\{false\}/)
-  assert.match(seriesScreen, /initialScrollIndex=\{activeEpisodeIndex\}/)
-  assert.match(seriesScreen, /key=\{activeReelId \?\? 'episodes'\}/)
-  assert.doesNotMatch(seriesScreen, /scrollToOffset\(/)
+  assert.match(seriesScreen, /enablePanDownToClose\s/)
+  assert.match(seriesScreen, /onChange=\{setEpisodeSheetIndex\}/)
+  assert.match(
+    seriesScreen,
+    /const collapsedSheetScrollBuffer = episodeSheetIndex === 0 \? windowHeight \* 0\.3 : 0/,
+  )
+  assert.match(seriesScreen, /paddingBottom: insets\.bottom \+ 24 \+ collapsedSheetScrollBuffer/)
+  assert.doesNotMatch(seriesScreen, /Close episodes drawer/)
+  assert.match(seriesScreen, /episodeSheetSession/)
+  assert.match(seriesScreen, /ACTIVE_EPISODE_LEADING_ROWS/)
+  assert.match(seriesScreen, /data=\{episodes\}/)
+  assert.doesNotMatch(seriesScreen, /episodes\.slice\(/)
+  assert.match(
+    seriesScreen,
+    /key=\{`\$\{displayedPlayingReelId \?\? 'episodes'\}:\$\{episodeSheetSession\}`\}/,
+  )
+  assert.match(seriesScreen, /EPISODE_PREFETCH_DISTANCE/)
+  assert.match(seriesScreen, /EPISODE_NEXT_PREFETCH_THRESHOLD/)
+  assert.match(seriesScreen, /pendingPreviousPageAnchorRef/)
+  assert.match(seriesScreen, /hasHandledPreviousBoundaryThisGestureRef/)
+  assert.match(seriesScreen, /onScrollBeginDrag=/)
+  assert.match(seriesScreen, /ref=\{episodesListRef\}/)
+  assert.match(seriesScreen, /useLayoutEffect/)
+  assert.match(seriesScreen, /scrollToOffset\(/)
+  assert.match(seriesScreen, /onMomentumScrollEnd=/)
+  assert.match(seriesScreen, /onScrollEndDrag=/)
+  assert.match(seriesScreen, /initialScrollIndex=\{activeEpisodeInitialIndex\}/)
+  assert.match(seriesScreen, />Playing<\/Text>/)
+  assert.match(seriesScreen, /scrollToOffset\(/)
   assert.doesNotMatch(seriesScreen, /maintainVisibleContentPosition=/)
   assert.doesNotMatch(seriesScreen, /onScrollToIndexFailed=/)
   assert.match(
     seriesScreen,
     /const handleOpenEpisodes = useCallback\(\(\) => \{[\s\S]*episodesDrawerRef\.current\?\.present\(\)/,
   )
-  assert.match(seriesScreen, /const isCurrent = reel\.id === activeReelId/)
+  assert.match(seriesScreen, /const isCurrent = reel\.id === displayedPlayingReelId/)
+  assert.match(seriesScreen, /EpisodeCardSkeleton/)
+  assert.match(
+    seriesScreen,
+    /ListHeaderComponent=\{isFetchingPreviousPage \? <EpisodeCardSkeleton \/> : null\}/,
+  )
+  assert.match(
+    seriesScreen,
+    /ListFooterComponent=\{isFetchingNextPage \? <EpisodeCardSkeleton \/> : null\}/,
+  )
 })
 
 test('episode sheet rows define layout on Gesture Handler Pressable styles', () => {

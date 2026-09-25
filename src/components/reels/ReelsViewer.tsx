@@ -1478,13 +1478,13 @@ export function ReelsViewer({
           return
         }
 
-        if (index <= 2 && hasPreviousContextPage) {
+        if (index <= 4 && hasPreviousContextPage) {
           contextPageRequestInFlightRef.current = true
           onContextPageRequest('previous')
           return
         }
 
-        if (index >= Math.max(0, reels.length - 3) && hasNextContextPage) {
+        if (index >= Math.max(0, reels.length - 5) && hasNextContextPage) {
           contextPageRequestInFlightRef.current = true
           onContextPageRequest('next')
         }
@@ -1627,11 +1627,17 @@ export function ReelsViewer({
         position: pagerWindowStartRef.current + event.nativeEvent.position,
       }
 
+      maybeFetchNextPage(
+        Math.round(
+          pagerWindowStartRef.current + event.nativeEvent.position + event.nativeEvent.offset,
+        ),
+      )
+
       if (pagerScrollStateRef.current === 'idle') {
         scheduleSettledPageCommit()
       }
     },
-    [scheduleSettledPageCommit],
+    [maybeFetchNextPage, scheduleSettledPageCommit],
   )
   const handlePageSelected = useCallback(
     (event: PagerViewOnPageSelectedEvent) => {

@@ -4,13 +4,21 @@ import {
   BottomSheetFlatList,
   BottomSheetModal,
   type BottomSheetBackdropProps,
+  type BottomSheetFlatListMethods,
 } from '@gorhom/bottom-sheet'
 import { isAxiosError } from 'axios'
 import { Image } from 'expo-image'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
+} from 'react-native'
 import { Pressable } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -28,6 +36,9 @@ import { useAuthStore } from '../../../src/stores/authStore'
 const firstParam = (value?: string | string[]) => (Array.isArray(value) ? value[0] : value)
 const EPISODE_ROW_HEIGHT = 94
 const EPISODE_ITEM_HEIGHT = EPISODE_ROW_HEIGHT + 10
+const EPISODE_PREFETCH_DISTANCE = EPISODE_ITEM_HEIGHT * 3
+const EPISODE_NEXT_PREFETCH_THRESHOLD = 0.75
+const ACTIVE_EPISODE_LEADING_ROWS = 2
 const EPISODE_SHEET_SNAP_POINTS = ['55%', '85%']
 
 const formatViews = (count?: number) => {
@@ -37,9 +48,20 @@ const formatViews = (count?: number) => {
   return String(count)
 }
 
+const EpisodeCardSkeleton = () => (
+  <View style={styles.episodeRow} accessibilityLabel="Loading episodes">
+    <View style={[styles.episodeThumbnail, styles.episodeSkeletonBlock]} />
+    <View style={styles.episodeText}>
+      <View style={[styles.episodeSkeletonLine, styles.episodeSkeletonLineWide]} />
+      <View style={[styles.episodeSkeletonLine, styles.episodeSkeletonLineShort]} />
+    </View>
+  </View>
+)
+
 export default function ReelSeriesScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
+  const { height: windowHeight } = useWindowDimensions()
   const tabBarHeight = getDockedTabBarHeight(insets.bottom)
   const params = useLocalSearchParams<{
     id?: string | string[]
@@ -65,10 +87,21 @@ export default function ReelSeriesScreen() {
   const isOwner = Boolean(series && userId === series.ownerId)
   const activeTabIndex = isOwner ? PROFILE_TAB_INDEX : REELS_TAB_INDEX
   const episodesDrawerRef = useRef<BottomSheetModal>(null)
+  const episodesListRef = useRef<BottomSheetFlatListMethods | null>(null)
   const pendingSelectedReelIdRef = useRef<string | null>(null)
   const shouldManageAfterDismissRef = useRef(false)
   const isFetchingPreviousEpisodesRef = useRef(false)
-  const isEpisodeListUserDraggingRef = useRef(false)
+  const hasHandledPreviousBoundaryThisGestureRef = useRef(false)
+  const pendingPreviousPageAnchorRef = useRef<{
+    offsetY: number
+    episodeCount: number
+    skeletonAdjusted: boolean
+  } | null>(null)
+  const pendingPreviousEpisodesRequestRef = useRef(false)
+  const hasPagerReportedActiveRef = useRef(false)
+  const [episodeSheetSession, setEpisodeSheetSession] = useState(0)
+  const [episodeSheetIndex, setEpisodeSheetIndex] = useState(0)
+  const collapsedSheetScrollBuffer = episodeSheetIndex === 0 ? windowHeight * 0.3 : 0
 
   const initialReelId = useMemo(() => {
     if (!episodes.length) {
@@ -83,19 +116,80 @@ export default function ReelSeriesScreen() {
   }, [episodes, requestedReelId])
 
   const [selectedReelId, setSelectedReelId] = useState<string | undefined>(initialReelId)
-  const [currentReelId, setCurrentReelId] = useState<string | undefined>(initialReelId)
+  const [playingReelId, setPlayingReelId] = useState<string | undefined>(requestedReelId)
   const selectedEpisodeId =
     selectedReelId && episodes.some((reel) => reel.id === selectedReelId)
       ? selectedReelId
       : initialReelId
   const activeReelId =
-    currentReelId && episodes.some((reel) => reel.id === currentReelId)
-      ? currentReelId
+    playingReelId && episodes.some((reel) => reel.id === playingReelId)
+      ? playingReelId
       : selectedEpisodeId
-  const activeEpisodeIndex = Math.max(
+  const displayedPlayingReelId = useMemo(() => {
+    const preferredReelId = hasPagerReportedActiveRef.current ? playingReelId : selectedEpisodeId
+
+    if (preferredReelId && episodes.some((reel) => reel.id === preferredReelId)) {
+      return preferredReelId
+    }
+
+    if (playingReelId && episodes.some((reel) => reel.id === playingReelId)) {
+      return playingReelId
+    }
+
+    return episodes[0]?.id
+  }, [episodes, playingReelId, selectedEpisodeId])
+  const displayedPlayingEpisodeIndex = Math.max(
     0,
-    activeReelId ? episodes.findIndex((reel) => reel.id === activeReelId) : 0,
+    displayedPlayingReelId ? episodes.findIndex((reel) => reel.id === displayedPlayingReelId) : 0,
   )
+  const activeEpisodeInitialIndex = Math.max(
+    0,
+    displayedPlayingEpisodeIndex - ACTIVE_EPISODE_LEADING_ROWS,
+  )
+
+  useLayoutEffect(() => {
+    const anchor = pendingPreviousPageAnchorRef.current
+    if (!anchor) {
+      return
+    }
+
+    if (isFetchingPreviousPage && !anchor.skeletonAdjusted) {
+      anchor.skeletonAdjusted = true
+      requestAnimationFrame(() => {
+        episodesListRef.current?.scrollToOffset({
+          animated: false,
+          offset: anchor.offsetY + EPISODE_ITEM_HEIGHT,
+        })
+      })
+      return
+    }
+
+    if (isFetchingPreviousPage) {
+      return
+    }
+
+    if (episodes.length > anchor.episodeCount) {
+      pendingPreviousPageAnchorRef.current = null
+      requestAnimationFrame(() => {
+        episodesListRef.current?.scrollToOffset({
+          animated: false,
+          offset: anchor.offsetY + (episodes.length - anchor.episodeCount) * EPISODE_ITEM_HEIGHT,
+        })
+      })
+      return
+    }
+
+    pendingPreviousPageAnchorRef.current = null
+    if (anchor.skeletonAdjusted) {
+      requestAnimationFrame(() => {
+        episodesListRef.current?.scrollToOffset({
+          animated: false,
+          offset: anchor.offsetY,
+        })
+      })
+    }
+  }, [episodes.length, isFetchingPreviousPage])
+
   const activeReelIdRef = useRef(activeReelId)
 
   useEffect(() => {
@@ -103,10 +197,10 @@ export default function ReelSeriesScreen() {
   }, [activeReelId])
 
   useEffect(() => {
-    if (initialReelId && !currentReelId) {
-      setCurrentReelId(initialReelId)
+    if (initialReelId && !playingReelId) {
+      setPlayingReelId(initialReelId)
     }
-  }, [initialReelId, currentReelId])
+  }, [initialReelId, playingReelId])
 
   useEffect(() => {
     if (initialReelId && selectedReelId !== selectedEpisodeId) {
@@ -153,13 +247,11 @@ export default function ReelSeriesScreen() {
   )
 
   const handleEpisodeSheetDismiss = useCallback(() => {
-    isEpisodeListUserDraggingRef.current = false
-
     const pendingSelectedReelId = pendingSelectedReelIdRef.current
     pendingSelectedReelIdRef.current = null
     if (pendingSelectedReelId) {
       activeReelIdRef.current = pendingSelectedReelId
-      setCurrentReelId(pendingSelectedReelId)
+      setPlayingReelId(pendingSelectedReelId)
       setSelectedReelId(pendingSelectedReelId)
     }
 
@@ -174,7 +266,7 @@ export default function ReelSeriesScreen() {
   }, [router, series])
 
   const handleOpenEpisodes = useCallback(() => {
-    isEpisodeListUserDraggingRef.current = false
+    setEpisodeSheetSession((current) => current + 1)
     episodesDrawerRef.current?.present()
   }, [])
 
@@ -190,14 +282,16 @@ export default function ReelSeriesScreen() {
   }, [series])
 
   const requestPreviousEpisodes = useCallback(() => {
-    if (
-      !hasPreviousPage ||
-      isFetchingPreviousPage ||
-      isFetchingNextPage ||
-      isFetchingPreviousEpisodesRef.current
-    ) {
+    if (!hasPreviousPage || isFetchingPreviousPage || isFetchingPreviousEpisodesRef.current) {
       return
     }
+
+    if (isFetchingNextPage) {
+      pendingPreviousEpisodesRequestRef.current = true
+      return
+    }
+
+    pendingPreviousEpisodesRequestRef.current = false
     isFetchingPreviousEpisodesRef.current = true
     void fetchPreviousPage()
       .catch(() => undefined)
@@ -206,11 +300,43 @@ export default function ReelSeriesScreen() {
       })
   }, [fetchPreviousPage, hasPreviousPage, isFetchingNextPage, isFetchingPreviousPage])
 
+  useEffect(() => {
+    if (isPending || !hasPreviousPage || isFetchingPreviousPage) {
+      return
+    }
+
+    requestPreviousEpisodes()
+  }, [hasPreviousPage, isFetchingPreviousPage, isPending, requestPreviousEpisodes])
+
+  useEffect(() => {
+    if (!isFetchingNextPage && pendingPreviousEpisodesRequestRef.current) {
+      requestPreviousEpisodes()
+    }
+  }, [isFetchingNextPage, requestPreviousEpisodes])
+
   const handleListScrollEnd = useCallback(
     (offsetY: number) => {
-      if (offsetY <= 24) requestPreviousEpisodes()
+      if (pendingPreviousPageAnchorRef.current) {
+        return
+      }
+
+      if (offsetY <= EPISODE_PREFETCH_DISTANCE) {
+        if (hasHandledPreviousBoundaryThisGestureRef.current) {
+          return
+        }
+
+        if (hasPreviousPage) {
+          hasHandledPreviousBoundaryThisGestureRef.current = true
+          pendingPreviousPageAnchorRef.current = {
+            offsetY,
+            episodeCount: episodes.length,
+            skeletonAdjusted: false,
+          }
+        }
+        requestPreviousEpisodes()
+      }
     },
-    [requestPreviousEpisodes],
+    [episodes.length, hasPreviousPage, requestPreviousEpisodes],
   )
 
   const handleContextPageRequest = useCallback(
@@ -379,7 +505,8 @@ export default function ReelSeriesScreen() {
         }
         onActiveReelChange={(reel) => {
           activeReelIdRef.current = reel.id
-          setCurrentReelId(reel.id)
+          hasPagerReportedActiveRef.current = true
+          setPlayingReelId(reel.id)
         }}
         eventSource="DIRECT"
         bottomContentInset={tabBarHeight}
@@ -408,6 +535,7 @@ export default function ReelSeriesScreen() {
         enableDynamicSizing={false}
         enableContentPanningGesture={false}
         enablePanDownToClose
+        onChange={setEpisodeSheetIndex}
         backdropComponent={renderBackdrop}
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.handleIndicator}
@@ -415,21 +543,10 @@ export default function ReelSeriesScreen() {
       >
         <View className="flex-1">
           <View
-            className="flex-row items-center justify-between px-5 pb-3.5 pt-1"
+            className="relative flex-row items-center justify-center px-5 pb-3.5 pt-1"
             style={{ zIndex: 1, elevation: 1 }}
           >
-            <TouchableOpacity
-              accessibilityLabel="Close episodes drawer"
-              accessibilityRole="button"
-              className="h-11 w-11 items-center justify-center rounded-full bg-surface-muted"
-              hitSlop={8}
-              activeOpacity={0.72}
-              onPress={() => episodesDrawerRef.current?.dismiss()}
-            >
-              <MaterialIcons name="close" size={20} color={colors.text.primary} />
-            </TouchableOpacity>
-
-            <View className="flex-1 items-center px-3">
+            <View className="items-center px-3">
               <Text
                 className="font-heading text-base font-bold text-text-primary text-center"
                 numberOfLines={1}
@@ -445,15 +562,13 @@ export default function ReelSeriesScreen() {
               <TouchableOpacity
                 accessibilityLabel="Manage series"
                 accessibilityRole="button"
-                className="h-9 items-center justify-center rounded-full bg-surface-muted px-3.5"
+                className="absolute right-5 h-9 items-center justify-center rounded-full bg-surface-muted px-3.5"
                 activeOpacity={0.76}
                 onPress={handleManageFromSheet}
               >
                 <Text className="text-xs2 font-bold text-text-primary">Manage</Text>
               </TouchableOpacity>
-            ) : (
-              <View className="w-10" />
-            )}
+            ) : null}
           </View>
 
           {series.description?.trim() ? (
@@ -465,10 +580,11 @@ export default function ReelSeriesScreen() {
           ) : null}
 
           <BottomSheetFlatList
-            key={activeReelId ?? 'episodes'}
+            ref={episodesListRef}
+            key={`${displayedPlayingReelId ?? 'episodes'}:${episodeSheetSession}`}
             data={episodes}
             style={styles.episodeList}
-            initialScrollIndex={activeEpisodeIndex}
+            initialScrollIndex={activeEpisodeInitialIndex}
             getItemLayout={(_, index) => ({
               length: EPISODE_ITEM_HEIGHT,
               offset: 12 + EPISODE_ITEM_HEIGHT * index,
@@ -481,11 +597,12 @@ export default function ReelSeriesScreen() {
             contentContainerStyle={{
               paddingHorizontal: 16,
               paddingTop: 12,
-              paddingBottom: insets.bottom + 24,
+              // Gorhom sizes scrollables to the highest snap point; the collapsed sheet clips 30%.
+              paddingBottom: insets.bottom + 24 + collapsedSheetScrollBuffer,
             }}
             showsVerticalScrollIndicator={false}
             renderItem={({ item: reel, index }) => {
-              const isCurrent = reel.id === activeReelId
+              const isCurrent = reel.id === displayedPlayingReelId
               const cover = reel.thumbnailUrl || reel.localThumbnailUri
               return (
                 <Pressable
@@ -543,13 +660,16 @@ export default function ReelSeriesScreen() {
                 void fetchNextPage()
               }
             }}
-            onEndReachedThreshold={0.5}
+            onEndReachedThreshold={EPISODE_NEXT_PREFETCH_THRESHOLD}
+            ListHeaderComponent={isFetchingPreviousPage ? <EpisodeCardSkeleton /> : null}
+            ListFooterComponent={isFetchingNextPage ? <EpisodeCardSkeleton /> : null}
             onScrollBeginDrag={() => {
-              isEpisodeListUserDraggingRef.current = true
+              hasHandledPreviousBoundaryThisGestureRef.current = false
             }}
             onScrollEndDrag={(event) => {
-              if (!isEpisodeListUserDraggingRef.current) return
-              isEpisodeListUserDraggingRef.current = false
+              handleListScrollEnd(event.nativeEvent.contentOffset.y)
+            }}
+            onMomentumScrollEnd={(event) => {
               handleListScrollEnd(event.nativeEvent.contentOffset.y)
             }}
           />
@@ -600,6 +720,23 @@ const styles = StyleSheet.create({
     minHeight: EPISODE_ROW_HEIGHT,
     padding: 10,
     width: '100%',
+  },
+  episodeSkeletonBlock: {
+    backgroundColor: colors.border.light,
+    opacity: 0.72,
+  },
+  episodeSkeletonLine: {
+    backgroundColor: colors.border.light,
+    borderRadius: 6,
+    height: 12,
+    marginBottom: 8,
+    opacity: 0.72,
+  },
+  episodeSkeletonLineShort: {
+    width: '38%',
+  },
+  episodeSkeletonLineWide: {
+    width: '76%',
   },
   episodeStatus: {
     alignItems: 'center',
