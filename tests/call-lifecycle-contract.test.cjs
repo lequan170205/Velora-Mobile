@@ -43,6 +43,20 @@ test('call lifecycle only moves forward and terminal outcomes always win', () =>
   assert.equal(lifecycle.reduceCallLifecycle('answered_elsewhere', 'audio_ready'), 'answered_elsewhere')
 })
 
+test('recent terminal call IDs suppress delayed invitations without unbounded growth', () => {
+  const terminalCalls = new Set()
+  lifecycle.rememberTerminalCall(terminalCalls, 'ended-before-invite')
+  assert.equal(terminalCalls.has('ended-before-invite'), true)
+  lifecycle.rememberTerminalCall(terminalCalls, 'ended-before-invite')
+  assert.equal(terminalCalls.size, 1)
+  for (let index = 0; index < 256; index++) {
+    lifecycle.rememberTerminalCall(terminalCalls, `terminal-${index}`)
+  }
+  assert.equal(terminalCalls.size, 256)
+  assert.equal(terminalCalls.has('ended-before-invite'), false)
+  assert.equal(terminalCalls.has('terminal-255'), true)
+})
+
 test('native journal keeps action ordering, completion, expiry and watchdog guarantees', () => {
   const source = read('modules/velora-system-calls/ios/VeloraSystemCallsModule.swift')
   const androidStore = read(

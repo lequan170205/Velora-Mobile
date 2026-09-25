@@ -24,6 +24,7 @@ import {
   VIDEO_STATE_UPDATED_TIMEOUT_MS,
 } from '../lib/call/callConstants'
 import { safeCallErrorCode, shortCallId } from '../lib/call/callDebug'
+import { rememberTerminalCall, type CallLifecycleTerminalState } from '../lib/call/callLifecycle'
 import {
   cameraConstraints,
   getAcceptIncomingCallFailureCode,
@@ -85,7 +86,6 @@ import { useAuthStore } from '../stores/authStore'
 import { useCallStore } from '../stores/callStore'
 
 import type { CallStateResponse } from '../api/call.api'
-import type { CallLifecycleTerminalState } from '../lib/call/callLifecycle'
 // VIDEO_CALL_1TO1_PROVIDER_PATCH
 import type {
   AudioBitrateProfile,
@@ -241,6 +241,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const retryingProducerIdsRef = useRef<Set<string>>(new Set())
   const remoteConsumerRetryStateRef = useRef<Map<string, RemoteConsumerRetryState>>(new Map())
   const activeCallIdRef = useRef<string | null>(null)
+  const terminalCallIdsRef = useRef(new Set<string>())
   const telemetrySessionRef = useRef<CallTelemetrySession | null>(null)
   const rtcQualityCountersRef = useRef<RtcQualityCounters | null>(null)
   const rtcQualityStreakRef = useRef<RtcQualityStreak>({ degraded: 0, healthy: 0 })
@@ -1183,6 +1184,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const handleTerminalCall = useCallback(
     (payload: CallEndedPayload, source: 'live' | 'socket_ready_replay') => {
+      rememberTerminalCall(terminalCallIdsRef.current, payload.callId)
       // A PushKit cold launch can have a native CallKit call even while the JS call store
       // is still idle. Always end the native system call by callId before checking JS state.
       veloraSystemCalls.dismissIncomingCall(payload.callId)
@@ -1470,7 +1472,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const handleIncomingCall = useCallback(
     async (payload: IncomingCallPayload) => {
-      if (!currentUserId) {
+      if (!currentUserId || terminalCallIdsRef.current.has(payload.callId)) {
         return
       }
 
@@ -1539,7 +1541,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const prepareIncomingCallFromPayload = useCallback(
     (callState: CallStateResponse | IncomingCallPayload | NativeCallPayload) => {
-      if (!currentUserId) {
+      if (!currentUserId || terminalCallIdsRef.current.has(callState.callId)) {
         return false
       }
 
@@ -2951,6 +2953,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
 
     const handleCallRejected = (payload: CallRejectedPayload) => {
+      rememberTerminalCall(terminalCallIdsRef.current, payload.callId)
       if (!isCurrentCall(payload.callId)) {
         return
       }

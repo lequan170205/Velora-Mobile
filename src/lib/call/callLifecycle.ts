@@ -46,3 +46,13 @@ export const reduceCallLifecycle = (
 }
 
 export const callLifecycleTelemetryStage = (state: CallLifecycleState) => `lifecycle:${state}`
+
+export const rememberTerminalCall = (terminalCalls: Set<string>, callId: string) => {
+  terminalCalls.delete(callId)
+  terminalCalls.add(callId)
+  // ponytail: Bound session memory; native/server terminal state remains authoritative after eviction.
+  if (terminalCalls.size > 256) {
+    const oldest = terminalCalls.values().next().value
+    if (oldest) terminalCalls.delete(oldest)
+  }
+}
