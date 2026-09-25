@@ -3568,7 +3568,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       resetAudioConfigurationState()
       speakerOverrideEnabled = false
       do {
-        try audioSession.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP, .allowBluetoothA2DP])
+        try audioSession.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .allowBluetoothA2DP])
         try audioSession.setActive(true)
         isNativeAudioSessionActivated = true
         nativeAudioSessionActivatedAt = Date()
@@ -3619,7 +3619,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     let configuration = RTCAudioSessionConfiguration.webRTC()
     configuration.category = AVAudioSession.Category.playAndRecord.rawValue
     configuration.mode = AVAudioSession.Mode.voiceChat.rawValue
-    configuration.categoryOptions = [.allowBluetoothHFP, .allowBluetoothA2DP]
+    configuration.categoryOptions = [.allowBluetooth, .allowBluetoothA2DP]
 
     do {
       _ = try rtcAudioSession.setConfiguration(configuration)
@@ -3655,7 +3655,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     let configuration = RTCAudioSessionConfiguration.webRTC()
     configuration.category = AVAudioSession.Category.playAndRecord.rawValue
     configuration.mode = AVAudioSession.Mode.voiceChat.rawValue
-    configuration.categoryOptions = [.allowBluetoothHFP, .allowBluetoothA2DP]
+    configuration.categoryOptions = [.allowBluetooth, .allowBluetoothA2DP]
 
     do {
       _ = try rtcAudioSession.setConfiguration(configuration)
