@@ -43,6 +43,7 @@ type RecoveryRuntimeOptions = {
   sendTransportRef: MutableRef<MediasoupTypes.Transport<Record<string, unknown>> | null>
   recvTransportRef: MutableRef<MediasoupTypes.Transport<Record<string, unknown>> | null>
   videoProducerRef: MutableRef<MediasoupTypes.Producer<Record<string, unknown>> | null>
+  audioProducerRef: MutableRef<MediasoupTypes.Producer<Record<string, unknown>> | null>
   consumerMapRef: MutableRef<Map<string, MediasoupTypes.Consumer<Record<string, unknown>>>>
   localVideoStateRef: MutableRef<LocalVideoSyncState>
   remoteVideoEnabledByProducerRef: MutableRef<Map<string, boolean>>
@@ -65,6 +66,7 @@ type RecoveryRuntimeOptions = {
     source?: LocalVideoActivationSource
   }) => Promise<boolean>
   synchronizeLocalVideoState?: () => Promise<boolean>
+  synchronizeLocalGroupMicState: (enabled: boolean) => Promise<boolean>
   deactivateLocalVideo: () => void
   clearRemoteVideoRuntime: (state?: 'idle' | 'off') => void
   consumeRemoteProducer: (
@@ -106,6 +108,7 @@ export const useCallRecoveryRuntime = ({
   sendTransportRef,
   recvTransportRef,
   videoProducerRef,
+  audioProducerRef,
   consumerMapRef,
   localVideoStateRef,
   remoteVideoEnabledByProducerRef,
@@ -125,6 +128,7 @@ export const useCallRecoveryRuntime = ({
   mediaTransportDisconnectTimeoutsRef,
   activateLocalVideo,
   synchronizeLocalVideoState,
+  synchronizeLocalGroupMicState,
   deactivateLocalVideo,
   clearRemoteVideoRuntime,
   consumeRemoteProducer,
@@ -260,6 +264,7 @@ export const useCallRecoveryRuntime = ({
             (rejoined.activeProducers ?? []).map((producer) => producer.producerId),
           )
           pruneStaleGroupConsumers(activeProducerIds)
+          useCallStore.getState().patch({ groupMicStates: {} })
         }
         await restartConnectedTransports(socket, rejoined.callId)
         assertCallSetupCurrent(restartSetupToken, rejoined.callId)
@@ -308,6 +313,10 @@ export const useCallRecoveryRuntime = ({
               }
             : {}),
         })
+        if (rejoined.session.isGroupCall && audioProducerRef.current) {
+          await synchronizeLocalGroupMicState(!useCallStore.getState().muted)
+          assertCallSetupCurrent(restartSetupToken, rejoined.callId)
+        }
         if (
           recoveredCallType === 'VIDEO' &&
           useCallStore.getState().hasCameraPermission === true &&
@@ -459,10 +468,12 @@ export const useCallRecoveryRuntime = ({
     socketGenerationRef,
     startTimer,
     synchronizeLocalVideoState,
+    synchronizeLocalGroupMicState,
     teardownRecoveryFailure,
     telemetrySessionRef,
     waitRegistryRef,
     videoProducerRef,
+    audioProducerRef,
   ])
 
   const beginReconnectRecovery = useCallback(() => {

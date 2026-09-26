@@ -52,7 +52,9 @@ type LocalMediaRuntimeOptions = {
   localStreamRef: MutableRef<MediaStream | null>
   ringingPreviewStreamRef: MutableRef<MediaStream | null>
   remoteStreamRef: MutableRef<MediaStream | null>
+  audioProducerRef: MutableRef<MediasoupTypes.Producer<Record<string, unknown>> | null>
   videoProducerRef: MutableRef<MediasoupTypes.Producer<Record<string, unknown>> | null>
+  getGroupAnswerActionId: (callId: string) => string | undefined
   localVideoStateRef: MutableRef<LocalVideoSyncState>
   consumerMapRef: MutableRef<Map<string, MediasoupTypes.Consumer<Record<string, unknown>>>>
   handledRemoteProducerIdsRef: MutableRef<Set<string>>
@@ -77,7 +79,9 @@ export const useCallLocalMediaRuntime = ({
   localStreamRef,
   ringingPreviewStreamRef,
   remoteStreamRef,
+  audioProducerRef,
   videoProducerRef,
+  getGroupAnswerActionId,
   localVideoStateRef,
   consumerMapRef,
   handledRemoteProducerIdsRef,
@@ -93,6 +97,8 @@ export const useCallLocalMediaRuntime = ({
   presentError,
 }: LocalMediaRuntimeOptions) => {
   const videoActivationGenerationRef = useRef(0)
+  const groupMicRevisionRef = useRef({ callId: '', producerId: '', revision: 0 })
+  const groupMicDesiredRef = useRef({ callId: '', enabled: true })
   const videoActivationRef = useRef<{
     callId: string
     setupToken: number
@@ -697,13 +703,116 @@ export const useCallLocalMediaRuntime = ({
     ],
   )
 
+  const synchronizeLocalGroupMicState = useCallback(
+    async (enabled: boolean) => {
+      const state = useCallStore.getState()
+      const callId = state.callId
+      const producerId = audioProducerRef.current?.id
+      const socket = socketRef.current
+      const track = localStreamRef.current?.getAudioTracks()[0]
+      groupMicDesiredRef.current = { callId: callId ?? '', enabled }
+      if (enabled && track) track.enabled = false
+      if (!state.isGroupCall || !callId || !producerId || !socket?.connected || !track) {
+        if (enabled) {
+          groupMicDesiredRef.current.enabled = false
+          useCallStore.getState().patch({ muted: true, groupMicSyncError: true })
+        }
+        return false
+      }
+      const actionId = state.direction === 'incoming' ? getGroupAnswerActionId(callId) : undefined
+      if (state.direction === 'incoming' && !actionId) {
+        groupMicDesiredRef.current.enabled = false
+        useCallStore.getState().patch({ muted: true, groupMicSyncError: true })
+        return false
+      }
+      const current = groupMicRevisionRef.current
+      if (current.callId !== callId || current.producerId !== producerId) {
+        groupMicRevisionRef.current = { callId, producerId, revision: 0 }
+      }
+      const revision = ++groupMicRevisionRef.current.revision
+      const requestId = createCallRequestId('group-mic')
+      const setupToken = callSetupGenerationRef.current
+      if (!enabled) track.enabled = false
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (groupMicRevisionRef.current.revision !== revision) return false
+        try {
+          const ack = await emitAndWaitForEvent<'set_group_mic_state', 'group_mic_state_updated'>(
+            socket,
+            'set_group_mic_state',
+            { callId, producerId, enabled, revision, requestId, ...(actionId ? { actionId } : {}) },
+            {
+              event: 'group_mic_state_updated',
+              timeoutMs: VIDEO_STATE_UPDATED_TIMEOUT_MS,
+              registry: waitRegistryRef.current,
+              requestId,
+              filter: (payload) =>
+                payload.callId === callId &&
+                payload.producerId === producerId &&
+                payload.requestId === requestId,
+            },
+          )
+          if (
+            !isCallSetupCurrent(setupToken, callId) ||
+            audioProducerRef.current?.id !== producerId ||
+            groupMicRevisionRef.current.revision !== revision
+          )
+            return false
+          groupMicRevisionRef.current.revision = Math.max(revision, ack.revision)
+          if (ack.enabled !== enabled) {
+            track.enabled = false
+            groupMicDesiredRef.current.enabled = false
+            useCallStore.getState().patch({ muted: true, groupMicSyncError: true })
+            return false
+          }
+          track.enabled = enabled
+          useCallStore.getState().patch({ muted: !enabled, groupMicSyncError: false })
+          return true
+        } catch (error) {
+          if (isCallWaitCancelledError(error)) return false
+        }
+      }
+      if (
+        groupMicRevisionRef.current.revision === revision &&
+        isCallSetupCurrent(setupToken, callId)
+      ) {
+        track.enabled = false
+        groupMicDesiredRef.current.enabled = false
+        useCallStore.getState().patch({ muted: true, groupMicSyncError: true })
+      }
+      return false
+    },
+    [
+      audioProducerRef,
+      callSetupGenerationRef,
+      getGroupAnswerActionId,
+      isCallSetupCurrent,
+      localStreamRef,
+      socketRef,
+      waitRegistryRef,
+    ],
+  )
+
   const toggleMute = useCallback(() => {
     const localAudioTrack = localStreamRef.current?.getAudioTracks()[0]
     if (!localAudioTrack) return
-    const nextMuted = !useCallStore.getState().muted
+    const state = useCallStore.getState()
+    if (state.isGroupCall) {
+      const currentDesired =
+        groupMicDesiredRef.current.callId === state.callId
+          ? groupMicDesiredRef.current.enabled
+          : !state.muted
+      const nextEnabled = !currentDesired
+      if (!nextEnabled) {
+        localAudioTrack.enabled = false
+        useCallStore.getState().patch({ muted: true })
+      }
+      void synchronizeLocalGroupMicState(nextEnabled)
+      return
+    }
+    const nextMuted = !state.muted
     localAudioTrack.enabled = !nextMuted
     useCallStore.getState().patch({ muted: nextMuted })
-  }, [localStreamRef])
+  }, [localStreamRef, synchronizeLocalGroupMicState])
 
   const toggleCamera = useCallback(async () => {
     const state = useCallStore.getState()
@@ -831,6 +940,7 @@ export const useCallLocalMediaRuntime = ({
     activateLocalVideo,
     clearRemoteVideoRuntime,
     toggleMute,
+    synchronizeLocalGroupMicState,
     toggleCamera,
     switchCamera,
   }

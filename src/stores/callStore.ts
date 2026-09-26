@@ -19,6 +19,8 @@ const initialState: CallUiState = {
   isGroupCall: false,
   groupParticipantIds: [],
   groupReconnectingUserIds: [],
+  groupMicStates: {},
+  groupMicSyncError: false,
   callType: null,
   muted: false,
   speakerEnabled: false,

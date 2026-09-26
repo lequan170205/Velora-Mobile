@@ -188,6 +188,14 @@ test('group People shows joined members and stays in sync across joins, leaves, 
   assert.match(provider, /if \(!liveConsumerProducerIds\.has\(producerId\)\)/)
 })
 
+test('group People exposes mic state as readable text, with an unknown fallback', () => {
+  const screen = read('app/call/[id].tsx')
+  assert.match(screen, /groupMicStates\[userId\]\?\.enabled === true/)
+  assert.match(screen, /'Mic status unavailable'/)
+  assert.match(screen, /accessibilityLabel=\{`\$\{person\.name\}.*person\.micStatus/s)
+  assert.match(screen, /importantForAccessibility="no"/)
+})
+
 test('group call labels host ending separately from guest leaving', () => {
   const screen = read('app/call/[id].tsx')
   assert.match(screen, /const isGroupHost = isGroupCall && direction === 'outgoing'/)

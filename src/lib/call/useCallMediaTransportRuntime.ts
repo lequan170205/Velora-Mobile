@@ -73,6 +73,7 @@ type MediaTransportRuntimeOptions = {
   localStreamRef: MutableRef<MediaStream | null>
   remoteStreamRef: MutableRef<MediaStream | null>
   audioProducerRef: MutableRef<MediasoupTypes.Producer<Record<string, unknown>> | null>
+  recordGroupMicProducer: (payload: NewProducerPayload) => void
   cachedDeviceRef: MutableRef<CachedMediasoupDevice | null>
   consumerMapRef: MutableRef<Map<string, MediasoupTypes.Consumer<Record<string, unknown>>>>
   connectedTransportIdsRef: MutableRef<Set<string>>
@@ -133,6 +134,7 @@ export const useCallMediaTransportRuntime = ({
   localStreamRef,
   remoteStreamRef,
   audioProducerRef,
+  recordGroupMicProducer,
   cachedDeviceRef,
   consumerMapRef,
   connectedTransportIdsRef,
@@ -327,6 +329,9 @@ export const useCallMediaTransportRuntime = ({
                   kind: kind as 'audio' | 'video',
                   rtpParameters: rtpParameters as unknown as Record<string, unknown>,
                   requestId,
+                  ...(kind === 'audio' && useCallStore.getState().isGroupCall
+                    ? { audioEnabled: !useCallStore.getState().muted }
+                    : {}),
                 },
                 {
                   event: 'producer_created',
@@ -399,6 +404,7 @@ export const useCallMediaTransportRuntime = ({
 
       if (!callId || payload.callId !== callId) return
       assertCallSetupCurrent(setupToken, callId)
+      if (payload.kind === 'audio') recordGroupMicProducer(payload)
 
       if (
         payload.kind === 'video' &&
@@ -737,6 +743,7 @@ export const useCallMediaTransportRuntime = ({
       remoteVideoSnapshotReadyRef,
       retryingProducerIdsRef,
       remoteConsumerRetryStateRef,
+      recordGroupMicProducer,
       scheduleRtcStatsLog,
       socketRef,
       startTimer,

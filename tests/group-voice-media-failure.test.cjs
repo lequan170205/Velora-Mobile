@@ -52,6 +52,7 @@ const createRuntime = (isGroupCall, error, hasRemoteAudio = false) => {
   let teardownCount = 0
   const runtime = module.exports.useCallMediaTransportRuntime({
     currentUserId: 'me',
+    recordGroupMicProducer: () => {},
     socketRef: ref({ connected: true }),
     waitRegistryRef: ref(new Set()),
     deviceRef: ref({ loaded: true }),

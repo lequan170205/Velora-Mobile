@@ -271,6 +271,8 @@ export default function ActiveCallScreen() {
     durationSec,
     groupParticipantIds,
     groupReconnectingUserIds,
+    groupMicStates,
+    groupMicSyncError,
     isGroupCall,
     localStreamUrl,
     muted,
@@ -530,6 +532,21 @@ export default function ActiveCallScreen() {
         const member = groupMembers.find((item) => item.userId === userId)
         const isYou = userId === currentUser?.id
         const isReconnecting = groupReconnectingUserIds.includes(userId)
+        const micStatus = isYou
+          ? groupMicSyncError
+            ? 'Mic sync failed'
+            : phase === 'reconnecting'
+              ? 'Mic reconnecting'
+              : muted
+                ? 'Mic off'
+                : 'Mic on'
+          : isReconnecting
+            ? 'Mic status unavailable'
+            : groupMicStates[userId]?.enabled === true
+              ? 'Mic on'
+              : groupMicStates[userId]?.enabled === false
+                ? 'Mic off'
+                : 'Mic status unavailable'
         return {
           id: userId,
           name: isYou
@@ -545,6 +562,7 @@ export default function ActiveCallScreen() {
               ? `@${currentUser.username}`
               : null,
           isReconnecting,
+          micStatus,
         }
       })
     : [
@@ -554,6 +572,7 @@ export default function ActiveCallScreen() {
           avatarUrl: currentUser?.picture ?? null,
           subtitle: currentUser?.username ? `@${currentUser.username}` : null,
           isReconnecting: false,
+          micStatus: null,
         },
         {
           id: 'peer',
@@ -561,6 +580,7 @@ export default function ActiveCallScreen() {
           avatarUrl: peerAvatarUrl,
           subtitle: null,
           isReconnecting: false,
+          micStatus: null,
         },
       ]
   const joinedUserIds = new Set(groupPeopleIds)
@@ -623,7 +643,7 @@ export default function ActiveCallScreen() {
               key={person.id}
               className="flex-row items-center py-3"
               accessible
-              accessibilityLabel={`${person.name}, ${person.isReconnecting ? 'reconnecting to this call' : 'in this call'}`}
+              accessibilityLabel={`${person.name}, ${person.isReconnecting ? 'reconnecting to this call' : 'in this call'}${person.micStatus ? `, ${person.micStatus}` : ''}`}
             >
               <PeerAvatar avatarUrl={person.avatarUrl} name={person.name} size={56} />
               <View className="ml-4 min-w-0 flex-1">
@@ -638,6 +658,20 @@ export default function ActiveCallScreen() {
                   <AppText className="mt-0.5 text-sm" style={{ color: colors.call.textSecondary }}>
                     {person.subtitle}
                   </AppText>
+                ) : null}
+                {person.micStatus ? (
+                  <View className="mt-1 flex-row items-center" accessible={false}>
+                    <MaterialIcons
+                      name={person.micStatus === 'Mic on' ? 'mic' : 'mic-off'}
+                      size={18}
+                      color={colors.call.textSecondary}
+                      accessibilityElementsHidden
+                      importantForAccessibility="no"
+                    />
+                    <AppText className="ml-1 text-sm" style={{ color: colors.call.textSecondary }}>
+                      {person.micStatus}
+                    </AppText>
+                  </View>
                 ) : null}
               </View>
             </View>

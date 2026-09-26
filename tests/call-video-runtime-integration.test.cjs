@@ -97,6 +97,7 @@ const createRuntime = ({
   deferredVideoCapture = null,
   deferredCameraAck = null,
   cameraAckResponder = null,
+  groupMicResponder = null,
   deferredProducerClosure = null,
 } = {}) => {
   const state = {
@@ -123,6 +124,7 @@ const createRuntime = ({
   const produced = []
   const capturedTracks = []
   const cameraCommands = []
+  const groupMicCommands = []
   const closedProducerRequests = []
   let requestSequence = 0
 
@@ -157,6 +159,18 @@ const createRuntime = ({
   const callSocket = {
     createCallRequestId: (prefix = 'call') => `${prefix}-${++requestSequence}`,
     emitAndWaitForEvent: async (_socket, event, payload) => {
+      if (event === 'set_group_mic_state') {
+        groupMicCommands.push(payload)
+        if (groupMicResponder) await groupMicResponder(payload)
+        return {
+          callId: payload.callId,
+          producerId: payload.producerId,
+          enabled: payload.enabled,
+          revision: payload.revision,
+          status: 'applied',
+          requestId: payload.requestId,
+        }
+      }
       if (event !== 'set_video_enabled') {
         throw new Error(`unexpected event ${event}`)
       }
@@ -225,6 +239,8 @@ const createRuntime = ({
     ringingPreviewStreamRef: { current: null },
     remoteStreamRef: { current: null },
     videoProducerRef,
+    audioProducerRef: { current: null },
+    getGroupAnswerActionId: () => 'winning-action',
     localVideoStateRef: {
       current: {
         desiredEnabled: false,
@@ -259,9 +275,70 @@ const createRuntime = ({
     produced,
     capturedTracks,
     cameraCommands,
+    groupMicCommands,
     closedProducerRequests,
   }
 }
+
+test('group mic stays physically off until ACK and ignores an older ACK', async () => {
+  const firstAck = createDeferred()
+  const harness = createRuntime({
+    groupMicResponder: (payload) => (payload.revision === 1 ? firstAck.promise : undefined),
+  })
+  harness.state.isGroupCall = true
+  harness.state.direction = 'incoming'
+  harness.state.muted = true
+  const track = new FakeTrack('audio')
+  track.enabled = false
+  const stream = new FakeMediaStream()
+  stream.addTrack(track)
+  harness.refs.localStreamRef.current = stream
+  harness.refs.audioProducerRef.current = { id: 'audio-local' }
+
+  const older = harness.runtime.synchronizeLocalGroupMicState(true)
+  await Promise.resolve()
+  assert.equal(track.enabled, false)
+  const newer = await harness.runtime.synchronizeLocalGroupMicState(false)
+  assert.equal(newer, true)
+  firstAck.resolve()
+  assert.equal(await older, false)
+  assert.equal(track.enabled, false)
+  assert.equal(harness.state.muted, true)
+  assert.deepEqual(
+    harness.groupMicCommands.map(({ revision, actionId }) => ({ revision, actionId })),
+    [
+      { revision: 1, actionId: 'winning-action' },
+      { revision: 2, actionId: 'winning-action' },
+    ],
+  )
+})
+
+test('rapid group mic taps converge to the last requested state', async () => {
+  const harness = createRuntime()
+  harness.state.isGroupCall = true
+  harness.state.direction = 'outgoing'
+  const track = new FakeTrack('audio')
+  const stream = new FakeMediaStream()
+  stream.addTrack(track)
+  harness.refs.localStreamRef.current = stream
+  harness.refs.audioProducerRef.current = { id: 'audio-local' }
+
+  harness.runtime.toggleMute()
+  assert.equal(track.enabled, false)
+  harness.runtime.toggleMute()
+  await Promise.resolve()
+  await Promise.resolve()
+
+  assert.deepEqual(
+    harness.groupMicCommands.map(({ enabled, revision }) => ({ enabled, revision })),
+    [
+      { enabled: false, revision: 1 },
+      { enabled: true, revision: 2 },
+    ],
+  )
+  assert.equal(track.enabled, true)
+  assert.equal(harness.state.muted, false)
+})
 
 test('automatic and user video activation share one capture and one producer', async () => {
   const captureReady = createDeferred()
@@ -590,6 +667,7 @@ const createRecoveryRuntime = ({
     sendTransportRef: { current: null },
     recvTransportRef: { current: null },
     videoProducerRef: { current: null },
+    audioProducerRef: { current: null },
     consumerMapRef,
     localVideoStateRef: {
       current: {
@@ -628,6 +706,7 @@ const createRecoveryRuntime = ({
     },
     activateLocalVideo: async () => true,
     synchronizeLocalVideoState: async () => true,
+    synchronizeLocalGroupMicState: async () => true,
     deactivateLocalVideo: () => undefined,
     clearRemoteVideoRuntime: () => undefined,
     consumeRemoteProducer: async (payload) => {

@@ -111,6 +111,29 @@ export interface ProducePayload {
   kind: 'audio' | 'video'
   rtpParameters: Record<string, unknown>
   requestId?: string
+  audioEnabled?: boolean
+}
+
+export interface SetGroupMicStatePayload {
+  callId: string
+  producerId: string
+  enabled: boolean
+  revision: number
+  actionId?: string
+  requestId: string
+}
+
+export interface GroupMicStateChangedPayload {
+  callId: string
+  userId: string
+  producerId: string
+  enabled: boolean
+  revision: number
+}
+
+export interface GroupMicStateUpdatedPayload extends GroupMicStateChangedPayload {
+  status: VideoStateUpdateStatus
+  requestId?: string
 }
 
 export interface CloseProducerPayload {
@@ -421,6 +444,8 @@ export interface CallServerEvents {
   call_type_changed: (payload: CallTypeChangedPayload) => void
   video_state_changed: (payload: VideoStateChangedPayload) => void
   video_state_updated: (payload: VideoStateUpdatedPayload) => void
+  group_mic_state_changed: (payload: GroupMicStateChangedPayload) => void
+  group_mic_state_updated: (payload: GroupMicStateUpdatedPayload) => void
   call_answered: (payload: CallAnsweredPayload) => void
   call_rejected: (payload: CallRejectedPayload) => void
   peer_reconnecting: (payload: PeerReconnectingPayload) => void
@@ -450,6 +475,7 @@ export interface CallClientEvents {
   set_audio_bitrate: (payload: SetAudioBitratePayload) => void
   set_call_type: (payload: SetCallTypePayload) => void
   set_video_enabled: (payload: SetVideoEnabledPayload) => void
+  set_group_mic_state: (payload: SetGroupMicStatePayload) => void
 }
 
 export type CallSocket = Socket<CallServerEvents, CallClientEvents>
@@ -465,6 +491,8 @@ export interface CallUiState {
   isGroupCall: boolean
   groupParticipantIds: string[]
   groupReconnectingUserIds: string[]
+  groupMicStates: Record<string, { producerId: string; enabled: boolean | null; revision: number }>
+  groupMicSyncError: boolean
   callType: CallType | null
   muted: boolean
   speakerEnabled: boolean

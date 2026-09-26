@@ -97,6 +97,7 @@ import type {
   CallSocket,
   CallType,
   CallTypeChangedPayload,
+  GroupMicStateChangedPayload,
   IncomingCallPayload,
   IncomingCallAcceptancePayload,
   LocalVideoSyncState,
@@ -263,6 +264,46 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const action = incomingAnswerActionRef.current
     return action?.callId === callId ? { actionId: action.actionId } : {}
   }, [])
+  const getGroupAnswerActionId = useCallback(
+    (callId: string) => currentAnswerAction(callId).actionId,
+    [currentAnswerAction],
+  )
+  const recordGroupMicProducer = useCallback(
+    (payload: NewProducerPayload) => {
+      const state = useCallStore.getState()
+      if (
+        !state.isGroupCall ||
+        state.callId !== payload.callId ||
+        payload.kind !== 'audio' ||
+        payload.userId === currentUserId
+      )
+        return
+      const previous = state.groupMicStates[payload.userId]
+      const revision = payload.revision ?? 0
+      if (
+        previous?.producerId === payload.producerId &&
+        (previous.revision > revision ||
+          (previous.revision === revision &&
+            previous.enabled !== null &&
+            (payload.revision === undefined || payload.paused === undefined)))
+      )
+        return
+      useCallStore.getState().patch({
+        groupMicStates: {
+          ...state.groupMicStates,
+          [payload.userId]: {
+            producerId: payload.producerId,
+            enabled:
+              payload.revision === undefined || payload.paused === undefined
+                ? null
+                : !payload.paused,
+            revision,
+          },
+        },
+      })
+    },
+    [currentUserId],
+  )
   const outgoingStartInFlightRef = useRef(false)
   const teardownInProgressRef = useRef(false)
   const callAnsweredRef = useRef(false)
@@ -1162,6 +1203,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     activateLocalVideo,
     clearRemoteVideoRuntime,
     toggleMute,
+    synchronizeLocalGroupMicState,
     toggleCamera,
     switchCamera,
     synchronizeLocalVideoState,
@@ -1174,7 +1216,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     localStreamRef,
     ringingPreviewStreamRef,
     remoteStreamRef,
+    audioProducerRef,
     videoProducerRef,
+    getGroupAnswerActionId,
     localVideoStateRef,
     consumerMapRef,
     handledRemoteProducerIdsRef,
@@ -1248,6 +1292,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     localStreamRef,
     remoteStreamRef,
     audioProducerRef,
+    recordGroupMicProducer,
     cachedDeviceRef,
     consumerMapRef,
     connectedTransportIdsRef,
@@ -1300,6 +1345,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     sendTransportRef,
     recvTransportRef,
     videoProducerRef,
+    audioProducerRef,
     consumerMapRef,
     localVideoStateRef,
     remoteVideoEnabledByProducerRef,
@@ -1319,6 +1365,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     mediaTransportDisconnectTimeoutsRef,
     activateLocalVideo,
     synchronizeLocalVideoState,
+    synchronizeLocalGroupMicState,
     deactivateLocalVideo,
     clearRemoteVideoRuntime,
     consumeRemoteProducer,
@@ -3064,6 +3111,17 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
     const handleProducerClosed = (payload: ProducerClosedPayload) => {
       if (!isCurrentCall(payload.callId)) return
+      if (payload.kind === 'audio') {
+        const state = useCallStore.getState()
+        const ownerId = Object.keys(state.groupMicStates).find(
+          (userId) => state.groupMicStates[userId]?.producerId === payload.producerId,
+        )
+        if (ownerId) {
+          const groupMicStates = { ...state.groupMicStates }
+          delete groupMicStates[ownerId]
+          useCallStore.getState().patch({ groupMicStates })
+        }
+      }
       const remoteStream = remoteStreamRef.current
       if (payload.kind === 'video') {
         closedRemoteVideoProducerIdsRef.current.add(payload.producerId)
@@ -3192,11 +3250,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       const state = useCallStore.getState()
       if (state.isGroupCall) {
+        const groupMicStates = { ...state.groupMicStates }
+        delete groupMicStates[payload.userId]
         useCallStore.getState().patch({
           groupParticipantIds: state.groupParticipantIds.filter((id) => id !== payload.userId),
           groupReconnectingUserIds: state.groupReconnectingUserIds.filter(
             (id) => id !== payload.userId,
           ),
+          groupMicStates,
         })
         return
       }
@@ -3218,6 +3279,29 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         closedRemoteVideoProducerIdsRef.current.delete(payload.producerId)
       }
       void consumeRemoteProducer(payload)
+    }
+
+    const handleGroupMicStateChanged = (payload: GroupMicStateChangedPayload) => {
+      if (!isCurrentCall(payload.callId) || payload.userId === currentUserId) return
+      const state = useCallStore.getState()
+      if (!state.isGroupCall) return
+      const previous = state.groupMicStates[payload.userId]
+      if (
+        !previous ||
+        previous.producerId !== payload.producerId ||
+        previous.revision >= payload.revision
+      )
+        return
+      useCallStore.getState().patch({
+        groupMicStates: {
+          ...state.groupMicStates,
+          [payload.userId]: {
+            producerId: payload.producerId,
+            enabled: payload.enabled,
+            revision: payload.revision,
+          },
+        },
+      })
     }
 
     const handleNewPeer = (payload: NewPeerPayload) => {
@@ -3289,6 +3373,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     socket.on('incoming_call', handleIncomingCallEvent)
     socket.on('new_peer', handleNewPeer)
     socket.on('new_producer', handleNewProducer)
+    socket.on('group_mic_state_changed', handleGroupMicStateChanged)
     socket.on('producer_closed', handleProducerClosed)
     socket.on('call_type_changed', handleCallTypeChanged)
     socket.on('video_state_changed', handleVideoStateChanged)
@@ -3315,6 +3400,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socket.off('incoming_call', handleIncomingCallEvent)
       socket.off('new_peer', handleNewPeer)
       socket.off('new_producer', handleNewProducer)
+      socket.off('group_mic_state_changed', handleGroupMicStateChanged)
       socket.off('producer_closed', handleProducerClosed)
       socket.off('call_type_changed', handleCallTypeChanged)
       socket.off('video_state_changed', handleVideoStateChanged)
