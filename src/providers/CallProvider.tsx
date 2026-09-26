@@ -178,6 +178,7 @@ const terminalLifecycleStateFor = (
 
 const CallContext = createContext<UseCallValue>({
   startVoiceCall: async () => {},
+  joinGroupCall: async () => {},
   startVideoCall: async () => {},
   acceptIncomingCall: async () => {},
   rejectIncomingCall: async () => {},
@@ -2183,7 +2184,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   )
 
   const startCall = useCallback(
-    async (input: StartCallInput, callType: CallType) => {
+    async (input: StartCallInput & { joinCallId?: string }, callType: CallType) => {
       if (
         !currentUserId ||
         outgoingStartInFlightRef.current ||
@@ -2247,41 +2248,89 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         const socket = await ensureSocketConnected()
         assertOutgoingAttemptCurrent()
         telemetry.record('socket_connected', { outcome: 'succeeded' })
-        const joined = await emitAndWaitForEvent<'initiate_call', 'call_joined'>(
-          socket,
-          'initiate_call',
-          {
-            conversationId: input.conversationId,
-            ...(input.peerUserId ? { targetUserId: input.peerUserId } : {}),
-            callType,
-          },
-          {
-            event: 'call_joined',
-            timeoutMs: CALL_JOINED_TIMEOUT_MS,
-            registry: waitRegistryRef.current,
-            filter: (payload) =>
-              payload.role === 'host' &&
-              payload.session.conversationId === input.conversationId &&
-              payload.session.initiatorId === currentUserId &&
-              (input.isGroupCall
-                ? payload.session.isGroupCall === true
-                : payload.session.targetUserId === input.peerUserId) &&
-              payload.session.callType === callType,
-          },
-        )
+        const lateJoinRequest = input.joinCallId
+          ? {
+              callId: input.joinCallId,
+              actionId:
+                (await groupWinnerAction.load(currentUserId, input.joinCallId)) ??
+                `join:${Crypto.randomUUID()}`,
+            }
+          : null
+        if (lateJoinRequest) {
+          // The server may commit before its ACK reaches us. Persist the same
+          // action before sending so a retry or cold start cannot lose proof.
+          await groupWinnerAction.save(
+            currentUserId,
+            lateJoinRequest.callId,
+            lateJoinRequest.actionId,
+          )
+          assertOutgoingAttemptCurrent()
+        }
+        const joined = lateJoinRequest
+          ? await emitAndWaitForEvent<'join_group_call', 'call_joined'>(
+              socket,
+              'join_group_call',
+              lateJoinRequest,
+              {
+                event: 'call_joined',
+                timeoutMs: CALL_JOINED_TIMEOUT_MS,
+                registry: waitRegistryRef.current,
+                filter: (payload) =>
+                  payload.callId === input.joinCallId &&
+                  payload.role === 'guest' &&
+                  payload.session.isGroupCall === true &&
+                  payload.session.conversationId === input.conversationId,
+              },
+            )
+          : await emitAndWaitForEvent<'initiate_call', 'call_joined'>(
+              socket,
+              'initiate_call',
+              {
+                conversationId: input.conversationId,
+                ...(input.peerUserId ? { targetUserId: input.peerUserId } : {}),
+                callType,
+              },
+              {
+                event: 'call_joined',
+                timeoutMs: CALL_JOINED_TIMEOUT_MS,
+                registry: waitRegistryRef.current,
+                filter: (payload) =>
+                  payload.role === 'host' &&
+                  payload.session.conversationId === input.conversationId &&
+                  payload.session.initiatorId === currentUserId &&
+                  (input.isGroupCall
+                    ? payload.session.isGroupCall === true
+                    : payload.session.targetUserId === input.peerUserId) &&
+                  payload.session.callType === callType,
+              },
+            )
         assertOutgoingAttemptCurrent()
 
         activeCallIdRef.current = joined.callId
+        if (lateJoinRequest) {
+          incomingAnswerActionRef.current = {
+            callId: joined.callId,
+            actionId: lateJoinRequest.actionId,
+          }
+        }
+        assertOutgoingAttemptCurrent()
         telemetry.attachCall(joined.telemetryToken)
         telemetry.record('call_joined', { outcome: 'succeeded' })
         callAnsweredRef.current = false
-        void veloraSystemCalls.registerOutgoingCall({
+        const nativeRegistration = await veloraSystemCalls.registerOutgoingCall({
           callId: joined.callId,
           conversationId: input.conversationId,
           peerName: input.peerName ?? 'Unknown',
           callType,
           accountId: currentUserId,
         })
+        try {
+          assertOutgoingAttemptCurrent()
+        } catch (error) {
+          await veloraSystemCalls.endCall(joined.callId).catch(() => undefined)
+          throw error
+        }
+        if (!nativeRegistration.success) throw new Error('native_outgoing_registration_failed')
         useCallStore.getState().patch({
           phase: 'outgoing_ringing',
           direction: 'outgoing',
@@ -2395,9 +2444,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           telemetrySessionRef.current = null
           useCallStore.getState().patch({ phase: 'idle' })
           presentError(
-            error instanceof Error && /camera/i.test(error.message)
-              ? 'Velora needs camera access for video calls'
-              : 'Velora needs microphone access to place calls',
+            input.joinCallId && error instanceof Error && /group call is full/i.test(error.message)
+              ? 'This group call is full'
+              : input.joinCallId
+                ? 'Unable to join this group call'
+                : error instanceof Error && /camera/i.test(error.message)
+                  ? 'Velora needs camera access for video calls'
+                  : 'Velora needs microphone access to place calls',
           )
           return
         }
@@ -2425,6 +2478,19 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const startVoiceCall = useCallback(
     (input: StartCallInput) => startCall(input, 'VOICE'),
+    [startCall],
+  )
+  const joinGroupCall = useCallback(
+    (input: { callId: string; conversationId: string; groupName: string }) =>
+      startCall(
+        {
+          conversationId: input.conversationId,
+          peerName: input.groupName,
+          isGroupCall: true,
+          joinCallId: input.callId,
+        },
+        'VOICE',
+      ),
     [startCall],
   )
   const startVideoCall = useCallback(
@@ -3289,6 +3355,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<UseCallValue>(
     () => ({
       startVoiceCall,
+      joinGroupCall,
       startVideoCall,
       acceptIncomingCall,
       rejectIncomingCall,
@@ -3307,6 +3374,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       endCall,
       rejectIncomingCall,
       startVoiceCall,
+      joinGroupCall,
       startVideoCall,
       toggleMute,
       toggleSpeaker,

@@ -1,13 +1,16 @@
 import { MaterialIcons } from '@expo/vector-icons'
+import { useIsFocused } from '@react-navigation/native'
 import { FlashList, type ListRenderItemInfo } from '@shopify/flash-list'
+import { useQuery } from '@tanstack/react-query'
 import { BlurView } from 'expo-blur'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Platform, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, Alert, Platform, TouchableOpacity, View } from 'react-native'
 import { GestureDetector } from 'react-native-gesture-handler'
 import Animated, { useAnimatedStyle, withTiming, withSpring } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { getActiveGroupCall, getCallState } from '../../src/api/call.api'
 import { ConversationHeader } from '../../src/components/chat/conversation/ConversationHeader'
 import {
   ConversationEmptyState,
@@ -30,6 +33,7 @@ import { useConversationPresence } from '../../src/hooks/conversation/useConvers
 import { useConversationReceiptModel } from '../../src/hooks/conversation/useConversationReceiptModel'
 import { useConversationSessionRuntime } from '../../src/hooks/conversation/useConversationSessionRuntime'
 import { useConversationTimelineController } from '../../src/hooks/conversation/useConversationTimelineController'
+import { groupWinnerAction } from '../../src/lib/call/groupWinnerAction'
 import {
   backfillReplyPreviewFromResolvedTarget,
   getConversationMessageItemType,
@@ -55,13 +59,18 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const conversationId = id as string
   const router = useRouter()
+  const isFocused = useIsFocused()
   const insets = useSafeAreaInsets()
   const { user } = useAuthStore()
   // VIDEO_CALL_1TO1_CONVERSATION_PATCH
-  const { startVideoCall, startVoiceCall } = useCall()
+  const { startVideoCall, startVoiceCall, joinGroupCall } = useCall()
   const callPhase = useCallStore((state) => state.phase)
+  const currentCallId = useCallStore((state) => state.callId)
   const [pendingCallType, setPendingCallType] = useState<'VOICE' | 'VIDEO' | null>(null)
+  const [openingActiveCall, setOpeningActiveCall] = useState(false)
+  const [bannerNowMs, setBannerNowMs] = useState(Date.now())
   const callStartInFlightRef = useRef(false)
+  const openingCallRef = useRef(false)
   const activeTypers = useChatStore(
     useCallback((state) => state.typingUsers[conversationId] ?? EMPTY_TYPERS, [conversationId]),
   )
@@ -87,6 +96,102 @@ export default function ChatScreen() {
     conversationId,
     currentUserId: user?.id ?? null,
   })
+
+  const activeGroupCallQuery = useQuery({
+    queryKey: ['calls', 'active-group', conversationId],
+    queryFn: () => getActiveGroupCall(conversationId),
+    enabled: isFocused && isGroup && !isConversationRevoked,
+    refetchInterval: 5000,
+  })
+  const serverCall = activeGroupCallQuery.data
+  const localWinnerQuery = useQuery({
+    queryKey: ['calls', 'group-winner', user?.id, serverCall?.callId],
+    queryFn: () =>
+      user?.id && serverCall?.callId ? groupWinnerAction.load(user.id, serverCall.callId) : null,
+    enabled: Boolean(user?.id && serverCall?.joined),
+  })
+  const canRejoin = Boolean(serverCall?.joined && localWinnerQuery.data && callPhase === 'idle')
+  const isLocalCall =
+    serverCall?.callId === currentCallId && (callPhase === 'active' || callPhase === 'reconnecting')
+  const bannerAction: 'join' | 'rejoin' | 'return' | 'wait' = serverCall?.joined
+    ? isLocalCall
+      ? 'return'
+      : canRejoin
+        ? 'rejoin'
+        : 'wait'
+    : 'join'
+  const activeGroupCall = serverCall
+    ? {
+        participantCount: serverCall.participantCount,
+        elapsedSeconds:
+          serverCall.elapsedSeconds +
+          Math.max(0, Math.floor((bannerNowMs - activeGroupCallQuery.dataUpdatedAt) / 1000)),
+        action: bannerAction,
+        canOpen: isLocalCall || canRejoin || (!serverCall.joined && callPhase === 'idle'),
+      }
+    : null
+  const isBannerVisible = Boolean(activeGroupCall)
+
+  useEffect(() => {
+    if (!isBannerVisible) return
+    const timer = setInterval(() => setBannerNowMs(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [isBannerVisible])
+
+  const handleOpenActiveGroupCall = useCallback(async () => {
+    if (!serverCall || openingCallRef.current) return
+    openingCallRef.current = true
+    setOpeningActiveCall(true)
+    try {
+      const active = await getActiveGroupCall(conversationId)
+      if (!active || active.callId !== serverCall.callId) {
+        await activeGroupCallQuery.refetch()
+        Alert.alert('Call unavailable', 'This group call has ended.')
+        return
+      }
+      if (!active.joined) {
+        if (useCallStore.getState().phase !== 'idle') return
+        await joinGroupCall({ callId: active.callId, conversationId, groupName: displayName })
+        return
+      }
+      const latest = await getCallState(active.callId)
+      const local = useCallStore.getState()
+      if (
+        latest.status === 'active' &&
+        latest.isGroupCall &&
+        latest.conversationId === conversationId &&
+        local.callId === latest.callId &&
+        (local.phase === 'active' || local.phase === 'reconnecting')
+      ) {
+        router.push(`/call/${latest.callId}` as never)
+      } else if (
+        latest.status === 'active' &&
+        latest.isGroupCall &&
+        latest.conversationId === conversationId &&
+        local.phase === 'idle' &&
+        user?.id &&
+        (await groupWinnerAction.load(user.id, active.callId))
+      ) {
+        await joinGroupCall({ callId: active.callId, conversationId, groupName: displayName })
+      } else {
+        await activeGroupCallQuery.refetch()
+        Alert.alert('Call unavailable', 'This group call has ended or is no longer on this device.')
+      }
+    } catch {
+      Alert.alert('Call unavailable', 'Could not verify the group call. Please try again.')
+    } finally {
+      openingCallRef.current = false
+      setOpeningActiveCall(false)
+    }
+  }, [
+    activeGroupCallQuery,
+    conversationId,
+    displayName,
+    joinGroupCall,
+    router,
+    serverCall,
+    user?.id,
+  ])
 
   const { socket, isConnected, requestPresence } = useSocket()
 
@@ -442,6 +547,8 @@ export default function ChatScreen() {
     <View className="flex-1 bg-bg-primary" style={{ paddingTop: insets.top }}>
       <View className="flex-1 z-10">
         <ConversationHeader
+          activeGroupCall={activeGroupCall}
+          openingActiveCall={openingActiveCall}
           {...(avatarUrl ? { avatarUrl } : {})}
           displayName={displayName}
           groupTypingLabel={groupTypingLabel}
@@ -454,11 +561,16 @@ export default function ChatScreen() {
           presenceLabel={presenceLabel}
           queuedMessageCount={queuedMessageCount}
           showCallActions={
-            callPhase === 'idle' && (currentConversation?.isGroup === true || Boolean(otherUserId))
+            callPhase === 'idle' &&
+            !serverCall &&
+            (currentConversation?.isGroup === true || Boolean(otherUserId))
           }
           showVideoCallAction={!currentConversation?.isGroup}
           onBack={handleBack}
           onOpenGroupInfo={handleOpenGroupInfo}
+          onOpenActiveGroupCall={() => {
+            void handleOpenActiveGroupCall()
+          }}
           onStartVideoCall={handleStartVideoCall}
           onStartVoiceCall={handleStartVoiceCall}
         />

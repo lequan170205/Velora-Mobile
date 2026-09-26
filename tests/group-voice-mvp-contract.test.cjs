@@ -13,6 +13,34 @@ test('group conversations expose voice while keeping video disabled', () => {
   assert.match(screen, /showVideoCallAction=\{!currentConversation\?\.isGroup\}/)
 })
 
+test('conversation banner uses live server state and rechecks before opening the call', () => {
+  const screen = read('app/conversation/[id].tsx')
+  const header = read('src/components/chat/conversation/ConversationHeader.tsx')
+  const api = read('src/api/call.api.ts')
+  assert.match(api, /getActiveGroupCall\(conversationId: string\)/)
+  assert.match(screen, /queryFn: \(\) => getActiveGroupCall\(conversationId\)/)
+  assert.match(screen, /serverCall\?\.joined/)
+  assert.match(screen, /serverCall\?\.callId === currentCallId/)
+  assert.match(screen, /const active = await getActiveGroupCall\(conversationId\)/)
+  assert.match(screen, /const latest = await getCallState\(active\.callId\)/)
+  assert.match(screen, /await joinGroupCall\(/)
+  assert.match(screen, /latest\.status === 'active'/)
+  assert.match(screen, /groupWinnerAction\.load\(user\.id, active\.callId\)/)
+  assert.match(screen, /const canRejoin = Boolean\(serverCall\?\.joined && localWinnerQuery\.data/)
+  assert.match(header, /Group call in progress/)
+  assert.match(header, /accessibilityRole="button"/)
+})
+
+test('late join persists the same device action before sending and reuses it after a lost ACK', () => {
+  const provider = read('src/providers/CallProvider.tsx')
+  const start = provider.slice(provider.indexOf('const startCall = useCallback('))
+  const load = start.indexOf('groupWinnerAction.load(currentUserId, input.joinCallId)')
+  const save = start.indexOf('groupWinnerAction.save(')
+  const send = start.indexOf("'join_group_call',")
+  assert.ok(load >= 0 && save > load && send > save)
+  assert.match(start, /actionId: lateJoinRequest\.actionId/)
+})
+
 test('group host skips the one-to-one answer wait and guests ignore peer-left teardown', () => {
   const provider = read('src/providers/CallProvider.tsx')
   const callScreen = read('app/call/[id].tsx')

@@ -430,6 +430,7 @@ export interface CallServerEvents {
 
 export interface CallClientEvents {
   initiate_call: (payload: InitiateCallPayload) => void
+  join_group_call: (payload: AcceptIncomingCallPayload) => void
   join_call: (payload: JoinCallPayload) => void
   accept_incoming_call: (payload: AcceptIncomingCallPayload) => void
   rejoin_call: (payload: RejoinCallPayload) => void
@@ -491,6 +492,11 @@ export type StartVideoCallInput = StartCallInput
 
 export interface UseCallValue {
   startVoiceCall: (input: StartVoiceCallInput) => Promise<void>
+  joinGroupCall: (input: {
+    callId: string
+    conversationId: string
+    groupName: string
+  }) => Promise<void>
   startVideoCall: (input: StartVideoCallInput) => Promise<void>
   acceptIncomingCall: (source?: 'native' | 'ui', actionId?: string) => Promise<void>
   rejectIncomingCall: () => Promise<void>

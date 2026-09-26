@@ -25,3 +25,20 @@ export async function getCallState(callId: string) {
   })
   return response.data
 }
+
+export type ActiveGroupCall = {
+  callId: string
+  conversationId: string
+  participantCount: number
+  startedAt: string
+  elapsedSeconds: number
+  joined: boolean
+}
+
+export async function getActiveGroupCall(conversationId: string) {
+  const response = await apiClient.get<{ call: ActiveGroupCall | null }>(
+    `/calls/conversations/${encodeURIComponent(conversationId)}/active-group`,
+    { timeout: 10000 },
+  )
+  return response.data.call
+}
