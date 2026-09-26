@@ -31,6 +31,21 @@ test('conversation banner uses live server state and rechecks before opening the
   assert.match(header, /accessibilityRole="button"/)
 })
 
+test('joined call People, minimized chip and chat banner share the local authoritative roster', () => {
+  const screen = read('app/call/[id].tsx')
+  const chip = read('src/components/call/FloatingActiveCallButton.tsx')
+  const chat = read('app/conversation/[id].tsx')
+  assert.match(screen, /isGroupCall \? \[\.\.\.new Set\(groupParticipantIds\)\] : \[\]/)
+  assert.match(
+    chip,
+    /groupParticipantCount = useCallStore\(\(state\) => state\.groupParticipantIds\.length\)/,
+  )
+  assert.match(
+    chat,
+    /participantCount: isLocalCall \? localGroupParticipantCount : serverCall\.participantCount/,
+  )
+})
+
 test('late join persists the same device action before sending and reuses it after a lost ACK', () => {
   const provider = read('src/providers/CallProvider.tsx')
   const start = provider.slice(provider.indexOf('const startCall = useCallback('))

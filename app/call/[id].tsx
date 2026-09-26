@@ -300,11 +300,8 @@ export default function ActiveCallScreen() {
     staleTime: 60_000,
   })
   const groupPeopleIds = useMemo(
-    () =>
-      isGroupCall
-        ? [...new Set([...(currentUser?.id ? [currentUser.id] : []), ...groupParticipantIds])]
-        : [],
-    [currentUser?.id, groupParticipantIds, isGroupCall],
+    () => (isGroupCall ? [...new Set(groupParticipantIds)] : []),
+    [groupParticipantIds, isGroupCall],
   )
   const isGroupHost = isGroupCall && direction === 'outgoing'
   const chromeProgress = useSharedValue(1)

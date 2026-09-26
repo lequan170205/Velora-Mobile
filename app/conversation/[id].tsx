@@ -67,6 +67,7 @@ export default function ChatScreen() {
   const { startVideoCall, startVoiceCall, joinGroupCall } = useCall()
   const callPhase = useCallStore((state) => state.phase)
   const currentCallId = useCallStore((state) => state.callId)
+  const localGroupParticipantCount = useCallStore((state) => state.groupParticipantIds.length)
   const [pendingCallType, setPendingCallType] = useState<'VOICE' | 'VIDEO' | null>(null)
   const [openingActiveCall, setOpeningActiveCall] = useState(false)
   const [selectCallMembersOpen, setSelectCallMembersOpen] = useState(false)
@@ -124,7 +125,7 @@ export default function ChatScreen() {
     : 'join'
   const activeGroupCall = serverCall
     ? {
-        participantCount: serverCall.participantCount,
+        participantCount: isLocalCall ? localGroupParticipantCount : serverCall.participantCount,
         elapsedSeconds:
           serverCall.elapsedSeconds +
           Math.max(0, Math.floor((bannerNowMs - activeGroupCallQuery.dataUpdatedAt) / 1000)),
