@@ -39,6 +39,21 @@ test('late join persists the same device action before sending and reuses it aft
   const send = start.indexOf("'join_group_call',")
   assert.ok(load >= 0 && save > load && send > save)
   assert.match(start, /actionId: lateJoinRequest\.actionId/)
+  assert.match(start, /if \(lateJoinSocket && !activeCallIdRef\.current\) lateJoinSocket\.disconnect\(\)/)
+})
+
+test('selected-member group calling keeps one-tap calling and forwards only the chosen IDs', () => {
+  const screen = read('app/conversation/[id].tsx')
+  const sheet = read('src/components/chat/conversation/GroupCallInviteSheet.tsx')
+  const header = read('src/components/chat/conversation/ConversationHeader.tsx')
+  const provider = read('src/providers/CallProvider.tsx')
+  assert.match(header, /onStartVoiceCall=|onPress=\{onStartVoiceCall\}/)
+  assert.match(header, /onSelectGroupCallMembers/)
+  assert.match(sheet, /member\.status === 'ACTIVE' && member\.userId !== currentUserId/)
+  assert.match(sheet, /accessibilityRole="checkbox"/)
+  assert.match(sheet, /onStart\(\[\.\.\.selectedIds\]\)/)
+  assert.match(screen, /startOutgoingCall\('VOICE', userIds\)/)
+  assert.match(provider, /selectedInviteeIds: input\.selectedInviteeIds/)
 })
 
 test('group host skips the one-to-one answer wait and guests ignore peer-left teardown', () => {
@@ -141,6 +156,16 @@ test('group call labels host ending separately from guest leaving', () => {
   assert.match(screen, /Alert\.alert\('End group call\?', 'This will end the call for everyone\.'/)
   assert.match(screen, /isGroupHost \? 'End call for everyone' : 'Leave call'/)
   assert.match(screen, /Waiting for others to join…/)
+})
+
+test('minimized group return control shows server roster count and local mic state', () => {
+  const button = read('src/components/call/FloatingActiveCallButton.tsx')
+  assert.match(button, /groupParticipantCount = useCallStore\(\(state\) => state\.groupParticipantIds\.length\)/)
+  assert.match(button, /const peopleCount = Math\.max\(1, groupParticipantCount\)/)
+  assert.match(button, /name=\{!micReady \? 'hourglass-empty' : muted \? 'mic-off' : 'mic'\}/)
+  assert.match(button, /microphone \$\{micReady \? \(muted \? 'muted' : 'on'\) : 'connecting'\}/)
+  assert.match(button, /Return to group \$\{callKind\} call, \$\{peopleCount\}/)
+  assert.match(button, /router\.push\(`\/call\/\$\{callId\}` as never\)/)
 })
 
 test('a confirmed reservation release keeps other group devices eligible', () => {

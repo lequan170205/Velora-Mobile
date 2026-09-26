@@ -2205,6 +2205,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
 
       const telemetry = new CallTelemetrySession('outgoing')
+      let lateJoinSocket: CallSocket | null = null
       telemetrySessionRef.current = telemetry
       telemetry.record('call_attempt', { outcome: 'started' })
       telemetry.recordLifecycle('ringing', { outcome: 'started' })
@@ -2265,6 +2266,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             lateJoinRequest.actionId,
           )
           assertOutgoingAttemptCurrent()
+          lateJoinSocket = socket
         }
         const joined = lateJoinRequest
           ? await emitAndWaitForEvent<'join_group_call', 'call_joined'>(
@@ -2288,6 +2290,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
               {
                 conversationId: input.conversationId,
                 ...(input.peerUserId ? { targetUserId: input.peerUserId } : {}),
+                ...(input.selectedInviteeIds
+                  ? { selectedInviteeIds: input.selectedInviteeIds }
+                  : {}),
                 callType,
               },
               {
@@ -2422,6 +2427,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
         telemetry.record('control_plane_active', { outcome: 'succeeded' })
       } catch (error) {
+        // A lost ACK can hide a committed join. Disconnecting this call socket
+        // makes the server's bounded disconnect cleanup revoke the ghost seat.
+        if (lateJoinSocket && !activeCallIdRef.current) lateJoinSocket.disconnect()
         if (isCallSetupCancelledError(error)) {
           stopRingingPreview()
           return
@@ -2448,9 +2456,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
               ? 'This group call is full'
               : input.joinCallId
                 ? 'Unable to join this group call'
-                : error instanceof Error && /camera/i.test(error.message)
-                  ? 'Velora needs camera access for video calls'
-                  : 'Velora needs microphone access to place calls',
+                : input.selectedInviteeIds
+                  ? 'Unable to start the selected group call. Check membership and try again.'
+                  : error instanceof Error && /camera/i.test(error.message)
+                    ? 'Velora needs camera access for video calls'
+                    : 'Velora needs microphone access to place calls',
           )
           return
         }

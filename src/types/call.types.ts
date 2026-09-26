@@ -51,6 +51,7 @@ export interface CallSessionPayload {
 export interface InitiateCallPayload {
   conversationId: string
   targetUserId?: string
+  selectedInviteeIds?: string[]
   callType: CallType
 }
 
@@ -482,6 +483,7 @@ export interface CallUiState {
 export interface StartCallInput {
   conversationId: string
   peerUserId?: string
+  selectedInviteeIds?: string[]
   peerName?: string
   peerAvatarUrl?: string
   isGroupCall?: boolean

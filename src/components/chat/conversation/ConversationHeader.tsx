@@ -33,7 +33,7 @@ function CallActionButton({
 
   return (
     <AppPressable
-      className="h-11 w-11 items-center justify-center"
+      className="h-12 w-12 items-center justify-center"
       activeOpacity={1}
       disabled={disabled}
       hitSlop={0}
@@ -103,6 +103,7 @@ type ConversationHeaderProps = {
   openingActiveCall: boolean
   onStartVideoCall: () => void
   onStartVoiceCall: () => void
+  onSelectGroupCallMembers: () => void
 }
 
 export const ConversationHeader = ({
@@ -126,6 +127,7 @@ export const ConversationHeader = ({
   openingActiveCall,
   onStartVideoCall,
   onStartVoiceCall,
+  onSelectGroupCallMembers,
 }: ConversationHeaderProps) => {
   const subtitleColor = groupTypingLabel
     ? colors.brand.primary
@@ -180,6 +182,15 @@ export const ConversationHeader = ({
 
         {showCallActions ? (
           <View className="flex-row items-center gap-1">
+            {isGroup ? (
+              <CallActionButton
+                onPress={onSelectGroupCallMembers}
+                disabled={callActionsDisabled}
+                busy={false}
+                icon="person-add"
+                accessibilityLabel={`Choose members to call in ${displayName}`}
+              />
+            ) : null}
             {showVideoCallAction ? (
               <CallActionButton
                 onPress={onStartVideoCall}

@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { colors } from '../../constants/theme'
 import { useCallStore } from '../../stores/callStore'
 import { AppPressable } from '../base/AppPressable'
+import { AppText } from '../base/AppText'
 import { getDockedTabBarHeight } from '../navigation/CustomTabBar'
 
 const BUTTON_SIZE = 48
@@ -44,9 +45,13 @@ export function FloatingActiveCallButton() {
   const callType = useCallStore((state) => state.callType)
   const peerName = useCallStore((state) => state.peerName)
   const phase = useCallStore((state) => state.phase)
+  const isGroupCall = useCallStore((state) => state.isGroupCall)
+  const groupParticipantCount = useCallStore((state) => state.groupParticipantIds.length)
+  const muted = useCallStore((state) => state.muted)
 
+  const buttonWidth = isGroupCall ? 96 : BUTTON_SIZE
   const minimumX = insets.left + EDGE_INSET
-  const maximumX = Math.max(minimumX, width - insets.right - EDGE_INSET - BUTTON_SIZE)
+  const maximumX = Math.max(minimumX, width - insets.right - EDGE_INSET - buttonWidth)
   const minimumY = insets.top + TOP_CLEARANCE
   const isConversationRoute = pathname.startsWith('/conversation/')
   const tabBarClearance = TOP_LEVEL_PATHS.has(pathname)
@@ -119,6 +124,8 @@ export function FloatingActiveCallButton() {
   if (!isReturnable || !callId || !callType || pathname.startsWith('/call/')) return null
 
   const callKind = callType === 'VIDEO' ? 'video' : 'voice'
+  const peopleCount = Math.max(1, groupParticipantCount)
+  const micReady = phase === 'active' || phase === 'reconnecting'
 
   return (
     <GestureDetector gesture={dragGesture}>
@@ -137,8 +144,9 @@ export function FloatingActiveCallButton() {
         ]}
       >
         <AppPressable
-          className="h-12 w-12 items-center justify-center overflow-hidden rounded-full border"
+          className="h-12 flex-row items-center justify-center overflow-hidden rounded-full border"
           style={{
+            width: buttonWidth,
             backgroundColor: colors.bubble.outgoing,
             borderColor: 'rgba(255,255,255,0.28)',
             shadowColor: '#000000',
@@ -153,14 +161,36 @@ export function FloatingActiveCallButton() {
             router.push(`/call/${callId}` as never)
           }}
           accessibilityRole="button"
-          accessibilityLabel={`Return to ${callKind} call${peerName ? ` with ${peerName}` : ''}`}
+          accessibilityLabel={
+            isGroupCall
+              ? `Return to group ${callKind} call, ${peopleCount} ${peopleCount === 1 ? 'person' : 'people'}, microphone ${micReady ? (muted ? 'muted' : 'on') : 'connecting'}`
+              : `Return to ${callKind} call${peerName ? ` with ${peerName}` : ''}`
+          }
           accessibilityHint="Opens the call already in progress. Drag to move this button."
         >
-          <MaterialIcons
-            name={callType === 'VIDEO' ? 'videocam' : 'call'}
-            size={22}
-            color={colors.text.inverse}
-          />
+          {isGroupCall ? (
+            <>
+              <MaterialIcons name="people" size={18} color={colors.text.inverse} />
+              <AppText
+                className="ml-1 text-sm2 font-semibold"
+                style={{ color: colors.text.inverse }}
+              >
+                {peopleCount}
+              </AppText>
+              <MaterialIcons
+                name={!micReady ? 'hourglass-empty' : muted ? 'mic-off' : 'mic'}
+                size={16}
+                color={colors.text.inverse}
+                style={{ marginLeft: 8 }}
+              />
+            </>
+          ) : (
+            <MaterialIcons
+              name={callType === 'VIDEO' ? 'videocam' : 'call'}
+              size={22}
+              color={colors.text.inverse}
+            />
+          )}
         </AppPressable>
       </Animated.View>
     </GestureDetector>

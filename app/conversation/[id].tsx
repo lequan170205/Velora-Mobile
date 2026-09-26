@@ -18,6 +18,7 @@ import {
   ConversationTypingIndicator,
 } from '../../src/components/chat/conversation/ConversationLoadingState'
 import { ConversationMessageRow } from '../../src/components/chat/conversation/ConversationMessageRow'
+import { GroupCallInviteSheet } from '../../src/components/chat/conversation/GroupCallInviteSheet'
 import { MessageContextMenu } from '../../src/components/chat/MessageContextMenu'
 import { MessageInput } from '../../src/components/chat/MessageInput'
 import { colors } from '../../src/constants/theme'
@@ -68,6 +69,7 @@ export default function ChatScreen() {
   const currentCallId = useCallStore((state) => state.callId)
   const [pendingCallType, setPendingCallType] = useState<'VOICE' | 'VIDEO' | null>(null)
   const [openingActiveCall, setOpeningActiveCall] = useState(false)
+  const [selectCallMembersOpen, setSelectCallMembersOpen] = useState(false)
   const [bannerNowMs, setBannerNowMs] = useState(Date.now())
   const callStartInFlightRef = useRef(false)
   const openingCallRef = useRef(false)
@@ -317,7 +319,7 @@ export default function ChatScreen() {
   }, [activeTypers, currentConversation, user?.id])
 
   const startOutgoingCall = useCallback(
-    async (callType: 'VOICE' | 'VIDEO') => {
+    async (callType: 'VOICE' | 'VIDEO', selectedInviteeIds?: string[]) => {
       if (
         (!otherUserId && !currentConversation?.isGroup) ||
         (callType === 'VIDEO' && currentConversation?.isGroup) ||
@@ -337,6 +339,7 @@ export default function ChatScreen() {
           ...(displayName ? { peerName: displayName } : {}),
           ...(avatarUrl ? { peerAvatarUrl: avatarUrl } : {}),
           ...(currentConversation?.isGroup ? { isGroupCall: true } : {}),
+          ...(selectedInviteeIds ? { selectedInviteeIds } : {}),
         }
 
         if (callType === 'VIDEO') await startVideoCall({ ...input })
@@ -573,6 +576,7 @@ export default function ChatScreen() {
           }}
           onStartVideoCall={handleStartVideoCall}
           onStartVoiceCall={handleStartVoiceCall}
+          onSelectGroupCallMembers={() => setSelectCallMembersOpen(true)}
         />
 
         <View
@@ -754,6 +758,16 @@ export default function ChatScreen() {
           conversationId={activeContextMenuData?.conversationId}
         />
       </View>
+      <GroupCallInviteSheet
+        conversationId={conversationId}
+        currentUserId={user?.id ?? null}
+        visible={selectCallMembersOpen}
+        onClose={() => setSelectCallMembersOpen(false)}
+        onStart={(userIds) => {
+          setSelectCallMembersOpen(false)
+          void startOutgoingCall('VOICE', userIds)
+        }}
+      />
     </View>
   )
 }
