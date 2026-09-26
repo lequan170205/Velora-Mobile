@@ -91,6 +91,7 @@ export interface RejoinCallPayload {
 export interface LeaveCallPayload {
   callId: string
   reason?: string
+  actionId?: string
 }
 
 export interface CreateTransportPayload {
@@ -404,7 +405,7 @@ export interface CallServerEvents {
   call_joined: (payload: CallJoinedPayload) => void
   incoming_call_acceptance: (payload: IncomingCallAcceptancePayload) => void
   call_rejoined: (payload: CallRejoinedPayload) => void
-  call_left: (payload: { callId: string }) => void
+  call_left: (payload: { callId: string; actionId?: string }) => void
   new_peer: (payload: NewPeerPayload) => void
   transport_created: (payload: TransportCreatedPayload) => void
   transport_connected: (payload: TransportConnectedPayload) => void

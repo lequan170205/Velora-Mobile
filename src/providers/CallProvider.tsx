@@ -128,6 +128,7 @@ type PendingServerEndIntent = {
   callId: string
   accountId: string
   reason?: string
+  actionId?: string
   acceptingIncomingCall: boolean
   expiresAtMs: number
 }
@@ -258,6 +259,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   // A reconnect on the same Socket.IO object is still a new generation.
   const socketGenerationRef = useRef(0)
   const incomingAnswerActionRef = useRef<{ callId: string; actionId: string } | null>(null)
+  const currentAnswerAction = useCallback((callId: string) => {
+    const action = incomingAnswerActionRef.current
+    return action?.callId === callId ? { actionId: action.actionId } : {}
+  }, [])
   const outgoingStartInFlightRef = useRef(false)
   const teardownInProgressRef = useRef(false)
   const callAnsweredRef = useRef(false)
@@ -640,11 +645,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socket.emit('leave_call', {
         callId,
         ...(intent.reason ? { reason: intent.reason } : {}),
+        ...(intent.actionId ? { actionId: intent.actionId } : {}),
       })
 
-      // Keep the intent until call_ended (live or terminal replay) confirms
-      // the server observed a terminal transition. If the socket drops while
-      // this packet is in flight, the next authenticated socket_ready retries.
+      // A guest leave confirms with call_left; host/1:1 end confirms with
+      // call_ended. Retry only while the matching intent remains pending.
     }
   }, [])
 
@@ -1106,6 +1111,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         socket.emit('leave_call', {
           callId,
           reason: 'disconnected',
+          ...currentAnswerAction(callId),
         })
       }
 
@@ -1113,7 +1119,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         errorMessage: 'Call connection was lost',
       })
     },
-    [teardownOnce],
+    [currentAnswerAction, teardownOnce],
   )
 
   const leaveCallFromLifecycle = useCallback(
@@ -1128,12 +1134,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         socket.emit('leave_call', {
           callId: state.callId,
           reason,
+          ...currentAnswerAction(state.callId),
         })
       }
 
       await teardownOnce(`lifecycle_${reason}`)
     },
-    [teardownOnce],
+    [currentAnswerAction, teardownOnce],
   )
 
   const armReconnectTimeout = useCallback(
@@ -1403,9 +1410,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socket.emit('leave_call', {
         callId,
         ...(reason ? { reason } : {}),
+        ...currentAnswerAction(callId),
       })
     },
-    [],
+    [currentAnswerAction],
   )
 
   const endCall = useCallback(
@@ -1429,6 +1437,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           callId,
           accountId,
           ...(reason ? { reason } : {}),
+          ...currentAnswerAction(callId),
           acceptingIncomingCall: wasAcceptingIncomingCall,
           expiresAtMs: Date.now() + SERVER_END_INTENT_TTL_MS,
         })
@@ -1451,6 +1460,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     },
     [
       clearGroupInvitationTimeout,
+      currentAnswerAction,
       currentUserId,
       ensureCallSocketConnected,
       flushPendingServerEndIntents,
@@ -2134,6 +2144,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           socket.emit('leave_call', {
             callId,
             reason: getRemoteSetupFailureReason(errorCode),
+            ...currentAnswerAction(callId),
           })
         } else if (acceptRequestSent) {
           // A timeout says only that this client did not observe the ACK; the
@@ -2167,6 +2178,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       assertCallSetupCurrent,
       beginCallSetup,
       clearGroupInvitationTimeout,
+      currentAnswerAction,
       currentUserId,
       ensureMicPermission,
       ensureCameraPermission,
@@ -2313,6 +2325,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
         activeCallIdRef.current = joined.callId
         if (lateJoinRequest) {
+          pendingServerEndIntentsRef.current.delete(joined.callId)
           incomingAnswerActionRef.current = {
             callId: joined.callId,
             actionId: lateJoinRequest.actionId,
@@ -2437,7 +2450,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         stopRingingPreview()
         const activeCallId = activeCallIdRef.current
         if (socketRef.current?.connected && activeCallId) {
-          socketRef.current.emit('leave_call', { callId: activeCallId, reason: 'timeout' })
+          socketRef.current.emit('leave_call', {
+            callId: activeCallId,
+            reason: 'timeout',
+            ...currentAnswerAction(activeCallId),
+          })
         }
         telemetry.record('setup_failed', { outcome: 'failed', error })
         if (!activeCallId) {
@@ -2472,6 +2489,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     [
       assertCallSetupCurrent,
       beginCallSetup,
+      currentAnswerAction,
       currentUserId,
       ensureCameraPermission,
       ensureMicPermission,
@@ -3258,6 +3276,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       callAnsweredRef.current = true
     }
 
+    const handleCallLeft = (payload: { callId: string; actionId?: string }) => {
+      const pending = pendingServerEndIntentsRef.current.get(payload.callId)
+      if (pending && pending.actionId === payload.actionId) {
+        pendingServerEndIntentsRef.current.delete(payload.callId)
+      }
+    }
+
     socket.on('connect', handleConnect)
     socket.on('call_socket_ready', handleSocketReady)
     socket.on('disconnect', handleDisconnect)
@@ -3273,6 +3298,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     socket.on('peer_reconnected', handlePeerReconnected)
     socket.on('peer_left', handlePeerLeft)
     socket.on('call_ended', handleCallEnded)
+    socket.on('call_left', handleCallLeft)
 
     void ensureCallSocketConnected('runtime').catch(() => undefined)
 
@@ -3285,6 +3311,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socket.off('peer_reconnected', handlePeerReconnected)
       socket.off('peer_left', handlePeerLeft)
       socket.off('call_ended', handleCallEnded)
+      socket.off('call_left', handleCallLeft)
       socket.off('incoming_call', handleIncomingCallEvent)
       socket.off('new_peer', handleNewPeer)
       socket.off('new_producer', handleNewProducer)

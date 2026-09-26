@@ -40,7 +40,10 @@ test('call lifecycle only moves forward and terminal outcomes always win', () =>
   assert.equal(lifecycle.reduceCallLifecycle('audio_ready', 'server_accepting'), 'audio_ready')
   assert.equal(lifecycle.reduceCallLifecycle('server_accepting', 'cancelled'), 'cancelled')
   assert.equal(lifecycle.reduceCallLifecycle('cancelled', 'active'), 'cancelled')
-  assert.equal(lifecycle.reduceCallLifecycle('answered_elsewhere', 'audio_ready'), 'answered_elsewhere')
+  assert.equal(
+    lifecycle.reduceCallLifecycle('answered_elsewhere', 'audio_ready'),
+    'answered_elsewhere',
+  )
 })
 
 test('recent terminal call IDs suppress delayed invitations without unbounded growth', () => {
@@ -74,8 +77,14 @@ test('native journal keeps action ordering, completion, expiry and watchdog guar
   assert.match(source, /isExplicitlyAnsweredElsewhere/)
   assert.match(source, /!matchesWinner\(localWinningAnswerActionId\)/)
   assert.match(source, /answerActionHash == SHA256\.hash/)
-  assert.match(source, /reason: isExplicitlyAnsweredElsewhere \? "answered_elsewhere" : validation\.reason/)
-  assert.match(source, /completePendingActions\(callId: callId, action: "resume", outcome: "active"\)/)
+  assert.match(
+    source,
+    /reason: isExplicitlyAnsweredElsewhere \? "answered_elsewhere" : validation\.reason/,
+  )
+  assert.match(
+    source,
+    /completePendingActions\(callId: callId, action: "resume", outcome: "active"\)/,
+  )
   assert.match(source, /pendingAnswerWatchdogTimeout/)
   assert.match(source, /schedulePendingAnswerWatchdog/)
   assert.match(source, /cancelPendingAnswerWatchdog/)
@@ -134,16 +143,62 @@ test('native journal keeps action ordering, completion, expiry and watchdog guar
 
 test('failed iOS end transaction still clears an observed active native call', () => {
   const source = read('modules/velora-system-calls/ios/VeloraSystemCallsModule.swift')
-  const endCall = source.slice(source.indexOf('  func endCall(callId:'), source.indexOf('  func reportCallFailed(callId:'))
+  const endCall = source.slice(
+    source.indexOf('  func endCall(callId:'),
+    source.indexOf('  func reportCallFailed(callId:'),
+  )
   assert.match(
     endCall,
     /if let error \{[\s\S]*?if !self\.clearCallIfObserverConfirmsMissing\(callId: callId, uuid: uuid\) \{[\s\S]*?self\.provider\.reportCall\(with: uuid, endedAt: Date\(\), reason: \.failed\)[\s\S]*?self\.clearCall\(callId: callId\)/,
   )
 })
 
+test('iOS remembers a local terminal before CallKit mapping exists so a late push cannot re-ring', () => {
+  const source = read('modules/velora-system-calls/ios/VeloraSystemCallsModule.swift')
+  const endCall = source.slice(
+    source.indexOf('  func endCall(callId:'),
+    source.indexOf('  func reportCallFailed(callId:'),
+  )
+  const failed = source.slice(
+    source.indexOf('  func reportCallFailed(callId:'),
+    source.indexOf('  func pushRegistry('),
+  )
+  const incoming = source.slice(
+    source.indexOf('  private func reportIncomingCall('),
+    source.indexOf('  func registerOutgoingCall('),
+  )
+  assert.match(
+    endCall,
+    /rememberLocalTerminalCall\(callId: callId\)[\s\S]*guard let uuid = uuidsByCallId\[callId\]/,
+  )
+  assert.match(
+    failed,
+    /rememberLocalTerminalCall\(callId: callId\)[\s\S]*guard let uuid = uuidsByCallId\[callId\]/,
+  )
+  assert.match(
+    source,
+    /private func rememberLocalTerminalCall\(callId: String\) \{[\s\S]*?storeRemoteCallStateUpdate\(\s*callId: callId,\s*update: PendingCallStateUpdate\(/,
+  )
+  assert.match(
+    incoming,
+    /remoteCallStateUpdatesByCallId\[callId\][\s\S]*?incoming_call_suppressed_by_remote_call_state/,
+  )
+  assert.match(
+    source,
+    /rememberLocalTerminalCall\(callId: callId\)[\s\S]*?clearCall\(callId: callId\)/,
+  )
+  assert.match(
+    source,
+    /assert\(remoteCallStateUpdatesByCallId\[localTerminalCallId\]\?\.status == "ended"\)/,
+  )
+})
+
 test('iOS diagnostics hash native identifiers and never merge opaque extras into logs', () => {
   const source = read('modules/velora-system-calls/ios/VeloraSystemCallsModule.swift')
-  const logs = source.slice(source.indexOf('  private func logOperationalNotice('), source.indexOf('  func activateSimulatorAudioSession('))
+  const logs = source.slice(
+    source.indexOf('  private func logOperationalNotice('),
+    source.indexOf('  func activateSimulatorAudioSession('),
+  )
   assert.match(logs, /private func diagnosticHash\(/)
   assert.match(logs, /"callIdHash": diagnosticHash\(callId\)/)
   assert.match(logs, /"callUuidHash": diagnosticHash\(callUuid\?\.uuidString\)/)
@@ -228,7 +283,10 @@ test('remote call-state updates reach the native reducers before React mounts', 
     assert.match(androidManifest, /VeloraFirebaseMessagingReceiver/)
     assert.match(androidManifest, /com\.google\.android\.c2dm\.intent\.RECEIVE/)
   }
-  assert.match(androidReceiver, /"CALL_STATE_UPDATE"\s*->\s*VeloraCallNotifications\.handleCallStateUpdate/)
+  assert.match(
+    androidReceiver,
+    /"CALL_STATE_UPDATE"\s*->\s*VeloraCallNotifications\.handleCallStateUpdate/,
+  )
   assert.match(androidPlugin, /VeloraFirebaseMessagingReceiver/)
   assert.match(androidPlugin, /com\.google\.android\.c2dm\.intent\.RECEIVE/)
 })

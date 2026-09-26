@@ -1089,6 +1089,9 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
 
   func endCall(callId: String, completion: @escaping ([String: Any]) -> Void) {
     let startedAt = CallOperationTiming()
+    // JS can learn the terminal outcome before PushKit reports its incoming
+    // call. Persist the local tombstone even when CallKit has no UUID yet.
+    rememberLocalTerminalCall(callId: callId)
     guard let uuid = uuidsByCallId[callId] else {
       let errorCode = "call_not_found"
       let errorMessage = "No native CallKit mapping exists for the provided callId."
@@ -1179,6 +1182,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
 
   func reportCallFailed(callId: String, completion: @escaping ([String: Any]) -> Void) {
     let startedAt = CallOperationTiming()
+    rememberLocalTerminalCall(callId: callId)
     guard let uuid = uuidsByCallId[callId] else {
       let errorCode = "call_not_found"
       let errorMessage = "No native CallKit mapping exists for the provided callId."
@@ -1675,6 +1679,7 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     }
 
     failPendingAnswer(callId: callId, reason: "ended_while_answer_pending")
+    rememberLocalTerminalCall(callId: callId)
 
     let nativeAction = callKitEndAction(
       isActiveCall: activeCallIds.contains(callId),
@@ -2349,6 +2354,17 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
         lifecycleRevision: 3
       )
       assert(!shouldReplaceRemoteCallStateUpdate(staleActiveStateUpdate, existing: endedStateUpdate))
+
+      let localTerminalCallId = "debug-local-terminal-before-invite"
+      assert(uuidsByCallId[localTerminalCallId] == nil)
+      rememberLocalTerminalCall(callId: localTerminalCallId)
+      assert(remoteCallStateUpdatesByCallId[localTerminalCallId]?.status == "ended")
+      let persistedLocalTerminal =
+        (userDefaults.dictionary(forKey: remoteCallStateUpdatesStorageKey)?[localTerminalCallId]
+          as? [String: String])?["status"]
+      assert(persistedLocalTerminal == "ended")
+      remoteCallStateUpdatesByCallId.removeValue(forKey: localTerminalCallId)
+      persistRemoteCallStateUpdates()
 
       let expired = validateIncomingPayload(
         validPayload.merging(["expiresAt": "2020-01-01T00:00:00Z"]) { _, latest in latest },
@@ -3212,6 +3228,17 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
     remoteCallStateUpdatesByCallId[callId] = update
     persistRemoteCallStateUpdates()
     return true
+  }
+
+  private func rememberLocalTerminalCall(callId: String) {
+    _ = storeRemoteCallStateUpdate(
+      callId: callId,
+      update: PendingCallStateUpdate(
+        status: "ended",
+        reason: "local_end",
+        endedAt: Date()
+      )
+    )
   }
 
   private func shouldReplaceRemoteCallStateUpdate(

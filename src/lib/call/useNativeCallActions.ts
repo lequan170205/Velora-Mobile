@@ -363,7 +363,7 @@ export const useNativeCallActions = ({
               await emitAndWaitForEvent<'leave_call', 'call_left'>(
                 socket,
                 'leave_call',
-                { callId: action.callId, reason: 'ended' },
+                { callId: action.callId, reason: 'ended', actionId: winningActionId },
                 {
                   event: 'call_left',
                   timeoutMs: 10_000,

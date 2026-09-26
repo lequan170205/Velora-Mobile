@@ -39,7 +39,30 @@ test('late join persists the same device action before sending and reuses it aft
   const send = start.indexOf("'join_group_call',")
   assert.ok(load >= 0 && save > load && send > save)
   assert.match(start, /actionId: lateJoinRequest\.actionId/)
-  assert.match(start, /if \(lateJoinSocket && !activeCallIdRef\.current\) lateJoinSocket\.disconnect\(\)/)
+  assert.match(
+    start,
+    /if \(lateJoinSocket && !activeCallIdRef\.current\) lateJoinSocket\.disconnect\(\)/,
+  )
+})
+
+test('group guest leave carries winner proof and an acknowledged intent cannot replay after rejoin', () => {
+  const provider = read('src/providers/CallProvider.tsx')
+  const nativeActions = read('src/lib/call/useNativeCallActions.ts')
+  assert.match(
+    provider,
+    /socket\.emit\('leave_call', \{[\s\S]*?\.\.\.currentAnswerAction\(callId\)/,
+  )
+  assert.match(provider, /socket\.on\('call_left', handleCallLeft\)/)
+  assert.match(provider, /socket\.off\('call_left', handleCallLeft\)/)
+  assert.match(provider, /pending\.actionId === payload\.actionId/)
+  assert.match(
+    provider,
+    /if \(lateJoinRequest\) \{\s*pendingServerEndIntentsRef\.current\.delete\(joined\.callId\)/,
+  )
+  assert.match(
+    nativeActions,
+    /\{ callId: action\.callId, reason: 'ended', actionId: winningActionId \}/,
+  )
 })
 
 test('selected-member group calling keeps one-tap calling and forwards only the chosen IDs', () => {
@@ -160,7 +183,10 @@ test('group call labels host ending separately from guest leaving', () => {
 
 test('minimized group return control shows server roster count and local mic state', () => {
   const button = read('src/components/call/FloatingActiveCallButton.tsx')
-  assert.match(button, /groupParticipantCount = useCallStore\(\(state\) => state\.groupParticipantIds\.length\)/)
+  assert.match(
+    button,
+    /groupParticipantCount = useCallStore\(\(state\) => state\.groupParticipantIds\.length\)/,
+  )
   assert.match(button, /const peopleCount = Math\.max\(1, groupParticipantCount\)/)
   assert.match(button, /name=\{!micReady \? 'hourglass-empty' : muted \? 'mic-off' : 'mic'\}/)
   assert.match(button, /microphone \$\{micReady \? \(muted \? 'muted' : 'on'\) : 'connecting'\}/)
