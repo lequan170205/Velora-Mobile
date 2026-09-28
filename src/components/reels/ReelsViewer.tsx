@@ -264,6 +264,8 @@ export function ReelsViewer({
   const [selectedFeedTab, setSelectedFeedTab] = useState<FeedTab>('for-you')
   const isCompactHeader = windowWidth < 360
   const headerHorizontalPadding = Math.max(16, Math.min(24, windowWidth * 0.05))
+  const headerContentHeight = Math.max(48, Math.min(72, 48 * fontScale))
+  const headerContentBottom = insets.top + headerContentHeight
   const headerSlotStyle = {
     alignItems: 'center' as const,
     height: 44,
@@ -2282,7 +2284,7 @@ export function ReelsViewer({
                 position: 'absolute',
                 left: 0,
                 right: 0,
-                top: insets.top + 82,
+                top: headerContentBottom + 32,
                 alignItems: 'center',
                 zIndex: 20,
                 elevation: 20,
@@ -2326,7 +2328,7 @@ export function ReelsViewer({
             pointerEvents="none"
             className="absolute items-center justify-center px-6"
             style={{
-              top: insets.top + (mode === 'public' ? 72 : 56),
+              top: headerContentBottom + 24,
               right: 0,
               bottom: Math.max(bottomContentInset + 32, insets.bottom + 32),
               left: 0,
@@ -2365,7 +2367,7 @@ export function ReelsViewer({
             pointerEvents="box-none"
             className="absolute items-center justify-center px-6"
             style={{
-              top: insets.top + (mode === 'public' ? 72 : 56),
+              top: headerContentBottom + 24,
               right: 0,
               bottom: Math.max(bottomContentInset + 32, insets.bottom + 32),
               left: 0,
@@ -2478,7 +2480,7 @@ export function ReelsViewer({
           <View
             pointerEvents="none"
             className="absolute inset-x-0 z-20 items-center"
-            style={{ top: insets.top + 64, elevation: 20 }}
+            style={{ top: headerContentBottom + 16, elevation: 20 }}
           >
             <ActivityIndicator color="#FF7A45" size="small" />
           </View>
@@ -2499,7 +2501,7 @@ export function ReelsViewer({
           }}
         >
           {mode === 'context' ? (
-            <View className="flex-row items-center">
+            <View className="flex-row items-center" style={{ minHeight: headerContentHeight }}>
               <View style={headerSlotStyle}>
                 <TouchableOpacity
                   accessibilityLabel="Go back"
@@ -2529,7 +2531,7 @@ export function ReelsViewer({
               <View style={headerSlotStyle}>{headerRight ?? null}</View>
             </View>
           ) : (
-            <View className="h-12 flex-row items-center">
+            <View className="flex-row items-center" style={{ minHeight: headerContentHeight }}>
               {!isOfflineAlertVisible ? (
                 <>
                   <View style={headerSlotStyle} />

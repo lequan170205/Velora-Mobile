@@ -37,7 +37,10 @@ test('reels viewer keeps the original text tabs and capture controls', () => {
   assert.match(reelsViewer, /accessibilityRole="tab"/)
   assert.match(reelsViewer, /accessibilityState=\{\{ selected: isSelected \}\}/)
   assert.match(reelsViewer, /disabled=\{isManualRefreshing \|\| isSwitchingFeedTab\}/)
-  assert.match(reelsViewer, /isSelected\s+\? 'font-bold text-white'\s+: 'font-semibold text-white\/85'/)
+  assert.match(
+    reelsViewer,
+    /isSelected\s+\? 'font-bold text-white'\s+: 'font-semibold text-white\/85'/,
+  )
   assert.match(reelsViewer, /isSelected \? 'w-6 bg-brand' : 'w-0 bg-transparent'/)
   assert.match(reelsViewer, /<Ionicons name="add" size=\{28\} color="#FFFFFF"/)
   assert.match(reelsViewer, /accessibilityLabel="Create reel"/)
@@ -52,7 +55,8 @@ test('reels viewer keeps the original text tabs and capture controls', () => {
   assert.match(reelCreatorSharedUi, /accessibilityRole=\{accessibilityRole\}/)
   assert.match(reelCreatorSharedUi, /accessibilityState=\{accessibilityState\}/)
   assert.match(reelCreatorSharedUi, /hitSlop=\{3\}/)
-  assert.match(captureStage, /h-\[104px\] w-\[104px\] items-center justify-center rounded-full/)
+  assert.match(captureStage, /recordOuterSize = Math\.round\(104 \* controlScale\)/)
+  assert.match(captureStage, /width: recordOuterSize, height: recordOuterSize/)
   assert.doesNotMatch(captureStage, /h-\[104px\] w-\[104px\][^\n]*border/)
 })
 
@@ -94,6 +98,10 @@ test('reel feed item keeps playback and scrub contracts while making metadata re
   assert.match(reelFeedItem, /<DeleteReelModal/)
   assert.match(reelFeedItem, /flex-row items-start/)
   assert.match(reelFeedItem, /text-base2 font-medium leading-6 text-white/)
+  assert.match(reelFeedItem, /min-w-0 flex-1 pr-3/)
+  assert.match(reelFeedItem, /left: 16,/)
+  assert.match(reelFeedItem, /right: 16,/)
+  assert.match(reelFeedItem, /mb-4 h-11 w-11 items-center justify-center/)
   assert.equal(
     (reelFeedItem.match(/numberOfLines=\{isCaptionExpanded \? undefined : 1\}/g) ?? []).length,
     2,
@@ -169,7 +177,8 @@ test('long press opens gorhom playback options without stealing the scrubber ges
   assert.match(reelFeedItem, /\.maxDistance\(28\)/)
   assert.match(reelFeedItem, /scheduleOnRN\(handleOpenPlaybackOptions\)/)
   assert.match(reelFeedItem, /playbackOptionsSheetRef\.current\?\.present\(\)/)
-  assert.match(reelFeedItem, /\.activateAfterLongPress\(120\)/)
+  assert.match(reelFeedItem, /\.activeOffsetX\(\[-8, 8\]\)/)
+  assert.match(reelFeedItem, /\.failOffsetY\(\[-16, 16\]\)/)
   assert.match(reelPlaybackOptionsSheet, /@gorhom\/bottom-sheet/)
   assert.match(reelPlaybackOptionsSheet, /<BottomSheetModal/)
   assert.match(reelPlaybackOptionsSheet, /enableDynamicSizing/)

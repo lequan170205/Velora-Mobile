@@ -3,7 +3,7 @@ import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo
 import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, ScrollView, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
 import Animated, { FadeIn } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -25,6 +25,12 @@ type CameraViewHandle = {
 
 export function CaptureStage({ controller }: { controller: ReelCreatorController }) {
   const insets = useSafeAreaInsets()
+  const { width: windowWidth } = useWindowDimensions()
+  const controlScale = Math.max(0.78, Math.min(1, (windowWidth - 40) / 320))
+  const sideControlSize = Math.round(74 * controlScale)
+  const recordOuterSize = Math.round(104 * controlScale)
+  const recordInnerSize = Math.round(82 * controlScale)
+  const recordStopSize = Math.round(50 * controlScale)
   const cameraRef = useRef<CameraViewHandle | null>(null)
   const didAskPermissionRef = useRef(false)
   const [cameraPermission, requestCameraPermission] = useCameraPermissions()
@@ -322,12 +328,15 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
 
             <View className="mt-6 flex-row items-center justify-between">
               <TouchableOpacity
-                className="h-[74px] w-[74px] overflow-hidden rounded-[24px]"
+                className="overflow-hidden"
                 activeOpacity={0.84}
                 onPress={() => {
                   void controller.handlePickFromLibrary()
                 }}
                 style={{
+                  width: sideControlSize,
+                  height: sideControlSize,
+                  borderRadius: Math.min(24, sideControlSize * 0.32),
                   backgroundColor: 'rgba(255,255,255,0.18)',
                   borderWidth: 1,
                   borderColor: 'rgba(255,255,255,0.22)',
@@ -348,16 +357,20 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
 
               <TouchableOpacity activeOpacity={0.9} onPress={handleRecordPress}>
                 <View
-                  className={`h-[104px] w-[104px] items-center justify-center rounded-full ${
+                  className={`items-center justify-center rounded-full ${
                     isRecording ? 'bg-[#FF7A45]/18' : 'bg-white/10'
                   }`}
+                  style={{ width: recordOuterSize, height: recordOuterSize }}
                 >
                   <View
-                    className={`items-center justify-center ${
-                      isRecording
-                        ? 'h-[50px] w-[50px] rounded-[16px] bg-[#FF7A45]'
-                        : 'h-[82px] w-[82px] rounded-full bg-[#FF7A45]'
+                    className={`items-center justify-center bg-[#FF7A45] ${
+                      isRecording ? 'rounded-[16px]' : 'rounded-full'
                     }`}
+                    style={{
+                      width: isRecording ? recordStopSize : recordInnerSize,
+                      height: isRecording ? recordStopSize : recordInnerSize,
+                      borderRadius: isRecording ? 16 * controlScale : recordInnerSize / 2,
+                    }}
                   >
                     <MaterialIcons
                       name={isRecording ? 'stop' : 'fiber-manual-record'}
@@ -370,8 +383,13 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
 
               {hasSavedDraft ? (
                 <TouchableOpacity
-                  className="h-[74px] w-[74px] items-center justify-center rounded-[24px] border border-[#5B3327] bg-[#241713]"
+                  className="items-center justify-center border border-[#5B3327] bg-[#241713]"
                   activeOpacity={0.84}
+                  style={{
+                    width: sideControlSize,
+                    height: sideControlSize,
+                    borderRadius: Math.min(24, sideControlSize * 0.32),
+                  }}
                   onPress={() => {
                     void controller.handleResumeDraft()
                   }}
@@ -379,7 +397,7 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
                   <MaterialIcons name="restore" size={24} color="#FFBEA8" />
                 </TouchableOpacity>
               ) : (
-                <View className="h-[74px] w-[74px]" />
+                <View style={{ width: sideControlSize, height: sideControlSize }} />
               )}
             </View>
           </>

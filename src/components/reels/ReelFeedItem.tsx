@@ -258,9 +258,9 @@ const styles = StyleSheet.create({
   },
   transcriptOverlay: {
     alignItems: 'flex-start',
-    left: 12,
+    left: 16,
     position: 'absolute',
-    right: 84,
+    right: 16,
     zIndex: 20,
   },
   video: {
@@ -1259,7 +1259,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
           <View className="absolute inset-0 items-center justify-center" pointerEvents="box-none">
             <View className="items-center" pointerEvents="box-none">
               <TouchableOpacity
-                className="mb-4 h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/40"
+                className="mb-4 h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-black/40"
                 activeOpacity={0.84}
                 onPress={onToggleMuted}
               >
@@ -1476,7 +1476,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
             }}
           >
             <View className="flex-row items-start">
-              <View className="max-w-[82%] flex-1 pr-3">
+              <View className="min-w-0 flex-1 pr-3">
                 {displayReel.series && !isSeriesPlayback ? (
                   <TouchableOpacity
                     accessibilityLabel={`Open ${displayReel.series.title}, episode ${displayReel.series.episodeNumber}`}
@@ -1582,7 +1582,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                 ) : null}
               </View>
 
-              <View className="ml-auto items-center gap-2">
+              <View className="ml-auto shrink-0 items-center gap-2">
                 <TouchableOpacity
                   accessibilityLabel="Share reel"
                   accessibilityRole="button"
