@@ -91,7 +91,8 @@ type ReelWithLocalThumbnail = Reel & {
   localThumbnailUri?: string
 }
 
-const SCRUBBER_TOUCH_ZONE_HEIGHT = 40
+const SCRUBBER_TOUCH_ZONE_HEIGHT = 48
+const SCRUBBER_EDGE_GUTTER = 24
 const METADATA_GAP_ABOVE_SCRUB_RAIL = 24
 const TIMELINE_ACTIVE_HEIGHT = 10
 const TIMELINE_CHIP_WIDTH = 74
@@ -102,6 +103,12 @@ const clamp = (value: number, min: number, max: number) => {
   'worklet'
 
   return Math.min(max, Math.max(min, value))
+}
+const mapScrubTouchX = (touchX: number, trackWidth: number) => {
+  'worklet'
+
+  const touchWidth = Math.max(trackWidth - SCRUBBER_EDGE_GUTTER * 2, 1)
+  return clamp((touchX / touchWidth) * trackWidth, 0, trackWidth)
 }
 const formatPlaybackTime = (value: number) => {
   const safeValue = Number.isFinite(value) && value > 0 ? Math.floor(value) : 0
@@ -954,28 +961,30 @@ const ReelFeedItemComponent = function ReelFeedItem({
         .enabled(isActive && playbackState.isPlayable && durationSeconds > 0)
         .averageTouches(true)
         .maxPointers(1)
-        .activateAfterLongPress(120)
-        .activeOffsetX([-2, 2])
-        .failOffsetY([-12, 12])
+        .activeOffsetX([-8, 8])
+        .failOffsetY([-16, 16])
         .onStart((event) => {
-          const ratio = scrubberWidth > 0 ? clamp(event.x / scrubberWidth, 0, 1) : 0
+          const trackTouchX = mapScrubTouchX(event.x, scrubberWidth)
+          const ratio = scrubberWidth > 0 ? clamp(trackTouchX / scrubberWidth, 0, 1) : 0
           scrubUpdateSample.value = 0
           timelinePreviewRatio.value = ratio
-          scheduleOnRN(beginScrub, event.x)
+          scheduleOnRN(beginScrub, trackTouchX)
         })
         .onUpdate((event) => {
-          const ratio = scrubberWidth > 0 ? clamp(event.x / scrubberWidth, 0, 1) : 0
+          const trackTouchX = mapScrubTouchX(event.x, scrubberWidth)
+          const ratio = scrubberWidth > 0 ? clamp(trackTouchX / scrubberWidth, 0, 1) : 0
           timelinePreviewRatio.value = ratio
           // ponytail: sample seeks every sixth event; use a time-based limit if 120Hz traces still show churn.
           scrubUpdateSample.value = (scrubUpdateSample.value + 1) % 6
           if (scrubUpdateSample.value === 0) {
-            scheduleOnRN(updateScrub, event.x)
+            scheduleOnRN(updateScrub, trackTouchX)
           }
         })
         .onEnd((event) => {
-          const ratio = scrubberWidth > 0 ? clamp(event.x / scrubberWidth, 0, 1) : 0
+          const trackTouchX = mapScrubTouchX(event.x, scrubberWidth)
+          const ratio = scrubberWidth > 0 ? clamp(trackTouchX / scrubberWidth, 0, 1) : 0
           timelinePreviewRatio.value = ratio
-          scheduleOnRN(finishScrub, event.x, event.velocityX)
+          scheduleOnRN(finishScrub, trackTouchX, event.velocityX)
         })
         .onFinalize(() => {
           scheduleOnRN(finishScrub, lastScrubRatio.value * scrubberWidth, 0)
@@ -1275,67 +1284,73 @@ const ReelFeedItemComponent = function ReelFeedItem({
         ) : null}
 
         {isActive && playbackState.isPlayable && !clearDisplay ? (
-          <GestureDetector gesture={scrubGesture}>
+          <View
+            className="absolute inset-x-0 z-20"
+            style={{ bottom: scrubRailBottom }}
+            pointerEvents="box-none"
+          >
             <View
-              className="absolute inset-x-0 z-20"
-              style={{ bottom: scrubRailBottom }}
-              pointerEvents="box-only"
+              className="justify-end"
+              onLayout={(event) => {
+                setScrubberWidth(event.nativeEvent.layout.width)
+              }}
+              pointerEvents="none"
+              style={{ height: SCRUBBER_TOUCH_ZONE_HEIGHT }}
             >
-              <View
-                className="justify-end"
-                onLayout={(event) => {
-                  setScrubberWidth(event.nativeEvent.layout.width)
-                }}
-                style={{ height: SCRUBBER_TOUCH_ZONE_HEIGHT }}
+              <Animated.View
+                className="absolute inset-x-0 bottom-0 h-[2px] rounded-full bg-white/18"
+                style={timelineBaseStyle}
+              >
+                <View
+                  className="absolute inset-y-0 left-0 bg-white/24"
+                  style={{ width: `${bufferedRatio * 100}%` }}
+                />
+                <Animated.View
+                  className="absolute inset-y-0 left-0 rounded-full bg-white/90"
+                  style={timelineFillStyle}
+                />
+              </Animated.View>
+
+              <Animated.View
+                pointerEvents="none"
+                className="absolute inset-x-0 bottom-0"
+                style={timelineOverlayStyle}
               >
                 <Animated.View
-                  className="absolute inset-x-0 bottom-0 h-[2px] rounded-full bg-white/18"
-                  style={timelineBaseStyle}
+                  className="absolute rounded-full bg-black/58 px-3 py-1.5"
+                  style={[
+                    { bottom: TIMELINE_CHIP_BOTTOM_OFFSET, width: timelineChipWidth },
+                    timelineChipStyle,
+                  ]}
+                >
+                  <View className="flex-row items-center justify-center">
+                    <Text className="text-xs2 font-medium text-white">{timelineLabel}</Text>
+                  </View>
+                </Animated.View>
+
+                <View
+                  className="absolute inset-x-0 bottom-0 h-[4px] rounded-full bg-white/18"
+                  style={{ height: TIMELINE_ACTIVE_HEIGHT }}
                 >
                   <View
-                    className="absolute inset-y-0 left-0 bg-white/24"
+                    className="absolute inset-y-0 left-0 bg-white/28"
                     style={{ width: `${bufferedRatio * 100}%` }}
                   />
                   <Animated.View
-                    className="absolute inset-y-0 left-0 rounded-full bg-white/90"
+                    className="absolute inset-y-0 left-0 rounded-full bg-white"
                     style={timelineFillStyle}
                   />
-                </Animated.View>
-
-                <Animated.View
-                  pointerEvents="none"
-                  className="absolute inset-x-0 bottom-0"
-                  style={timelineOverlayStyle}
-                >
-                  <Animated.View
-                    className="absolute rounded-full bg-black/58 px-3 py-1.5"
-                    style={[
-                      { bottom: TIMELINE_CHIP_BOTTOM_OFFSET, width: timelineChipWidth },
-                      timelineChipStyle,
-                    ]}
-                  >
-                    <View className="flex-row items-center justify-center">
-                      <Text className="text-xs2 font-medium text-white">{timelineLabel}</Text>
-                    </View>
-                  </Animated.View>
-
-                  <View
-                    className="absolute inset-x-0 bottom-0 h-[4px] rounded-full bg-white/18"
-                    style={{ height: TIMELINE_ACTIVE_HEIGHT }}
-                  >
-                    <View
-                      className="absolute inset-y-0 left-0 bg-white/28"
-                      style={{ width: `${bufferedRatio * 100}%` }}
-                    />
-                    <Animated.View
-                      className="absolute inset-y-0 left-0 rounded-full bg-white"
-                      style={timelineFillStyle}
-                    />
-                  </View>
-                </Animated.View>
-              </View>
+                </View>
+              </Animated.View>
             </View>
-          </GestureDetector>
+            <GestureDetector gesture={scrubGesture}>
+              <View
+                className="absolute inset-y-0"
+                pointerEvents="box-only"
+                style={{ left: SCRUBBER_EDGE_GUTTER, right: SCRUBBER_EDGE_GUTTER }}
+              />
+            </GestureDetector>
+          </View>
         ) : null}
 
         {showLoadingRail && !clearDisplay ? (
@@ -1434,11 +1449,9 @@ const ReelFeedItemComponent = function ReelFeedItem({
             pointerEvents="none"
             style={[styles.transcriptOverlay, { bottom: transcriptOverlayBottom }]}
           >
-            <View className="self-start rounded-[12px] bg-black/60 px-3 py-2">
+            <View className="max-w-full self-start rounded-[12px] bg-black/60 px-3 py-2">
               <Text
                 className="text-left text-base font-medium leading-6 text-white"
-                numberOfLines={1}
-                ellipsizeMode="tail"
                 style={{
                   textShadowColor: 'rgba(0, 0, 0, 0.48)',
                   textShadowOffset: { width: 0, height: 1 },

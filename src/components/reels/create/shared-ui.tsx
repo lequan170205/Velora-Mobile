@@ -1,7 +1,14 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { BlurView } from 'expo-blur'
 import React from 'react'
-import { Switch, Text, TouchableOpacity, View } from 'react-native'
+import {
+  Switch,
+  Text,
+  TouchableOpacity,
+  View,
+  type AccessibilityRole,
+  type AccessibilityState,
+} from 'react-native'
 import Animated, { FadeIn } from 'react-native-reanimated'
 
 import type { ActionConfig, ImportState, MaterialIconName } from '../../../types/reel-creator'
@@ -13,11 +20,15 @@ export function GlassIconButton({
   onPress,
   active = false,
   tone = 'camera',
+  accessibilityLabel,
+  accessibilityRole,
 }: {
   icon: MaterialIconName
   onPress: () => void
   active?: boolean
   tone?: IconButtonTone
+  accessibilityLabel?: string
+  accessibilityRole?: AccessibilityRole
 }) {
   const isLight = tone === 'light'
   const isVideo = tone === 'video'
@@ -38,7 +49,12 @@ export function GlassIconButton({
   const iconColor = active ? '#FFFFFF' : isLight || isVideo ? '#171717' : '#FFFFFF'
 
   return (
-    <TouchableOpacity activeOpacity={0.85} onPress={onPress}>
+    <TouchableOpacity
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole={accessibilityRole}
+      activeOpacity={0.85}
+      onPress={onPress}
+    >
       <View
         className="h-12 min-w-12 items-center justify-center rounded-full border px-3.5"
         style={{
@@ -61,15 +77,28 @@ export function SegmentedPill({
   label,
   active,
   onPress,
+  accessibilityLabel,
+  accessibilityRole,
+  accessibilityState,
+  disabled = false,
 }: {
   label: string
   active: boolean
   onPress: () => void
+  accessibilityLabel?: string
+  accessibilityRole?: AccessibilityRole
+  accessibilityState?: AccessibilityState
+  disabled?: boolean
 }) {
   return (
     <TouchableOpacity
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole={accessibilityRole}
+      accessibilityState={accessibilityState}
       className={`rounded-full px-4 py-2.5 ${active ? 'bg-white' : 'bg-white/10'}`}
       activeOpacity={0.84}
+      disabled={disabled}
+      hitSlop={3}
       onPress={onPress}
     >
       <Text

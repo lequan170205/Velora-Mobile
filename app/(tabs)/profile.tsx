@@ -43,6 +43,8 @@ import type { Reel, ReelSeriesListItem, ReelVisibility } from '../../src/types/r
 
 const PROFILE_REELS_LIMIT = 24
 type ProfileContentTab = 'public' | 'series' | 'private'
+type ProfileContentRow =
+  { type: 'reels'; items: Reel[] } | { type: 'series'; items: ReelSeriesListItem[] }
 const RFC_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const isRfcUuid = (value?: string | null) => {
@@ -314,7 +316,7 @@ export default function ProfileScreen() {
     fetchNextPage,
     refetch: refetchReels,
   } = useReelsFeed(profileReelsParams, {
-    enabled: Boolean(user?.id),
+    enabled: Boolean(user?.id) && activeContentTab !== 'series',
   })
   const {
     data: seriesData,
@@ -324,7 +326,12 @@ export default function ProfileScreen() {
     fetchNextPage: fetchNextSeriesPage,
     isFetchingNextPage: isFetchingNextSeriesPage,
     refetch: refetchSeries,
-  } = useOwnedReelSeries({ limit: 6 }, { enabled: Boolean(user?.id) })
+  } = useOwnedReelSeries(
+    { limit: 6 },
+    {
+      enabled: Boolean(user?.id) && activeContentTab === 'series',
+    },
+  )
 
   const profileFeedItems = useMemo(
     () => reelsData?.pages.flatMap((page) => page.items) ?? [],
@@ -341,6 +348,19 @@ export default function ProfileScreen() {
     () => seriesData?.pages.flatMap((page) => page.items) ?? [],
     [seriesData],
   )
+  const contentRows = useMemo<ProfileContentRow[]>(() => {
+    if (activeContentTab === 'series') {
+      return Array.from({ length: Math.ceil(ownedSeries.length / 2) }, (_, rowIndex) => ({
+        type: 'series' as const,
+        items: ownedSeries.slice(rowIndex * 2, (rowIndex + 1) * 2),
+      }))
+    }
+
+    return Array.from({ length: Math.ceil(profileReels.length / 3) }, (_, rowIndex) => ({
+      type: 'reels' as const,
+      items: profileReels.slice(rowIndex * 3, (rowIndex + 1) * 3),
+    }))
+  }, [activeContentTab, ownedSeries, profileReels])
   const friendsValue = isFriendsPending && friends.length === 0 ? '...' : String(friends.length)
   const friendHighlights = friends.slice(0, 7)
   const extraFriendsCount = Math.max(friends.length - friendHighlights.length, 0)
@@ -386,15 +406,20 @@ export default function ProfileScreen() {
   }, [updateAvatar])
 
   const handleRefresh = useCallback(() => {
-    void Promise.all([refetchFriends(), refetchReels(), refetchSeries()])
-  }, [refetchFriends, refetchReels, refetchSeries])
+    void Promise.all([
+      refetchFriends(),
+      activeContentTab === 'series' ? refetchSeries() : refetchReels(),
+    ])
+  }, [activeContentTab, refetchFriends, refetchReels, refetchSeries])
 
-  const isRefreshing = isFriendsRefetching || isReelsRefetching || isSeriesRefetching
+  const isRefreshing =
+    isFriendsRefetching || (activeContentTab === 'series' ? isSeriesRefetching : isReelsRefetching)
 
   const renderReelItem = useCallback(
     ({ item, index }: { item: Reel; index: number }) => {
       return (
         <ReelThumbnailTile
+          key={item.id}
           index={index}
           onPress={() => {
             const contextReelsParam = serializeChatReelRouteContext(profileReels)
@@ -429,49 +454,45 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
       <FlatList
-        key={activeContentTab === 'series' ? 'series-grid-2col' : 'reels-grid-3col'}
-        data={
-          (activeContentTab === 'series' ? ownedSeries : profileReels) as (
-            Reel | ReelSeriesListItem
-          )[]
+        data={contentRows}
+        keyExtractor={(row) => `${row.type}-${row.items[0]?.id ?? 'empty'}`}
+        renderItem={({ item: row, index: rowIndex }) =>
+          row.type === 'series' ? (
+            <View className="mb-3 flex-row gap-3 px-5">
+              {row.items.map((series) => (
+                <SeriesHighlight
+                  key={series.id}
+                  series={series}
+                  cardWidth={seriesCardWidth}
+                  cardHeight={seriesCardHeight}
+                  onPress={() => {
+                    if (series.firstReelId) {
+                      void prefetchReelSeriesEpisodes(
+                        queryClient,
+                        user?.id ?? 'anonymous',
+                        series.id,
+                        series.firstReelId,
+                      )
+                    }
+                    router.push({
+                      pathname: '/series/[id]' as never,
+                      params: {
+                        id: series.id,
+                        ...(series.firstReelId ? { reelId: series.firstReelId } : {}),
+                      },
+                    })
+                  }}
+                />
+              ))}
+            </View>
+          ) : (
+            <View className="mb-[2px] flex-row gap-[2px]">
+              {row.items.map((reel, index) =>
+                renderReelItem({ item: reel, index: rowIndex * 3 + index }),
+              )}
+            </View>
+          )
         }
-        numColumns={activeContentTab === 'series' ? 2 : 3}
-        columnWrapperStyle={
-          activeContentTab === 'series'
-            ? { gap: 12, paddingHorizontal: 20, marginBottom: 12 }
-            : { gap: 2, marginBottom: 2 }
-        }
-        keyExtractor={(item) => item.id}
-        renderItem={({ item, index }) => {
-          if (activeContentTab === 'series') {
-            const series = item as ReelSeriesListItem
-            return (
-              <SeriesHighlight
-                series={series}
-                cardWidth={seriesCardWidth}
-                cardHeight={seriesCardHeight}
-                onPress={() => {
-                  if (series.firstReelId) {
-                    void prefetchReelSeriesEpisodes(
-                      queryClient,
-                      user?.id ?? 'anonymous',
-                      series.id,
-                      series.firstReelId,
-                    )
-                  }
-                  router.push({
-                    pathname: '/series/[id]' as never,
-                    params: {
-                      id: series.id,
-                      ...(series.firstReelId ? { reelId: series.firstReelId } : {}),
-                    },
-                  })
-                }}
-              />
-            )
-          }
-          return renderReelItem({ item: item as Reel, index })
-        }}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: tabBarHeight + 28 }}
         refreshControl={

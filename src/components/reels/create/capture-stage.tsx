@@ -348,8 +348,8 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
 
               <TouchableOpacity activeOpacity={0.9} onPress={handleRecordPress}>
                 <View
-                  className={`h-[104px] w-[104px] items-center justify-center rounded-full border ${
-                    isRecording ? 'border-[#FFB199] bg-[#FF7A45]/18' : 'border-white/14 bg-white/10'
+                  className={`h-[104px] w-[104px] items-center justify-center rounded-full ${
+                    isRecording ? 'bg-[#FF7A45]/18' : 'bg-white/10'
                   }`}
                 >
                   <View

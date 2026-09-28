@@ -202,7 +202,7 @@ export function ReelsViewer({
   const insets = useSafeAreaInsets()
   const isFocused = useIsFocused()
   const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
-  const { fontScale, height: windowHeight } = useWindowDimensions()
+  const { fontScale, height: windowHeight, width: windowWidth } = useWindowDimensions()
   const { isOnline, networkState } = useNetworkStatus()
   const { isReelSavingModeHydrated, reelSavingModeEnabled } = useReelSavingMode()
   const { liveTranscriptionEnabled, playbackSpeed, setLiveTranscriptionEnabled, setPlaybackSpeed } =
@@ -213,7 +213,6 @@ export function ReelsViewer({
     updateActiveMutedState,
     updateIntentionalPauseState,
     updatePlaybackProgress,
-    flushReelEvents,
   } = useReelAnalyticsTracker()
 
   const pagerRef = useRef<PagerViewRef | null>(null)
@@ -223,6 +222,7 @@ export function ReelsViewer({
   const pagerCurrentIndexRef = useRef<number | null>(null)
   const pagerScrollStateRef = useRef<'idle' | 'dragging' | 'settling'>('idle')
   const contextPageRequestInFlightRef = useRef(false)
+  const publicPageRequestInFlightRef = useRef(false)
   const pagerWindowStartRef = useRef(0)
   const pagerWindowInitializedRef = useRef(false)
   const pendingPagerWindowIndexRef = useRef<number | null>(null)
@@ -262,6 +262,14 @@ export function ReelsViewer({
   const [isManualRefreshing, setIsManualRefreshing] = useState(false)
   const [isSwitchingFeedTab, setIsSwitchingFeedTab] = useState(false)
   const [selectedFeedTab, setSelectedFeedTab] = useState<FeedTab>('for-you')
+  const isCompactHeader = windowWidth < 360
+  const headerHorizontalPadding = Math.max(16, Math.min(24, windowWidth * 0.05))
+  const headerSlotStyle = {
+    alignItems: 'center' as const,
+    height: 44,
+    justifyContent: 'center' as const,
+    width: 44,
+  }
   const [feedFallbackReels, setFeedFallbackReels] = useState<FeedFallbackState>(() => ({
     viewerId,
     feeds: EMPTY_FEED_FALLBACKS,
@@ -437,7 +445,7 @@ export function ReelsViewer({
     refetch: refetchFriends,
   } = useFriendsReelsFeed({
     limit: DEFAULT_REELS_LIMIT,
-    enabled: shouldLoadPublicFeed && selectedFeedTab === 'friends',
+    enabled: shouldLoadPublicFeed && shouldShowFriendsTab,
   })
   const isPublicFeedPending =
     selectedFeedTab === 'friends' ? isFriendsPending : isRecommendedPending
@@ -693,12 +701,12 @@ export function ReelsViewer({
     () => reels.find((reel) => reel.id === effectiveActiveReelId) ?? null,
     [effectiveActiveReelId, reels],
   )
+  // Keep the cached destination Reel playable while its new feed session loads.
   const canPlayActiveReel =
     Boolean(effectiveActiveReelId) &&
     isFocused &&
     isAppActive &&
     !isManualRefreshing &&
-    !isSwitchingFeedTab &&
     !isActiveReelPausedByUser
 
   useEffect(() => {
@@ -1227,6 +1235,11 @@ export function ReelsViewer({
         scrollOffset: Math.max(0, activeIndex) * viewportHeight,
       }
 
+      if (nextFeedTab === 'for-you') {
+        feedTabStatesRef.current['for-you'] = { ...INITIAL_FEED_TAB_STATE }
+        currentPageIndexRef.current = 0
+      }
+
       pauseAllReelPlayers()
       setIsActiveReelPausedByUser(false)
       void endCurrentReelSession('tab_switch')
@@ -1234,7 +1247,14 @@ export function ReelsViewer({
       pagerCurrentIndexRef.current = null
       setActiveReelId(null)
       setSelectedFeedTab(nextFeedTab)
-      setIsSwitchingFeedTab(false)
+
+      if (nextFeedTab === 'for-you') {
+        void refreshWithNewSession()
+          .catch(() => undefined)
+          .finally(() => setIsSwitchingFeedTab(false))
+      } else {
+        setIsSwitchingFeedTab(false)
+      }
     },
     [
       activeIndex,
@@ -1245,6 +1265,7 @@ export function ReelsViewer({
       selectedFeedTab,
       shouldShowFriendsTab,
       pauseAllReelPlayers,
+      refreshWithNewSession,
       viewportHeight,
     ],
   )
@@ -1491,14 +1512,21 @@ export function ReelsViewer({
         return
       }
 
-      const shouldPrefetch = index >= Math.max(0, reels.length - 3)
+      const prefetchLead =
+        shouldLoadPublicFeed && selectedFeedTab === 'for-you' ? DEFAULT_REELS_LIMIT : 3
+      const shouldPrefetch = index >= Math.max(0, reels.length - prefetchLead)
 
       if (!shouldPrefetch) {
         return
       }
 
       if (shouldLoadPublicFeed && hasPublicNextPage && !isFetchingPublicNextPage) {
-        void fetchPublicNextPage()
+        if (publicPageRequestInFlightRef.current) return
+
+        publicPageRequestInFlightRef.current = true
+        void fetchPublicNextPage().finally(() => {
+          publicPageRequestInFlightRef.current = false
+        })
         return
       }
 
@@ -1523,6 +1551,7 @@ export function ReelsViewer({
       isFetchingContextNextPage,
       isFetchingPublicNextPage,
       reels.length,
+      selectedFeedTab,
       shouldLoadPublicFeed,
       shouldUseLocalContext,
       shouldUseReelContext,
@@ -1596,7 +1625,6 @@ export function ReelsViewer({
         isFocused &&
         isAppActive &&
         !isManualRefreshing &&
-        !isSwitchingFeedTab &&
         (playback.desiredReelId === nextReelId ||
           nextReelId !== previousReelId ||
           !isActiveReelPausedByUser)
@@ -1612,7 +1640,6 @@ export function ReelsViewer({
     isFocused,
     isMuted,
     isManualRefreshing,
-    isSwitchingFeedTab,
     maybeFetchNextPage,
     maybeRecenterPagerWindow,
     setActiveByIndex,
@@ -1627,17 +1654,11 @@ export function ReelsViewer({
         position: pagerWindowStartRef.current + event.nativeEvent.position,
       }
 
-      maybeFetchNextPage(
-        Math.round(
-          pagerWindowStartRef.current + event.nativeEvent.position + event.nativeEvent.offset,
-        ),
-      )
-
       if (pagerScrollStateRef.current === 'idle') {
         scheduleSettledPageCommit()
       }
     },
-    [maybeFetchNextPage, scheduleSettledPageCommit],
+    [scheduleSettledPageCommit],
   )
   const handlePageSelected = useCallback(
     (event: PagerViewOnPageSelectedEvent) => {
@@ -1659,8 +1680,7 @@ export function ReelsViewer({
         nextReelId !== activeReelIdRef.current &&
         isFocused &&
         isAppActive &&
-        !isManualRefreshing &&
-        !isSwitchingFeedTab
+        !isManualRefreshing
       ) {
         const playback = playbackCoordinatorRef.current.getSnapshot()
         if (playback.desiredReelId !== nextReelId || playback.playingReelIds[0] !== nextReelId) {
@@ -1678,7 +1698,6 @@ export function ReelsViewer({
       isFocused,
       isManualRefreshing,
       isMuted,
-      isSwitchingFeedTab,
       scheduleSettledPageCommit,
       setActiveByIndex,
     ],
@@ -1726,8 +1745,7 @@ export function ReelsViewer({
     }
 
     setIsManualRefreshing(true)
-    await endCurrentReelSession('manual_refresh')
-    await flushReelEvents()
+    void endCurrentReelSession('manual_refresh')
 
     try {
       setContextExtraItems([])
@@ -1736,6 +1754,11 @@ export function ReelsViewer({
       currentPageIndexRef.current = 0
 
       feedTabStatesRef.current[selectedFeedTab] = { ...INITIAL_FEED_TAB_STATE }
+      const cachedFirstReel = reelsRef.current[0] ?? null
+      activeReelIdRef.current = cachedFirstReel?.id ?? null
+      setActiveReelId(cachedFirstReel?.id ?? null)
+      scrollToReelIndex(0)
+
       const refreshedData =
         selectedFeedTab === 'friends'
           ? (await refetchFriends()).data
@@ -1765,7 +1788,6 @@ export function ReelsViewer({
   }, [
     deletedReelIds,
     endCurrentReelSession,
-    flushReelEvents,
     isManualRefreshing,
     isRefetchingPublicFeed,
     refreshWithNewSession,
@@ -2031,7 +2053,7 @@ export function ReelsViewer({
       }
 
       const isCurrentItem = effectiveActiveReelId === item.id
-      const isActiveItem = isFocused && isCurrentItem && !isManualRefreshing && !isSwitchingFeedTab
+      const isActiveItem = isFocused && isCurrentItem && !isManualRefreshing
       const shouldWarmVideo =
         isCurrentItem ||
         (isFocused && activeIndex >= 0 && Math.abs(index - activeIndex) <= PRELOAD_RADIUS)
@@ -2131,7 +2153,6 @@ export function ReelsViewer({
       isFocused,
       isManualRefreshing,
       isMuted,
-      isSwitchingFeedTab,
       insets.top,
       clearDisplay,
       liveTranscriptionEnabled,
@@ -2453,28 +2474,45 @@ export function ReelsViewer({
           </View>
         ) : null}
 
+        {reels.length > 0 && isFetchingPublicNextPage && !clearDisplay && !isOfflineAlertVisible ? (
+          <View
+            pointerEvents="none"
+            className="absolute inset-x-0 z-20 items-center"
+            style={{ top: insets.top + 64, elevation: 20 }}
+          >
+            <ActivityIndicator color="#FF7A45" size="small" />
+          </View>
+        ) : null}
+
         {!clearDisplay ? (
           <ReelOfflineAlert topOffset={insets.top + 18} visible={isOfflineAlertVisible} />
         ) : null}
 
         <View
           pointerEvents={clearDisplay ? 'none' : 'box-none'}
-          className="absolute inset-x-0 top-0 z-30 px-5"
-          style={{ paddingTop: insets.top, elevation: 30, opacity: clearDisplay ? 0 : 1 }}
+          className="absolute inset-x-0 top-0 z-30"
+          style={{
+            paddingHorizontal: headerHorizontalPadding,
+            paddingTop: insets.top,
+            elevation: 30,
+            opacity: clearDisplay ? 0 : 1,
+          }}
         >
           {mode === 'context' ? (
-            <View className="flex-row items-center justify-between">
-              <TouchableOpacity
-                accessibilityLabel="Go back"
-                accessibilityRole="button"
-                className="h-11 w-11 items-center justify-center rounded-full"
-                activeOpacity={0.72}
-                onPress={handleExitContext}
-              >
-                <MaterialIcons name="arrow-back" size={26} color="#FFFFFF" />
-              </TouchableOpacity>
-              {headerTitle ? (
-                <View className="flex-1 items-center px-2">
+            <View className="flex-row items-center">
+              <View style={headerSlotStyle}>
+                <TouchableOpacity
+                  accessibilityLabel="Go back"
+                  accessibilityRole="button"
+                  className="h-11 w-11 items-center justify-center rounded-full"
+                  activeOpacity={0.72}
+                  onPress={handleExitContext}
+                >
+                  <MaterialIcons name="arrow-back" size={26} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+              <View className="min-w-0 flex-1 items-center px-2">
+                {headerTitle ? (
                   <Text
                     className="font-heading text-[17px] font-bold text-white"
                     style={{
@@ -2486,19 +2524,21 @@ export function ReelsViewer({
                   >
                     {headerTitle}
                   </Text>
-                </View>
-              ) : (
-                <View className="flex-1" />
-              )}
-              {headerRight ? headerRight : <View className="h-11 w-11" />}
+                ) : null}
+              </View>
+              <View style={headerSlotStyle}>{headerRight ?? null}</View>
             </View>
           ) : (
-            <View className="h-12 flex-row items-center justify-end">
+            <View className="h-12 flex-row items-center">
               {!isOfflineAlertVisible ? (
                 <>
-                  <View className="absolute inset-x-0 items-center" pointerEvents="box-none">
+                  <View style={headerSlotStyle} />
+                  <View className="min-w-0 flex-1 items-center" pointerEvents="box-none">
                     {shouldShowFriendsTab ? (
-                      <View className="flex-row items-center gap-7">
+                      <View
+                        className="flex-row items-center"
+                        style={{ gap: isCompactHeader ? 8 : 28 }}
+                      >
                         {(['for-you', 'friends'] as const).map((tab) => {
                           const isSelected = selectedFeedTab === tab
 
@@ -2508,7 +2548,8 @@ export function ReelsViewer({
                               accessibilityLabel={`${tab === 'for-you' ? 'For You' : 'Friends'} reel feed`}
                               accessibilityRole="tab"
                               accessibilityState={{ selected: isSelected }}
-                              className="h-11 min-w-[62px] items-center justify-center px-1"
+                              className="h-11 items-center justify-center px-1"
+                              style={{ minWidth: isCompactHeader ? 56 : 62 }}
                               activeOpacity={0.78}
                               disabled={isManualRefreshing || isSwitchingFeedTab}
                               onPress={() => {
@@ -2544,7 +2585,10 @@ export function ReelsViewer({
                         })}
                       </View>
                     ) : (
-                      <View className="h-11 min-w-[62px] items-center justify-center px-1">
+                      <View
+                        className="h-11 items-center justify-center px-1"
+                        style={{ minWidth: isCompactHeader ? 56 : 62 }}
+                      >
                         <Text
                           className="font-bold text-md text-white"
                           style={{
@@ -2564,14 +2608,14 @@ export function ReelsViewer({
                     accessibilityRole="button"
                     className="h-11 w-11 items-center justify-center"
                     activeOpacity={0.72}
-                    onPress={() => {
-                      router.push('/reels/create')
-                    }}
+                    onPress={() => router.push('/reels/create')}
                   >
                     <Ionicons name="add" size={28} color="#FFFFFF" />
                   </TouchableOpacity>
                 </>
-              ) : null}
+              ) : (
+                <View className="h-12 flex-1" />
+              )}
             </View>
           )}
         </View>

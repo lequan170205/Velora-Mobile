@@ -15,6 +15,7 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
+  useWindowDimensions,
 } from 'react-native'
 import { useKeyboardState } from 'react-native-keyboard-controller'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -30,6 +31,8 @@ import { useAuthStore } from '../../src/stores/authStore'
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets()
+  const { fontScale, height: windowHeight } = useWindowDimensions()
+  const isCompactLayout = windowHeight - insets.top - insets.bottom < 820 || fontScale > 1.1
   const params = useLocalSearchParams<{ email?: string }>()
   const emailInputRef = useRef<TextInput>(null)
   const passwordInputRef = useRef<TextInput>(null)
@@ -122,13 +125,15 @@ export default function LoginScreen() {
       <ShortFormScreen
         // Focus enables the native channel before the keyboard starts moving;
         // keyboard visibility keeps it enabled until the closing animation ends.
-        scrollEnabled={isKeyboardInteractionActive}
+        scrollEnabled={isKeyboardInteractionActive ? true : undefined}
         mode="insets"
         contentContainerStyle={{
           flexGrow: 1,
-          paddingBottom: Math.max(insets.bottom + 48, 76),
+          paddingBottom: isCompactLayout
+            ? Math.max(insets.bottom + 12, 32)
+            : Math.max(insets.bottom + 48, 76),
           paddingHorizontal: 24,
-          paddingTop: insets.top + 10,
+          paddingTop: insets.top + (isCompactLayout ? 4 : 10),
         }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -136,10 +141,17 @@ export default function LoginScreen() {
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View className="flex-1">
-            <AuthBrandHeader />
+            <AuthBrandHeader compact={isCompactLayout} />
 
             <View className="mt-2">
-              <Text className="font-heading text-[42px] leading-[44px] tracking-[-1.2px] text-text-primary">
+              <Text
+                className={cn(
+                  'w-full font-heading text-text-primary',
+                  isCompactLayout
+                    ? 'text-[36px] leading-[38px] tracking-[-1px]'
+                    : 'text-[42px] leading-[44px] tracking-[-1.2px]',
+                )}
+              >
                 Back to the <Text className="text-brand">group?</Text>
               </Text>
               <Text className="mt-2 text-base font-sans leading-6 text-text-secondary">
@@ -147,12 +159,13 @@ export default function LoginScreen() {
               </Text>
             </View>
 
-            <View className="mt-6 flex-1">
-              <View className="mb-4">
+            <View className={cn('flex-1', isCompactLayout ? 'mt-4' : 'mt-6')}>
+              <View className={isCompactLayout ? 'mb-2' : 'mb-4'}>
                 <Text className="mb-2 text-sm2 font-semibold text-text-primary">Email address</Text>
                 <View
                   className={cn(
-                    'h-14 flex-row items-center rounded-[20px] px-4',
+                    'flex-row items-center rounded-[20px] px-4',
+                    isCompactLayout ? 'h-12' : 'h-14',
                     isEmailFocused ? 'bg-surface-cream-focus' : 'bg-surface-cream',
                   )}
                 >
@@ -184,7 +197,8 @@ export default function LoginScreen() {
                 <Text className="mb-2 text-sm2 font-semibold text-text-primary">Password</Text>
                 <View
                   className={cn(
-                    'h-14 flex-row items-center rounded-[20px] px-4',
+                    'flex-row items-center rounded-[20px] px-4',
+                    isCompactLayout ? 'h-12' : 'h-14',
                     isPasswordFocused ? 'bg-surface-cream-focus' : 'bg-surface-cream',
                   )}
                 >
@@ -248,7 +262,10 @@ export default function LoginScreen() {
               </View>
 
               <TouchableOpacity
-                className="mt-5 h-14 flex-row items-center justify-center rounded-[20px] bg-brand"
+                className={cn(
+                  'flex-row items-center justify-center rounded-[20px] bg-brand',
+                  isCompactLayout ? 'mt-3 h-12' : 'mt-5 h-14',
+                )}
                 onPress={handleLogin}
                 disabled={isLoading}
                 activeOpacity={0.85}
@@ -260,7 +277,7 @@ export default function LoginScreen() {
                 )}
               </TouchableOpacity>
 
-              <View className="my-5 flex-row items-center">
+              <View className={cn('flex-row items-center', isCompactLayout ? 'my-3' : 'my-5')}>
                 <View className="h-px flex-1 bg-border-default" />
                 <Text className="px-4 text-xs2 font-semibold uppercase tracking-[1px] text-text-muted">
                   OR
@@ -269,23 +286,37 @@ export default function LoginScreen() {
               </View>
 
               <TouchableOpacity
-                className="h-14 flex-row items-center justify-center rounded-[20px] bg-surface-cream"
+                className={cn(
+                  'flex-row items-center justify-center rounded-[20px] bg-surface-cream px-4',
+                  isCompactLayout ? 'min-h-12 py-2.5' : 'min-h-14 py-3',
+                )}
                 onPress={handleGoogleLogin}
                 disabled={isLoading}
                 activeOpacity={0.8}
               >
                 <GoogleIcon size={23} />
-                <Text className="ml-3 text-md font-semibold text-text-primary">
+                <Text
+                  className="ml-3 text-center text-md font-semibold text-text-primary"
+                  style={{ flexShrink: 1 }}
+                >
                   Continue with Google
                 </Text>
               </TouchableOpacity>
 
-              <View className="mt-auto flex-row items-center justify-center pt-7">
-                <Text className="text-base2 font-sans text-text-secondary">
-                  Don&apos;t have an account?{' '}
+              <View
+                className={cn(
+                  'mt-auto flex-row flex-wrap items-center justify-center',
+                  isCompactLayout ? 'pt-4' : 'pt-7',
+                )}
+              >
+                <Text
+                  className="text-center text-base2 font-sans text-text-secondary"
+                  style={{ flexShrink: 1 }}
+                >
+                  Don&apos;t have an account?
                 </Text>
                 <Link href="/(auth)/register" asChild>
-                  <TouchableOpacity className="py-2" activeOpacity={0.7}>
+                  <TouchableOpacity className="ml-1 py-2" activeOpacity={0.7}>
                     <Text className="text-base2 font-semibold text-brand">Sign up</Text>
                   </TouchableOpacity>
                 </Link>

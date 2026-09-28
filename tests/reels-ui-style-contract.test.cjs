@@ -8,6 +8,8 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'u
 
 const reelsViewer = read('src/components/reels/ReelsViewer.tsx')
 const reelFeedItem = read('src/components/reels/ReelFeedItem.tsx')
+const reelCreatorSharedUi = read('src/components/reels/create/shared-ui.tsx')
+const captureStage = read('src/components/reels/create/capture-stage.tsx')
 const reelActionsMenu = read('src/components/reels/ReelActionsMenu.tsx')
 const reelPlaybackOptionsSheet = read('src/components/reels/ReelPlaybackOptionsSheet.tsx')
 const reelPlaybackPreferences = read('src/lib/reelPlaybackPreferences.ts')
@@ -27,27 +29,34 @@ test('reels viewer keeps immersive pager, refresh, offline, and recommendation b
   assert.match(reelsViewer, /refreshWithNewSession\(\)/)
 })
 
-test('reels viewer uses lightweight text feed tabs and an understated create action', () => {
-  assert.match(reelsViewer, /flex-row items-center gap-7/)
-  assert.match(reelsViewer, /h-11 min-w-\[62px\] items-center justify-center px-1/)
+test('reels viewer keeps the original text tabs and capture controls', () => {
+  assert.match(reelsViewer, /headerHorizontalPadding/)
+  assert.match(reelsViewer, /headerSlotStyle/)
+  assert.match(reelsViewer, /isCompactHeader \? 8 : 28/)
+  assert.match(reelsViewer, /minWidth: isCompactHeader \? 56 : 62/)
   assert.match(reelsViewer, /accessibilityRole="tab"/)
   assert.match(reelsViewer, /accessibilityState=\{\{ selected: isSelected \}\}/)
-  assert.match(
-    reelsViewer,
-    /isSelected\s+\? 'font-bold text-white'\s+: 'font-semibold text-white\/85'/,
-  )
-  assert.match(reelsViewer, /textShadowColor: 'rgba\(0, 0, 0, 0\.82\)'/)
+  assert.match(reelsViewer, /disabled=\{isManualRefreshing \|\| isSwitchingFeedTab\}/)
+  assert.match(reelsViewer, /isSelected\s+\? 'font-bold text-white'\s+: 'font-semibold text-white\/85'/)
   assert.match(reelsViewer, /isSelected \? 'w-6 bg-brand' : 'w-0 bg-transparent'/)
-  assert.match(reelsViewer, /accessibilityLabel="Create reel"/)
-  assert.match(reelsViewer, /className="h-11 w-11 items-center justify-center"/)
   assert.match(reelsViewer, /<Ionicons name="add" size=\{28\} color="#FFFFFF"/)
-  assert.doesNotMatch(
-    reelsViewer,
-    /accessibilityLabel="Create reel"[\s\S]{0,220}rounded-full border/,
+  assert.match(reelsViewer, /accessibilityLabel="Create reel"/)
+  assert.match(reelsViewer, /enabled: shouldLoadPublicFeed && shouldShowFriendsTab/)
+  assert.match(reelCreatorSharedUi, /active \? 'bg-white' : 'bg-white\/10'/)
+  assert.match(reelCreatorSharedUi, /color: active \? '#111111' : 'rgba\(255,255,255,0\.86\)'/)
+  assert.match(reelCreatorSharedUi, /'bg-white\/10'/)
+  assert.match(
+    reelCreatorSharedUi,
+    /h-12 min-w-12 items-center justify-center rounded-full border px-3\.5/,
   )
+  assert.match(reelCreatorSharedUi, /accessibilityRole=\{accessibilityRole\}/)
+  assert.match(reelCreatorSharedUi, /accessibilityState=\{accessibilityState\}/)
+  assert.match(reelCreatorSharedUi, /hitSlop=\{3\}/)
+  assert.match(captureStage, /h-\[104px\] w-\[104px\] items-center justify-center rounded-full/)
+  assert.doesNotMatch(captureStage, /h-\[104px\] w-\[104px\][^\n]*border/)
 })
 
-test('reel video viewport ends above the docked rail and feed tabs sit closer to the safe area', () => {
+test('reel video viewport ends above the docked rail and headers respect the safe area', () => {
   assert.match(
     reelsViewer,
     /const videoViewportHeight = Math\.max\(0, viewportHeight - Math\.max\(0, bottomContentInset\)\)/,
@@ -56,6 +65,8 @@ test('reel video viewport ends above the docked rail and feed tabs sit closer to
   assert.match(reelsViewer, /height=\{videoViewportHeight\}/)
   assert.match(reelsViewer, /bottomContentInset=\{0\}/)
   assert.match(reelsViewer, /paddingTop: insets\.top,/)
+  assert.doesNotMatch(reelsViewer, /height: insets\.top \+ 144/)
+  assert.doesNotMatch(reelsViewer, /max-w-full rounded-full bg-white\/18 px-4 py-2/)
 })
 
 test('reels viewer states follow the dark glass icon, heading, copy, and CTA hierarchy', () => {
@@ -72,6 +83,13 @@ test('reel feed item keeps playback and scrub contracts while making metadata re
   assert.match(reelFeedItem, /scheduleOnRN\(beginScrub/)
   assert.match(reelFeedItem, /scheduleOnRN\(updateScrub/)
   assert.match(reelFeedItem, /scheduleOnRN\(finishScrub/)
+  assert.match(reelFeedItem, /SCRUBBER_TOUCH_ZONE_HEIGHT = 48/)
+  assert.match(reelFeedItem, /SCRUBBER_EDGE_GUTTER = 24/)
+  assert.match(reelFeedItem, /className="absolute inset-x-0 z-20"/)
+  assert.match(reelFeedItem, /mapScrubTouchX\(event\.x, scrubberWidth\)/)
+  assert.match(reelFeedItem, /activeOffsetX\(\[-8, 8\]\)/)
+  assert.match(reelFeedItem, /failOffsetY\(\[-16, 16\]\)/)
+  assert.doesNotMatch(reelFeedItem, /activateAfterLongPress\(120\)/)
   assert.match(reelFeedItem, /<ReelShareSheet/)
   assert.match(reelFeedItem, /<DeleteReelModal/)
   assert.match(reelFeedItem, /flex-row items-start/)
@@ -130,8 +148,10 @@ test('active reels fetch timed transcript detail and render synchronized caption
   assert.doesNotMatch(reelFeedItem, /styles\.transcriptOverlay[\s\S]{0,120}text-center/)
   assert.match(reelFeedItem, /getActiveTranscriptText\(\s*reelDetail\?\.transcriptSegments/)
   assert.match(reelFeedItem, /liveTranscriptionEnabled \? 0\.2 : 0\.5/)
-  assert.match(reelFeedItem, /numberOfLines=\{1\}/)
-  assert.match(reelFeedItem, /ellipsizeMode="tail"/)
+  assert.doesNotMatch(
+    reelFeedItem.match(/styles\.transcriptOverlay[\s\S]*?\{activeTranscriptText\}/)?.[0] ?? '',
+    /numberOfLines|ellipsizeMode/,
+  )
   assert.doesNotMatch(reelFeedItem, /segment\.start - 0\.08/)
   assert.doesNotMatch(reelFeedItem, /segment\.end \+ 0\.12/)
   assert.match(

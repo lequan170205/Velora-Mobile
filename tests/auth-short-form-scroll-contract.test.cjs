@@ -16,13 +16,13 @@ test('login remains visually fixed while preserving keyboard focus recovery', ()
   )
   assert.match(
     source,
-    /<ShortFormScreen[\s\S]*?scrollEnabled=\{isKeyboardInteractionActive\}[\s\S]*?mode="insets"/,
+    /<ShortFormScreen[\s\S]*?scrollEnabled=\{isKeyboardInteractionActive \? true : undefined\}[\s\S]*?mode="insets"/,
   )
   assert.match(source, /className="mt-3 h-11 flex-row items-center"/)
   assert.match(source, /accessibilityRole="alert"/)
   assert.match(source, /accessibilityLiveRegion="polite"/)
   assert.doesNotMatch(source, /error \? \([\s\S]{0,120}mt-4 rounded-\[16px\]/)
-  assert.match(source, /<AuthBrandHeader \/>/)
+  assert.match(source, /<AuthBrandHeader compact=\{isCompactLayout\} \/>/)
   assert.match(source, /Continue with Google/)
   assert.match(source, /Don&apos;t have an account\?/)
 })

@@ -45,6 +45,17 @@ test('recommended reel pagination keeps the backend cursor opaque and reuses its
   assert.doesNotMatch(reelsApi, /params\.cursor\.(split|substring|slice|replace)\(/)
 })
 
+test('For You recommendations prefetch with one page remaining without changing other feed thresholds', () => {
+  assert.match(
+    reelsViewer,
+    /const prefetchLead =\s*shouldLoadPublicFeed && selectedFeedTab === 'for-you' \? DEFAULT_REELS_LIMIT : 3/,
+  )
+  assert.match(
+    reelsViewer,
+    /const shouldPrefetch = index >= Math\.max\(0, reels\.length - prefetchLead\)/,
+  )
+})
+
 test('recommended feed starts fresh on first page, refresh, and account transition', () => {
   const hookStart = reelsHook.indexOf('export function useRecommendedReelsFeed')
   const recommendedFeedHook = reelsHook.slice(hookStart)
