@@ -1,18 +1,23 @@
 import { MaterialIcons } from '@expo/vector-icons'
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetScrollView,
+  type BottomSheetBackdropProps,
+} from '@gorhom/bottom-sheet'
 import * as Clipboard from 'expo-clipboard'
 import { Image } from 'expo-image'
-import React, { useMemo } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef } from 'react'
 import {
   ActivityIndicator,
   Alert,
-  Modal,
   Platform,
-  Pressable,
   Share,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -104,6 +109,9 @@ const conversationIncludesBot = (conversation: Conversation) =>
 
 export function ReelShareSheet({ visible, reel, onClose }: ReelShareSheetProps) {
   const insets = useSafeAreaInsets()
+  const { height: windowHeight } = useWindowDimensions()
+  const sheetRef = useRef<BottomSheetModal | null>(null)
+  const wasPresentedRef = useRef(false)
   const currentUserId = useAuthStore((state) => state.user?.id)
   const isBotConversation = useChatStore((state) => state.isBotConversation)
   const { data: conversations = [], isPending: isLoadingConversations } = useConversations()
@@ -136,6 +144,33 @@ export function ReelShareSheet({ visible, reel, onClose }: ReelShareSheetProps) 
   }, [conversations, currentUserId, isBotConversation])
 
   const shareTitle = reel.title?.trim() || 'Velora reel'
+
+  useEffect(() => {
+    if (visible) {
+      wasPresentedRef.current = true
+      sheetRef.current?.present()
+    } else if (wasPresentedRef.current) {
+      sheetRef.current?.dismiss()
+    }
+  }, [visible])
+
+  const renderBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop
+        {...props}
+        appearsOnIndex={0}
+        disappearsOnIndex={-1}
+        opacity={0.46}
+        pressBehavior="close"
+      />
+    ),
+    [],
+  )
+
+  const handleDismiss = useCallback(() => {
+    wasPresentedRef.current = false
+    onClose()
+  }, [onClose])
 
   const createPublicUrl = async () => {
     const link = await createShareLink.mutateAsync({ id: reel.id })
@@ -211,148 +246,157 @@ export function ReelShareSheet({ visible, reel, onClose }: ReelShareSheetProps) 
   }
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      statusBarTranslucent
-      onRequestClose={onClose}
+    <BottomSheetModal
+      ref={sheetRef}
+      enableDynamicSizing
+      maxDynamicContentSize={Math.min(windowHeight * 0.82, 720)}
+      enablePanDownToClose
+      backdropComponent={renderBackdrop}
+      backgroundStyle={styles.sheetBackground}
+      handleIndicatorStyle={styles.handleIndicator}
+      onDismiss={handleDismiss}
     >
-      <View style={StyleSheet.absoluteFillObject} className="justify-end">
-        <Pressable
-          onPress={onClose}
-          style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(8, 8, 10, 0.46)' }]}
-        />
-
-        <View
-          className="rounded-t-[32px] bg-white px-5 pt-3"
-          style={{
-            paddingBottom: Math.max(insets.bottom, 18),
-            shadowColor: 'rgba(22, 22, 22, 0.2)',
-            shadowOffset: { width: 0, height: -8 },
-            shadowOpacity: 1,
-            shadowRadius: 24,
-            elevation: 18,
-          }}
-        >
-          <View className="items-center pb-2">
-            <View className="h-1.5 w-14 rounded-full bg-[#D9D9D9]" />
+      <BottomSheetScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingBottom: Math.max(insets.bottom, 18),
+          paddingHorizontal: 20,
+        }}
+      >
+        <View className="mt-1 flex-row items-start justify-between">
+          <View className="flex-1 pr-4">
+            <Text className="font-heading text-xl text-text-primary">Share reel</Text>
+            <Text className="mt-1 text-base2 text-text-secondary" numberOfLines={1}>
+              {shareTitle}
+            </Text>
           </View>
 
-          <View className="mt-3 flex-row items-start justify-between">
-            <View className="flex-1 pr-4">
-              <Text className="font-heading text-xl text-text-primary">Share reel</Text>
-              <Text className="mt-1 text-base2 text-text-secondary" numberOfLines={1}>
-                {shareTitle}
+          <TouchableOpacity
+            accessibilityLabel="Close share reel"
+            accessibilityRole="button"
+            className="h-11 w-11 items-center justify-center rounded-full bg-surface-muted"
+            activeOpacity={0.84}
+            onPress={() => sheetRef.current?.dismiss()}
+          >
+            <MaterialIcons name="close" size={20} color="#161616" />
+          </TouchableOpacity>
+        </View>
+
+        <View className="mt-5 flex-row gap-3">
+          <TouchableOpacity
+            className="h-[76px] flex-1 items-center justify-center rounded-[24px] bg-surface-muted"
+            activeOpacity={0.84}
+            disabled={!canShare || createShareLink.isPending}
+            onPress={handleNativeShare}
+          >
+            {createShareLink.isPending ? (
+              <ActivityIndicator color="#FF6B2C" size="small" />
+            ) : (
+              <MaterialIcons name="ios-share" size={22} color="#161616" />
+            )}
+            <Text className="mt-2 text-sm2 font-medium text-text-primary">Share link</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            className="h-[76px] flex-1 items-center justify-center rounded-[24px] bg-surface-muted"
+            activeOpacity={0.84}
+            disabled={!canShare || createShareLink.isPending}
+            onPress={handleCopyLink}
+          >
+            <MaterialIcons name="content-copy" size={22} color="#161616" />
+            <Text className="mt-2 text-sm2 font-medium text-text-primary">Copy link</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View className="mt-6">
+          <Text className="mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">
+            Conversations
+          </Text>
+
+          {!canShare ? (
+            <View className="rounded-[24px] bg-surface-muted px-4 py-4">
+              <Text className="text-sm2 text-text-secondary">
+                This reel can be shared after processing finishes.
               </Text>
             </View>
+          ) : isLoadingConversations ? (
+            <View className="items-center rounded-[24px] bg-surface-muted px-4 py-5">
+              <ActivityIndicator color="#FF6B2C" size="small" />
+            </View>
+          ) : targets.length === 0 ? (
+            <View className="rounded-[24px] bg-surface-muted px-4 py-4">
+              <Text className="text-sm2 text-text-secondary">
+                Start a direct chat to share reels in messages.
+              </Text>
+            </View>
+          ) : (
+            <View className="gap-2">
+              {targets.map((target) => {
+                const initials = getInitials(target.label)
+                const isSharingToTarget =
+                  shareReel.isPending &&
+                  shareReel.variables?.data.conversationId === target.conversation.id
 
-            <TouchableOpacity
-              className="h-11 w-11 items-center justify-center rounded-full bg-surface-muted"
-              activeOpacity={0.84}
-              onPress={onClose}
-            >
-              <MaterialIcons name="close" size={20} color="#161616" />
-            </TouchableOpacity>
-          </View>
-
-          <View className="mt-5 flex-row gap-3">
-            <TouchableOpacity
-              className="h-[76px] flex-1 items-center justify-center rounded-[24px] bg-surface-muted"
-              activeOpacity={0.84}
-              disabled={!canShare || createShareLink.isPending}
-              onPress={handleNativeShare}
-            >
-              {createShareLink.isPending ? (
-                <ActivityIndicator color="#FF6B2C" size="small" />
-              ) : (
-                <MaterialIcons name="ios-share" size={22} color="#161616" />
-              )}
-              <Text className="mt-2 text-sm2 font-medium text-text-primary">Share link</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              className="h-[76px] flex-1 items-center justify-center rounded-[24px] bg-surface-muted"
-              activeOpacity={0.84}
-              disabled={!canShare || createShareLink.isPending}
-              onPress={handleCopyLink}
-            >
-              <MaterialIcons name="content-copy" size={22} color="#161616" />
-              <Text className="mt-2 text-sm2 font-medium text-text-primary">Copy link</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View className="mt-6">
-            <Text className="mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">
-              Conversations
-            </Text>
-
-            {!canShare ? (
-              <View className="rounded-[24px] bg-surface-muted px-4 py-4">
-                <Text className="text-sm2 text-text-secondary">
-                  This reel can be shared after processing finishes.
-                </Text>
-              </View>
-            ) : isLoadingConversations ? (
-              <View className="items-center rounded-[24px] bg-surface-muted px-4 py-5">
-                <ActivityIndicator color="#FF6B2C" size="small" />
-              </View>
-            ) : targets.length === 0 ? (
-              <View className="rounded-[24px] bg-surface-muted px-4 py-4">
-                <Text className="text-sm2 text-text-secondary">
-                  Start a direct chat to share reels in messages.
-                </Text>
-              </View>
-            ) : (
-              <View className="max-h-[280px] gap-2">
-                {targets.map((target) => {
-                  const initials = getInitials(target.label)
-                  const isSharingToTarget =
-                    shareReel.isPending &&
-                    shareReel.variables?.data.conversationId === target.conversation.id
-
-                  return (
-                    <TouchableOpacity
-                      key={target.id}
-                      className="flex-row items-center rounded-[24px] bg-surface-muted px-4 py-3"
-                      activeOpacity={0.84}
-                      disabled={shareReel.isPending}
-                      onPress={() => handleShareToConversation(target)}
-                    >
-                      {target.avatarUrl ? (
-                        <Image
-                          source={{ uri: target.avatarUrl }}
-                          contentFit="cover"
-                          style={{ width: 44, height: 44, borderRadius: 22 }}
-                        />
-                      ) : (
-                        <View className="h-11 w-11 items-center justify-center rounded-full bg-white">
-                          <Text className="font-heading text-sm text-text-primary">{initials}</Text>
-                        </View>
-                      )}
-
-                      <View className="ml-3 flex-1">
-                        <Text className="font-medium text-md text-text-primary" numberOfLines={1}>
-                          {target.label}
-                        </Text>
-                        <Text className="mt-0.5 text-sm2 text-text-secondary" numberOfLines={1}>
-                          Send as a reel message
-                        </Text>
+                return (
+                  <TouchableOpacity
+                    key={target.id}
+                    className="flex-row items-center rounded-[24px] bg-surface-muted px-4 py-3"
+                    activeOpacity={0.84}
+                    disabled={shareReel.isPending}
+                    onPress={() => handleShareToConversation(target)}
+                  >
+                    {target.avatarUrl ? (
+                      <Image
+                        source={{ uri: target.avatarUrl }}
+                        contentFit="cover"
+                        style={{ width: 44, height: 44, borderRadius: 22 }}
+                      />
+                    ) : (
+                      <View className="h-11 w-11 items-center justify-center rounded-full bg-white">
+                        <Text className="font-heading text-sm text-text-primary">{initials}</Text>
                       </View>
+                    )}
 
-                      {isSharingToTarget ? (
-                        <ActivityIndicator color="#FF6B2C" size="small" />
-                      ) : (
-                        <MaterialIcons name="send" size={20} color="#FF6B2C" />
-                      )}
-                    </TouchableOpacity>
-                  )
-                })}
-              </View>
-            )}
-          </View>
+                    <View className="ml-3 flex-1">
+                      <Text className="font-medium text-md text-text-primary" numberOfLines={1}>
+                        {target.label}
+                      </Text>
+                      <Text className="mt-0.5 text-sm2 text-text-secondary" numberOfLines={1}>
+                        Send as a reel message
+                      </Text>
+                    </View>
+
+                    {isSharingToTarget ? (
+                      <ActivityIndicator color="#FF6B2C" size="small" />
+                    ) : (
+                      <MaterialIcons name="send" size={20} color="#FF6B2C" />
+                    )}
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+          )}
         </View>
-      </View>
-    </Modal>
+      </BottomSheetScrollView>
+    </BottomSheetModal>
   )
 }
+
+const styles = StyleSheet.create({
+  handleIndicator: {
+    backgroundColor: '#D9D9D9',
+    borderRadius: 9999,
+    height: 6,
+    width: 56,
+  },
+  sheetBackground: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    elevation: 18,
+    shadowColor: 'rgba(22, 22, 22, 0.2)',
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 1,
+    shadowRadius: 24,
+  },
+})
