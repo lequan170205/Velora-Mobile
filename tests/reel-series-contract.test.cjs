@@ -274,7 +274,11 @@ test('series playback loads an episode window anchored on the requested reel', (
   assert.match(seriesScreen, /hasNextContextPage=\{hasNextPage\}/)
   assert.match(seriesScreen, /requestPreviousEpisodes\(\)/)
   assert.match(reelsViewer, /index <= 4 && hasPreviousContextPage/)
-  assert.match(reelsViewer, /maybeFetchNextPage\(\s*Math\.round\(pagerWindowStartRef\.current/)
+  assert.match(
+    reelsViewer,
+    /const nextIndex = scrollPosition\s*\? Math\.round\(scrollPosition\.position \+ scrollPosition\.offset\)\s*: selectedPageIndexRef\.current/,
+  )
+  assert.match(reelsViewer, /maybeFetchNextPage\(nextIndex\)/)
   assert.match(seriesScreen, /\/series\/\[id\]\/manage/)
 })
 
@@ -426,7 +430,8 @@ test('owner management supports metadata, audience, reorder, remove, and safe Se
 })
 
 test('profile and owned-Series screen expose owner Series discovery and creation', () => {
-  assert.match(profileScreen, /useOwnedReelSeries\(\{ limit: 6 \}/)
+  assert.match(profileScreen, /useOwnedReelSeries\(\s*\{ limit: 6 \}/)
+  assert.match(profileScreen, /enabled: Boolean\(user\?\.id\) && activeContentTab === 'series'/)
   assert.match(profileScreen, /SeriesHighlight/)
   assert.match(profileScreen, /createSeriesSheetRef\.current\?\.present\(\)/)
   assert.match(profileScreen, /type ProfileContentTab = 'public' \| 'series' \| 'private'/)
