@@ -155,6 +155,8 @@ export const getCallEndedMessage = (
   }
 
   if (payload.reason === 'cancelled') return null
+  if (payload.reason === 'membership_removed')
+    return 'The call ended because group membership changed'
   if (payload.reason === 'disconnected') return 'The call was interrupted'
   if (payload.reason === 'remote_audio_not_ready') {
     return 'The other person could not activate call audio'
@@ -166,6 +168,7 @@ export const getCallEndedMessage = (
 }
 
 export const getCallRejectedMessage = (payload: CallRejectedPayload) => {
+  if (payload.reason === 'membership_removed') return 'You are no longer a member of this group'
   if (payload.reason === 'busy') return 'The other person is on another call'
   if (payload.reason === 'mic_permission_denied') {
     return 'The other person needs microphone access to answer'

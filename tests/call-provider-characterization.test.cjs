@@ -108,6 +108,27 @@ const callPoliciesModule = loadTypeScriptModule(path.join(root, 'src/lib/call/ca
   './callSocket': callSocketModule,
 })
 
+test('membership revocation explains why the call closed without changing normal end messaging', () => {
+  assert.equal(
+    callPoliciesModule.getCallEndedMessage(
+      { callId: 'group-1', reason: 'membership_removed' },
+      { direction: 'incoming', phase: 'active' },
+    ),
+    'The call ended because group membership changed',
+  )
+  assert.equal(
+    callPoliciesModule.getCallRejectedMessage({ callId: 'group-1', reason: 'membership_removed' }),
+    'You are no longer a member of this group',
+  )
+  assert.equal(
+    callPoliciesModule.getCallEndedMessage(
+      { callId: 'direct-1', reason: 'ended' },
+      { direction: 'incoming', phase: 'active' },
+    ),
+    null,
+  )
+})
+
 test('emitAndWaitForEvent subscribes before emit and supports synchronous acknowledgements', async () => {
   const socket = new FakeSocket()
   const registry = new Set()
