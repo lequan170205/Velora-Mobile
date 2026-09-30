@@ -78,6 +78,12 @@ class FakeMediaStream {
 }
 
 const callVideoState = loadTypeScriptModule(path.join(root, 'src/lib/call/callVideoState.ts'))
+const callPolicies = loadTypeScriptModule(path.join(root, 'src/lib/call/callPolicies.ts'), {
+  axios: { isAxiosError: () => false },
+  '../../constants/queryKeys': { queryKeys: {} },
+  './callConstants': {},
+  './callSocket': {},
+})
 const callDebug = {
   shortCallId: (value) => value,
   safeCallErrorCode: () => 'test_error',
@@ -585,6 +591,10 @@ const createRecoveryRuntime = ({
   const state = {
     phase: 'active',
     callId: 'call-runtime-1',
+    conversationId: 'conversation',
+    groupIdentityRevision: 0,
+    peerName: 'Original',
+    peerAvatarUrl: 'old-avatar',
     callType: 'VIDEO',
     hasCameraPermission: true,
     durationSec: 12,
@@ -648,6 +658,7 @@ const createRecoveryRuntime = ({
       },
       './callDebug': callDebug,
       './callPolicies': {
+        getGroupCallIdentityPatch: callPolicies.getGroupCallIdentityPatch,
         isCallSetupCancelledError: (error) =>
           error instanceof Error && error.message === 'Call setup was cancelled',
         isConnectedTransportState: () => false,
@@ -788,6 +799,44 @@ const createRecoveryRuntime = ({
     armReconnectTimeoutCalls,
   }
 }
+
+test('group rejoin heals missed identity changes without rolling back a newer live event', async () => {
+  for (const newerLiveEvent of [false, true]) {
+    const deferred = createDeferred()
+    const harness = createRecoveryRuntime({
+      groupAnswerActionId: 'winner',
+      rejoinDeferred: deferred.promise,
+    })
+    const recovering = harness.runtime.recoverActiveCall()
+    await Promise.resolve()
+    if (newerLiveEvent)
+      Object.assign(harness.state, {
+        peerName: 'Newer live name',
+        peerAvatarUrl: 'newer-avatar',
+        groupIdentityRevision: 3,
+      })
+    deferred.resolve({
+      callId: 'call-runtime-1',
+      session: {
+        callId: 'call-runtime-1',
+        conversationId: 'conversation',
+        isGroupCall: true,
+        groupName: 'Renamed',
+        groupAvatarUrl: undefined,
+        groupIdentityRevision: 2,
+        callType: 'VOICE',
+        participantIds: ['user-local', 'guest'],
+      },
+      activeProducers: [],
+    })
+    await recovering
+    assert.equal(harness.teardownCount, 0)
+    assert.equal(harness.state.peerName, newerLiveEvent ? 'Newer live name' : 'Renamed')
+    assert.equal(harness.state.peerAvatarUrl, newerLiveEvent ? 'newer-avatar' : null)
+    assert.equal(harness.state.groupIdentityRevision, newerLiveEvent ? 3 : 2)
+    assert.equal(harness.state.durationSec, 12)
+  }
+})
 
 test('a stale recovery generation cannot mutate the newer call runtime', async () => {
   const rejoin = createDeferred()

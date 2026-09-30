@@ -108,6 +108,64 @@ const callPoliciesModule = loadTypeScriptModule(path.join(root, 'src/lib/call/ca
   './callSocket': callSocketModule,
 })
 
+test('live group identity clears removed avatars and rejects stale or unrelated snapshots', () => {
+  const state = {
+    callId: 'group-1',
+    conversationId: 'conversation',
+    isGroupCall: true,
+    phase: 'active',
+    groupIdentityRevision: 1,
+  }
+  const payload = {
+    callId: 'group-1',
+    conversationId: 'conversation',
+    groupName: 'Renamed',
+    groupAvatarUrl: null,
+    groupIdentityRevision: 2,
+  }
+  const patch = callPoliciesModule.getGroupCallIdentityPatch(state, payload)
+  assert.equal(callPoliciesModule.getGroupCallIdentityPatch(state, null), null)
+  assert.deepEqual(patch, { peerName: 'Renamed', peerAvatarUrl: null, groupIdentityRevision: 2 })
+  assert.equal(callPoliciesModule.getGroupCallIdentityPatch({ ...state, ...patch }, payload), null)
+  for (const change of [
+    { callId: 'other' },
+    { conversationId: 'other' },
+    { groupIdentityRevision: 0 },
+    { groupIdentityRevision: NaN },
+    { groupIdentityRevision: '2' },
+    { groupName: '' },
+    { groupAvatarUrl: undefined },
+  ]) {
+    assert.equal(
+      callPoliciesModule.getGroupCallIdentityPatch(state, { ...payload, ...change }),
+      null,
+    )
+  }
+  for (const change of [{ isGroupCall: false }, { phase: 'ending' }, { phase: 'idle' }]) {
+    assert.equal(
+      callPoliciesModule.getGroupCallIdentityPatch({ ...state, ...change }, payload),
+      null,
+    )
+  }
+  assert.equal(
+    callPoliciesModule.getGroupCallIdentityPatch(
+      { ...state, phase: 'reconnecting', groupIdentityRevision: 3 },
+      payload,
+    ),
+    null,
+  )
+  assert.ok(
+    providerSource.includes(
+      "socket.on('group_call_identity_changed', handleGroupCallIdentityChanged)",
+    ),
+  )
+  assert.ok(
+    providerSource.includes(
+      "socket.off('group_call_identity_changed', handleGroupCallIdentityChanged)",
+    ),
+  )
+})
+
 test('membership revocation explains why the call closed without changing normal end messaging', () => {
   assert.equal(
     callPoliciesModule.getCallEndedMessage(

@@ -24,6 +24,7 @@ on:
       - 'tests/*call*.test.cjs'
       - 'tests/*voice*.test.cjs'
       - 'tests/*push-token*.test.cjs'
+      - 'tests/native/ios-callkit-source-check.cjs'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - '.github/fixtures/GoogleService-Info.source-ci.plist'
@@ -52,6 +53,7 @@ on:
       - 'tests/*call*.test.cjs'
       - 'tests/*voice*.test.cjs'
       - 'tests/*push-token*.test.cjs'
+      - 'tests/native/ios-callkit-source-check.cjs'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - '.github/fixtures/GoogleService-Info.source-ci.plist'
@@ -104,6 +106,8 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Execute iOS CallKit fault and cold-start source checks (no simulator)
+        run: node --test tests/native/ios-callkit-source-check.cjs
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.3'

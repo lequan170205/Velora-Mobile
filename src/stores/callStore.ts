@@ -17,6 +17,7 @@ const initialState: CallUiState = {
   peerName: null,
   peerAvatarUrl: null,
   isGroupCall: false,
+  groupIdentityRevision: -1,
   groupParticipantIds: [],
   groupReconnectingUserIds: [],
   groupMicStates: {},

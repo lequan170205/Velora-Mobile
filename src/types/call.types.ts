@@ -34,6 +34,7 @@ export interface CallSessionPayload {
   invitedUserIds?: string[]
   groupName?: string
   groupAvatarUrl?: string
+  groupIdentityRevision?: number
   recipientUserId?: string
   initiatorDisplayName?: string
   initiatorAvatarUrl?: string
@@ -422,6 +423,14 @@ export interface SocketExceptionPayload {
   requestId?: string
 }
 
+export interface GroupCallIdentityChangedPayload {
+  callId: string
+  conversationId: string
+  groupName: string
+  groupAvatarUrl: string | null
+  groupIdentityRevision: number
+}
+
 export interface CallServerEvents {
   call_socket_ready: (payload: CallSocketReadyPayload) => void
   incoming_call: (payload: IncomingCallPayload) => void
@@ -445,6 +454,7 @@ export interface CallServerEvents {
   video_state_changed: (payload: VideoStateChangedPayload) => void
   video_state_updated: (payload: VideoStateUpdatedPayload) => void
   group_mic_state_changed: (payload: GroupMicStateChangedPayload) => void
+  group_call_identity_changed: (payload: GroupCallIdentityChangedPayload) => void
   group_mic_state_updated: (payload: GroupMicStateUpdatedPayload) => void
   call_answered: (payload: CallAnsweredPayload) => void
   call_rejected: (payload: CallRejectedPayload) => void
@@ -489,6 +499,7 @@ export interface CallUiState {
   peerName: string | null
   peerAvatarUrl: string | null
   isGroupCall: boolean
+  groupIdentityRevision: number
   groupParticipantIds: string[]
   groupReconnectingUserIds: string[]
   groupMicStates: Record<string, { producerId: string; enabled: boolean | null; revision: number }>

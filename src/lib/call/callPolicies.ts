@@ -15,6 +15,7 @@ import type {
   CallUiState,
   CameraFacing,
   IncomingCallPayload,
+  GroupCallIdentityChangedPayload,
 } from '../../types/call.types'
 import type { Conversation } from '../../types/conversation.types'
 import type {
@@ -106,6 +107,37 @@ export const shouldDefaultVideoToSpeaker = (
 }
 
 export const isBusyPhase = (phase: CallUiState['phase']) => phase !== 'idle'
+
+export const getGroupCallIdentityPatch = (
+  state: Pick<
+    CallUiState,
+    'callId' | 'conversationId' | 'isGroupCall' | 'phase' | 'groupIdentityRevision'
+  >,
+  payload: GroupCallIdentityChangedPayload,
+): Partial<CallUiState> | null => {
+  if (
+    !payload ||
+    typeof payload !== 'object' ||
+    !state.isGroupCall ||
+    state.phase === 'idle' ||
+    state.phase === 'ending' ||
+    state.callId !== payload.callId ||
+    state.conversationId !== payload.conversationId ||
+    !Number.isSafeInteger(payload.groupIdentityRevision) ||
+    payload.groupIdentityRevision < 0 ||
+    payload.groupIdentityRevision <= (state.groupIdentityRevision ?? -1) ||
+    typeof payload.groupName !== 'string' ||
+    !payload.groupName.trim() ||
+    !(payload.groupAvatarUrl === null || typeof payload.groupAvatarUrl === 'string')
+  )
+    return null
+
+  return {
+    peerName: payload.groupName,
+    peerAvatarUrl: payload.groupAvatarUrl,
+    groupIdentityRevision: payload.groupIdentityRevision,
+  }
+}
 
 export const isCallSetupCancelledError = (error: unknown) =>
   isCallWaitCancelledError(error) ||

@@ -30,6 +30,7 @@ import {
   getAcceptIncomingCallFailureCode,
   getCallEndedMessage,
   getCallRejectedMessage,
+  getGroupCallIdentityPatch,
   getPeerInfoFromConversation,
   getRemoteSetupFailureReason,
   isBusyPhase,
@@ -98,6 +99,7 @@ import type {
   CallType,
   CallTypeChangedPayload,
   GroupMicStateChangedPayload,
+  GroupCallIdentityChangedPayload,
   IncomingCallPayload,
   IncomingCallAcceptancePayload,
   LocalVideoSyncState,
@@ -1577,6 +1579,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           (payload.isGroupCall ? payload.groupAvatarUrl : payload.initiatorAvatarUrl) ??
           peerInfo.peerAvatarUrl,
         isGroupCall: payload.isGroupCall === true,
+        groupIdentityRevision: -1,
         groupParticipantIds: [],
         groupReconnectingUserIds: [],
         callType: payload.callType,
@@ -1627,6 +1630,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           (callState.isGroupCall ? callState.groupAvatarUrl : callState.initiatorAvatarUrl) ??
           peerInfo.peerAvatarUrl,
         isGroupCall: callState.isGroupCall === true,
+        groupIdentityRevision: -1,
         groupParticipantIds: [],
         groupReconnectingUserIds: [],
         callType: callState.callType,
@@ -2119,12 +2123,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           isGroupCall: joined.session.isGroupCall === true,
           groupParticipantIds: joined.session.isGroupCall ? joined.session.participantIds : [],
           groupReconnectingUserIds: [],
-          peerName: joined.session.isGroupCall
-            ? joined.session.groupName || 'Group call'
-            : useCallStore.getState().peerName,
-          peerAvatarUrl: joined.session.isGroupCall
-            ? (joined.session.groupAvatarUrl ?? null)
-            : useCallStore.getState().peerAvatarUrl,
+          ...getGroupCallIdentityPatch(useCallStore.getState(), {
+            callId: joined.session.callId,
+            conversationId: joined.session.conversationId,
+            groupName: joined.session.groupName || 'Group call',
+            groupAvatarUrl: joined.session.groupAvatarUrl ?? null,
+            groupIdentityRevision: joined.session.groupIdentityRevision ?? 0,
+          }),
           remoteAudioState: 'idle',
           remoteVideoState: state.callType === 'VIDEO' ? 'waiting' : 'idle',
           localStreamUrl: null,
@@ -2385,7 +2390,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         const nativeRegistration = await veloraSystemCalls.registerOutgoingCall({
           callId: joined.callId,
           conversationId: input.conversationId,
-          peerName: input.peerName ?? 'Unknown',
+          peerName: joined.session.isGroupCall
+            ? joined.session.groupName || 'Group call'
+            : (input.peerName ?? 'Unknown'),
           callType,
           accountId: currentUserId,
         })
@@ -2402,9 +2409,16 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           callId: joined.callId,
           conversationId: input.conversationId,
           peerUserId: input.peerUserId ?? null,
-          peerName: input.peerName ?? 'Unknown',
-          peerAvatarUrl: input.peerAvatarUrl ?? null,
+          peerName: joined.session.isGroupCall
+            ? joined.session.groupName || 'Group call'
+            : (input.peerName ?? 'Unknown'),
+          peerAvatarUrl: joined.session.isGroupCall
+            ? (joined.session.groupAvatarUrl ?? null)
+            : (input.peerAvatarUrl ?? null),
           isGroupCall: joined.session.isGroupCall === true,
+          groupIdentityRevision: joined.session.isGroupCall
+            ? (joined.session.groupIdentityRevision ?? 0)
+            : -1,
           groupParticipantIds: joined.session.isGroupCall ? joined.session.participantIds : [],
           groupReconnectingUserIds: [],
           callType,
@@ -3281,6 +3295,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       void consumeRemoteProducer(payload)
     }
 
+    const handleGroupCallIdentityChanged = (payload: GroupCallIdentityChangedPayload) => {
+      const patch = getGroupCallIdentityPatch(useCallStore.getState(), payload)
+      if (patch) useCallStore.getState().patch(patch)
+    }
+
     const handleGroupMicStateChanged = (payload: GroupMicStateChangedPayload) => {
       if (!isCurrentCall(payload.callId) || payload.userId === currentUserId) return
       const state = useCallStore.getState()
@@ -3374,6 +3393,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     socket.on('new_peer', handleNewPeer)
     socket.on('new_producer', handleNewProducer)
     socket.on('group_mic_state_changed', handleGroupMicStateChanged)
+    socket.on('group_call_identity_changed', handleGroupCallIdentityChanged)
     socket.on('producer_closed', handleProducerClosed)
     socket.on('call_type_changed', handleCallTypeChanged)
     socket.on('video_state_changed', handleVideoStateChanged)
@@ -3401,6 +3421,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socket.off('new_peer', handleNewPeer)
       socket.off('new_producer', handleNewProducer)
       socket.off('group_mic_state_changed', handleGroupMicStateChanged)
+      socket.off('group_call_identity_changed', handleGroupCallIdentityChanged)
       socket.off('producer_closed', handleProducerClosed)
       socket.off('call_type_changed', handleCallTypeChanged)
       socket.off('video_state_changed', handleVideoStateChanged)

@@ -10,6 +10,7 @@ import {
 } from './callConstants'
 import { safeCallErrorCode, shortCallId } from './callDebug'
 import {
+  getGroupCallIdentityPatch,
   isCallSetupCancelledError,
   isConnectedTransportState,
   isTerminalRemoteMediaError,
@@ -245,6 +246,13 @@ export const useCallRecoveryRuntime = ({
       const recoveredCallType = rejoined.session.callType
       useCallStore.getState().patch({
         callType: recoveredCallType,
+        ...getGroupCallIdentityPatch(useCallStore.getState(), {
+          callId: rejoined.session.callId,
+          conversationId: rejoined.session.conversationId,
+          groupName: rejoined.session.groupName || 'Group call',
+          groupAvatarUrl: rejoined.session.groupAvatarUrl ?? null,
+          groupIdentityRevision: rejoined.session.groupIdentityRevision ?? 0,
+        }),
         groupParticipantIds: rejoined.session.isGroupCall ? rejoined.session.participantIds : [],
         groupReconnectingUserIds: rejoined.session.isGroupCall
           ? useCallStore
