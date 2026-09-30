@@ -97,6 +97,7 @@ const createRuntime = ({
   deferredVideoCapture = null,
   deferredCameraAck = null,
   cameraAckResponder = null,
+  groupMicResponder = null,
   deferredProducerClosure = null,
 } = {}) => {
   const state = {
@@ -123,6 +124,7 @@ const createRuntime = ({
   const produced = []
   const capturedTracks = []
   const cameraCommands = []
+  const groupMicCommands = []
   const closedProducerRequests = []
   let requestSequence = 0
 
@@ -157,6 +159,18 @@ const createRuntime = ({
   const callSocket = {
     createCallRequestId: (prefix = 'call') => `${prefix}-${++requestSequence}`,
     emitAndWaitForEvent: async (_socket, event, payload) => {
+      if (event === 'set_group_mic_state') {
+        groupMicCommands.push(payload)
+        if (groupMicResponder) await groupMicResponder(payload)
+        return {
+          callId: payload.callId,
+          producerId: payload.producerId,
+          enabled: payload.enabled,
+          revision: payload.revision,
+          status: 'applied',
+          requestId: payload.requestId,
+        }
+      }
       if (event !== 'set_video_enabled') {
         throw new Error(`unexpected event ${event}`)
       }
@@ -225,6 +239,8 @@ const createRuntime = ({
     ringingPreviewStreamRef: { current: null },
     remoteStreamRef: { current: null },
     videoProducerRef,
+    audioProducerRef: { current: null },
+    getGroupAnswerActionId: () => 'winning-action',
     localVideoStateRef: {
       current: {
         desiredEnabled: false,
@@ -259,9 +275,70 @@ const createRuntime = ({
     produced,
     capturedTracks,
     cameraCommands,
+    groupMicCommands,
     closedProducerRequests,
   }
 }
+
+test('group mic stays physically off until ACK and ignores an older ACK', async () => {
+  const firstAck = createDeferred()
+  const harness = createRuntime({
+    groupMicResponder: (payload) => (payload.revision === 1 ? firstAck.promise : undefined),
+  })
+  harness.state.isGroupCall = true
+  harness.state.direction = 'incoming'
+  harness.state.muted = true
+  const track = new FakeTrack('audio')
+  track.enabled = false
+  const stream = new FakeMediaStream()
+  stream.addTrack(track)
+  harness.refs.localStreamRef.current = stream
+  harness.refs.audioProducerRef.current = { id: 'audio-local' }
+
+  const older = harness.runtime.synchronizeLocalGroupMicState(true)
+  await Promise.resolve()
+  assert.equal(track.enabled, false)
+  const newer = await harness.runtime.synchronizeLocalGroupMicState(false)
+  assert.equal(newer, true)
+  firstAck.resolve()
+  assert.equal(await older, false)
+  assert.equal(track.enabled, false)
+  assert.equal(harness.state.muted, true)
+  assert.deepEqual(
+    harness.groupMicCommands.map(({ revision, actionId }) => ({ revision, actionId })),
+    [
+      { revision: 1, actionId: 'winning-action' },
+      { revision: 2, actionId: 'winning-action' },
+    ],
+  )
+})
+
+test('rapid group mic taps converge to the last requested state', async () => {
+  const harness = createRuntime()
+  harness.state.isGroupCall = true
+  harness.state.direction = 'outgoing'
+  const track = new FakeTrack('audio')
+  const stream = new FakeMediaStream()
+  stream.addTrack(track)
+  harness.refs.localStreamRef.current = stream
+  harness.refs.audioProducerRef.current = { id: 'audio-local' }
+
+  harness.runtime.toggleMute()
+  assert.equal(track.enabled, false)
+  harness.runtime.toggleMute()
+  await Promise.resolve()
+  await Promise.resolve()
+
+  assert.deepEqual(
+    harness.groupMicCommands.map(({ enabled, revision }) => ({ enabled, revision })),
+    [
+      { enabled: false, revision: 1 },
+      { enabled: true, revision: 2 },
+    ],
+  )
+  assert.equal(track.enabled, true)
+  assert.equal(harness.state.muted, false)
+})
 
 test('automatic and user video activation share one capture and one producer', async () => {
   const captureReady = createDeferred()
@@ -503,6 +580,7 @@ const createRecoveryRuntime = ({
   rejoinDeferred = null,
   rejoinError = null,
   groupAnswerActionId = null,
+  remoteConsumers = [],
 } = {}) => {
   const state = {
     phase: 'active',
@@ -512,6 +590,8 @@ const createRecoveryRuntime = ({
     durationSec: 12,
     remoteAudioState: 'waiting',
     isGroupCall: groupAnswerActionId !== null,
+    groupParticipantIds: ['user-local', 'guest'],
+    groupReconnectingUserIds: [],
     direction: groupAnswerActionId !== null ? 'incoming' : 'outgoing',
   }
   const store = {
@@ -519,6 +599,9 @@ const createRecoveryRuntime = ({
   }
   const setupRef = { current: 1 }
   const socket = { connected: true }
+  const consumerMapRef = {
+    current: new Map(remoteConsumers.map((consumer) => [consumer.producerId, consumer])),
+  }
   const recoveryInFlightRef = { current: false }
   const controlPlaneRecoveringRef = { current: true }
   const reconnectModeRef = { current: null }
@@ -535,15 +618,19 @@ const createRecoveryRuntime = ({
         },
       ))
   const rejoinCalls = []
+  const recoverySteps = []
   const reconciledSnapshots = []
   const consumed = []
   let teardownCount = 0
   let postAnswerCount = 0
+  let resetRemoteConsumersCount = 0
+  const prunedGroupSnapshots = []
   const armReconnectTimeoutCalls = []
 
   const callSocket = {
     emitAndWaitForEvent: async (_socket, event, payload) => {
       assert.equal(event, 'rejoin_call')
+      recoverySteps.push('rejoin')
       rejoinCalls.push(payload)
       return rejoinResult
     },
@@ -580,6 +667,8 @@ const createRecoveryRuntime = ({
     sendTransportRef: { current: null },
     recvTransportRef: { current: null },
     videoProducerRef: { current: null },
+    audioProducerRef: { current: null },
+    consumerMapRef,
     localVideoStateRef: {
       current: {
         desiredEnabled: false,
@@ -595,9 +684,7 @@ const createRecoveryRuntime = ({
     activeCallIdRef,
     callAnsweredRef: { current: true },
     incomingAnswerActionRef: {
-      current: groupAnswerActionId
-        ? { callId: state.callId, actionId: groupAnswerActionId }
-        : null,
+      current: groupAnswerActionId ? { callId: state.callId, actionId: groupAnswerActionId } : null,
     },
     telemetrySessionRef: { current: null },
     reconnectRecoveryInFlightRef: recoveryInFlightRef,
@@ -619,6 +706,7 @@ const createRecoveryRuntime = ({
     },
     activateLocalVideo: async () => true,
     synchronizeLocalVideoState: async () => true,
+    synchronizeLocalGroupMicState: async () => true,
     deactivateLocalVideo: () => undefined,
     clearRemoteVideoRuntime: () => undefined,
     consumeRemoteProducer: async (payload) => {
@@ -653,15 +741,38 @@ const createRecoveryRuntime = ({
     isCurrentCall: (callId) => callId === state.callId,
     clearMediaTransportDisconnectTimeout: () => undefined,
     clearRemoteAudioFallback: () => undefined,
-    resetRemoteConsumerRuntime: () => undefined,
+    resetRemoteConsumerRuntime: () => {
+      recoverySteps.push('reset_remote_consumers')
+      resetRemoteConsumersCount += 1
+      consumerMapRef.current.clear()
+      state.remoteAudioState = 'waiting'
+    },
+    pruneStaleGroupConsumers: (activeProducerIds) => {
+      prunedGroupSnapshots.push([...activeProducerIds].sort())
+      for (const [consumerId, consumer] of consumerMapRef.current) {
+        if (
+          !activeProducerIds.has(consumer.producerId) ||
+          consumer.closed ||
+          consumer.track?.readyState === 'ended'
+        )
+          consumerMapRef.current.delete(consumerId)
+      }
+      state.remoteAudioState = [...consumerMapRef.current.values()].some(
+        (consumer) => consumer.kind === 'audio',
+      )
+        ? 'connected'
+        : 'waiting'
+    },
   })
 
   return {
     runtime,
     state,
+    consumerMapRef,
     setupRef,
     recoveryInFlightRef,
     rejoinCalls,
+    recoverySteps,
     reconciledSnapshots,
     consumed,
     get teardownCount() {
@@ -670,6 +781,10 @@ const createRecoveryRuntime = ({
     get postAnswerCount() {
       return postAnswerCount
     },
+    get resetRemoteConsumersCount() {
+      return resetRemoteConsumersCount
+    },
+    prunedGroupSnapshots,
     armReconnectTimeoutCalls,
   }
 }
@@ -733,11 +848,129 @@ test('rejoin snapshot rebuilds remote video state from active producers', async 
 })
 
 test('group guest rejoin carries the winning answer action', async () => {
-  const harness = createRecoveryRuntime({ groupAnswerActionId: 'winning-action' })
+  const harness = createRecoveryRuntime({
+    groupAnswerActionId: 'winning-action',
+    remoteConsumers: [{ producerId: 'stale-audio', kind: 'audio' }],
+    rejoinPayload: {
+      callId: 'call-runtime-1',
+      session: { callType: 'VOICE', isGroupCall: true, participantIds: ['user-local'] },
+      activeProducers: [],
+      telemetryToken: 'telemetry-token',
+    },
+  })
+  harness.state.remoteAudioState = 'connected'
+  harness.state.groupReconnectingUserIds = ['guest']
 
   await harness.runtime.recoverActiveCall()
 
-  assert.deepEqual(harness.rejoinCalls, [
-    { callId: 'call-runtime-1', actionId: 'winning-action' },
-  ])
+  assert.deepEqual(harness.rejoinCalls, [{ callId: 'call-runtime-1', actionId: 'winning-action' }])
+  assert.equal(harness.resetRemoteConsumersCount, 0)
+  assert.deepEqual(harness.prunedGroupSnapshots, [[]])
+  assert.deepEqual(harness.recoverySteps, ['rejoin'])
+  assert.equal(harness.state.remoteAudioState, 'waiting')
+  assert.deepEqual(harness.state.groupReconnectingUserIds, [])
+  assert.equal(harness.state.phase, 'active')
+})
+
+test('group peer reconnect state is scoped to joined peers and clears on return', () => {
+  const harness = createRecoveryRuntime({ groupAnswerActionId: 'winning-action' })
+  const event = {
+    callId: 'call-runtime-1',
+    userId: 'guest',
+    reconnectDeadlineAt: new Date().toISOString(),
+  }
+
+  harness.runtime.handlePeerReconnecting(event)
+  harness.runtime.handlePeerReconnecting(event)
+  harness.runtime.handlePeerReconnecting({ ...event, userId: 'stranger' })
+  assert.deepEqual(harness.state.groupReconnectingUserIds, ['guest'])
+  assert.equal(harness.state.phase, 'active')
+
+  harness.runtime.handlePeerReconnected(event)
+  assert.deepEqual(harness.state.groupReconnectingUserIds, [])
+})
+
+test('group rejoin keeps a healthy remote audio consumer', async () => {
+  const harness = createRecoveryRuntime({
+    groupAnswerActionId: 'winning-action',
+    remoteConsumers: [{ producerId: 'audio-1', kind: 'audio' }],
+    rejoinPayload: {
+      callId: 'call-runtime-1',
+      session: { callType: 'VOICE', isGroupCall: true, participantIds: ['user-local', 'guest'] },
+      activeProducers: [{ userId: 'guest', producerId: 'audio-1', kind: 'audio' }],
+      telemetryToken: 'telemetry-token',
+    },
+  })
+  harness.state.remoteAudioState = 'connected'
+
+  await harness.runtime.recoverActiveCall()
+
+  assert.equal(harness.resetRemoteConsumersCount, 0)
+  assert.deepEqual(harness.prunedGroupSnapshots, [['audio-1']])
+  assert.equal(harness.state.remoteAudioState, 'connected')
+})
+
+test('group rejoin removes a departed peer without dropping surviving audio', async () => {
+  const harness = createRecoveryRuntime({
+    groupAnswerActionId: 'winning-action',
+    remoteConsumers: [
+      { producerId: 'stale-audio', kind: 'audio' },
+      { producerId: 'live-audio', kind: 'audio' },
+    ],
+    rejoinPayload: {
+      callId: 'call-runtime-1',
+      session: { callType: 'VOICE', isGroupCall: true, participantIds: ['user-local', 'guest'] },
+      activeProducers: [{ userId: 'guest', producerId: 'live-audio', kind: 'audio' }],
+      telemetryToken: 'telemetry-token',
+    },
+  })
+  harness.state.remoteAudioState = 'connected'
+
+  await harness.runtime.recoverActiveCall()
+
+  assert.deepEqual([...harness.consumerMapRef.current.keys()], ['live-audio'])
+  assert.equal(harness.resetRemoteConsumersCount, 0)
+  assert.equal(harness.state.remoteAudioState, 'connected')
+})
+
+test('group rejoin can recreate a closed consumer for an active producer', async () => {
+  const harness = createRecoveryRuntime({
+    groupAnswerActionId: 'winning-action',
+    remoteConsumers: [{ producerId: 'live-audio', kind: 'audio', closed: true }],
+    rejoinPayload: {
+      callId: 'call-runtime-1',
+      session: { callType: 'VOICE', isGroupCall: true, participantIds: ['user-local', 'guest'] },
+      activeProducers: [{ userId: 'guest', producerId: 'live-audio', kind: 'audio' }],
+      telemetryToken: 'telemetry-token',
+    },
+  })
+
+  await harness.runtime.recoverActiveCall()
+
+  assert.equal(harness.consumerMapRef.current.size, 0)
+  assert.deepEqual(
+    harness.consumed.map((producer) => producer.producerId),
+    ['live-audio'],
+  )
+})
+
+test('group rejoin can recreate an ended audio track for an active producer', async () => {
+  const harness = createRecoveryRuntime({
+    groupAnswerActionId: 'winning-action',
+    remoteConsumers: [{ producerId: 'live-audio', kind: 'audio', track: { readyState: 'ended' } }],
+    rejoinPayload: {
+      callId: 'call-runtime-1',
+      session: { callType: 'VOICE', isGroupCall: true, participantIds: ['user-local', 'guest'] },
+      activeProducers: [{ userId: 'guest', producerId: 'live-audio', kind: 'audio' }],
+      telemetryToken: 'telemetry-token',
+    },
+  })
+
+  await harness.runtime.recoverActiveCall()
+
+  assert.equal(harness.consumerMapRef.current.size, 0)
+  assert.deepEqual(
+    harness.consumed.map((producer) => producer.producerId),
+    ['live-audio'],
+  )
 })

@@ -1,4 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
+import * as Crypto from 'expo-crypto'
 import { useRouter } from 'expo-router'
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react'
 import { AppState, Platform } from 'react-native'
@@ -23,6 +24,7 @@ import {
   VIDEO_STATE_UPDATED_TIMEOUT_MS,
 } from '../lib/call/callConstants'
 import { safeCallErrorCode, shortCallId } from '../lib/call/callDebug'
+import { rememberTerminalCall, type CallLifecycleTerminalState } from '../lib/call/callLifecycle'
 import {
   cameraConstraints,
   getAcceptIncomingCallFailureCode,
@@ -59,6 +61,7 @@ import {
   reconcileRemoteVideoProducerTombstones,
   shouldApplyRemoteVideoRevision,
 } from '../lib/call/callVideoState'
+import { groupWinnerAction } from '../lib/call/groupWinnerAction'
 import { type RtcQualityCounters, type RtcQualityStreak } from '../lib/call/rtcStats'
 import { useCallLocalMediaRuntime } from '../lib/call/useCallLocalMediaRuntime'
 import {
@@ -83,7 +86,6 @@ import { useAuthStore } from '../stores/authStore'
 import { useCallStore } from '../stores/callStore'
 
 import type { CallStateResponse } from '../api/call.api'
-import type { CallLifecycleTerminalState } from '../lib/call/callLifecycle'
 // VIDEO_CALL_1TO1_PROVIDER_PATCH
 import type {
   AudioBitrateProfile,
@@ -95,6 +97,7 @@ import type {
   CallSocket,
   CallType,
   CallTypeChangedPayload,
+  GroupMicStateChangedPayload,
   IncomingCallPayload,
   IncomingCallAcceptancePayload,
   LocalVideoSyncState,
@@ -126,6 +129,7 @@ type PendingServerEndIntent = {
   callId: string
   accountId: string
   reason?: string
+  actionId?: string
   acceptingIncomingCall: boolean
   expiresAtMs: number
 }
@@ -176,6 +180,7 @@ const terminalLifecycleStateFor = (
 
 const CallContext = createContext<UseCallValue>({
   startVoiceCall: async () => {},
+  joinGroupCall: async () => {},
   startVideoCall: async () => {},
   acceptIncomingCall: async () => {},
   rejectIncomingCall: async () => {},
@@ -239,6 +244,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const retryingProducerIdsRef = useRef<Set<string>>(new Set())
   const remoteConsumerRetryStateRef = useRef<Map<string, RemoteConsumerRetryState>>(new Map())
   const activeCallIdRef = useRef<string | null>(null)
+  const terminalCallIdsRef = useRef(new Set<string>())
   const telemetrySessionRef = useRef<CallTelemetrySession | null>(null)
   const rtcQualityCountersRef = useRef<RtcQualityCounters | null>(null)
   const rtcQualityStreakRef = useRef<RtcQualityStreak>({ degraded: 0, healthy: 0 })
@@ -254,6 +260,50 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   // A reconnect on the same Socket.IO object is still a new generation.
   const socketGenerationRef = useRef(0)
   const incomingAnswerActionRef = useRef<{ callId: string; actionId: string } | null>(null)
+  const currentAnswerAction = useCallback((callId: string) => {
+    const action = incomingAnswerActionRef.current
+    return action?.callId === callId ? { actionId: action.actionId } : {}
+  }, [])
+  const getGroupAnswerActionId = useCallback(
+    (callId: string) => currentAnswerAction(callId).actionId,
+    [currentAnswerAction],
+  )
+  const recordGroupMicProducer = useCallback(
+    (payload: NewProducerPayload) => {
+      const state = useCallStore.getState()
+      if (
+        !state.isGroupCall ||
+        state.callId !== payload.callId ||
+        payload.kind !== 'audio' ||
+        payload.userId === currentUserId
+      )
+        return
+      const previous = state.groupMicStates[payload.userId]
+      const revision = payload.revision ?? 0
+      if (
+        previous?.producerId === payload.producerId &&
+        (previous.revision > revision ||
+          (previous.revision === revision &&
+            previous.enabled !== null &&
+            (payload.revision === undefined || payload.paused === undefined)))
+      )
+        return
+      useCallStore.getState().patch({
+        groupMicStates: {
+          ...state.groupMicStates,
+          [payload.userId]: {
+            producerId: payload.producerId,
+            enabled:
+              payload.revision === undefined || payload.paused === undefined
+                ? null
+                : !payload.paused,
+            revision,
+          },
+        },
+      })
+    },
+    [currentUserId],
+  )
   const outgoingStartInFlightRef = useRef(false)
   const teardownInProgressRef = useRef(false)
   const callAnsweredRef = useRef(false)
@@ -636,11 +686,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socket.emit('leave_call', {
         callId,
         ...(intent.reason ? { reason: intent.reason } : {}),
+        ...(intent.actionId ? { actionId: intent.actionId } : {}),
       })
 
-      // Keep the intent until call_ended (live or terminal replay) confirms
-      // the server observed a terminal transition. If the socket drops while
-      // this packet is in flight, the next authenticated socket_ready retries.
+      // A guest leave confirms with call_left; host/1:1 end confirms with
+      // call_ended. Retry only while the matching intent remains pending.
     }
   }, [])
 
@@ -855,9 +905,61 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     remoteStreamRef.current = null
     useCallStore.getState().patch({
       remoteStreamUrl: null,
+      remoteAudioState: 'waiting',
       remoteVideoState: useCallStore.getState().callType === 'VIDEO' ? 'waiting' : 'idle',
     })
   }, [clearRemoteConsumerRetryState, requestCloseRemoteConsumer])
+
+  const pruneStaleGroupConsumers = useCallback(
+    (activeProducerIds: Set<string>) => {
+      const callId = activeCallIdRef.current
+      const remoteStream = remoteStreamRef.current
+      let removed = false
+      for (const [consumerId, consumer] of consumerMapRef.current) {
+        if (
+          activeProducerIds.has(consumer.producerId) &&
+          !consumer.closed &&
+          consumer.track.readyState !== 'ended'
+        )
+          continue
+        if (callId) requestCloseRemoteConsumer(callId, consumerId)
+        try {
+          remoteStream?.removeTrack(consumer.track as unknown as MediaStreamTrack)
+        } catch {
+          // The track may already have been detached by a concurrent close.
+        }
+        try {
+          consumer.close()
+        } catch {
+          // The native consumer may already be closed after the socket gap.
+        }
+        consumerMapRef.current.delete(consumerId)
+        removed = true
+      }
+      const liveConsumerProducerIds = new Set(
+        [...consumerMapRef.current.values()].map((consumer) => consumer.producerId),
+      )
+      for (const producerId of handledRemoteProducerIdsRef.current) {
+        if (!liveConsumerProducerIds.has(producerId))
+          handledRemoteProducerIdsRef.current.delete(producerId)
+      }
+      for (const producerId of queuedRemoteProducerMapRef.current.keys()) {
+        if (!activeProducerIds.has(producerId))
+          queuedRemoteProducerMapRef.current.delete(producerId)
+      }
+      if (removed) {
+        useCallStore.getState().patch({
+          remoteStreamUrl: remoteStream?.toURL() ?? null,
+          remoteAudioState: [...consumerMapRef.current.values()].some(
+            (consumer) => consumer.kind === 'audio',
+          )
+            ? 'connected'
+            : 'waiting',
+        })
+      }
+    },
+    [requestCloseRemoteConsumer],
+  )
 
   const deriveRemoteVideoState = useCallback((): RemoteVideoState => {
     const state = useCallStore.getState()
@@ -971,6 +1073,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       clearGroupInvitationTimeout()
       clearSocketDisconnectGraceTimeout()
       const endingCallId = activeCallIdRef.current ?? useCallStore.getState().callId
+      if (endingCallId && currentUserId && useCallStore.getState().isGroupCall) {
+        void groupWinnerAction.clear(currentUserId, endingCallId).catch(() => undefined)
+      }
       debugCall(
         '[Call] teardown_requested',
         JSON.stringify({
@@ -1031,6 +1136,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       callScreenTelemetryCallIdsRef,
       clearGroupInvitationTimeout,
       clearSocketDisconnectGraceTimeout,
+      currentUserId,
       disposeMediaRuntime,
       invalidateCallSetup,
       stopTimer,
@@ -1046,6 +1152,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         socket.emit('leave_call', {
           callId,
           reason: 'disconnected',
+          ...currentAnswerAction(callId),
         })
       }
 
@@ -1053,7 +1160,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         errorMessage: 'Call connection was lost',
       })
     },
-    [teardownOnce],
+    [currentAnswerAction, teardownOnce],
   )
 
   const leaveCallFromLifecycle = useCallback(
@@ -1068,12 +1175,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         socket.emit('leave_call', {
           callId: state.callId,
           reason,
+          ...currentAnswerAction(state.callId),
         })
       }
 
       await teardownOnce(`lifecycle_${reason}`)
     },
-    [teardownOnce],
+    [currentAnswerAction, teardownOnce],
   )
 
   const armReconnectTimeout = useCallback(
@@ -1095,6 +1203,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     activateLocalVideo,
     clearRemoteVideoRuntime,
     toggleMute,
+    synchronizeLocalGroupMicState,
     toggleCamera,
     switchCamera,
     synchronizeLocalVideoState,
@@ -1107,7 +1216,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     localStreamRef,
     ringingPreviewStreamRef,
     remoteStreamRef,
+    audioProducerRef,
     videoProducerRef,
+    getGroupAnswerActionId,
     localVideoStateRef,
     consumerMapRef,
     handledRemoteProducerIdsRef,
@@ -1125,6 +1236,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const handleTerminalCall = useCallback(
     (payload: CallEndedPayload, source: 'live' | 'socket_ready_replay') => {
+      rememberTerminalCall(terminalCallIdsRef.current, payload.callId)
       // A PushKit cold launch can have a native CallKit call even while the JS call store
       // is still idle. Always end the native system call by callId before checking JS state.
       veloraSystemCalls.dismissIncomingCall(payload.callId)
@@ -1180,6 +1292,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     localStreamRef,
     remoteStreamRef,
     audioProducerRef,
+    recordGroupMicProducer,
     cachedDeviceRef,
     consumerMapRef,
     connectedTransportIdsRef,
@@ -1232,6 +1345,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     sendTransportRef,
     recvTransportRef,
     videoProducerRef,
+    audioProducerRef,
+    consumerMapRef,
     localVideoStateRef,
     remoteVideoEnabledByProducerRef,
     remoteVideoRevisionByProducerRef,
@@ -1250,6 +1365,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     mediaTransportDisconnectTimeoutsRef,
     activateLocalVideo,
     synchronizeLocalVideoState,
+    synchronizeLocalGroupMicState,
     deactivateLocalVideo,
     clearRemoteVideoRuntime,
     consumeRemoteProducer,
@@ -1268,6 +1384,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     clearMediaTransportDisconnectTimeout,
     clearRemoteAudioFallback,
     resetRemoteConsumerRuntime,
+    pruneStaleGroupConsumers,
   })
 
   useEffect(() => {
@@ -1340,9 +1457,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socket.emit('leave_call', {
         callId,
         ...(reason ? { reason } : {}),
+        ...currentAnswerAction(callId),
       })
     },
-    [],
+    [currentAnswerAction],
   )
 
   const endCall = useCallback(
@@ -1366,6 +1484,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           callId,
           accountId,
           ...(reason ? { reason } : {}),
+          ...currentAnswerAction(callId),
           acceptingIncomingCall: wasAcceptingIncomingCall,
           expiresAtMs: Date.now() + SERVER_END_INTENT_TTL_MS,
         })
@@ -1388,6 +1507,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     },
     [
       clearGroupInvitationTimeout,
+      currentAnswerAction,
       currentUserId,
       ensureCallSocketConnected,
       flushPendingServerEndIntents,
@@ -1410,7 +1530,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const handleIncomingCall = useCallback(
     async (payload: IncomingCallPayload) => {
-      if (!currentUserId) {
+      if (!currentUserId || terminalCallIdsRef.current.has(payload.callId)) {
         return
       }
 
@@ -1458,6 +1578,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           peerInfo.peerAvatarUrl,
         isGroupCall: payload.isGroupCall === true,
         groupParticipantIds: [],
+        groupReconnectingUserIds: [],
         callType: payload.callType,
         muted: false,
         cameraEnabled: false,
@@ -1478,7 +1599,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const prepareIncomingCallFromPayload = useCallback(
     (callState: CallStateResponse | IncomingCallPayload | NativeCallPayload) => {
-      if (!currentUserId) {
+      if (!currentUserId || terminalCallIdsRef.current.has(callState.callId)) {
         return false
       }
 
@@ -1507,6 +1628,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           peerInfo.peerAvatarUrl,
         isGroupCall: callState.isGroupCall === true,
         groupParticipantIds: [],
+        groupReconnectingUserIds: [],
         callType: callState.callType,
         muted: false,
         cameraEnabled: false,
@@ -1537,8 +1659,17 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         return false
       }
 
-      if (callState.isGroupCall && answerActionId) {
-        incomingAnswerActionRef.current = { callId: callState.callId, actionId: answerActionId }
+      if (callState.isGroupCall && currentUserId && callState.initiatorId !== currentUserId) {
+        const winningActionId =
+          answerActionId ?? (await groupWinnerAction.load(currentUserId, callState.callId))
+        if (!winningActionId) {
+          await teardownOnce('group_rejoin_proof_missing')
+          return false
+        }
+        if (answerActionId) {
+          await groupWinnerAction.save(currentUserId, callState.callId, answerActionId)
+        }
+        incomingAnswerActionRef.current = { callId: callState.callId, actionId: winningActionId }
       }
 
       const resumedCallId = callState.callId
@@ -1568,7 +1699,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         await recoverActiveCall()
 
         const resumedState = useCallStore.getState()
-        return resumedState.callId === resumedCallId && resumedState.phase === 'active'
+        const isActive = resumedState.callId === resumedCallId && resumedState.phase === 'active'
+        if (!isActive && isCurrentCall(resumedCallId)) {
+          await teardownRecoveryFailure('native_resume_incomplete')
+        }
+        return isActive
       } catch (error) {
         if (isCurrentCall(resumedCallId)) {
           await teardownRecoveryFailure('native_resume_failed')
@@ -1580,12 +1715,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       assertCallSetupCurrent,
       armReconnectTimeout,
       beginCallSetup,
+      currentUserId,
       ensureCallSocketConnected,
       isCurrentCall,
       prepareIncomingCallFromState,
       reconnectModeRef,
       recoverActiveCall,
       router,
+      teardownOnce,
       teardownRecoveryFailure,
       waitForConfiguredAudioSession,
     ],
@@ -1610,9 +1747,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const existingAction = incomingAnswerActionRef.current
       const incomingActionId =
         actionId ??
-        (existingAction?.callId === callId
-          ? existingAction.actionId
-          : `ui:${Date.now()}:${Math.random().toString(36).slice(2)}`)
+        (existingAction?.callId === callId ? existingAction.actionId : `ui:${Crypto.randomUUID()}`)
       incomingAnswerActionRef.current = { callId, actionId: incomingActionId }
       let nativeAnswerCompleted = false
       const completeNativeAnswer = (success: boolean, reason?: string) => {
@@ -1915,7 +2050,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           if (
             state.isGroupCall &&
             acceptance.outcome === 'media_unavailable' &&
-            !acceptance.reservationReleased
+            !acceptance.reservationReleased &&
+            !acceptance.retryable
           ) {
             if (socket.connected) {
               emitIncomingAcceptTerminalIntent(socket, callId, 'media_unavailable')
@@ -1957,6 +2093,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
 
         joinedCall = true
+        if (joined.session.isGroupCall && currentUserId) {
+          await groupWinnerAction.save(currentUserId, callId, incomingActionId)
+          assertCurrentCallAccount()
+        }
         telemetry.attachCall(joined.telemetryToken)
         telemetry.record('server_accept_ack', { outcome: 'succeeded' })
         telemetry.record('call_joined', { outcome: 'succeeded' })
@@ -1978,6 +2118,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           phase: 'connecting',
           isGroupCall: joined.session.isGroupCall === true,
           groupParticipantIds: joined.session.isGroupCall ? joined.session.participantIds : [],
+          groupReconnectingUserIds: [],
           peerName: joined.session.isGroupCall
             ? joined.session.groupName || 'Group call'
             : useCallStore.getState().peerName,
@@ -2050,6 +2191,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           socket.emit('leave_call', {
             callId,
             reason: getRemoteSetupFailureReason(errorCode),
+            ...currentAnswerAction(callId),
           })
         } else if (acceptRequestSent) {
           // A timeout says only that this client did not observe the ACK; the
@@ -2083,6 +2225,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       assertCallSetupCurrent,
       beginCallSetup,
       clearGroupInvitationTimeout,
+      currentAnswerAction,
       currentUserId,
       ensureMicPermission,
       ensureCameraPermission,
@@ -2100,7 +2243,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   )
 
   const startCall = useCallback(
-    async (input: StartCallInput, callType: CallType) => {
+    async (input: StartCallInput & { joinCallId?: string }, callType: CallType) => {
       if (
         !currentUserId ||
         outgoingStartInFlightRef.current ||
@@ -2121,6 +2264,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
 
       const telemetry = new CallTelemetrySession('outgoing')
+      let lateJoinSocket: CallSocket | null = null
       telemetrySessionRef.current = telemetry
       telemetry.record('call_attempt', { outcome: 'started' })
       telemetry.recordLifecycle('ringing', { outcome: 'started' })
@@ -2164,41 +2308,94 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         const socket = await ensureSocketConnected()
         assertOutgoingAttemptCurrent()
         telemetry.record('socket_connected', { outcome: 'succeeded' })
-        const joined = await emitAndWaitForEvent<'initiate_call', 'call_joined'>(
-          socket,
-          'initiate_call',
-          {
-            conversationId: input.conversationId,
-            ...(input.peerUserId ? { targetUserId: input.peerUserId } : {}),
-            callType,
-          },
-          {
-            event: 'call_joined',
-            timeoutMs: CALL_JOINED_TIMEOUT_MS,
-            registry: waitRegistryRef.current,
-            filter: (payload) =>
-              payload.role === 'host' &&
-              payload.session.conversationId === input.conversationId &&
-              payload.session.initiatorId === currentUserId &&
-              (input.isGroupCall
-                ? payload.session.isGroupCall === true
-                : payload.session.targetUserId === input.peerUserId) &&
-              payload.session.callType === callType,
-          },
-        )
+        const lateJoinRequest = input.joinCallId
+          ? {
+              callId: input.joinCallId,
+              actionId:
+                (await groupWinnerAction.load(currentUserId, input.joinCallId)) ??
+                `join:${Crypto.randomUUID()}`,
+            }
+          : null
+        if (lateJoinRequest) {
+          // The server may commit before its ACK reaches us. Persist the same
+          // action before sending so a retry or cold start cannot lose proof.
+          await groupWinnerAction.save(
+            currentUserId,
+            lateJoinRequest.callId,
+            lateJoinRequest.actionId,
+          )
+          assertOutgoingAttemptCurrent()
+          lateJoinSocket = socket
+        }
+        const joined = lateJoinRequest
+          ? await emitAndWaitForEvent<'join_group_call', 'call_joined'>(
+              socket,
+              'join_group_call',
+              lateJoinRequest,
+              {
+                event: 'call_joined',
+                timeoutMs: CALL_JOINED_TIMEOUT_MS,
+                registry: waitRegistryRef.current,
+                filter: (payload) =>
+                  payload.callId === input.joinCallId &&
+                  payload.role === 'guest' &&
+                  payload.session.isGroupCall === true &&
+                  payload.session.conversationId === input.conversationId,
+              },
+            )
+          : await emitAndWaitForEvent<'initiate_call', 'call_joined'>(
+              socket,
+              'initiate_call',
+              {
+                conversationId: input.conversationId,
+                ...(input.peerUserId ? { targetUserId: input.peerUserId } : {}),
+                ...(input.selectedInviteeIds
+                  ? { selectedInviteeIds: input.selectedInviteeIds }
+                  : {}),
+                callType,
+              },
+              {
+                event: 'call_joined',
+                timeoutMs: CALL_JOINED_TIMEOUT_MS,
+                registry: waitRegistryRef.current,
+                filter: (payload) =>
+                  payload.role === 'host' &&
+                  payload.session.conversationId === input.conversationId &&
+                  payload.session.initiatorId === currentUserId &&
+                  (input.isGroupCall
+                    ? payload.session.isGroupCall === true
+                    : payload.session.targetUserId === input.peerUserId) &&
+                  payload.session.callType === callType,
+              },
+            )
         assertOutgoingAttemptCurrent()
 
         activeCallIdRef.current = joined.callId
+        if (lateJoinRequest) {
+          pendingServerEndIntentsRef.current.delete(joined.callId)
+          incomingAnswerActionRef.current = {
+            callId: joined.callId,
+            actionId: lateJoinRequest.actionId,
+          }
+        }
+        assertOutgoingAttemptCurrent()
         telemetry.attachCall(joined.telemetryToken)
         telemetry.record('call_joined', { outcome: 'succeeded' })
         callAnsweredRef.current = false
-        void veloraSystemCalls.registerOutgoingCall({
+        const nativeRegistration = await veloraSystemCalls.registerOutgoingCall({
           callId: joined.callId,
           conversationId: input.conversationId,
           peerName: input.peerName ?? 'Unknown',
           callType,
           accountId: currentUserId,
         })
+        try {
+          assertOutgoingAttemptCurrent()
+        } catch (error) {
+          await veloraSystemCalls.endCall(joined.callId).catch(() => undefined)
+          throw error
+        }
+        if (!nativeRegistration.success) throw new Error('native_outgoing_registration_failed')
         useCallStore.getState().patch({
           phase: 'outgoing_ringing',
           direction: 'outgoing',
@@ -2209,6 +2406,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           peerAvatarUrl: input.peerAvatarUrl ?? null,
           isGroupCall: joined.session.isGroupCall === true,
           groupParticipantIds: joined.session.isGroupCall ? joined.session.participantIds : [],
+          groupReconnectingUserIds: [],
           callType,
           muted: false,
           cameraEnabled: callType === 'VIDEO',
@@ -2289,6 +2487,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
         telemetry.record('control_plane_active', { outcome: 'succeeded' })
       } catch (error) {
+        // A lost ACK can hide a committed join. Disconnecting this call socket
+        // makes the server's bounded disconnect cleanup revoke the ghost seat.
+        if (lateJoinSocket && !activeCallIdRef.current) lateJoinSocket.disconnect()
         if (isCallSetupCancelledError(error)) {
           stopRingingPreview()
           return
@@ -2296,7 +2497,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         stopRingingPreview()
         const activeCallId = activeCallIdRef.current
         if (socketRef.current?.connected && activeCallId) {
-          socketRef.current.emit('leave_call', { callId: activeCallId, reason: 'timeout' })
+          socketRef.current.emit('leave_call', {
+            callId: activeCallId,
+            reason: 'timeout',
+            ...currentAnswerAction(activeCallId),
+          })
         }
         telemetry.record('setup_failed', { outcome: 'failed', error })
         if (!activeCallId) {
@@ -2311,9 +2516,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           telemetrySessionRef.current = null
           useCallStore.getState().patch({ phase: 'idle' })
           presentError(
-            error instanceof Error && /camera/i.test(error.message)
-              ? 'Velora needs camera access for video calls'
-              : 'Velora needs microphone access to place calls',
+            input.joinCallId && error instanceof Error && /group call is full/i.test(error.message)
+              ? 'This group call is full'
+              : input.joinCallId
+                ? 'Unable to join this group call'
+                : input.selectedInviteeIds
+                  ? 'Unable to start the selected group call. Check membership and try again.'
+                  : error instanceof Error && /camera/i.test(error.message)
+                    ? 'Velora needs camera access for video calls'
+                    : 'Velora needs microphone access to place calls',
           )
           return
         }
@@ -2325,6 +2536,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     [
       assertCallSetupCurrent,
       beginCallSetup,
+      currentAnswerAction,
       currentUserId,
       ensureCameraPermission,
       ensureMicPermission,
@@ -2341,6 +2553,19 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const startVoiceCall = useCallback(
     (input: StartCallInput) => startCall(input, 'VOICE'),
+    [startCall],
+  )
+  const joinGroupCall = useCallback(
+    (input: { callId: string; conversationId: string; groupName: string }) =>
+      startCall(
+        {
+          conversationId: input.conversationId,
+          peerName: input.groupName,
+          isGroupCall: true,
+          joinCallId: input.callId,
+        },
+        'VOICE',
+      ),
     [startCall],
   )
   const startVideoCall = useCallback(
@@ -2869,6 +3094,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
 
     const handleCallRejected = (payload: CallRejectedPayload) => {
+      rememberTerminalCall(terminalCallIdsRef.current, payload.callId)
       if (!isCurrentCall(payload.callId)) {
         return
       }
@@ -2885,6 +3111,17 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
     const handleProducerClosed = (payload: ProducerClosedPayload) => {
       if (!isCurrentCall(payload.callId)) return
+      if (payload.kind === 'audio') {
+        const state = useCallStore.getState()
+        const ownerId = Object.keys(state.groupMicStates).find(
+          (userId) => state.groupMicStates[userId]?.producerId === payload.producerId,
+        )
+        if (ownerId) {
+          const groupMicStates = { ...state.groupMicStates }
+          delete groupMicStates[ownerId]
+          useCallStore.getState().patch({ groupMicStates })
+        }
+      }
       const remoteStream = remoteStreamRef.current
       if (payload.kind === 'video') {
         closedRemoteVideoProducerIdsRef.current.add(payload.producerId)
@@ -2917,6 +3154,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       consumerMapRef.current.delete(consumerId)
       useCallStore.getState().patch({
         remoteStreamUrl: remoteStream?.toURL() ?? null,
+        ...(payload.kind === 'audio' && useCallStore.getState().isGroupCall
+          ? {
+              remoteAudioState: [...consumerMapRef.current.values()].some(
+                (remaining) => remaining.kind === 'audio',
+              )
+                ? 'connected'
+                : 'waiting',
+            }
+          : {}),
         ...(payload.kind === 'video' ? { remoteVideoState: deriveRemoteVideoState() } : {}),
       })
     }
@@ -3004,8 +3250,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       const state = useCallStore.getState()
       if (state.isGroupCall) {
+        const groupMicStates = { ...state.groupMicStates }
+        delete groupMicStates[payload.userId]
         useCallStore.getState().patch({
           groupParticipantIds: state.groupParticipantIds.filter((id) => id !== payload.userId),
+          groupReconnectingUserIds: state.groupReconnectingUserIds.filter(
+            (id) => id !== payload.userId,
+          ),
+          groupMicStates,
         })
         return
       }
@@ -3029,12 +3281,38 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       void consumeRemoteProducer(payload)
     }
 
+    const handleGroupMicStateChanged = (payload: GroupMicStateChangedPayload) => {
+      if (!isCurrentCall(payload.callId) || payload.userId === currentUserId) return
+      const state = useCallStore.getState()
+      if (!state.isGroupCall) return
+      const previous = state.groupMicStates[payload.userId]
+      if (
+        !previous ||
+        previous.producerId !== payload.producerId ||
+        previous.revision >= payload.revision
+      )
+        return
+      useCallStore.getState().patch({
+        groupMicStates: {
+          ...state.groupMicStates,
+          [payload.userId]: {
+            producerId: payload.producerId,
+            enabled: payload.enabled,
+            revision: payload.revision,
+          },
+        },
+      })
+    }
+
     const handleNewPeer = (payload: NewPeerPayload) => {
       if (!isCurrentCall(payload.callId)) return
       const state = useCallStore.getState()
       if (!state.isGroupCall || state.groupParticipantIds.includes(payload.userId)) return
       useCallStore.getState().patch({
         groupParticipantIds: [...state.groupParticipantIds, payload.userId],
+        groupReconnectingUserIds: state.groupReconnectingUserIds.filter(
+          (id) => id !== payload.userId,
+        ),
       })
     }
 
@@ -3047,14 +3325,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         localIncomingAction &&
         acceptingIncomingCallIdRef.current === payload.callId &&
         localIncomingAction.callId === payload.callId &&
-        payload.answerActionId &&
-        localIncomingAction.actionId !== payload.answerActionId,
+        (payload.answeredElsewhere ||
+          (payload.answerActionId && localIncomingAction.actionId !== payload.answerActionId)),
       )
 
       // The atomic accept ACK can be delayed or lost. If another device that
       // shares this account won, do not wait for the local retry timeout: fail
-      // the pending CallKit action and cancel this setup generation now. Older
-      // servers omit answerActionId, so they retain the safe ACK/retry path.
+      // the pending CallKit action and cancel this setup generation now. Group
+      // calls use a device-directed flag so the winner's rejoin action stays private.
       if (otherDeviceWon && localIncomingAction) {
         veloraSystemCalls.completePendingAnswer(
           localIncomingAction.actionId,
@@ -3082,12 +3360,20 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       callAnsweredRef.current = true
     }
 
+    const handleCallLeft = (payload: { callId: string; actionId?: string }) => {
+      const pending = pendingServerEndIntentsRef.current.get(payload.callId)
+      if (pending && pending.actionId === payload.actionId) {
+        pendingServerEndIntentsRef.current.delete(payload.callId)
+      }
+    }
+
     socket.on('connect', handleConnect)
     socket.on('call_socket_ready', handleSocketReady)
     socket.on('disconnect', handleDisconnect)
     socket.on('incoming_call', handleIncomingCallEvent)
     socket.on('new_peer', handleNewPeer)
     socket.on('new_producer', handleNewProducer)
+    socket.on('group_mic_state_changed', handleGroupMicStateChanged)
     socket.on('producer_closed', handleProducerClosed)
     socket.on('call_type_changed', handleCallTypeChanged)
     socket.on('video_state_changed', handleVideoStateChanged)
@@ -3097,6 +3383,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     socket.on('peer_reconnected', handlePeerReconnected)
     socket.on('peer_left', handlePeerLeft)
     socket.on('call_ended', handleCallEnded)
+    socket.on('call_left', handleCallLeft)
 
     void ensureCallSocketConnected('runtime').catch(() => undefined)
 
@@ -3109,9 +3396,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socket.off('peer_reconnected', handlePeerReconnected)
       socket.off('peer_left', handlePeerLeft)
       socket.off('call_ended', handleCallEnded)
+      socket.off('call_left', handleCallLeft)
       socket.off('incoming_call', handleIncomingCallEvent)
       socket.off('new_peer', handleNewPeer)
       socket.off('new_producer', handleNewProducer)
+      socket.off('group_mic_state_changed', handleGroupMicStateChanged)
       socket.off('producer_closed', handleProducerClosed)
       socket.off('call_type_changed', handleCallTypeChanged)
       socket.off('video_state_changed', handleVideoStateChanged)
@@ -3189,6 +3478,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<UseCallValue>(
     () => ({
       startVoiceCall,
+      joinGroupCall,
       startVideoCall,
       acceptIncomingCall,
       rejectIncomingCall,
@@ -3207,6 +3497,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       endCall,
       rejectIncomingCall,
       startVoiceCall,
+      joinGroupCall,
       startVideoCall,
       toggleMute,
       toggleSpeaker,

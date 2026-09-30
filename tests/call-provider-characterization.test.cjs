@@ -91,6 +91,7 @@ class FakeSocket {
 
 const callSocketModule = loadTypeScriptModule(path.join(root, 'src/lib/call/callSocket.ts'), {
   'socket.io-client': { io: () => new FakeSocket() },
+  './callConstants': { GROUP_LIFECYCLE_VERSION: 2 },
   '../../api/auth.api': {
     authApi: { getSocketToken: async () => ({ accessToken: 'test-token' }) },
   },
@@ -105,6 +106,27 @@ const callPoliciesModule = loadTypeScriptModule(path.join(root, 'src/lib/call/ca
     TRANSPORT_CONNECTED_TIMEOUT_MS: 10_000,
   },
   './callSocket': callSocketModule,
+})
+
+test('membership revocation explains why the call closed without changing normal end messaging', () => {
+  assert.equal(
+    callPoliciesModule.getCallEndedMessage(
+      { callId: 'group-1', reason: 'membership_removed' },
+      { direction: 'incoming', phase: 'active' },
+    ),
+    'The call ended because group membership changed',
+  )
+  assert.equal(
+    callPoliciesModule.getCallRejectedMessage({ callId: 'group-1', reason: 'membership_removed' }),
+    'You are no longer a member of this group',
+  )
+  assert.equal(
+    callPoliciesModule.getCallEndedMessage(
+      { callId: 'direct-1', reason: 'ended' },
+      { direction: 'incoming', phase: 'active' },
+    ),
+    null,
+  )
 })
 
 test('emitAndWaitForEvent subscribes before emit and supports synchronous acknowledgements', async () => {
@@ -143,6 +165,7 @@ test('a cleared prewarm cannot repopulate a socket credential after logout', asy
     path.join(root, 'src/lib/call/callSocket.ts'),
     {
       'socket.io-client': { io: () => new FakeSocket() },
+      './callConstants': { GROUP_LIFECYCLE_VERSION: 2 },
       '../../api/auth.api': {
         authApi: {
           getSocketToken: () => {
@@ -164,7 +187,7 @@ test('a cleared prewarm cannot repopulate a socket credential after logout', asy
   await scopedCallSocketModule.authenticateCallSocket(socket, 'user-a')
 
   assert.equal(requestCount, 2)
-  assert.deepEqual(socket.auth, { token: 'fresh-session-token' })
+  assert.deepEqual(socket.auth, { token: 'fresh-session-token', groupLifecycleVersion: 2 })
 })
 
 test('waitForEventWhere ignores another call and clearWaitRegistry removes pending listeners', async () => {
@@ -641,7 +664,10 @@ test('a journaled resume does not rebuild a call already being accepted', () => 
   assert.match(resumeSource, /if \(hasCurrentCallSetup\(\)\)/)
   assert.match(resumeSource, /resume_ignored_existing_setup/)
   assert.match(resumeSource, /completeNativeCallAction\(action.actionId\)/)
-  assert.doesNotMatch(resumeSource, /await resumeAcceptedCall\(callState\)[\s\S]*hasCurrentCallSetup/)
+  assert.doesNotMatch(
+    resumeSource,
+    /await resumeAcceptedCall\(callState\)[\s\S]*hasCurrentCallSetup/,
+  )
 })
 
 test('a delayed incoming rejection cannot teardown a newer call', () => {
@@ -1035,9 +1061,13 @@ test('a live answer from another device ends a locally pending native answer imm
     "socket.on('connect', handleConnect)",
   )
 
-  assert.match(callTypes, /export interface CallAnsweredPayload \{[\s\S]*answerActionId\?: string/)
+  assert.match(
+    callTypes,
+    /export interface CallAnsweredPayload \{[\s\S]*answeredElsewhere\?: boolean/,
+  )
   assert.match(handlerSource, /const localIncomingAction = incomingAnswerActionRef\.current/)
   assert.match(handlerSource, /acceptingIncomingCallIdRef\.current === payload\.callId/)
+  assert.match(handlerSource, /payload\.answeredElsewhere/)
   assert.match(handlerSource, /localIncomingAction\.actionId !== payload\.answerActionId/)
   assert.match(
     handlerSource,

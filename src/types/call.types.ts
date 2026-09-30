@@ -51,6 +51,7 @@ export interface CallSessionPayload {
 export interface InitiateCallPayload {
   conversationId: string
   targetUserId?: string
+  selectedInviteeIds?: string[]
   callType: CallType
 }
 
@@ -90,6 +91,7 @@ export interface RejoinCallPayload {
 export interface LeaveCallPayload {
   callId: string
   reason?: string
+  actionId?: string
 }
 
 export interface CreateTransportPayload {
@@ -108,6 +110,29 @@ export interface ProducePayload {
   transportId: string
   kind: 'audio' | 'video'
   rtpParameters: Record<string, unknown>
+  requestId?: string
+  audioEnabled?: boolean
+}
+
+export interface SetGroupMicStatePayload {
+  callId: string
+  producerId: string
+  enabled: boolean
+  revision: number
+  actionId?: string
+  requestId: string
+}
+
+export interface GroupMicStateChangedPayload {
+  callId: string
+  userId: string
+  producerId: string
+  enabled: boolean
+  revision: number
+}
+
+export interface GroupMicStateUpdatedPayload extends GroupMicStateChangedPayload {
+  status: VideoStateUpdateStatus
   requestId?: string
 }
 
@@ -219,6 +244,7 @@ export interface IncomingCallAcceptancePayload {
   noAnswerTimeoutMs?: number
   telemetryToken?: string
   reservationReleased?: boolean
+  retryable?: boolean
 }
 
 export interface CallRejoinedPayload {
@@ -351,6 +377,8 @@ export interface CallAnsweredPayload {
   userId: string
   /** The server-owned answer attempt that won this call. */
   answerActionId?: string
+  /** Sent only to other devices when a group invitation is accepted. */
+  answeredElsewhere?: boolean
 }
 
 export interface CallRejectedPayload {
@@ -400,6 +428,7 @@ export interface CallServerEvents {
   call_joined: (payload: CallJoinedPayload) => void
   incoming_call_acceptance: (payload: IncomingCallAcceptancePayload) => void
   call_rejoined: (payload: CallRejoinedPayload) => void
+  call_left: (payload: { callId: string; actionId?: string }) => void
   new_peer: (payload: NewPeerPayload) => void
   transport_created: (payload: TransportCreatedPayload) => void
   transport_connected: (payload: TransportConnectedPayload) => void
@@ -415,6 +444,8 @@ export interface CallServerEvents {
   call_type_changed: (payload: CallTypeChangedPayload) => void
   video_state_changed: (payload: VideoStateChangedPayload) => void
   video_state_updated: (payload: VideoStateUpdatedPayload) => void
+  group_mic_state_changed: (payload: GroupMicStateChangedPayload) => void
+  group_mic_state_updated: (payload: GroupMicStateUpdatedPayload) => void
   call_answered: (payload: CallAnsweredPayload) => void
   call_rejected: (payload: CallRejectedPayload) => void
   peer_reconnecting: (payload: PeerReconnectingPayload) => void
@@ -426,6 +457,7 @@ export interface CallServerEvents {
 
 export interface CallClientEvents {
   initiate_call: (payload: InitiateCallPayload) => void
+  join_group_call: (payload: AcceptIncomingCallPayload) => void
   join_call: (payload: JoinCallPayload) => void
   accept_incoming_call: (payload: AcceptIncomingCallPayload) => void
   rejoin_call: (payload: RejoinCallPayload) => void
@@ -443,6 +475,7 @@ export interface CallClientEvents {
   set_audio_bitrate: (payload: SetAudioBitratePayload) => void
   set_call_type: (payload: SetCallTypePayload) => void
   set_video_enabled: (payload: SetVideoEnabledPayload) => void
+  set_group_mic_state: (payload: SetGroupMicStatePayload) => void
 }
 
 export type CallSocket = Socket<CallServerEvents, CallClientEvents>
@@ -457,6 +490,9 @@ export interface CallUiState {
   peerAvatarUrl: string | null
   isGroupCall: boolean
   groupParticipantIds: string[]
+  groupReconnectingUserIds: string[]
+  groupMicStates: Record<string, { producerId: string; enabled: boolean | null; revision: number }>
+  groupMicSyncError: boolean
   callType: CallType | null
   muted: boolean
   speakerEnabled: boolean
@@ -476,6 +512,7 @@ export interface CallUiState {
 export interface StartCallInput {
   conversationId: string
   peerUserId?: string
+  selectedInviteeIds?: string[]
   peerName?: string
   peerAvatarUrl?: string
   isGroupCall?: boolean
@@ -486,6 +523,11 @@ export type StartVideoCallInput = StartCallInput
 
 export interface UseCallValue {
   startVoiceCall: (input: StartVoiceCallInput) => Promise<void>
+  joinGroupCall: (input: {
+    callId: string
+    conversationId: string
+    groupName: string
+  }) => Promise<void>
   startVideoCall: (input: StartVideoCallInput) => Promise<void>
   acceptIncomingCall: (source?: 'native' | 'ui', actionId?: string) => Promise<void>
   rejectIncomingCall: () => Promise<void>

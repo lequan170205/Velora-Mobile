@@ -5,6 +5,7 @@ import {
   type RemoteMessage,
 } from '@react-native-firebase/messaging'
 import { isAxiosError } from 'axios'
+import Constants from 'expo-constants'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { AppState } from 'react-native'
 
@@ -254,7 +255,7 @@ export function FcmDebugProvider({ children }: { children: ReactNode }) {
         await registerPushToken({
           token,
           deviceId,
-          appVersion: '1.0.0',
+          appVersion: Constants.nativeAppVersion ?? Constants.expoConfig?.version ?? undefined,
           lifecycleVersion,
         })
         devLog(`${logPrefix} token registered with notification-service`, { maskedToken })

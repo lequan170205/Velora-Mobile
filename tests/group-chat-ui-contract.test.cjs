@@ -31,7 +31,7 @@ test('group header resolves typers, opens info, and exposes voice-only group cal
   assert.match(chatScreen, /pathname:\s*'\/conversation\/\[id\]\/info'/)
   assert.match(
     chatScreen,
-    /callPhase === 'idle' && \(currentConversation\?\.isGroup === true \|\| Boolean\(otherUserId\)\)/,
+    /callPhase === 'idle' &&\s*!serverCall &&\s*\(currentConversation\?\.isGroup === true \|\| Boolean\(otherUserId\)\)/,
   )
   assert.match(chatScreen, /callType === 'VIDEO' && currentConversation\?\.isGroup/)
   assert.match(

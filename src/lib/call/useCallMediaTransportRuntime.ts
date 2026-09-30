@@ -73,6 +73,7 @@ type MediaTransportRuntimeOptions = {
   localStreamRef: MutableRef<MediaStream | null>
   remoteStreamRef: MutableRef<MediaStream | null>
   audioProducerRef: MutableRef<MediasoupTypes.Producer<Record<string, unknown>> | null>
+  recordGroupMicProducer: (payload: NewProducerPayload) => void
   cachedDeviceRef: MutableRef<CachedMediasoupDevice | null>
   consumerMapRef: MutableRef<Map<string, MediasoupTypes.Consumer<Record<string, unknown>>>>
   connectedTransportIdsRef: MutableRef<Set<string>>
@@ -133,6 +134,7 @@ export const useCallMediaTransportRuntime = ({
   localStreamRef,
   remoteStreamRef,
   audioProducerRef,
+  recordGroupMicProducer,
   cachedDeviceRef,
   consumerMapRef,
   connectedTransportIdsRef,
@@ -327,6 +329,9 @@ export const useCallMediaTransportRuntime = ({
                   kind: kind as 'audio' | 'video',
                   rtpParameters: rtpParameters as unknown as Record<string, unknown>,
                   requestId,
+                  ...(kind === 'audio' && useCallStore.getState().isGroupCall
+                    ? { audioEnabled: !useCallStore.getState().muted }
+                    : {}),
                 },
                 {
                   event: 'producer_created',
@@ -399,6 +404,7 @@ export const useCallMediaTransportRuntime = ({
 
       if (!callId || payload.callId !== callId) return
       assertCallSetupCurrent(setupToken, callId)
+      if (payload.kind === 'audio') recordGroupMicProducer(payload)
 
       if (
         payload.kind === 'video' &&
@@ -581,8 +587,18 @@ export const useCallMediaTransportRuntime = ({
           return
         }
 
+        const groupProducerFailure =
+          useCallStore.getState().isGroupCall &&
+          (!isTerminalRemoteMediaError(error) ||
+            (error instanceof Error &&
+              /\bproducer\s+(?:not\s+found|is\s+closed)\b/i.test(error.message)))
+        const hasRemoteAudio = [...consumerMapRef.current.values()].some(
+          (consumer) => consumer.kind === 'audio',
+        )
         const isRecoveryConsume =
-          reconnectModeRef.current !== null || options?.retryOnFailure === true
+          reconnectModeRef.current !== null ||
+          options?.retryOnFailure === true ||
+          groupProducerFailure
         if (isRecoveryConsume) {
           if (isTerminalRemoteMediaError(error)) {
             if (payload.kind === 'video') {
@@ -594,9 +610,15 @@ export const useCallMediaTransportRuntime = ({
             remoteConsumerRetryStateRef.current.delete(payload.producerId)
             retryingProducerIdsRef.current.delete(payload.producerId)
 
-            if (options?.propagateFailure) throw error
+            if (options?.propagateFailure && !groupProducerFailure) throw error
             if (payload.kind === 'video') {
               useCallStore.getState().patch({ remoteVideoState: deriveRemoteVideoState() })
+              return
+            }
+            if (groupProducerFailure) {
+              useCallStore
+                .getState()
+                .patch({ remoteAudioState: hasRemoteAudio ? 'connected' : 'waiting' })
               return
             }
             await teardownOnce('consume_remote_producer_terminal', {
@@ -612,7 +634,7 @@ export const useCallMediaTransportRuntime = ({
             .getState()
             .patch(
               payload.kind === 'audio'
-                ? { remoteAudioState: 'waiting' }
+                ? { remoteAudioState: hasRemoteAudio ? 'connected' : 'waiting' }
                 : { remoteVideoState: deriveRemoteVideoState() },
             )
           const previousRetry = remoteConsumerRetryStateRef.current.get(payload.producerId)
@@ -621,9 +643,13 @@ export const useCallMediaTransportRuntime = ({
             if (previousRetry) clearTimeout(previousRetry.timeoutId)
             remoteConsumerRetryStateRef.current.delete(payload.producerId)
             retryingProducerIdsRef.current.delete(payload.producerId)
-            if (options?.propagateFailure) throw error
+            if (options?.propagateFailure && !groupProducerFailure) throw error
             if (payload.kind === 'video') {
               useCallStore.getState().patch({ remoteVideoState: deriveRemoteVideoState() })
+              return
+            }
+            if (groupProducerFailure) {
+              queuedRemoteProducerMapRef.current.delete(payload.producerId)
               return
             }
             await teardownOnce('consume_remote_producer_retry_exhausted', {
@@ -717,6 +743,7 @@ export const useCallMediaTransportRuntime = ({
       remoteVideoSnapshotReadyRef,
       retryingProducerIdsRef,
       remoteConsumerRetryStateRef,
+      recordGroupMicProducer,
       scheduleRtcStatsLog,
       socketRef,
       startTimer,

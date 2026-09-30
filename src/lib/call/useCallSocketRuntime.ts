@@ -260,7 +260,13 @@ export const useCallSocketRuntime = ({
           },
         )
         if (useCallStore.getState().callId === callId) {
-          useCallStore.getState().patch({ groupParticipantIds: rejoined.session.participantIds })
+          const reconnectingIds = useCallStore.getState().groupReconnectingUserIds
+          useCallStore.getState().patch({
+            groupParticipantIds: rejoined.session.participantIds,
+            groupReconnectingUserIds: reconnectingIds.filter((id) =>
+              rejoined.session.participantIds.includes(id),
+            ),
+          })
         }
         return
       }
@@ -277,7 +283,13 @@ export const useCallSocketRuntime = ({
         },
       )
       if (state.isGroupCall && useCallStore.getState().callId === callId) {
-        useCallStore.getState().patch({ groupParticipantIds: joined.session.participantIds })
+        const reconnectingIds = useCallStore.getState().groupReconnectingUserIds
+        useCallStore.getState().patch({
+          groupParticipantIds: joined.session.participantIds,
+          groupReconnectingUserIds: reconnectingIds.filter((id) =>
+            joined.session.participantIds.includes(id),
+          ),
+        })
       }
       debugCall(
         '[Call] setup_call_membership_restored',

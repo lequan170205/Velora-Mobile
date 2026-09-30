@@ -15,6 +15,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import java.security.MessageDigest
 
 object VeloraCallNotifications {
   private const val CALL_CHANNEL_ID = "velora_calls"
@@ -255,15 +256,23 @@ object VeloraCallNotifications {
       callId,
     )
     val winnerActionId = payload["answerActionId"] as? String
+    val winnerActionHash = payload["answerActionHash"] as? String
+    val hasWinnerProof = !winnerActionId.isNullOrBlank() || !winnerActionHash.isNullOrBlank()
+    fun matchesWinner(actionId: String?): Boolean =
+      actionId != null &&
+        (actionId == winnerActionId ||
+          winnerActionHash == MessageDigest.getInstance("SHA-256")
+            .digest(actionId.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) })
     val currentCall = VeloraSystemCallStore.getCurrentCall(context)
     val isUnansweredIncomingOnAnotherDevice =
       localWinningAnswerActionId == null && currentCall?.callId == callId &&
         currentCall.phase == "ringing" && currentCall.expiresAtMs != null
     val isExplicitlyAnsweredElsewhere =
       status == "active" &&
-        !winnerActionId.isNullOrBlank() &&
+        hasWinnerProof &&
         (isUnansweredIncomingOnAnotherDevice ||
-          localWinningAnswerActionId != null && localWinningAnswerActionId != winnerActionId)
+          localWinningAnswerActionId != null && !matchesWinner(localWinningAnswerActionId))
 
     if (!VeloraSystemCallStore.storeRemoteCallStateUpdate(
         context,
@@ -301,7 +310,7 @@ object VeloraCallNotifications {
           )
         } else if (
           pendingAnswerActionId != null &&
-          pendingAnswerActionId == winnerActionId &&
+          matchesWinner(pendingAnswerActionId) &&
           VeloraSystemCallStore.completePendingAnswer(
             context,
             pendingAnswerActionId,

@@ -33,7 +33,7 @@ function CallActionButton({
 
   return (
     <AppPressable
-      className="h-11 w-11 items-center justify-center"
+      className="h-12 w-12 items-center justify-center"
       activeOpacity={1}
       disabled={disabled}
       hitSlop={0}
@@ -78,6 +78,12 @@ function CallActionButton({
 }
 
 type ConversationHeaderProps = {
+  activeGroupCall?: {
+    participantCount: number
+    elapsedSeconds: number
+    action: 'join' | 'rejoin' | 'return' | 'wait'
+    canOpen: boolean
+  } | null
   avatarUrl?: string
   callActionsDisabled: boolean
   displayName: string
@@ -93,11 +99,15 @@ type ConversationHeaderProps = {
   showVideoCallAction: boolean
   onBack: () => void
   onOpenGroupInfo: () => void
+  onOpenActiveGroupCall: () => void
+  openingActiveCall: boolean
   onStartVideoCall: () => void
   onStartVoiceCall: () => void
+  onSelectGroupCallMembers: () => void
 }
 
 export const ConversationHeader = ({
+  activeGroupCall,
   avatarUrl,
   callActionsDisabled,
   displayName,
@@ -113,8 +123,11 @@ export const ConversationHeader = ({
   showVideoCallAction,
   onBack,
   onOpenGroupInfo,
+  onOpenActiveGroupCall,
+  openingActiveCall,
   onStartVideoCall,
   onStartVoiceCall,
+  onSelectGroupCallMembers,
 }: ConversationHeaderProps) => {
   const subtitleColor = groupTypingLabel
     ? colors.brand.primary
@@ -169,6 +182,15 @@ export const ConversationHeader = ({
 
         {showCallActions ? (
           <View className="flex-row items-center gap-1">
+            {isGroup ? (
+              <CallActionButton
+                onPress={onSelectGroupCallMembers}
+                disabled={callActionsDisabled}
+                busy={false}
+                icon="person-add"
+                accessibilityLabel={`Choose members to call in ${displayName}`}
+              />
+            ) : null}
             {showVideoCallAction ? (
               <CallActionButton
                 onPress={onStartVideoCall}
@@ -196,6 +218,47 @@ export const ConversationHeader = ({
           </View>
         ) : null}
       </View>
+
+      {activeGroupCall ? (
+        <AppPressable
+          className="mt-2 min-h-12 flex-row items-center gap-2 rounded-[14px] border border-brand-soft bg-surface-accent px-3"
+          activeOpacity={0.72}
+          onPress={onOpenActiveGroupCall}
+          disabled={openingActiveCall || !activeGroupCall.canOpen}
+          accessibilityRole="button"
+          accessibilityLabel={`${activeGroupCall.action === 'join' ? 'Join' : activeGroupCall.action === 'rejoin' ? 'Rejoin' : activeGroupCall.action === 'return' ? 'Return to' : 'Waiting to reconnect to'} group call, ${activeGroupCall.participantCount} participants, ${Math.floor(activeGroupCall.elapsedSeconds / 60)} minutes ${activeGroupCall.elapsedSeconds % 60} seconds elapsed`}
+          accessibilityState={{
+            busy: openingActiveCall,
+            disabled: openingActiveCall || !activeGroupCall.canOpen,
+          }}
+        >
+          {openingActiveCall ? (
+            <ActivityIndicator size="small" color={colors.brand.primary} />
+          ) : (
+            <MaterialIcons name="call" size={20} color={colors.brand.primary} accessible={false} />
+          )}
+          <AppText className="flex-1 text-sm2 font-semibold text-text-primary" numberOfLines={2}>
+            Group call in progress · {activeGroupCall.participantCount} in call
+          </AppText>
+          {activeGroupCall.action === 'join' || activeGroupCall.action === 'rejoin' ? (
+            <AppText className="text-xs2 font-semibold text-text-primary">
+              {activeGroupCall.action === 'rejoin' ? 'Rejoin' : 'Join'}
+            </AppText>
+          ) : null}
+          <AppText className="text-xs2 text-text-primary">
+            {Math.floor(activeGroupCall.elapsedSeconds / 60)}:
+            {String(activeGroupCall.elapsedSeconds % 60).padStart(2, '0')}
+          </AppText>
+          {activeGroupCall.canOpen ? (
+            <MaterialIcons
+              name="chevron-right"
+              size={20}
+              color={colors.text.secondary}
+              accessible={false}
+            />
+          ) : null}
+        </AppPressable>
+      ) : null}
 
       {!isConnected ? (
         <View className="mt-2.5 flex-row items-center gap-2.5 rounded-[14px] border border-brand-soft bg-surface-accent px-3.5 py-2.5">

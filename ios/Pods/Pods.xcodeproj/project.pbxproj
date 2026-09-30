@@ -22083,8 +22083,8 @@
 		46EB2E000201C0 /* WebRTCModule.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = WebRTCModule.m; path = ios/RCTWebRTC/WebRTCModule.m; sourceTree = "<group>"; };
 		46EB2E000201D0 /* WebRTCModuleOptions.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = WebRTCModuleOptions.h; path = ios/RCTWebRTC/WebRTCModuleOptions.h; sourceTree = "<group>"; };
 		46EB2E000201E0 /* WebRTCModuleOptions.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = WebRTCModuleOptions.m; path = ios/RCTWebRTC/WebRTCModuleOptions.m; sourceTree = "<group>"; };
-		46EB2E00020280 /* simdjson.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = simdjson.cpp; path = CloudSources/simdjson/src/simdjson.cpp; sourceTree = SOURCE_ROOT; };
-		46EB2E00020290 /* simdjson.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = simdjson.h; path = CloudSources/simdjson/src/simdjson.h; sourceTree = SOURCE_ROOT; };
+		46EB2E00020280 /* simdjson.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = simdjson.cpp; path = "../../../.pnpm/@nozbe+simdjson@3.9.4/node_modules/@nozbe/simdjson/src/simdjson.cpp"; sourceTree = "<group>"; };
+		46EB2E00020290 /* simdjson.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = simdjson.h; path = "../../../.pnpm/@nozbe+simdjson@3.9.4/node_modules/@nozbe/simdjson/src/simdjson.h"; sourceTree = "<group>"; };
 		46EB2E000202B0 /* WebRTC.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; path = WebRTC.xcframework; sourceTree = "<group>"; };
 		46EB2E000202D0 /* React.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; path = React.xcframework; sourceTree = "<group>"; };
 		46EB2E000202F0 /* ReactNativeDependencies.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; name = ReactNativeDependencies.xcframework; path = "framework/packages/react-native/ReactNativeDependencies.xcframework"; sourceTree = "<group>"; };
@@ -24396,7 +24396,7 @@
 				46EB2E00001470 /* Video */,
 			);
 			name = EXAV;
-			path = "../../node_modules/.pnpm/expo-av@16.0.8_expo@54.0.35_react-native-web@0.21.2_react-dom@19.1.0_react@19.1.0__react@19.1_6zwdcubg53wp5shvrm6r7mrgqa/node_modules/expo-av/ios";
+			path = "../../node_modules/.pnpm/expo-av@16.0.8_expo@54.0.35_react-native-web@0.21.2_react-dom@19.1.0_react@19.1.0__react@19.1_nltqszlj7j3ryy44dedw6qjd5m/node_modules/expo-av/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E000000E0 /* EXApplication */ = {
@@ -24426,7 +24426,7 @@
 				46EB2E00022C80 /* Support Files */,
 			);
 			name = EXConstants;
-			path = "../../node_modules/.pnpm/expo-constants@18.0.13_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1._ucus4zrbfsgblyfquxqd4ov4ku/node_modules/expo-constants/ios";
+			path = "../../node_modules/.pnpm/expo-constants@18.0.13_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_/node_modules/expo-constants/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E00000100 /* EXImageLoader */ = {
@@ -24494,7 +24494,7 @@
 				46EB2E00023630 /* Support Files */,
 			);
 			name = Expo;
-			path = "../../node_modules/.pnpm/expo@54.0.35_@babel+core@7.29.7_@expo+metro-runtime@6.1.2_expo-router@6.0.24_react-native@0.8_hrvnxzs2pugno42iv7ovy56pie/node_modules/expo";
+			path = "../../node_modules/.pnpm/expo@54.0.35_@babel+core@7.29.7_@expo+metro-runtime@6.1.2_expo-router@6.0.24_react-native@0.8_rdgptk6kjurr5cxt7bocklj33a/node_modules/expo";
 			sourceTree = "<group>";
 		};
 		46EB2E00000150 /* ExpoAdapterGoogleSignIn */ = {
@@ -24505,7 +24505,7 @@
 				46EB2E00023780 /* Support Files */,
 			);
 			name = ExpoAdapterGoogleSignIn;
-			path = "../../node_modules/.pnpm/@react-native-google-signin+google-signin@16.1.2_expo@54.0.35_react-native@0.81.5_@babel+core_cfotvjy4m5l2ptrxgaiv3hzax4/node_modules/@react-native-google-signin/google-signin/expo/ios";
+			path = "../../node_modules/.pnpm/@react-native-google-signin+google-signin@16.1.2_expo@54.0.35_react-native@0.81.5_@babel+core_lvkajrxf4ctuhjg7cgg5yheoqa/node_modules/@react-native-google-signin/google-signin/expo/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E00000160 /* ExpoAsset */ = {
@@ -24516,7 +24516,7 @@
 				46EB2E000238D0 /* Support Files */,
 			);
 			name = ExpoAsset;
-			path = "../../node_modules/.pnpm/expo-asset@12.0.13_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_r_jiwsxbuhhxqqvoartagqojsuji/node_modules/expo-asset/ios";
+			path = "../../node_modules/.pnpm/expo-asset@12.0.13_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_r_eknvqrfamn2gm63sodifhfjgne/node_modules/expo-asset/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E00000170 /* ExpoBlur */ = {
@@ -24530,7 +24530,7 @@
 				46EB2E00023A50 /* Support Files */,
 			);
 			name = ExpoBlur;
-			path = "../../node_modules/.pnpm/expo-blur@15.0.8_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_rea_6df6qw7jxhpqw5glh5q727oydm/node_modules/expo-blur/ios";
+			path = "../../node_modules/.pnpm/expo-blur@15.0.8_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0__react@19.1.0/node_modules/expo-blur/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E00000180 /* ExpoCamera */ = {
@@ -24544,7 +24544,7 @@
 				46EB2E00023CE0 /* Support Files */,
 			);
 			name = ExpoCamera;
-			path = "../../node_modules/.pnpm/expo-camera@17.0.10_expo@54.0.35_react-native-web@0.21.2_react-dom@19.1.0_react@19.1.0__react_c52cgfmbn5nygzkbscpm5n64e4/node_modules/expo-camera/ios";
+			path = "../../node_modules/.pnpm/expo-camera@17.0.10_expo@54.0.35_react-native-web@0.21.2_react-dom@19.1.0_react@19.1.0__react_p6jcxpqibp7gbl6umo4zdinpim/node_modules/expo-camera/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E00000190 /* ExpoClipboard */ = {
@@ -24561,7 +24561,7 @@
 				46EB2E00023E90 /* Support Files */,
 			);
 			name = ExpoClipboard;
-			path = "../../node_modules/.pnpm/expo-clipboard@8.0.8_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_corsxkitsdx5wptucin2mgyixe/node_modules/expo-clipboard/ios";
+			path = "../../node_modules/.pnpm/expo-clipboard@8.0.8_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0__react@19.1.0/node_modules/expo-clipboard/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E000001A0 /* ExpoCrypto */ = {
@@ -24623,7 +24623,7 @@
 				46EB2E00024560 /* Support Files */,
 			);
 			name = ExpoFileSystem;
-			path = "../../node_modules/.pnpm/expo-file-system@19.0.23_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19._xejurkjhlnxrinmldnktzlcd6q/node_modules/expo-file-system/ios";
+			path = "../../node_modules/.pnpm/expo-file-system@19.0.23_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_/node_modules/expo-file-system/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E000001E0 /* ExpoFont */ = {
@@ -24640,7 +24640,7 @@
 				46EB2E000249A0 /* Support Files */,
 			);
 			name = ExpoFont;
-			path = "../../node_modules/.pnpm/expo-font@14.0.12_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_re_bjsahmcxpidz2gqdcbmuuvjyf4/node_modules/expo-font/ios";
+			path = "../../node_modules/.pnpm/expo-font@14.0.12_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0__react@19.1.0/node_modules/expo-font/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E000001F0 /* ExpoHaptics */ = {
@@ -24664,7 +24664,7 @@
 				46EB2E00024CC0 /* Support Files */,
 			);
 			name = ExpoHead;
-			path = "../../node_modules/.pnpm/expo-router@6.0.24_7f47807c31f267d9a65462ca2d680b4b/node_modules/expo-router/ios";
+			path = "../../node_modules/.pnpm/expo-router@6.0.24_@expo+metro-runtime@6.1.2_@types+react@19.1.17_expo-constants@18.0.13_expo_vhgr36p7prrl2tkkpmzfvlknpq/node_modules/expo-router/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E00000210 /* ExpoImage */ = {
@@ -24695,7 +24695,7 @@
 				46EB2E00024F50 /* Support Files */,
 			);
 			name = ExpoImage;
-			path = "../../node_modules/.pnpm/expo-image@3.0.11_expo@54.0.35_react-native-web@0.21.2_react-dom@19.1.0_react@19.1.0__react@1_vqiq5vh3ov54eo46xrywj3opty/node_modules/expo-image/ios";
+			path = "../../node_modules/.pnpm/expo-image@3.0.11_expo@54.0.35_react-native-web@0.21.2_react-dom@19.1.0_react@19.1.0__react@1_ybv4cbliy4iona4nhrj3hepzhe/node_modules/expo-image/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E00000220 /* ExpoImagePicker */ = {
@@ -24743,7 +24743,7 @@
 				46EB2E00025430 /* Support Files */,
 			);
 			name = ExpoLinearGradient;
-			path = "../../node_modules/.pnpm/expo-linear-gradient@15.0.8_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@_7aceafmkr2wcgce5y632kttv4u/node_modules/expo-linear-gradient/ios";
+			path = "../../node_modules/.pnpm/expo-linear-gradient@15.0.8_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@_dit77l3hhii2h3jl5hx77i7uoq/node_modules/expo-linear-gradient/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E00000250 /* ExpoLinking */ = {
@@ -24756,7 +24756,7 @@
 				46EB2E000255A0 /* Support Files */,
 			);
 			name = ExpoLinking;
-			path = "../../node_modules/.pnpm/expo-linking@8.0.12_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17__muj3fktsx6fzkw3yerezmrz5ua/node_modules/expo-linking/ios";
+			path = "../../node_modules/.pnpm/expo-linking@8.0.12_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0__react@19.1.0/node_modules/expo-linking/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E00000260 /* ExpoMediaLibrary */ = {
@@ -24778,7 +24778,7 @@
 				46EB2E00025770 /* Support Files */,
 			);
 			name = ExpoMediaLibrary;
-			path = "../../node_modules/.pnpm/expo-media-library@18.2.1_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19_oqf7rffvuoztlmcgw5gn2hkjmq/node_modules/expo-media-library/ios";
+			path = "../../node_modules/.pnpm/expo-media-library@18.2.1_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_/node_modules/expo-media-library/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E00000270 /* ExpoModulesCore */ = {
@@ -24790,7 +24790,7 @@
 				46EB2E00026C70 /* Support Files */,
 			);
 			name = ExpoModulesCore;
-			path = "../../node_modules/.pnpm/expo-modules-core@3.0.30_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19_sg2lsvig65bmuyh6m7o35ynjd4/node_modules/expo-modules-core";
+			path = "../../node_modules/.pnpm/expo-modules-core@3.0.30_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0__react@19.1.0/node_modules/expo-modules-core";
 			sourceTree = "<group>";
 		};
 		46EB2E00000280 /* ExpoNetwork */ = {
@@ -24845,7 +24845,7 @@
 				46EB2E00027260 /* Support Files */,
 			);
 			name = ExpoSymbols;
-			path = "../../node_modules/.pnpm/expo-symbols@1.0.8_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_r_4koirc7dtequgbgdwraoehkvny/node_modules/expo-symbols/ios";
+			path = "../../node_modules/.pnpm/expo-symbols@1.0.8_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_/node_modules/expo-symbols/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E000002C0 /* ExpoVideo */ = {
@@ -24879,7 +24879,7 @@
 				46EB2E00003C90 /* VideoPlayer */,
 			);
 			name = ExpoVideo;
-			path = "../../node_modules/.pnpm/expo-video@3.0.16_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_re_smsrwuj45tuk7octytsrxezme4/node_modules/expo-video/ios";
+			path = "../../node_modules/.pnpm/expo-video@3.0.16_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0__react@19.1.0/node_modules/expo-video/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E000002D0 /* ExpoVideoCache */ = {
@@ -24895,7 +24895,7 @@
 				46EB2E00027820 /* Support Files */,
 			);
 			name = ExpoVideoCache;
-			path = "../../node_modules/.pnpm/expo-video-cache@2.1.0_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1._6jgn3bl6zhn6ngzh3cxu65bsdm/node_modules/expo-video-cache/ios";
+			path = "../../node_modules/.pnpm/expo-video-cache@2.1.0_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1._3mtpa22cpr4lmpe5gekvfobqm4/node_modules/expo-video-cache/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E000002E0 /* ExpoVideoThumbnails */ = {
@@ -24923,7 +24923,7 @@
 				46EB2E00027B20 /* Support Files */,
 			);
 			name = ExpoWebBrowser;
-			path = "../../node_modules/.pnpm/expo-web-browser@15.0.11_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19._tp6wqqcezkdnpz5myyimztj7vu/node_modules/expo-web-browser/ios";
+			path = "../../node_modules/.pnpm/expo-web-browser@15.0.11_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_/node_modules/expo-web-browser/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E00000300 /* FBLazyVector */ = {
@@ -24935,7 +24935,7 @@
 				46EB2E00027C00 /* Support Files */,
 			);
 			name = FBLazyVector;
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/Libraries/FBLazyVector";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/Libraries/FBLazyVector";
 			sourceTree = "<group>";
 		};
 		46EB2E00000310 /* Firebase */ = {
@@ -25501,7 +25501,7 @@
 				46EB2E0002B280 /* Support Files */,
 			);
 			name = RCTDeprecation;
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation";
 			sourceTree = "<group>";
 		};
 		46EB2E00000400 /* RCTRequired */ = {
@@ -25512,7 +25512,7 @@
 				46EB2E0002B2F0 /* Support Files */,
 			);
 			name = RCTRequired;
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/Libraries/Required";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/Libraries/Required";
 			sourceTree = "<group>";
 		};
 		46EB2E00000410 /* RCTTypeSafety */ = {
@@ -25524,7 +25524,7 @@
 				46EB2E0002B360 /* Support Files */,
 			);
 			name = RCTTypeSafety;
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/Libraries/TypeSafety";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/Libraries/TypeSafety";
 			sourceTree = "<group>";
 		};
 		46EB2E00000420 /* RNCAsyncStorage */ = {
@@ -25538,7 +25538,7 @@
 				46EB2E0002B4C0 /* Support Files */,
 			);
 			name = RNCAsyncStorage;
-			path = "../../node_modules/.pnpm/@react-native-async-storage+async-storage@2.2.0_react-native@0.81.5_@babel+core@7.29.7_@types_7gpw5gcwub54cd27wx33gf5jou/node_modules/@react-native-async-storage/async-storage";
+			path = "../../node_modules/.pnpm/@react-native-async-storage+async-storage@2.2.0_react-native@0.81.5_@babel+core@7.29.7_@types_mlvz6ddtrp7zd4rlx2jkw65ht4/node_modules/@react-native-async-storage/async-storage";
 			sourceTree = "<group>";
 		};
 		46EB2E00000430 /* RNFBApp */ = {
@@ -25570,7 +25570,7 @@
 				46EB2E0002B780 /* Support Files */,
 			);
 			name = RNFBApp;
-			path = "../../node_modules/.pnpm/@react-native-firebase+app@25.1.0_@react-native-async-storage+async-storage@2.2.0_react-nativ_vijjrcwn6yp7qnzuccmatqd3xi/node_modules/@react-native-firebase/app";
+			path = "../../node_modules/.pnpm/@react-native-firebase+app@25.1.0_@react-native-async-storage+async-storage@2.2.0_react-nativ_wiouhnwusxnvric3mv5ohaafm4/node_modules/@react-native-firebase/app";
 			sourceTree = "<group>";
 		};
 		46EB2E00000440 /* RNFBMessaging */ = {
@@ -25592,7 +25592,7 @@
 				46EB2E0002B950 /* Support Files */,
 			);
 			name = RNFBMessaging;
-			path = "../../node_modules/.pnpm/@react-native-firebase+messaging@25.1.0_@react-native-firebase+app@25.1.0_@react-native-async_r3x6ndhiaebtrwhdv6h4hroyym/node_modules/@react-native-firebase/messaging";
+			path = "../../node_modules/.pnpm/@react-native-firebase+messaging@25.1.0_@react-native-firebase+app@25.1.0_@react-native-async_ldn7s5bvqy2dh4egszcku5bcbq/node_modules/@react-native-firebase/messaging";
 			sourceTree = "<group>";
 		};
 		46EB2E00000450 /* RNGestureHandler */ = {
@@ -25637,7 +25637,7 @@
 				46EB2E0002BDB0 /* Support Files */,
 			);
 			name = RNGestureHandler;
-			path = "../../node_modules/.pnpm/react-native-gesture-handler@2.28.0_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1._syldehryatcjzvxjr2b4aq5amu/node_modules/react-native-gesture-handler";
+			path = "../../node_modules/.pnpm/react-native-gesture-handler@2.28.0_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1._d6ysgx6fswfr4opkgx6226jpf4/node_modules/react-native-gesture-handler";
 			sourceTree = "<group>";
 		};
 		46EB2E00000460 /* RNGoogleSignin */ = {
@@ -25656,7 +25656,7 @@
 				46EB2E0002BF80 /* Support Files */,
 			);
 			name = RNGoogleSignin;
-			path = "../../node_modules/.pnpm/@react-native-google-signin+google-signin@16.1.2_expo@54.0.35_react-native@0.81.5_@babel+core_cfotvjy4m5l2ptrxgaiv3hzax4/node_modules/@react-native-google-signin/google-signin";
+			path = "../../node_modules/.pnpm/@react-native-google-signin+google-signin@16.1.2_expo@54.0.35_react-native@0.81.5_@babel+core_lvkajrxf4ctuhjg7cgg5yheoqa/node_modules/@react-native-google-signin/google-signin";
 			sourceTree = "<group>";
 		};
 		46EB2E00000470 /* RNReanimated */ = {
@@ -25667,7 +25667,7 @@
 				46EB2E0002D440 /* Support Files */,
 			);
 			name = RNReanimated;
-			path = "../../node_modules/.pnpm/react-native-reanimated@4.1.7_react-native-worklets@0.5.1_@babel+core@7.29.7_react-native@0.8_ggm5w2hojw3koky7miq3rka5tm/node_modules/react-native-reanimated";
+			path = "../../node_modules/.pnpm/react-native-reanimated@4.1.7_react-native-worklets@0.5.1_@babel+core@7.29.7_react-native@0.8_ox2fo7mriggmlgyo2hmf5ggola/node_modules/react-native-reanimated";
 			sourceTree = "<group>";
 		};
 		46EB2E00000480 /* RNSVG */ = {
@@ -25697,7 +25697,7 @@
 				46EB2E00007780 /* ViewManagers */,
 			);
 			name = RNSVG;
-			path = "../../node_modules/.pnpm/react-native-svg@15.12.1_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19_qqsnze66vpnyutrewzfiueuvqe/node_modules/react-native-svg";
+			path = "../../node_modules/.pnpm/react-native-svg@15.12.1_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0__react@19.1.0/node_modules/react-native-svg";
 			sourceTree = "<group>";
 		};
 		46EB2E00000490 /* RNScreens */ = {
@@ -25770,7 +25770,7 @@
 				46EB2E000082B0 /* utils */,
 			);
 			name = RNScreens;
-			path = "../../node_modules/.pnpm/react-native-screens@4.16.0_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react_yj2zolsa7gvuktifecmcqx64cu/node_modules/react-native-screens";
+			path = "../../node_modules/.pnpm/react-native-screens@4.16.0_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0__react@19.1.0/node_modules/react-native-screens";
 			sourceTree = "<group>";
 		};
 		46EB2E000004A0 /* RNWorklets */ = {
@@ -25781,7 +25781,7 @@
 				46EB2E00008680 /* worklets */,
 			);
 			name = RNWorklets;
-			path = "../../node_modules/.pnpm/react-native-worklets@0.5.1_@babel+core@7.29.7_react-native@0.81.5_@babel+core@7.29.7_@types+_y7yt326n2fy5uom4qz6nilho74/node_modules/react-native-worklets";
+			path = "../../node_modules/.pnpm/react-native-worklets@0.5.1_@babel+core@7.29.7_react-native@0.81.5_@babel+core@7.29.7_@types+_trc7tgs77m5tdbrh5auorqvjgq/node_modules/react-native-worklets";
 			sourceTree = "<group>";
 		};
 		46EB2E000004B0 /* React */ = {
@@ -25791,7 +25791,7 @@
 				46EB2E0002F790 /* Support Files */,
 			);
 			name = React;
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native";
 			sourceTree = "<group>";
 		};
 		46EB2E000004C0 /* React-Core */ = {
@@ -25814,7 +25814,7 @@
 				46EB2E0002F890 /* Support Files */,
 			);
 			name = "React-Core";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native";
 			sourceTree = "<group>";
 		};
 		46EB2E000004D0 /* React-Core-prebuilt */ = {
@@ -26863,7 +26863,7 @@
 				46EB2E0002F990 /* Support Files */,
 			);
 			name = "React-CoreModules";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/React/CoreModules";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/React/CoreModules";
 			sourceTree = "<group>";
 		};
 		46EB2E000004F0 /* React-Fabric */ = {
@@ -26889,7 +26889,7 @@
 				46EB2E0000EC80 /* uimanager */,
 			);
 			name = "React-Fabric";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon";
 			sourceTree = "<group>";
 		};
 		46EB2E00000500 /* React-FabricComponents */ = {
@@ -26901,7 +26901,7 @@
 				46EB2E0000F2C0 /* textlayoutmanager */,
 			);
 			name = "React-FabricComponents";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon";
 			sourceTree = "<group>";
 		};
 		46EB2E00000510 /* React-FabricImage */ = {
@@ -26917,7 +26917,7 @@
 				46EB2E0002FAE0 /* Support Files */,
 			);
 			name = "React-FabricImage";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon";
 			sourceTree = "<group>";
 		};
 		46EB2E00000520 /* React-ImageManager */ = {
@@ -26932,7 +26932,7 @@
 				46EB2E0002FB50 /* Support Files */,
 			);
 			name = "React-ImageManager";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/renderer/imagemanager/platform/ios";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/renderer/imagemanager/platform/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E00000530 /* React-Mapbuffer */ = {
@@ -26944,7 +26944,7 @@
 				46EB2E0002FBC0 /* Support Files */,
 			);
 			name = "React-Mapbuffer";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon";
 			sourceTree = "<group>";
 		};
 		46EB2E00000540 /* React-NativeModulesApple */ = {
@@ -26958,7 +26958,7 @@
 				46EB2E0002FC30 /* Support Files */,
 			);
 			name = "React-NativeModulesApple";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E00000550 /* React-RCTActionSheet */ = {
@@ -26968,7 +26968,7 @@
 				46EB2E0002FCA0 /* Support Files */,
 			);
 			name = "React-RCTActionSheet";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/Libraries/ActionSheetIOS";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/Libraries/ActionSheetIOS";
 			sourceTree = "<group>";
 		};
 		46EB2E00000560 /* React-RCTAnimation */ = {
@@ -26978,7 +26978,7 @@
 				46EB2E0002FD10 /* Support Files */,
 			);
 			name = "React-RCTAnimation";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/Libraries/NativeAnimation";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/Libraries/NativeAnimation";
 			sourceTree = "<group>";
 		};
 		46EB2E00000570 /* React-RCTAppDelegate */ = {
@@ -26997,7 +26997,7 @@
 				46EB2E0002FD80 /* Support Files */,
 			);
 			name = "React-RCTAppDelegate";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/Libraries/AppDelegate";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/Libraries/AppDelegate";
 			sourceTree = "<group>";
 		};
 		46EB2E00000580 /* React-RCTBlob */ = {
@@ -27009,7 +27009,7 @@
 				46EB2E0002FDF0 /* Support Files */,
 			);
 			name = "React-RCTBlob";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/Libraries/Blob";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/Libraries/Blob";
 			sourceTree = "<group>";
 		};
 		46EB2E00000590 /* React-RCTFBReactNativeSpec */ = {
@@ -27022,7 +27022,7 @@
 				46EB2E0002FE60 /* Support Files */,
 			);
 			name = "React-RCTFBReactNativeSpec";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/React";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/React";
 			sourceTree = "<group>";
 		};
 		46EB2E000005A0 /* React-RCTFabric */ = {
@@ -27048,7 +27048,7 @@
 				46EB2E0000FA80 /* Utils */,
 			);
 			name = "React-RCTFabric";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/React";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/React";
 			sourceTree = "<group>";
 		};
 		46EB2E000005B0 /* React-RCTImage */ = {
@@ -27058,7 +27058,7 @@
 				46EB2E0002FF40 /* Support Files */,
 			);
 			name = "React-RCTImage";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/Libraries/Image";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/Libraries/Image";
 			sourceTree = "<group>";
 		};
 		46EB2E000005C0 /* React-RCTLinking */ = {
@@ -27068,7 +27068,7 @@
 				46EB2E0002FFB0 /* Support Files */,
 			);
 			name = "React-RCTLinking";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/Libraries/LinkingIOS";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/Libraries/LinkingIOS";
 			sourceTree = "<group>";
 		};
 		46EB2E000005D0 /* React-RCTNetwork */ = {
@@ -27078,7 +27078,7 @@
 				46EB2E00030020 /* Support Files */,
 			);
 			name = "React-RCTNetwork";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/Libraries/Network";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/Libraries/Network";
 			sourceTree = "<group>";
 		};
 		46EB2E000005E0 /* React-RCTRuntime */ = {
@@ -27089,7 +27089,7 @@
 				46EB2E00030090 /* Support Files */,
 			);
 			name = "React-RCTRuntime";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/React/Runtime";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/React/Runtime";
 			sourceTree = "<group>";
 		};
 		46EB2E000005F0 /* React-RCTSettings */ = {
@@ -27099,7 +27099,7 @@
 				46EB2E00030100 /* Support Files */,
 			);
 			name = "React-RCTSettings";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/Libraries/Settings";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/Libraries/Settings";
 			sourceTree = "<group>";
 		};
 		46EB2E00000600 /* React-RCTText */ = {
@@ -27109,7 +27109,7 @@
 				46EB2E00030170 /* Support Files */,
 			);
 			name = "React-RCTText";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/Libraries/Text";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/Libraries/Text";
 			sourceTree = "<group>";
 		};
 		46EB2E00000610 /* React-RCTVibration */ = {
@@ -27119,7 +27119,7 @@
 				46EB2E000301E0 /* Support Files */,
 			);
 			name = "React-RCTVibration";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/Libraries/Vibration";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/Libraries/Vibration";
 			sourceTree = "<group>";
 		};
 		46EB2E00000620 /* React-RuntimeApple */ = {
@@ -27138,7 +27138,7 @@
 				46EB2E00030250 /* Support Files */,
 			);
 			name = "React-RuntimeApple";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/runtime/platform/ios";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/runtime/platform/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E00000630 /* React-RuntimeCore */ = {
@@ -27155,7 +27155,7 @@
 				46EB2E000302C0 /* Support Files */,
 			);
 			name = "React-RuntimeCore";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/runtime";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/runtime";
 			sourceTree = "<group>";
 		};
 		46EB2E00000640 /* React-RuntimeHermes */ = {
@@ -27166,7 +27166,7 @@
 				46EB2E00030330 /* Support Files */,
 			);
 			name = "React-RuntimeHermes";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/runtime";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/runtime";
 			sourceTree = "<group>";
 		};
 		46EB2E00000650 /* React-callinvoker */ = {
@@ -27178,7 +27178,7 @@
 				46EB2E000303A0 /* Support Files */,
 			);
 			name = "React-callinvoker";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/callinvoker";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/callinvoker";
 			sourceTree = "<group>";
 		};
 		46EB2E00000660 /* React-cxxreact */ = {
@@ -27213,7 +27213,7 @@
 				46EB2E000304A0 /* Support Files */,
 			);
 			name = "React-cxxreact";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/cxxreact";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/cxxreact";
 			sourceTree = "<group>";
 		};
 		46EB2E00000670 /* React-debug */ = {
@@ -27226,7 +27226,7 @@
 				46EB2E00030520 /* Support Files */,
 			);
 			name = "React-debug";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/debug";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/debug";
 			sourceTree = "<group>";
 		};
 		46EB2E00000680 /* React-defaultsnativemodule */ = {
@@ -27237,7 +27237,7 @@
 				46EB2E00030590 /* Support Files */,
 			);
 			name = "React-defaultsnativemodule";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/nativemodule/defaults";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/nativemodule/defaults";
 			sourceTree = "<group>";
 		};
 		46EB2E00000690 /* React-domnativemodule */ = {
@@ -27248,7 +27248,7 @@
 				46EB2E00030600 /* Support Files */,
 			);
 			name = "React-domnativemodule";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/nativemodule/dom";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/nativemodule/dom";
 			sourceTree = "<group>";
 		};
 		46EB2E000006A0 /* React-featureflags */ = {
@@ -27266,7 +27266,7 @@
 				46EB2E00030670 /* Support Files */,
 			);
 			name = "React-featureflags";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/featureflags";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/featureflags";
 			sourceTree = "<group>";
 		};
 		46EB2E000006B0 /* React-featureflagsnativemodule */ = {
@@ -27277,7 +27277,7 @@
 				46EB2E000306E0 /* Support Files */,
 			);
 			name = "React-featureflagsnativemodule";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/nativemodule/featureflags";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/nativemodule/featureflags";
 			sourceTree = "<group>";
 		};
 		46EB2E000006C0 /* React-graphics */ = {
@@ -27310,7 +27310,7 @@
 				46EB2E00030750 /* Support Files */,
 			);
 			name = "React-graphics";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/renderer/graphics";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/renderer/graphics";
 			sourceTree = "<group>";
 		};
 		46EB2E000006D0 /* React-hermes */ = {
@@ -27322,7 +27322,7 @@
 				46EB2E000307C0 /* Support Files */,
 			);
 			name = "React-hermes";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/hermes";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/hermes";
 			sourceTree = "<group>";
 		};
 		46EB2E000006E0 /* React-idlecallbacksnativemodule */ = {
@@ -27333,7 +27333,7 @@
 				46EB2E00030830 /* Support Files */,
 			);
 			name = "React-idlecallbacksnativemodule";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/nativemodule/idlecallbacks";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/nativemodule/idlecallbacks";
 			sourceTree = "<group>";
 		};
 		46EB2E000006F0 /* React-jserrorhandler */ = {
@@ -27345,7 +27345,7 @@
 				46EB2E000308A0 /* Support Files */,
 			);
 			name = "React-jserrorhandler";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/jserrorhandler";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/jserrorhandler";
 			sourceTree = "<group>";
 		};
 		46EB2E00000700 /* React-jsi */ = {
@@ -27362,7 +27362,7 @@
 				46EB2E00030910 /* Support Files */,
 			);
 			name = "React-jsi";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/jsi";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/jsi";
 			sourceTree = "<group>";
 		};
 		46EB2E00000710 /* React-jsiexecutor */ = {
@@ -27374,7 +27374,7 @@
 				46EB2E00030980 /* Support Files */,
 			);
 			name = "React-jsiexecutor";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/jsiexecutor";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/jsiexecutor";
 			sourceTree = "<group>";
 		};
 		46EB2E00000720 /* React-jsinspector */ = {
@@ -27413,7 +27413,7 @@
 				46EB2E000309F0 /* Support Files */,
 			);
 			name = "React-jsinspector";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/jsinspector-modern";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/jsinspector-modern";
 			sourceTree = "<group>";
 		};
 		46EB2E00000730 /* React-jsinspectorcdp */ = {
@@ -27424,7 +27424,7 @@
 				46EB2E00030A60 /* Support Files */,
 			);
 			name = "React-jsinspectorcdp";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/jsinspector-modern/cdp";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/jsinspector-modern/cdp";
 			sourceTree = "<group>";
 		};
 		46EB2E00000740 /* React-jsinspectornetwork */ = {
@@ -27439,7 +27439,7 @@
 				46EB2E00030AD0 /* Support Files */,
 			);
 			name = "React-jsinspectornetwork";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/jsinspector-modern/network";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/jsinspector-modern/network";
 			sourceTree = "<group>";
 		};
 		46EB2E00000750 /* React-jsinspectortracing */ = {
@@ -27460,7 +27460,7 @@
 				46EB2E00030B40 /* Support Files */,
 			);
 			name = "React-jsinspectortracing";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/jsinspector-modern/tracing";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/jsinspector-modern/tracing";
 			sourceTree = "<group>";
 		};
 		46EB2E00000760 /* React-jsitooling */ = {
@@ -27472,7 +27472,7 @@
 				46EB2E00030BB0 /* Support Files */,
 			);
 			name = "React-jsitooling";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/jsitooling";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/jsitooling";
 			sourceTree = "<group>";
 		};
 		46EB2E00000770 /* React-jsitracing */ = {
@@ -27482,7 +27482,7 @@
 				46EB2E00030C20 /* Support Files */,
 			);
 			name = "React-jsitracing";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/hermes/executor";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/hermes/executor";
 			sourceTree = "<group>";
 		};
 		46EB2E00000780 /* React-logger */ = {
@@ -27493,7 +27493,7 @@
 				46EB2E00030C90 /* Support Files */,
 			);
 			name = "React-logger";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/logger";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/logger";
 			sourceTree = "<group>";
 		};
 		46EB2E00000790 /* React-microtasksnativemodule */ = {
@@ -27504,7 +27504,7 @@
 				46EB2E00030D00 /* Support Files */,
 			);
 			name = "React-microtasksnativemodule";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/nativemodule/microtasks";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/nativemodule/microtasks";
 			sourceTree = "<group>";
 		};
 		46EB2E000007A0 /* React-oscompat */ = {
@@ -27515,7 +27515,7 @@
 				46EB2E00030D70 /* Support Files */,
 			);
 			name = "React-oscompat";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/oscompat";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/oscompat";
 			sourceTree = "<group>";
 		};
 		46EB2E000007B0 /* React-perflogger */ = {
@@ -27527,7 +27527,7 @@
 				46EB2E00030DE0 /* Support Files */,
 			);
 			name = "React-perflogger";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/reactperflogger";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/reactperflogger";
 			sourceTree = "<group>";
 		};
 		46EB2E000007C0 /* React-performancetimeline */ = {
@@ -27545,7 +27545,7 @@
 				46EB2E00030E50 /* Support Files */,
 			);
 			name = "React-performancetimeline";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/performance/timeline";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/performance/timeline";
 			sourceTree = "<group>";
 		};
 		46EB2E000007D0 /* React-rendererconsistency */ = {
@@ -27555,7 +27555,7 @@
 				46EB2E00030EC0 /* Support Files */,
 			);
 			name = "React-rendererconsistency";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/renderer/consistency";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/renderer/consistency";
 			sourceTree = "<group>";
 		};
 		46EB2E000007E0 /* React-renderercss */ = {
@@ -27591,7 +27591,7 @@
 				46EB2E00030F30 /* Support Files */,
 			);
 			name = "React-renderercss";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/renderer/css";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/renderer/css";
 			sourceTree = "<group>";
 		};
 		46EB2E000007F0 /* React-rendererdebug */ = {
@@ -27605,7 +27605,7 @@
 				46EB2E00030FA0 /* Support Files */,
 			);
 			name = "React-rendererdebug";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/renderer/debug";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/renderer/debug";
 			sourceTree = "<group>";
 		};
 		46EB2E00000800 /* React-runtimeexecutor */ = {
@@ -27617,7 +27617,7 @@
 				46EB2E00031010 /* Support Files */,
 			);
 			name = "React-runtimeexecutor";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/runtimeexecutor";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/runtimeexecutor";
 			sourceTree = "<group>";
 		};
 		46EB2E00000810 /* React-runtimescheduler */ = {
@@ -27637,7 +27637,7 @@
 				46EB2E00031080 /* Support Files */,
 			);
 			name = "React-runtimescheduler";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/renderer/runtimescheduler";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/renderer/runtimescheduler";
 			sourceTree = "<group>";
 		};
 		46EB2E00000820 /* React-timing */ = {
@@ -27648,7 +27648,7 @@
 				46EB2E000310F0 /* Support Files */,
 			);
 			name = "React-timing";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/timing";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/timing";
 			sourceTree = "<group>";
 		};
 		46EB2E00000830 /* React-utils */ = {
@@ -27675,7 +27675,7 @@
 				46EB2E00031160 /* Support Files */,
 			);
 			name = "React-utils";
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/react/utils";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/react/utils";
 			sourceTree = "<group>";
 		};
 		46EB2E00000840 /* ReactAppDependencyProvider */ = {
@@ -27747,7 +27747,7 @@
 				46EB2E000114A0 /* turbomodule */,
 			);
 			name = ReactCommon;
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon";
 			sourceTree = "<group>";
 		};
 		46EB2E00000870 /* ReactNativeDependencies */ = {
@@ -29482,7 +29482,7 @@
 				46EB2E000325F0 /* Support Files */,
 			);
 			name = SDWebImage;
-			path = CloudSources/SDWebImage;
+			path = SDWebImage;
 			sourceTree = "<group>";
 		};
 		46EB2E000008A0 /* SDWebImageAVIFCoder */ = {
@@ -29498,7 +29498,7 @@
 				46EB2E000330F0 /* Support Files */,
 			);
 			name = SDWebImageAVIFCoder;
-			path = CloudSources/SDWebImageAVIFCoder;
+			path = SDWebImageAVIFCoder;
 			sourceTree = "<group>";
 		};
 		46EB2E000008B0 /* SDWebImageSVGCoder */ = {
@@ -29512,7 +29512,7 @@
 				46EB2E00033280 /* Support Files */,
 			);
 			name = SDWebImageSVGCoder;
-			path = CloudSources/SDWebImageSVGCoder;
+			path = SDWebImageSVGCoder;
 			sourceTree = "<group>";
 		};
 		46EB2E000008C0 /* SDWebImageWebPCoder */ = {
@@ -29530,7 +29530,7 @@
 				46EB2E00033430 /* Support Files */,
 			);
 			name = SDWebImageWebPCoder;
-			path = CloudSources/SDWebImageWebPCoder;
+			path = SDWebImageWebPCoder;
 			sourceTree = "<group>";
 		};
 		46EB2E000008D0 /* VeloraSystemCalls */ = {
@@ -29553,7 +29553,7 @@
 				46EB2E000338B0 /* Support Files */,
 			);
 			name = WatermelonDB;
-			path = CloudSources/WatermelonDB;
+			path = "../../node_modules/.pnpm/@nozbe+watermelondb@0.28.0/node_modules/@nozbe/watermelondb";
 			sourceTree = "<group>";
 		};
 		46EB2E000008F0 /* Yoga */ = {
@@ -29580,7 +29580,7 @@
 				46EB2E00033990 /* Support Files */,
 			);
 			name = Yoga;
-			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_supports-color@10.2.2/node_modules/react-native/ReactCommon/yoga";
+			path = "../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/yoga";
 			sourceTree = "<group>";
 		};
 		46EB2E00000900 /* ZXingObjC */ = {
@@ -29592,7 +29592,7 @@
 				46EB2E00034F60 /* Support Files */,
 			);
 			name = ZXingObjC;
-			path = CloudSources/ZXingObjC;
+			path = ZXingObjC;
 			sourceTree = "<group>";
 		};
 		46EB2E00000910 /* expo-dev-client */ = {
@@ -29637,7 +29637,7 @@
 				46EB2E0001AC50 /* Unsafe */,
 			);
 			name = "expo-dev-launcher";
-			path = CloudSources/expo-dev-launcher;
+			path = "../../node_modules/.pnpm/expo-dev-launcher@6.0.21_expo@54.0.35/node_modules/expo-dev-launcher";
 			sourceTree = "<group>";
 		};
 		46EB2E00000930 /* expo-dev-menu */ = {
@@ -29666,7 +29666,7 @@
 				46EB2E0001AE50 /* SwiftUI */,
 			);
 			name = "expo-dev-menu";
-			path = CloudSources/expo-dev-menu;
+			path = "../../node_modules/.pnpm/expo-dev-menu@7.0.19_expo@54.0.35/node_modules/expo-dev-menu";
 			sourceTree = "<group>";
 		};
 		46EB2E00000940 /* expo-dev-menu-interface */ = {
@@ -29679,7 +29679,7 @@
 				46EB2E00035B90 /* Support Files */,
 			);
 			name = "expo-dev-menu-interface";
-			path = CloudSources/expo-dev-menu-interface;
+			path = "../../node_modules/.pnpm/expo-dev-menu-interface@2.0.0_expo@54.0.35/node_modules/expo-dev-menu-interface/ios";
 			sourceTree = "<group>";
 		};
 		46EB2E00000950 /* hermes-engine */ = {
@@ -29700,7 +29700,7 @@
 				46EB2E00035E90 /* Support Files */,
 			);
 			name = libavif;
-			path = CloudSources/libavif;
+			path = libavif;
 			sourceTree = "<group>";
 		};
 		46EB2E00000970 /* libdav1d */ = {
@@ -29846,7 +29846,7 @@
 				46EB2E00036860 /* Support Files */,
 			);
 			name = libdav1d;
-			path = CloudSources/libdav1d;
+			path = libdav1d;
 			sourceTree = "<group>";
 		};
 		46EB2E00000980 /* libwebp */ = {
@@ -29859,7 +29859,7 @@
 				46EB2E0001BE10 /* webp */,
 			);
 			name = libwebp;
-			path = CloudSources/libwebp;
+			path = libwebp;
 			sourceTree = "<group>";
 		};
 		46EB2E00000990 /* nanopb */ = {
@@ -29905,7 +29905,7 @@
 				46EB2E0001CC60 /* views */,
 			);
 			name = "react-native-keyboard-controller";
-			path = "CloudSources/react-native-keyboard-controller";
+			path = "../../node_modules/.pnpm/react-native-keyboard-controller@1.21.7_react-native-reanimated@4.1.7_react-native-worklets@0_xlwmw7tchtolek7lbuvu5kexha/node_modules/react-native-keyboard-controller";
 			sourceTree = "<group>";
 		};
 		46EB2E000009B0 /* react-native-pager-view */ = {
@@ -29934,7 +29934,7 @@
 				46EB2E000380D0 /* Support Files */,
 			);
 			name = "react-native-pager-view";
-			path = "CloudSources/react-native-pager-view";
+			path = "../../node_modules/.pnpm/react-native-pager-view@6.8.0_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0__react@19.1.0/node_modules/react-native-pager-view";
 			sourceTree = "<group>";
 		};
 		46EB2E000009C0 /* react-native-safe-area-context */ = {
@@ -29970,7 +29970,7 @@
 				46EB2E00038420 /* Support Files */,
 			);
 			name = "react-native-safe-area-context";
-			path = "CloudSources/react-native-safe-area-context";
+			path = "../../node_modules/.pnpm/react-native-safe-area-context@5.6.2_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1_gady5hfcei6vn44ywdyhwdxnau/node_modules/react-native-safe-area-context";
 			sourceTree = "<group>";
 		};
 		46EB2E000009D0 /* react-native-skia */ = {
@@ -29983,7 +29983,7 @@
 				46EB2E0003AC00 /* Support Files */,
 			);
 			name = "react-native-skia";
-			path = "../../node_modules/.pnpm/@shopify+react-native-skia@2.2.12_react-native-reanimated@4.1.7_react-native-worklets@0.5.1_@_zce5y6vf7xfwsgjhvc7fpoxxe4/node_modules/@shopify/react-native-skia";
+			path = "../../node_modules/.pnpm/@shopify+react-native-skia@2.2.12_react-native-reanimated@4.1.7_react-native-worklets@0.5.1_@_hnsgch2tcp4hr6r5uiopszgwkm/node_modules/@shopify/react-native-skia";
 			sourceTree = "<group>";
 		};
 		46EB2E000009E0 /* react-native-webrtc */ = {
@@ -30040,7 +30040,7 @@
 				46EB2E000200A0 /* videoEffects */,
 			);
 			name = "react-native-webrtc";
-			path = CloudSources/react-native-webrtc;
+			path = "../../node_modules/.pnpm/react-native-webrtc@124.0.7_react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0_/node_modules/react-native-webrtc";
 			sourceTree = "<group>";
 		};
 		46EB2E000009F0 /* simdjson */ = {
@@ -40457,7 +40457,7 @@
 				46EB2E00032F60 /* SDWebImage.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../Target Support Files/SDWebImage";
+			path = "../Target Support Files/SDWebImage";
 			sourceTree = "<group>";
 		};
 		46EB2E000330F0 /* Support Files */ = {
@@ -40472,7 +40472,7 @@
 				46EB2E00033110 /* SDWebImageAVIFCoder.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../Target Support Files/SDWebImageAVIFCoder";
+			path = "../Target Support Files/SDWebImageAVIFCoder";
 			sourceTree = "<group>";
 		};
 		46EB2E00033280 /* Support Files */ = {
@@ -40486,7 +40486,7 @@
 				46EB2E000332A0 /* SDWebImageSVGCoder.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../Target Support Files/SDWebImageSVGCoder";
+			path = "../Target Support Files/SDWebImageSVGCoder";
 			sourceTree = "<group>";
 		};
 		46EB2E00033430 /* Support Files */ = {
@@ -40500,7 +40500,7 @@
 				46EB2E00033450 /* SDWebImageWebPCoder.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../Target Support Files/SDWebImageWebPCoder";
+			path = "../Target Support Files/SDWebImageWebPCoder";
 			sourceTree = "<group>";
 		};
 		46EB2E00033560 /* Support Files */ = {
@@ -40530,7 +40530,7 @@
 				46EB2E000338D0 /* WatermelonDB.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../Target Support Files/WatermelonDB";
+			path = "../../../../../../ios/Pods/Target Support Files/WatermelonDB";
 			sourceTree = "<group>";
 		};
 		46EB2E00033990 /* Support Files */ = {
@@ -40555,7 +40555,7 @@
 				46EB2E00034F80 /* ZXingObjC.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../Target Support Files/ZXingObjC";
+			path = "../Target Support Files/ZXingObjC";
 			sourceTree = "<group>";
 		};
 		46EB2E00035040 /* Support Files */ = {
@@ -40581,7 +40581,7 @@
 				46EB2E000351B0 /* ResourceBundle-EXDevLauncher-expo-dev-launcher-Info.plist */,
 			);
 			name = "Support Files";
-			path = "../../../../ios/Pods/Target Support Files/expo-dev-launcher";
+			path = "../../../../../ios/Pods/Target Support Files/expo-dev-launcher";
 			sourceTree = "<group>";
 		};
 		46EB2E000357A0 /* Support Files */ = {
@@ -40596,7 +40596,7 @@
 				46EB2E000357B0 /* ResourceBundle-EXDevMenu-expo-dev-menu-Info.plist */,
 			);
 			name = "Support Files";
-			path = "../../Target Support Files/expo-dev-menu";
+			path = "../../../../../ios/Pods/Target Support Files/expo-dev-menu";
 			sourceTree = "<group>";
 		};
 		46EB2E00035B90 /* Support Files */ = {
@@ -40611,7 +40611,7 @@
 				46EB2E00035BB0 /* expo-dev-menu-interface.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../Target Support Files/expo-dev-menu-interface";
+			path = "../../../../../../ios/Pods/Target Support Files/expo-dev-menu-interface";
 			sourceTree = "<group>";
 		};
 		46EB2E00035C70 /* Support Files */ = {
@@ -40637,7 +40637,7 @@
 				46EB2E00035EB0 /* libavif.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../Target Support Files/libavif";
+			path = "../Target Support Files/libavif";
 			sourceTree = "<group>";
 		};
 		46EB2E00036860 /* Support Files */ = {
@@ -40652,7 +40652,7 @@
 				46EB2E00036880 /* libdav1d.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../Target Support Files/libdav1d";
+			path = "../Target Support Files/libdav1d";
 			sourceTree = "<group>";
 		};
 		46EB2E00037480 /* Support Files */ = {
@@ -40667,7 +40667,7 @@
 				46EB2E000374A0 /* libwebp.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../Target Support Files/libwebp";
+			path = "../Target Support Files/libwebp";
 			sourceTree = "<group>";
 		};
 		46EB2E00037650 /* Support Files */ = {
@@ -40698,7 +40698,7 @@
 				46EB2E00037E70 /* react-native-keyboard-controller.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../../../ios/Pods/Target Support Files/react-native-keyboard-controller";
+			path = "../../../../../ios/Pods/Target Support Files/react-native-keyboard-controller";
 			sourceTree = "<group>";
 		};
 		46EB2E000380D0 /* Support Files */ = {
@@ -40713,7 +40713,7 @@
 				46EB2E000380F0 /* react-native-pager-view.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../../../ios/Pods/Target Support Files/react-native-pager-view";
+			path = "../../../../../ios/Pods/Target Support Files/react-native-pager-view";
 			sourceTree = "<group>";
 		};
 		46EB2E00038420 /* Support Files */ = {
@@ -40728,7 +40728,7 @@
 				46EB2E00038440 /* react-native-safe-area-context.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../../../ios/Pods/Target Support Files/react-native-safe-area-context";
+			path = "../../../../../ios/Pods/Target Support Files/react-native-safe-area-context";
 			sourceTree = "<group>";
 		};
 		46EB2E0003AC00 /* Support Files */ = {
@@ -40759,7 +40759,7 @@
 				46EB2E0003B0A0 /* react-native-webrtc.release.xcconfig */,
 			);
 			name = "Support Files";
-			path = "../../Target Support Files/react-native-webrtc";
+			path = "../../../../../ios/Pods/Target Support Files/react-native-webrtc";
 			sourceTree = "<group>";
 		};
 		46EB2E0003B1E0 /* Support Files */ = {
@@ -47343,7 +47343,7 @@
 			name = "[CP-User] [RNDeps] Replace React Native Core for the right configuration, if needed";
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "      . \"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\n\n      CONFIG=\"Release\"\n      if echo $GCC_PREPROCESSOR_DEFINITIONS | grep -q \"DEBUG=1\"; then\n        CONFIG=\"Debug\"\n      fi\n\n      if \"$NODE_BINARY\" -e \"require.resolve('yargs')\" >/dev/null 2>&1; then\n        \"$NODE_BINARY\" \"$REACT_NATIVE_PATH/scripts/replace-rncore-version.js\" -c \"$CONFIG\" -r \"0.81.5\" -p \"$PODS_ROOT\"\n      else\n        echo \"Skipping React Native Core replacement because yargs is unavailable\"\n      fi\n";
+			shellScript = "      . \"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\n\n      CONFIG=\"Release\"\n      if echo $GCC_PREPROCESSOR_DEFINITIONS | grep -q \"DEBUG=1\"; then\n        CONFIG=\"Debug\"\n      fi\n\n      \"$NODE_BINARY\" \"$REACT_NATIVE_PATH/scripts/replace-rncore-version.js\" -c \"$CONFIG\" -r \"0.81.5\" -p \"$PODS_ROOT\"\n";
 		};
 		46EB2E0003B430 /* [CP-User] [RN]Check FBReactNativeSpec */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -47369,7 +47369,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "pushd \"$PODS_ROOT/../\" > /dev/null\nRCT_SCRIPT_POD_INSTALLATION_ROOT=$(pwd)\npopd >/dev/null\n\nexport RCT_SCRIPT_RN_DIR=\"$PODS_ROOT/CloudSources/react-native\"\nexport RCT_SCRIPT_APP_PATH=\"$RCT_SCRIPT_POD_INSTALLATION_ROOT/..\"\nexport RCT_SCRIPT_OUTPUT_DIR=\"$RCT_SCRIPT_POD_INSTALLATION_ROOT\"\nexport RCT_SCRIPT_TYPE=\"withCodegenDiscovery\"\n\nexport SCRIPT_PHASES_SCRIPT=\"$RCT_SCRIPT_RN_DIR/scripts/react_native_pods_utils/script_phases.sh\"\nexport WITH_ENVIRONMENT=\"$RCT_SCRIPT_RN_DIR/scripts/xcode/with-environment.sh\"\n/bin/sh -c '\"$WITH_ENVIRONMENT\" \"$SCRIPT_PHASES_SCRIPT\"'\n";
+			shellScript = "pushd \"$PODS_ROOT/../\" > /dev/null\nRCT_SCRIPT_POD_INSTALLATION_ROOT=$(pwd)\npopd >/dev/null\n\nexport RCT_SCRIPT_RN_DIR=\"$RCT_SCRIPT_POD_INSTALLATION_ROOT/../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native\"\nexport RCT_SCRIPT_APP_PATH=\"$RCT_SCRIPT_POD_INSTALLATION_ROOT/..\"\nexport RCT_SCRIPT_OUTPUT_DIR=\"$RCT_SCRIPT_POD_INSTALLATION_ROOT\"\nexport RCT_SCRIPT_TYPE=\"withCodegenDiscovery\"\n\nexport SCRIPT_PHASES_SCRIPT=\"$RCT_SCRIPT_RN_DIR/scripts/react_native_pods_utils/script_phases.sh\"\nexport WITH_ENVIRONMENT=\"$RCT_SCRIPT_RN_DIR/scripts/xcode/with-environment.sh\"\n/bin/sh -c '\"$WITH_ENVIRONMENT\" \"$SCRIPT_PHASES_SCRIPT\"'\n";
 		};
 		46EB2E0003B450 /* [CP] Copy XCFrameworks */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -47397,7 +47397,7 @@
 			name = "[CP-User] [RNDeps] Replace React Native Dependencies for the right configuration, if needed";
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "      . \"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\n\n      CONFIG=\"Release\"\n      if echo $GCC_PREPROCESSOR_DEFINITIONS | grep -q \"DEBUG=1\"; then\n        CONFIG=\"Debug\"\n      fi\n\n      if \"$NODE_BINARY\" -e \"require.resolve('yargs')\" >/dev/null 2>&1; then\n        \"$NODE_BINARY\" \"$REACT_NATIVE_PATH/third-party-podspecs/replace_dependencies_version.js\" -c \"$CONFIG\" -r \"0.81.5\" -p \"$PODS_ROOT\"\n      else\n        echo \"Skipping React Native dependency replacement because yargs is unavailable\"\n      fi\n";
+			shellScript = "      . \"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\n\n      CONFIG=\"Release\"\n      if echo $GCC_PREPROCESSOR_DEFINITIONS | grep -q \"DEBUG=1\"; then\n        CONFIG=\"Debug\"\n      fi\n\n      \"$NODE_BINARY\" \"$REACT_NATIVE_PATH/third-party-podspecs/replace_dependencies_version.js\" -c \"$CONFIG\" -r \"0.81.5\" -p \"$PODS_ROOT\"\n";
 		};
 		46EB2E0003B470 /* [CP] Copy XCFrameworks */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -47424,7 +47424,7 @@
 			name = "[CP-User] [Hermes] Replace Hermes for the right configuration, if needed";
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "        . \"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\n\n        CONFIG=\"Release\"\n        if echo $GCC_PREPROCESSOR_DEFINITIONS | grep -q \"DEBUG=1\"; then\n          CONFIG=\"Debug\"\n        fi\n\n        if \"$NODE_BINARY\" -e \"require.resolve('yargs')\" >/dev/null 2>&1; then\n          \"$NODE_BINARY\" \"$REACT_NATIVE_PATH/sdks/hermes-engine/utils/replace_hermes_version.js\" -c \"$CONFIG\" -r \"0.81.5\" -p \"$PODS_ROOT\"\n        else\n          echo \"Skipping Hermes version replacement because yargs is unavailable\"\n        fi\n";
+			shellScript = "        . \"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\n\n        CONFIG=\"Release\"\n        if echo $GCC_PREPROCESSOR_DEFINITIONS | grep -q \"DEBUG=1\"; then\n          CONFIG=\"Debug\"\n        fi\n\n        \"$NODE_BINARY\" \"$REACT_NATIVE_PATH/sdks/hermes-engine/utils/replace_hermes_version.js\" -c \"$CONFIG\" -r \"0.81.5\" -p \"$PODS_ROOT\"\n";
 		};
 		46EB2E0003B490 /* [CP] Copy XCFrameworks */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -57164,7 +57164,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				REACT_NATIVE_PATH = "${PODS_ROOT}/CloudSources/react-native";
+				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native";
 				STRIP_INSTALLED_PRODUCT = NO;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
 				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
@@ -57242,7 +57242,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				REACT_NATIVE_PATH = "${PODS_ROOT}/CloudSources/react-native";
+				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@types+react@19.1.17_react@19.1.0/node_modules/react-native";
 				STRIP_INSTALLED_PRODUCT = NO;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_ENABLE_EXPLICIT_MODULES = NO;

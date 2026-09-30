@@ -1,5 +1,7 @@
 import { Platform } from 'react-native'
 
+import { GROUP_LIFECYCLE_VERSION } from '../lib/call/callConstants'
+
 import { apiClient } from './client'
 
 export type RegisterPushTokenInput = {
@@ -29,6 +31,7 @@ export async function registerPushToken(input: RegisterPushTokenInput) {
       token: input.token,
       deviceId: input.deviceId,
       appVersion: input.appVersion,
+      groupLifecycleVersion: GROUP_LIFECYCLE_VERSION,
       lifecycleVersion: input.lifecycleVersion,
     },
     {
@@ -50,6 +53,7 @@ export async function registerVoipPushToken(input: RegisterVoipPushTokenInput) {
       token: input.token,
       deviceId: input.deviceId,
       appVersion: input.appVersion,
+      groupLifecycleVersion: GROUP_LIFECYCLE_VERSION,
       lifecycleVersion: input.lifecycleVersion,
       bundleId: input.bundleId,
       deliveryEnvironment: input.deliveryEnvironment,

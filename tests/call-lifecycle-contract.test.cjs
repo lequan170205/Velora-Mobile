@@ -40,7 +40,24 @@ test('call lifecycle only moves forward and terminal outcomes always win', () =>
   assert.equal(lifecycle.reduceCallLifecycle('audio_ready', 'server_accepting'), 'audio_ready')
   assert.equal(lifecycle.reduceCallLifecycle('server_accepting', 'cancelled'), 'cancelled')
   assert.equal(lifecycle.reduceCallLifecycle('cancelled', 'active'), 'cancelled')
-  assert.equal(lifecycle.reduceCallLifecycle('answered_elsewhere', 'audio_ready'), 'answered_elsewhere')
+  assert.equal(
+    lifecycle.reduceCallLifecycle('answered_elsewhere', 'audio_ready'),
+    'answered_elsewhere',
+  )
+})
+
+test('recent terminal call IDs suppress delayed invitations without unbounded growth', () => {
+  const terminalCalls = new Set()
+  lifecycle.rememberTerminalCall(terminalCalls, 'ended-before-invite')
+  assert.equal(terminalCalls.has('ended-before-invite'), true)
+  lifecycle.rememberTerminalCall(terminalCalls, 'ended-before-invite')
+  assert.equal(terminalCalls.size, 1)
+  for (let index = 0; index < 256; index++) {
+    lifecycle.rememberTerminalCall(terminalCalls, `terminal-${index}`)
+  }
+  assert.equal(terminalCalls.size, 256)
+  assert.equal(terminalCalls.has('ended-before-invite'), false)
+  assert.equal(terminalCalls.has('terminal-255'), true)
 })
 
 test('native journal keeps action ordering, completion, expiry and watchdog guarantees', () => {
@@ -58,9 +75,16 @@ test('native journal keeps action ordering, completion, expiry and watchdog guar
   assert.match(source, /action: "resume"/)
   assert.match(source, /answerActionId/)
   assert.match(source, /isExplicitlyAnsweredElsewhere/)
-  assert.match(source, /localWinningAnswerActionId != answerActionId/)
-  assert.match(source, /reason: isExplicitlyAnsweredElsewhere \? "answered_elsewhere" : validation\.reason/)
-  assert.match(source, /completePendingActions\(callId: callId, action: "resume", outcome: "active"\)/)
+  assert.match(source, /!matchesWinner\(localWinningAnswerActionId\)/)
+  assert.match(source, /answerActionHash == SHA256\.hash/)
+  assert.match(
+    source,
+    /reason: isExplicitlyAnsweredElsewhere \? "answered_elsewhere" : validation\.reason/,
+  )
+  assert.match(
+    source,
+    /completePendingActions\(callId: callId, action: "resume", outcome: "active"\)/,
+  )
   assert.match(source, /pendingAnswerWatchdogTimeout/)
   assert.match(source, /schedulePendingAnswerWatchdog/)
   assert.match(source, /cancelPendingAnswerWatchdog/)
@@ -115,6 +139,72 @@ test('native journal keeps action ordering, completion, expiry and watchdog guar
   assert.match(androidNotifications, /completePendingAnswer\(\s*context,\s*pendingAnswerActionId/)
   assert.match(androidNotifications, /cancelPendingAnswerWatchdog\(context, callId\)/)
   assert.match(androidNotifications, /if \(isExplicitlyAnsweredElsewhere\) "ended" else status/)
+})
+
+test('failed iOS end transaction still clears an observed active native call', () => {
+  const source = read('modules/velora-system-calls/ios/VeloraSystemCallsModule.swift')
+  const endCall = source.slice(
+    source.indexOf('  func endCall(callId:'),
+    source.indexOf('  func reportCallFailed(callId:'),
+  )
+  assert.match(
+    endCall,
+    /if let error \{[\s\S]*?if !self\.clearCallIfObserverConfirmsMissing\(callId: callId, uuid: uuid\) \{[\s\S]*?self\.provider\.reportCall\(with: uuid, endedAt: Date\(\), reason: \.failed\)[\s\S]*?self\.clearCall\(callId: callId\)/,
+  )
+})
+
+test('iOS remembers a local terminal before CallKit mapping exists so a late push cannot re-ring', () => {
+  const source = read('modules/velora-system-calls/ios/VeloraSystemCallsModule.swift')
+  const endCall = source.slice(
+    source.indexOf('  func endCall(callId:'),
+    source.indexOf('  func reportCallFailed(callId:'),
+  )
+  const failed = source.slice(
+    source.indexOf('  func reportCallFailed(callId:'),
+    source.indexOf('  func pushRegistry('),
+  )
+  const incoming = source.slice(
+    source.indexOf('  private func reportIncomingCall('),
+    source.indexOf('  func registerOutgoingCall('),
+  )
+  assert.match(
+    endCall,
+    /rememberLocalTerminalCall\(callId: callId\)[\s\S]*guard let uuid = uuidsByCallId\[callId\]/,
+  )
+  assert.match(
+    failed,
+    /rememberLocalTerminalCall\(callId: callId\)[\s\S]*guard let uuid = uuidsByCallId\[callId\]/,
+  )
+  assert.match(
+    source,
+    /private func rememberLocalTerminalCall\(callId: String\) \{[\s\S]*?storeRemoteCallStateUpdate\(\s*callId: callId,\s*update: PendingCallStateUpdate\(/,
+  )
+  assert.match(
+    incoming,
+    /remoteCallStateUpdatesByCallId\[callId\][\s\S]*?incoming_call_suppressed_by_remote_call_state/,
+  )
+  assert.match(
+    source,
+    /rememberLocalTerminalCall\(callId: callId\)[\s\S]*?clearCall\(callId: callId\)/,
+  )
+  assert.match(
+    source,
+    /assert\(remoteCallStateUpdatesByCallId\[localTerminalCallId\]\?\.status == "ended"\)/,
+  )
+})
+
+test('iOS diagnostics hash native identifiers and never merge opaque extras into logs', () => {
+  const source = read('modules/velora-system-calls/ios/VeloraSystemCallsModule.swift')
+  const logs = source.slice(
+    source.indexOf('  private func logOperationalNotice('),
+    source.indexOf('  func activateSimulatorAudioSession('),
+  )
+  assert.match(logs, /private func diagnosticHash\(/)
+  assert.match(logs, /"callIdHash": diagnosticHash\(callId\)/)
+  assert.match(logs, /"callUuidHash": diagnosticHash\(callUuid\?\.uuidString\)/)
+  assert.doesNotMatch(logs, /"callId": callId \?\? NSNull\(\)/)
+  assert.doesNotMatch(logs, /extra\.forEach/)
+  assert.doesNotMatch(logs, /payload\["errorMessage"\]/)
 })
 
 test('cold-start bridge stays UI-free and scopes prewarm work to the authenticated account', () => {
@@ -193,7 +283,10 @@ test('remote call-state updates reach the native reducers before React mounts', 
     assert.match(androidManifest, /VeloraFirebaseMessagingReceiver/)
     assert.match(androidManifest, /com\.google\.android\.c2dm\.intent\.RECEIVE/)
   }
-  assert.match(androidReceiver, /"CALL_STATE_UPDATE"\s*->\s*VeloraCallNotifications\.handleCallStateUpdate/)
+  assert.match(
+    androidReceiver,
+    /"CALL_STATE_UPDATE"\s*->\s*VeloraCallNotifications\.handleCallStateUpdate/,
+  )
   assert.match(androidPlugin, /VeloraFirebaseMessagingReceiver/)
   assert.match(androidPlugin, /com\.google\.android\.c2dm\.intent\.RECEIVE/)
 })
