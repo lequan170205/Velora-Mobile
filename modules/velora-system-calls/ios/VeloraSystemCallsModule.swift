@@ -44,6 +44,7 @@ private let systemCallsLogger = Logger(subsystem: "com.quan.velora", category: "
 private let pendingActionJournalAllowedKeys: Set<String> = [
   "type",
   "callId",
+  "roomCallId",
   "conversationId",
   "initiatorId",
   "targetUserId",
@@ -2742,6 +2743,13 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
         "missing_call_id",
         "Incoming VoIP payload is missing a non-empty callId."
       )
+    }
+
+    if payload["roomCallId"] != nil {
+      guard payload["isGroupCall"] as? Bool == true,
+            let roomCallId = nonEmptyString(payload["roomCallId"]), roomCallId.count <= 128 else {
+        return (false, callId, "invalid_room_call_id", "Room identity requires a valid group invitation.")
+      }
     }
 
     if let callType = nonEmptyString(payload["callType"]),

@@ -74,6 +74,9 @@ class VeloraNativeCallLifecycleTest {
 
     assertNull(VeloraSystemCallStore.getCurrentCall(context))
     assertEquals("remote_end", VeloraSystemCallStore.getPendingAction(context)?.get("action"))
+    // A fresh invitation uses another native identity; the old tombstone stays fenced.
+    assertTrue(VeloraSystemCallStore.beginRingingCall(context, "fresh-invitation", null))
+    assertFalse(VeloraSystemCallStore.beginRingingCall(context, callId, null))
     assertNull(shadowOf(notificationManager).getNotification(ringingId))
     assertNull(shadowOf(notificationManager).getNotification(ongoingId))
     assertEquals(
@@ -262,6 +265,8 @@ class VeloraNativeCallLifecycleTest {
         "type" to "INCOMING_CALL",
         "callId" to callId,
         "conversationId" to "conversation-1",
+        "roomCallId" to "room-1",
+        "isGroupCall" to true,
         "initiatorId" to "user-2",
         "targetUserId" to "user-1",
         "recipientUserId" to "user-1",
@@ -281,6 +286,7 @@ class VeloraNativeCallLifecycleTest {
 
     assertEquals(callId, action?.get("callId"))
     assertEquals("conversation-1", action?.get("conversationId"))
+    assertEquals("room-1", action?.get("roomCallId"))
     assertEquals("user-2", action?.get("initiatorId"))
     assertNull(action?.get("telemetryToken"))
     assertNull(action?.get("authorization"))

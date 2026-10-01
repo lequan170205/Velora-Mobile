@@ -8,12 +8,12 @@ const source = fs.readFileSync(
   'utf8',
 )
 
-test('FCM and VoIP registration explicitly declare group lifecycle v2', () => {
+test('FCM and VoIP registration explicitly declare invitation-aware group lifecycle v3', () => {
   const constants = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'lib', 'call', 'callConstants.ts'),
     'utf8',
   )
-  assert.match(constants, /export const GROUP_LIFECYCLE_VERSION = 2/)
+  assert.match(constants, /export const GROUP_LIFECYCLE_VERSION = 3/)
   assert.match(source, /import \{ GROUP_LIFECYCLE_VERSION \} from '\.\.\/lib\/call\/callConstants'/)
 
   const fcmRegistration = source.slice(

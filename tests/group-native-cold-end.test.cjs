@@ -20,6 +20,29 @@ const load = (file, mocks) => {
   return result.exports
 }
 
+test('native bridge keeps invitation tombstones separate and translates cold journal actions to the live room', async () => {
+  const ended = []
+  let raw = {type: 'INCOMING_CALL', action: 'answer', actionId: 'answer-1', callId: 'invite-new', roomCallId: 'room', isGroupCall: true}
+  let current = {callId: 'room', groupInvitationId: 'invite-new'}
+  const {veloraSystemCalls} = load('src/lib/systemCalls/veloraSystemCalls.ts', {
+    expo: {requireOptionalNativeModule: () => ({getPendingCallAction: () => raw, endCall: async (id) => {ended.push(id); return {success: true}}, dismissIncomingCall: async (id) => {ended.push(id); return {success: true}}})},
+    'expo-device': {isDevice: true},
+    'react-native': {Platform: {OS: 'ios'}},
+    '../../stores/callStore': {useCallStore: {getState: () => current}},
+  })
+  assert.deepEqual(veloraSystemCalls.getPendingCallAction(), {...raw, callId: 'room', invitationId: 'invite-new'})
+  await veloraSystemCalls.endCall('room')
+  await veloraSystemCalls.endCall('invite-old')
+  assert.deepEqual(ended, ['invite-new', 'invite-old'])
+  await veloraSystemCalls.dismissIncomingCall('room', 'room')
+  assert.equal(ended.at(-1), 'room')
+  current = {callId: null, groupInvitationId: null}
+  assert.equal(veloraSystemCalls.getPendingCallAction().callId, 'room')
+  assert.equal(veloraSystemCalls.getPendingCallAction().invitationId, 'invite-new')
+  raw = {...raw, callId: 'initial-room', roomCallId: undefined}
+  assert.equal(veloraSystemCalls.getPendingCallAction().invitationId, 'initial-room')
+})
+
 test('winning action is device-bound and isolated by account and call', async () => {
   const stored = new Map()
   const secureStore = {
@@ -40,6 +63,17 @@ test('winning action is device-bound and isolated by account and call', async ()
   assert.equal(await groupWinnerAction.load('guest-a', 'call-2'), null)
   await groupWinnerAction.clear('guest-a', 'call-1')
   assert.equal(await groupWinnerAction.load('guest-a', 'call-1'), null)
+  await groupWinnerAction.save('guest-a', 'call-1', 'old-winner')
+  await Promise.all([
+    groupWinnerAction.save('guest-a', 'call-1', 'new-winner'),
+    groupWinnerAction.clear('guest-a', 'call-1', 'old-winner'),
+  ])
+  assert.equal(await groupWinnerAction.load('guest-a', 'call-1'), 'new-winner')
+  await Promise.all([
+    groupWinnerAction.clear('guest-a', 'call-1', 'new-winner'),
+    groupWinnerAction.save('guest-a', 'call-1', 'newest-winner'),
+  ])
+  assert.equal(await groupWinnerAction.load('guest-a', 'call-1'), 'newest-winner')
   await assert.rejects(
     async () => groupWinnerAction.load('guest/a', 'call-1'),
     /Invalid group call identity/,
@@ -51,6 +85,8 @@ const coldEndHarness = (
   action = 'end',
   rejoinFails = false,
   leaveFails = false,
+  callStateOverride = {},
+  uiState = {phase: 'idle', callId: null},
 ) => {
   const events = []
   const pending = { action, actionId: 'end-1', callId: 'call-1', accountId: 'guest-a' }
@@ -63,18 +99,19 @@ const coldEndHarness = (
         status: 'active',
         isGroupCall: true,
         initiatorId: 'host-a',
+        ...callStateOverride,
       }),
     },
     '../../stores/authStore': {
       useAuthStore: { getState: () => ({ user: { id: 'guest-a' }, isAuthenticated: true }) },
     },
     '../../stores/callStore': {
-      useCallStore: { getState: () => ({ phase: 'idle', callId: null }) },
+      useCallStore: { getState: () => uiState },
     },
     '../systemCalls/veloraSystemCalls': {
       veloraSystemCalls: {
         clearPendingCallAction: (id) => events.push(['clear', id]),
-        dismissIncomingCall: (id) => events.push(['dismiss', id]),
+        dismissIncomingCall: (id, invitationId) => events.push(['dismiss', invitationId ?? id]),
       },
     },
     './callDebug': { safeCallErrorCode: () => 'test_error', shortCallId: () => 'short' },
@@ -82,7 +119,7 @@ const coldEndHarness = (
     './groupWinnerAction': {
       groupWinnerAction: {
         load: async () => winnerActionId,
-        clear: async () => events.push(['delete-winner']),
+        clear: async (_account, _call, proof) => events.push(['delete-winner', proof]),
       },
     },
     './callSocket': {
@@ -126,7 +163,23 @@ test('cold group guest end rejoins with winner proof before confirmed leave', as
     ['rejoin_call', 'leave_call', 'delete-winner', 'teardown', 'clear'],
   )
   assert.equal(harness.events[0][1].actionId, 'winner-1')
+  assert.equal(harness.events.find(([name]) => name === 'delete-winner')[1], 'winner-1')
   assert.equal(harness.completed.has('end-1'), true)
+})
+
+test('stale native end and remote-end cannot tear down a newer invitation', async () => {
+  for (const action of ['end', 'remote_end']) {
+    const harness = coldEndHarness('winner', action, false, false, {invitationId: 'new'}, {callId: 'call-1', phase: 'incoming_ringing', groupInvitationId: 'new'})
+    await harness.processNativeCallAction({...harness.pending, invitationId: 'old'})
+    assert.equal(harness.events.some(([event]) => event === 'teardown' || event === 'leave_call'), false)
+    assert.equal(harness.completed.has('end-1'), true)
+  }
+})
+
+test('cold stale end rejects the older invitation after the authoritative state read', async () => {
+  const harness = coldEndHarness('winner', 'end', false, false, {invitationId: 'new'})
+  await harness.processNativeCallAction({...harness.pending, invitationId: 'old'})
+  assert.deepEqual(harness.events, [['dismiss', 'old'], ['clear', 'end-1']])
 })
 
 test('missing winner proof never reports a successful leave', async () => {

@@ -659,6 +659,7 @@ const createRecoveryRuntime = ({
       './callDebug': callDebug,
       './callPolicies': {
         getGroupCallIdentityPatch: callPolicies.getGroupCallIdentityPatch,
+        getGroupInvitationPatch: callPolicies.getGroupInvitationPatch,
         isCallSetupCancelledError: (error) =>
           error instanceof Error && error.message === 'Call setup was cancelled',
         isConnectedTransportState: () => false,

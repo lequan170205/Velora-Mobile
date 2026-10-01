@@ -4,6 +4,7 @@ import type { CallType } from '../types/call.types'
 
 export type CallStateResponse = {
   callId: string
+  invitationId?: string
   conversationId: string
   initiatorId: string
   targetUserId: string

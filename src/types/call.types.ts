@@ -17,6 +17,24 @@ export type CameraFacing = 'user' | 'environment'
 export type LocalVideoActivationSource = 'post_answer' | 'user' | 'foreground' | 'recovery'
 export type AudioBitrateProfile = 'normal' | 'constrained'
 export type VideoStateUpdateStatus = 'applied' | 'stale' | 'already_applied'
+export type GroupInvitation = {
+  invitationId: string
+  expiresAt: string
+  sentAt: string
+  status: 'ringing' | 'joining' | 'in_call' | 'declined' | 'busy' | 'expired' | 'left'
+}
+export type GroupInvitationStatePayload = {
+  callId: string
+  lifecycleRevision: number
+  invitations: Record<string, GroupInvitation>
+}
+export type GroupMemberInvitedPayload = {
+  callId: string
+  userId: string
+  requestId: string
+  outcome:
+    'sent' | 'already_sent' | 'cooldown' | 'busy' | 'joined' | 'full' | 'forbidden' | 'terminal'
+}
 
 export interface LocalVideoSyncState {
   desiredEnabled: boolean
@@ -35,6 +53,8 @@ export interface CallSessionPayload {
   groupName?: string
   groupAvatarUrl?: string
   groupIdentityRevision?: number
+  groupInvitations?: Record<string, GroupInvitation>
+  lifecycleRevision?: number
   recipientUserId?: string
   initiatorDisplayName?: string
   initiatorAvatarUrl?: string
@@ -77,10 +97,12 @@ export interface AnswerCallPayload extends JoinCallPayload {
  */
 export interface AcceptIncomingCallPayload extends JoinCallPayload {
   actionId: string
+  invitationId?: string
 }
 
 export interface RejectCallPayload {
   callId: string
+  invitationId?: string
   reason?: string
 }
 
@@ -190,6 +212,7 @@ export interface SetVideoEnabledPayload {
 
 export interface IncomingCallPayload {
   callId: string
+  invitationId?: string
   conversationId: string
   initiatorId: string
   targetUserId: string
@@ -374,6 +397,7 @@ export interface VideoStateUpdatedPayload {
 }
 
 export interface CallAnsweredPayload {
+  invitationId?: string
   callId: string
   userId: string
   /** The server-owned answer attempt that won this call. */
@@ -383,6 +407,8 @@ export interface CallAnsweredPayload {
 }
 
 export interface CallRejectedPayload {
+  isGroupCall?: boolean
+  invitationId?: string
   callId: string
   userId: string
   reason: string
@@ -406,6 +432,8 @@ export interface PeerReconnectedPayload {
 }
 
 export interface CallEndedPayload {
+  invitationId?: string
+  groupInvitationIds?: Record<string, string>
   callId: string
   reason: string
 }
@@ -432,6 +460,8 @@ export interface GroupCallIdentityChangedPayload {
 }
 
 export interface CallServerEvents {
+  group_invitation_state: (payload: GroupInvitationStatePayload) => void
+  group_member_invited: (payload: GroupMemberInvitedPayload) => void
   call_socket_ready: (payload: CallSocketReadyPayload) => void
   incoming_call: (payload: IncomingCallPayload) => void
   call_joined: (payload: CallJoinedPayload) => void
@@ -466,6 +496,7 @@ export interface CallServerEvents {
 }
 
 export interface CallClientEvents {
+  invite_group_member: (payload: { callId: string; userId: string; requestId: string }) => void
   initiate_call: (payload: InitiateCallPayload) => void
   join_group_call: (payload: AcceptIncomingCallPayload) => void
   join_call: (payload: JoinCallPayload) => void
@@ -500,6 +531,10 @@ export interface CallUiState {
   peerAvatarUrl: string | null
   isGroupCall: boolean
   groupIdentityRevision: number
+  groupInvitationId: string | null
+  groupHostUserId: string | null
+  groupInvitations: Record<string, GroupInvitation>
+  groupInvitationRevision: number
   groupParticipantIds: string[]
   groupReconnectingUserIds: string[]
   groupMicStates: Record<string, { producerId: string; enabled: boolean | null; revision: number }>
@@ -533,6 +568,7 @@ export type StartVoiceCallInput = StartCallInput
 export type StartVideoCallInput = StartCallInput
 
 export interface UseCallValue {
+  inviteGroupMember: (userId: string, requestId: string) => Promise<GroupMemberInvitedPayload>
   startVoiceCall: (input: StartVoiceCallInput) => Promise<void>
   joinGroupCall: (input: {
     callId: string

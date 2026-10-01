@@ -198,7 +198,7 @@ test('group People exposes mic state as readable text, with an unknown fallback'
 
 test('group call labels host ending separately from guest leaving', () => {
   const screen = read('app/call/[id].tsx')
-  assert.match(screen, /const isGroupHost = isGroupCall && direction === 'outgoing'/)
+  assert.match(screen, /const isGroupHost = isGroupCall && groupHostUserId === currentUser\?\.id/)
   assert.match(screen, /Alert\.alert\('End group call\?', 'This will end the call for everyone\.'/)
   assert.match(screen, /isGroupHost \? 'End call for everyone' : 'Leave call'/)
   assert.match(screen, /Waiting for others to join…/)

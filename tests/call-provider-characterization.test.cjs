@@ -108,6 +108,51 @@ const callPoliciesModule = loadTypeScriptModule(path.join(root, 'src/lib/call/ca
   './callSocket': callSocketModule,
 })
 
+test('group invitation snapshots fence regressions without changing media, roster or duration', () => {
+  const state = {callId: 'room', phase: 'active', isGroupCall: true, groupInvitationRevision: 2, durationSec: 80, remoteAudioState: 'connected'}
+  const invitations = {guest: {invitationId: 'new-invite', sentAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 30000).toISOString(), status: 'declined'}}
+  const payload = {callId: 'room', lifecycleRevision: 3, invitations}
+  assert.deepEqual(callPoliciesModule.getGroupInvitationPatch(state, payload), {groupInvitations: invitations, groupInvitationRevision: 3})
+  assert.equal(state.durationSec, 80)
+  for (const invalid of [{...payload, lifecycleRevision: 2}, {...payload, lifecycleRevision: 1}, {...payload, callId: 'other'}, {...payload, invitations: {guest: null}}, {...payload, lifecycleRevision: true}]) {
+    assert.equal(callPoliciesModule.getGroupInvitationPatch(state, invalid), null)
+  }
+  assert.notEqual(callPoliciesModule.invitationTerminalKey('room', 'old'), callPoliciesModule.invitationTerminalKey('room', 'new'))
+})
+
+test('terminal cleanup uses the captured invitation, leaves the room reusable and revokes late joiners', () => {
+  const source = sliceBetween(providerSource, 'const handleTerminalCall = useCallback(', 'const { ensureCallSocketConnected, ensureSocketConnected, restorePreActiveCallMembership } =')
+  const compiled = ts.transpileModule(`${source}\nreturn handleTerminalCall`, {compilerOptions: {target: ts.ScriptTarget.ES2022}}).outputText
+  let state = {callId: null, groupInvitationId: null}
+  const ended = [], nativeIds = [], terminals = new Set()
+  const handler = new Function('useCallback', 'useCallStore', 'rememberTerminalCall', 'terminalCallIdsRef', 'invitationTerminalKey', 'veloraSystemCalls', 'pendingServerEndIntentsRef', 'isCurrentCall', 'debugCall', 'shortCallId', 'socketGenerationRef', 'clearPeerLeftFallback', 'teardownOnce', 'getCallEndedMessage', 'currentUserId', compiled)(
+    (fn) => fn, {getState: () => state}, (set, id) => set.add(id), {current: terminals}, callPoliciesModule.invitationTerminalKey, {dismissIncomingCall: (id, invitationId) => nativeIds.push(invitationId ?? id)}, {current: new Map()}, (id) => state.callId === id, () => {}, (id) => id, {current: 1}, () => {}, (reason) => ended.push(reason), () => undefined, 'me',
+  )
+  handler({callId: 'room', invitationId: 'old', reason: 'ended'}, 'live')
+  assert.deepEqual(nativeIds, ['old'])
+  assert.equal(terminals.has('room'), false)
+  state = {callId: 'room', groupInvitationId: 'new'}
+  handler({callId: 'room', invitationId: 'old', reason: 'ended'}, 'live')
+  assert.equal(ended.length, 0)
+  state = {callId: 'room', groupInvitationId: null}
+  handler({callId: 'room', invitationId: 'old', reason: 'membership_removed'}, 'live')
+  assert.deepEqual(ended, ['call_ended'])
+  handler({callId: 'room', reason: 'ended'}, 'live')
+  assert.equal(terminals.has('room'), true)
+  state = {callId: null, groupInvitationId: null}
+  handler({callId: 'cold-room', groupInvitationIds: {me: 'cold-invite'}, reason: 'ended'}, 'socket_ready_replay')
+  assert.equal(nativeIds.at(-1), 'cold-invite')
+  assert.equal(terminals.has('cold-room'), true)
+})
+
+test('leave warning uses the server host, not late-join outgoing direction', () => {
+  const state = {isGroupCall: true, conversationId: 'group', phase: 'active', direction: 'outgoing', groupHostUserId: 'host'}
+  assert.match(callPoliciesModule.getGroupLeaveWarning(state, 'group', 'guest'), /other participants can keep talking/)
+  assert.match(callPoliciesModule.getGroupLeaveWarning(state, 'group', 'host'), /ends the group call for everyone/)
+  assert.equal(callPoliciesModule.getGroupLeaveWarning(state, 'other', 'host'), '')
+  assert.equal(callPoliciesModule.getGroupLeaveWarning({...state, phase: 'idle'}, 'group', 'host'), '')
+})
+
 test('live group identity clears removed avatars and rejects stale or unrelated snapshots', () => {
   const state = {
     callId: 'group-1',
@@ -356,7 +401,7 @@ test('an accept ACK timeout aborts an uncertain server commit instead of leaving
       'acceptRequestSent = true',
       'else if (acceptRequestSent)',
       'const abortUncertainAccept = (connectedSocket: CallSocket) =>',
-      'emitIncomingAcceptTerminalIntent(connectedSocket, callId, endReason)',
+      'emitIncomingAcceptTerminalIntent(',
       "await teardownOnce('accept_incoming_call_failed'",
     ],
     'uncertain accept cleanup order',
@@ -741,8 +786,8 @@ test('a delayed incoming rejection cannot teardown a newer call', () => {
       'const callId = state.callId',
       'await ensureCallSocketConnected(callId)',
       "socket.emit('reject_call'",
-      'veloraSystemCalls.dismissIncomingCall(callId)',
-      'if (!callId || !isCurrentCall(callId)) return',
+      'veloraSystemCalls.dismissIncomingCall(callId, state.groupInvitationId ?? undefined)',
+      'useCallStore.getState().groupInvitationId !== state.groupInvitationId',
       "await teardownOnce('reject_incoming_call')",
     ],
     'incoming rejection current-call guard',
@@ -1024,7 +1069,7 @@ test('native answers are auth-gated, deduplicated and use the signed CallKit pay
   assert.doesNotMatch(nativeAnswerSource, /getCallState\(action\.callId\)/)
   assert.match(
     nativeActionSource,
-    /await ensureCallSocketConnected\(action\.callId\)[\s\S]*if \(hasConflictingCall\(\)\) \{[\s\S]*completeNativeCallAction\(action\.actionId\)[\s\S]*return[\s\S]*socket\.emit\('leave_call'/,
+    /await ensureCallSocketConnected\(action\.callId\)[\s\S]*if \(hasConflictingCall\(\) \|\| isInvitationSuperseded\(\)\) \{[\s\S]*completeNativeCallAction\(action\.actionId\)[\s\S]*return[\s\S]*socket\.emit\('leave_call'/,
   )
   assert.match(providerSource, /outgoingStartInFlightRef,/)
 })
@@ -1049,7 +1094,7 @@ test('a native terminal update clears its CallKit surface before auth hydration'
   )
   assert.match(
     nativeActionSource.slice(terminalIndex, authGateIndex),
-    /veloraSystemCalls\.dismissIncomingCall\(action\.callId\)/,
+    /veloraSystemCalls\.dismissIncomingCall\(action\.callId, action\.invitationId\)/,
   )
 })
 
@@ -1072,7 +1117,7 @@ test('journaled terminal actions cannot affect a different signed-in account', (
   assertOrdered(
     terminalSource,
     [
-      'veloraSystemCalls.dismissIncomingCall(action.callId)',
+      'veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)',
       'if (belongsToCurrentAccount && isCurrentCall(action.callId))',
       "await teardownOnce('native_remote_end')",
     ],

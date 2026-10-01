@@ -45,6 +45,7 @@ object VeloraSystemCallStore {
   private val PENDING_ACTION_JOURNAL_ALLOWED_FIELDS = setOf(
     "type",
     "callId",
+    "roomCallId",
     "conversationId",
     "initiatorId",
     "targetUserId",
@@ -130,6 +131,11 @@ object VeloraSystemCallStore {
     val callId = payload["callId"] as? String ?: return false
     if (callId.isBlank()) {
       return false
+    }
+
+    if (payload.containsKey("roomCallId")) {
+      val roomCallId = payload["roomCallId"] as? String ?: return false
+      if (payload["isGroupCall"] != true || roomCallId.isBlank() || roomCallId.length > 128) return false
     }
 
     val recipientUserId = payload["recipientUserId"] as? String ?: return false

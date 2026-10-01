@@ -15,7 +15,10 @@ import { queryKeys } from '../../../src/constants/queryKeys'
 import { colors } from '../../../src/constants/theme'
 import { removeConversationLocalData } from '../../../src/database/conversationBootstrap'
 import { useFriends } from '../../../src/hooks/useFriends'
+import { getGroupLeaveWarning } from '../../../src/lib/call/callPolicies'
+import { useCall } from '../../../src/providers/CallProvider'
 import { useAuthStore } from '../../../src/stores/authStore'
+import { useCallStore } from '../../../src/stores/callStore'
 import { useChatStore } from '../../../src/stores/chatStore'
 
 import type {
@@ -65,6 +68,7 @@ export default function GroupInfoScreen() {
   const conversationId = id as string
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { endCall } = useCall()
   const currentUserId = useAuthStore((state) => state.user?.id)
   const isConversationRevoked = useChatStore((state) =>
     state.revokedConversationIds.has(conversationId),
@@ -192,7 +196,15 @@ export default function GroupInfoScreen() {
   })
 
   const leaveGroup = useMutation({
-    mutationFn: () => conversationApi.leave(conversationId),
+    mutationFn: async () => {
+      await conversationApi.leave(conversationId)
+      // Re-read after the RPC: never end another conversation's newer call.
+      if (
+        useAuthStore.getState().user?.id === currentUserId &&
+        getGroupLeaveWarning(useCallStore.getState(), conversationId, currentUserId)
+      )
+        await endCall('left')
+    },
     onSuccess: () => {
       const store = useChatStore.getState()
       store.markConversationRevoked(conversationId)
@@ -437,10 +449,14 @@ export default function GroupInfoScreen() {
   }
 
   const confirmLeave = () => {
-    Alert.alert('Leave group?', 'You will no longer receive messages from this group.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Leave', style: 'destructive', onPress: () => leaveGroup.mutate() },
-    ])
+    Alert.alert(
+      'Leave group?',
+      `You will no longer receive messages from this group.${getGroupLeaveWarning(useCallStore.getState(), conversationId, currentUserId)}`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Leave', style: 'destructive', onPress: () => leaveGroup.mutate() },
+      ],
+    )
   }
 
   const handleLeavePress = () => {

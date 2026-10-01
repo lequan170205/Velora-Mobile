@@ -114,6 +114,12 @@ private final class Harness {
     let restored = Harness(userDefaults)
     restored.restoreRemoteCallStateUpdates()
     assert(restored.remoteCallStateUpdatesByCallId["before-push"]?.status == "ended")
+    // A fresh invitation has its own native identity; the old tombstone remains.
+    assert(restored.storeRemoteCallStateUpdate(callId: "new-invitation",
+      update: PendingCallStateUpdate(status: "active", reason: nil,
+        endedAt: Date(), lifecycleRevision: 100)))
+    assert(restored.remoteCallStateUpdatesByCallId["before-push"]?.status == "ended")
+    assert(restored.remoteCallStateUpdatesByCallId["new-invitation"]?.status == "active")
     assert(!restored.storeRemoteCallStateUpdate(callId: "before-push",
       update: PendingCallStateUpdate(status: "active", reason: nil,
         endedAt: Date().addingTimeInterval(60), lifecycleRevision: 99)))

@@ -39,6 +39,7 @@ import { AppPressable } from '../../src/components/base/AppPressable'
 import { AppText } from '../../src/components/base/AppText'
 import { queryKeys } from '../../src/constants/queryKeys'
 import { colors } from '../../src/constants/theme'
+import { createCallRequestId } from '../../src/lib/call/callSocket'
 import { veloraSystemCalls } from '../../src/lib/systemCalls/veloraSystemCalls'
 import { useCall } from '../../src/providers/CallProvider'
 import { useAuthStore } from '../../src/stores/authStore'
@@ -254,6 +255,7 @@ export default function ActiveCallScreen() {
   const { width, height } = useWindowDimensions()
   const insets = useSafeAreaInsets()
   const {
+    inviteGroupMember,
     endCall,
     recordCallScreenVisible,
     switchCallType,
@@ -267,12 +269,13 @@ export default function ActiveCallScreen() {
     callType,
     cameraEnabled,
     conversationId,
-    direction,
     durationSec,
     groupParticipantIds,
     groupReconnectingUserIds,
     groupMicStates,
     groupMicSyncError,
+    groupInvitations,
+    groupHostUserId,
     isGroupCall,
     localStreamUrl,
     muted,
@@ -289,23 +292,32 @@ export default function ActiveCallScreen() {
   const [chromeVisible, setChromeVisible] = useState(true)
   const chromeVisibleRef = useRef(true)
   const [participantsVisible, setParticipantsVisible] = useState(false)
+  const [inviteFeedback, setInviteFeedback] = useState<Record<string, string>>({})
+  const inviteRequestsRef = useRef(new Map<string, string>())
+  const inviteInFlightRef = useRef(new Set<string>())
+  useEffect(() => {
+    inviteRequestsRef.current.clear()
+    inviteInFlightRef.current.clear()
+    setInviteFeedback({})
+  }, [callId])
   const [controlsVisible, setControlsVisible] = useState(false)
   const participantsSheetRef = useRef<BottomSheet>(null)
   const controlsSheetRef = useRef<BottomSheet>(null)
   const switchToVoiceAfterSheetDismissRef = useRef(false)
   const currentUser = useAuthStore((state) => state.user)
-  const { data: groupMembers = [] } = useQuery({
+  const { data: groupMembers = [], refetch: refreshGroupMembers } = useQuery({
     queryKey: queryKeys.conversations.members(conversationId ?? ''),
     queryFn: () =>
       conversationId ? conversationApi.getMembers(conversationId) : Promise.resolve([]),
     enabled: isGroupCall && Boolean(conversationId),
     staleTime: 60_000,
+    refetchInterval: participantsVisible && isGroupCall ? 5000 : false,
   })
   const groupPeopleIds = useMemo(
     () => (isGroupCall ? [...new Set(groupParticipantIds)] : []),
     [groupParticipantIds, isGroupCall],
   )
-  const isGroupHost = isGroupCall && direction === 'outgoing'
+  const isGroupHost = isGroupCall && groupHostUserId === currentUser?.id
   const chromeProgress = useSharedValue(1)
   const isLandscape = width > height
   const systemTopInset =
@@ -355,9 +367,48 @@ export default function ActiveCallScreen() {
   }, [switchCallType])
 
   const handleOpenParticipants = useCallback(() => {
+    if (isGroupCall) void refreshGroupMembers()
     setParticipantsVisible(true)
     participantsSheetRef.current?.snapToIndex(0)
-  }, [])
+  }, [isGroupCall, refreshGroupMembers])
+
+  const handleInvite = async (userId: string) => {
+    if (!callId || phase !== 'active' || inviteInFlightRef.current.has(userId)) return
+    const invitingCallId = callId
+    const requestId = inviteRequestsRef.current.get(userId) ?? createCallRequestId('group-invite')
+    inviteRequestsRef.current.set(userId, requestId)
+    inviteInFlightRef.current.add(userId)
+    setInviteFeedback((current) => ({ ...current, [userId]: 'Sending…' }))
+    try {
+      const result = await inviteGroupMember(userId, requestId)
+      if (useCallStore.getState().callId !== invitingCallId) return
+      inviteRequestsRef.current.delete(userId)
+      const messages = {
+        sent: 'Invite sent',
+        already_sent: 'Invite already sent',
+        cooldown: 'Please wait before inviting again',
+        busy: 'Busy in another call',
+        joined: 'Already in this call',
+        full: 'This call is full',
+        forbidden: 'Cannot invite this member',
+        terminal: 'This call has ended',
+      }
+      setInviteFeedback((current) => ({ ...current, [userId]: messages[result.outcome] }))
+    } catch (error) {
+      if (useCallStore.getState().callId !== invitingCallId) return
+      // Retain the request ID on an ambiguous timeout so retry cannot ring twice.
+      setInviteFeedback((current) => ({
+        ...current,
+        [userId]:
+          error instanceof Error
+            ? `Unable to invite: ${error.message}`
+            : 'Unable to invite. Try again.',
+      }))
+    } finally {
+      if (useCallStore.getState().callId === invitingCallId)
+        inviteInFlightRef.current.delete(userId)
+    }
+  }
 
   const handleEndCallPress = useCallback(() => {
     if (!isGroupHost) {
@@ -689,21 +740,71 @@ export default function ActiveCallScreen() {
               {notInCallMembers.map((member) => {
                 const name =
                   member.user.fullName || member.user.name || member.user.username || 'Member'
+                const invite = groupInvitations[member.userId]
+                const statusLabels = {
+                  ringing: 'Ringing',
+                  joining: 'Joining',
+                  in_call: 'Connecting',
+                  declined: 'Declined',
+                  busy: 'Busy',
+                  expired: 'Missed / expired',
+                  left: 'Left the call',
+                }
+                const sending = inviteInFlightRef.current.has(member.userId)
+                const coolingDown = Boolean(
+                  invite &&
+                  (invite.status === 'joining' ||
+                    invite.status === 'in_call' ||
+                    (invite.status === 'ringing' && Date.parse(invite.expiresAt) > nowMs) ||
+                    Date.parse(invite.sentAt) + 10_000 > nowMs),
+                )
+                const disabled = phase !== 'active' || sending || coolingDown
+                const status =
+                  inviteFeedback[member.userId] === 'Sending…' || !invite
+                    ? inviteFeedback[member.userId] || 'Not invited'
+                    : statusLabels[invite.status]
                 return (
-                  <View
-                    key={member.userId}
-                    className="flex-row items-center py-3"
-                    accessible
-                    accessibilityLabel={`${name}, not in call`}
-                  >
+                  <View key={member.userId} className="flex-row items-center py-3">
                     <PeerAvatar avatarUrl={member.user.picture ?? null} name={name} size={56} />
-                    <AppText
-                      className="ml-4 min-w-0 flex-1 text-[17px]"
-                      style={{ color: colors.call.textSecondary }}
-                      numberOfLines={1}
+                    <View className="ml-4 min-w-0 flex-1">
+                      <AppText
+                        className="text-[17px]"
+                        style={{ color: colors.call.textSecondary }}
+                        numberOfLines={1}
+                      >
+                        {name}
+                      </AppText>
+                      <AppText
+                        className="mt-1 text-sm"
+                        style={{ color: colors.call.textSecondary }}
+                        accessibilityLiveRegion="polite"
+                      >
+                        {status}
+                      </AppText>
+                      {inviteFeedback[member.userId] &&
+                      inviteFeedback[member.userId] !== 'Sending…' ? (
+                        <AppText
+                          className="mt-1 text-sm"
+                          style={{ color: colors.call.textSecondary }}
+                        >
+                          {inviteFeedback[member.userId]}
+                        </AppText>
+                      ) : null}
+                    </View>
+                    <AppPressable
+                      className="ml-2 min-h-12 min-w-12 items-center justify-center rounded-full px-3"
+                      onPress={() => void handleInvite(member.userId)}
+                      disabled={disabled}
+                      activeOpacity={0.68}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${invite ? 'Invite again' : 'Invite'} ${name}`}
+                      accessibilityState={{ disabled, busy: sending }}
+                      style={{ opacity: disabled ? 0.45 : 1, backgroundColor: colors.call.control }}
                     >
-                      {name}
-                    </AppText>
+                      <AppText style={{ color: colors.call.textPrimary }}>
+                        {sending ? 'Sending…' : invite ? 'Invite again' : 'Invite'}
+                      </AppText>
+                    </AppPressable>
                   </View>
                 )
               })}

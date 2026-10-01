@@ -31,6 +31,8 @@ import {
   getCallEndedMessage,
   getCallRejectedMessage,
   getGroupCallIdentityPatch,
+  getGroupInvitationPatch,
+  invitationTerminalKey,
   getPeerInfoFromConversation,
   getRemoteSetupFailureReason,
   isBusyPhase,
@@ -100,6 +102,7 @@ import type {
   CallTypeChangedPayload,
   GroupMicStateChangedPayload,
   GroupCallIdentityChangedPayload,
+  GroupInvitationStatePayload,
   IncomingCallPayload,
   IncomingCallAcceptancePayload,
   LocalVideoSyncState,
@@ -133,6 +136,7 @@ type PendingServerEndIntent = {
   reason?: string
   actionId?: string
   acceptingIncomingCall: boolean
+  invitationId?: string
   expiresAtMs: number
 }
 
@@ -181,6 +185,9 @@ const terminalLifecycleStateFor = (
 }
 
 const CallContext = createContext<UseCallValue>({
+  inviteGroupMember: async () => {
+    throw new Error('Call provider unavailable')
+  },
   startVoiceCall: async () => {},
   joinGroupCall: async () => {},
   startVideoCall: async () => {},
@@ -683,6 +690,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         socket.emit('reject_call', {
           callId,
           reason: intent.reason ?? 'cancelled',
+          ...(intent.invitationId ? { invitationId: intent.invitationId } : {}),
         })
       }
       socket.emit('leave_call', {
@@ -1238,10 +1246,26 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const handleTerminalCall = useCallback(
     (payload: CallEndedPayload, source: 'live' | 'socket_ready_replay') => {
-      rememberTerminalCall(terminalCallIdsRef.current, payload.callId)
+      const state = useCallStore.getState()
+      if (
+        payload.invitationId &&
+        state.callId === payload.callId &&
+        state.groupInvitationId &&
+        state.groupInvitationId !== payload.invitationId
+      )
+        return
+      rememberTerminalCall(
+        terminalCallIdsRef.current,
+        payload.invitationId
+          ? invitationTerminalKey(payload.callId, payload.invitationId)
+          : payload.callId,
+      )
       // A PushKit cold launch can have a native CallKit call even while the JS call store
       // is still idle. Always end the native system call by callId before checking JS state.
-      veloraSystemCalls.dismissIncomingCall(payload.callId)
+      veloraSystemCalls.dismissIncomingCall(
+        payload.callId,
+        payload.invitationId ?? payload.groupInvitationIds?.[currentUserId ?? ''],
+      )
       pendingServerEndIntentsRef.current.delete(payload.callId)
 
       if (!isCurrentCall(payload.callId)) {
@@ -1258,13 +1282,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
 
       clearPeerLeftFallback()
-      const state = useCallStore.getState()
       void teardownOnce(source === 'live' ? 'call_ended' : 'call_ended_replayed', {
         errorMessage: getCallEndedMessage(payload, state),
         telemetryErrorCode: payload.reason,
       })
     },
-    [clearPeerLeftFallback, isCurrentCall, socketGenerationRef, teardownOnce],
+    [clearPeerLeftFallback, currentUserId, isCurrentCall, socketGenerationRef, teardownOnce],
   )
 
   const { ensureCallSocketConnected, ensureSocketConnected, restorePreActiveCallMembership } =
@@ -1415,19 +1438,28 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     if (socket?.connected && callId) {
       socket.emit('reject_call', {
         callId,
+        ...(state.groupInvitationId ? { invitationId: state.groupInvitationId } : {}),
       })
     }
 
     if (callId) {
-      veloraSystemCalls.dismissIncomingCall(callId)
+      veloraSystemCalls.dismissIncomingCall(callId, state.groupInvitationId ?? undefined)
     }
-    if (!callId || !isCurrentCall(callId)) return
+    if (
+      !callId ||
+      !isCurrentCall(callId) ||
+      useCallStore.getState().groupInvitationId !== state.groupInvitationId
+    )
+      return
     await teardownOnce('reject_incoming_call')
   }, [ensureCallSocketConnected, isCurrentCall, teardownOnce])
 
   const armGroupInvitationTimeout = useCallback(
     (
-      payload: Pick<IncomingCallPayload, 'callId' | 'expiresAt' | 'isGroupCall' | 'ringTimeoutMs'>,
+      payload: Pick<
+        IncomingCallPayload,
+        'callId' | 'invitationId' | 'expiresAt' | 'isGroupCall' | 'ringTimeoutMs'
+      >,
     ) => {
       clearGroupInvitationTimeout()
       if (!payload.isGroupCall) return
@@ -1438,8 +1470,16 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       groupInvitationTimeoutRef.current = setTimeout(() => {
         const state = useCallStore.getState()
-        if (state.callId !== payload.callId || state.phase !== 'incoming_ringing') return
-        void veloraSystemCalls.dismissIncomingCall(payload.callId)
+        if (
+          state.callId !== payload.callId ||
+          state.phase !== 'incoming_ringing' ||
+          state.groupInvitationId !== (payload.invitationId ?? payload.callId)
+        )
+          return
+        void veloraSystemCalls.dismissIncomingCall(
+          payload.callId,
+          payload.invitationId ?? payload.callId,
+        )
         void teardownOnce('group_invitation_expired')
       }, timeoutMs)
     },
@@ -1447,7 +1487,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   )
 
   const emitIncomingAcceptTerminalIntent = useCallback(
-    (socket: CallSocket, callId: string, reason?: string) => {
+    (
+      socket: CallSocket,
+      callId: string,
+      reason?: string,
+      invitationId?: string | null,
+      actionId?: string,
+    ) => {
       // `leave_call` is only authorized once the accepting transition has
       // added this callee to the session. Send the terminal reject as well so
       // the request wins when it races before that mutation; if activation won
@@ -1455,11 +1501,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socket.emit('reject_call', {
         callId,
         reason: reason ?? 'cancelled',
+        ...(invitationId ? { invitationId } : {}),
       })
       socket.emit('leave_call', {
         callId,
         ...(reason ? { reason } : {}),
-        ...currentAnswerAction(callId),
+        ...(actionId ? { actionId } : currentAnswerAction(callId)),
       })
     },
     [currentAnswerAction],
@@ -1488,6 +1535,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           ...(reason ? { reason } : {}),
           ...currentAnswerAction(callId),
           acceptingIncomingCall: wasAcceptingIncomingCall,
+          ...(state.groupInvitationId ? { invitationId: state.groupInvitationId } : {}),
           expiresAtMs: Date.now() + SERVER_END_INTENT_TTL_MS,
         })
         flushPendingServerEndIntents(socket)
@@ -1530,9 +1578,46 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     telemetrySessionRef.current?.record('call_screen_visible', { outcome: 'succeeded' })
   }, [])
 
+  const inviteGroupMember = useCallback<UseCallValue['inviteGroupMember']>(
+    async (userId, requestId) => {
+      const state = useCallStore.getState()
+      const accountId = useAuthStore.getState().user?.id
+      if (!state.callId || !state.isGroupCall || state.phase !== 'active')
+        throw new Error('The group call is not ready')
+      const socket = await ensureCallSocketConnected(state.callId)
+      const current = useCallStore.getState()
+      if (
+        current.callId !== state.callId ||
+        current.phase !== 'active' ||
+        useAuthStore.getState().user?.id !== accountId
+      )
+        throw new Error('The group call changed')
+      return emitAndWaitForEvent(
+        socket,
+        'invite_group_member',
+        { callId: state.callId, userId, requestId },
+        {
+          event: 'group_member_invited',
+          timeoutMs: 10_000,
+          registry: waitRegistryRef.current,
+          requestId,
+          filter: (result) =>
+            result.callId === state.callId &&
+            result.userId === userId &&
+            result.requestId === requestId,
+        },
+      )
+    },
+    [ensureCallSocketConnected],
+  )
+
   const handleIncomingCall = useCallback(
     async (payload: IncomingCallPayload) => {
-      if (!currentUserId || terminalCallIdsRef.current.has(payload.callId)) {
+      if (
+        !currentUserId ||
+        terminalCallIdsRef.current.has(payload.callId) ||
+        terminalCallIdsRef.current.has(invitationTerminalKey(payload.callId, payload.invitationId))
+      ) {
         return
       }
 
@@ -1580,6 +1665,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           peerInfo.peerAvatarUrl,
         isGroupCall: payload.isGroupCall === true,
         groupIdentityRevision: -1,
+        groupInvitationId: payload.isGroupCall ? (payload.invitationId ?? payload.callId) : null,
+        groupHostUserId: payload.isGroupCall ? payload.initiatorId : null,
+        groupInvitationRevision: -1,
+        groupInvitations: {},
         groupParticipantIds: [],
         groupReconnectingUserIds: [],
         callType: payload.callType,
@@ -1602,7 +1691,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const prepareIncomingCallFromPayload = useCallback(
     (callState: CallStateResponse | IncomingCallPayload | NativeCallPayload) => {
-      if (!currentUserId || terminalCallIdsRef.current.has(callState.callId)) {
+      if (
+        !currentUserId ||
+        terminalCallIdsRef.current.has(callState.callId) ||
+        terminalCallIdsRef.current.has(
+          invitationTerminalKey(callState.callId, callState.invitationId),
+        )
+      ) {
         return false
       }
 
@@ -1631,6 +1726,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           peerInfo.peerAvatarUrl,
         isGroupCall: callState.isGroupCall === true,
         groupIdentityRevision: -1,
+        groupInvitationId: callState.isGroupCall
+          ? (callState.invitationId ?? callState.callId)
+          : null,
+        groupHostUserId: callState.isGroupCall ? callState.initiatorId : null,
+        groupInvitationRevision: -1,
+        groupInvitations: {},
         groupParticipantIds: [],
         groupReconnectingUserIds: [],
         callType: callState.callType,
@@ -1761,10 +1862,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
       const abandonForAccountChange = async () => {
         completeNativeAnswer(false, 'account_changed')
-        if (isCurrentCall(callId)) {
+        if (
+          isCurrentCall(callId) &&
+          useCallStore.getState().groupInvitationId === state.groupInvitationId
+        ) {
           await teardownOnce('accept_incoming_call_account_changed')
         } else {
-          void veloraSystemCalls.dismissIncomingCall(callId)
+          void veloraSystemCalls.dismissIncomingCall(callId, state.groupInvitationId ?? undefined)
         }
       }
       const assertCurrentCallAccount = () => {
@@ -1954,7 +2058,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
               >(
                 socket,
                 'accept_incoming_call',
-                { callId, actionId: incomingActionId },
+                {
+                  callId,
+                  actionId: incomingActionId,
+                  ...(state.groupInvitationId ? { invitationId: state.groupInvitationId } : {}),
+                },
                 {
                   event: 'incoming_call_acceptance',
                   timeoutMs: INCOMING_ACCEPT_ACK_TIMEOUT_MS,
@@ -2058,12 +2166,24 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             !acceptance.retryable
           ) {
             if (socket.connected) {
-              emitIncomingAcceptTerminalIntent(socket, callId, 'media_unavailable')
+              emitIncomingAcceptTerminalIntent(
+                socket,
+                callId,
+                'media_unavailable',
+                state.groupInvitationId,
+                incomingActionId,
+              )
             } else {
               void ensureCallSocketConnected(callId)
                 .then((connectedSocket) => {
                   if (useAuthStore.getState().user?.id === currentUserId) {
-                    emitIncomingAcceptTerminalIntent(connectedSocket, callId, 'media_unavailable')
+                    emitIncomingAcceptTerminalIntent(
+                      connectedSocket,
+                      callId,
+                      'media_unavailable',
+                      state.groupInvitationId,
+                      incomingActionId,
+                    )
                   }
                 })
                 .catch(() => undefined)
@@ -2122,6 +2242,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           phase: 'connecting',
           isGroupCall: joined.session.isGroupCall === true,
           groupParticipantIds: joined.session.isGroupCall ? joined.session.participantIds : [],
+          ...getGroupInvitationPatch(useCallStore.getState(), {
+            callId: joined.callId,
+            lifecycleRevision: joined.session.lifecycleRevision ?? 0,
+            invitations: joined.session.groupInvitations ?? {},
+          }),
           groupReconnectingUserIds: [],
           ...getGroupCallIdentityPatch(useCallStore.getState(), {
             callId: joined.session.callId,
@@ -2204,7 +2329,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           // possible server states rather than leaving a connected ghost call.
           const endReason = getRemoteSetupFailureReason(errorCode)
           const abortUncertainAccept = (connectedSocket: CallSocket) => {
-            emitIncomingAcceptTerminalIntent(connectedSocket, callId, endReason)
+            emitIncomingAcceptTerminalIntent(
+              connectedSocket,
+              callId,
+              endReason,
+              state.groupInvitationId,
+              incomingActionId,
+            )
           }
           if (socket?.connected) {
             abortUncertainAccept(socket)
@@ -2387,8 +2518,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         telemetry.attachCall(joined.telemetryToken)
         telemetry.record('call_joined', { outcome: 'succeeded' })
         callAnsweredRef.current = false
+        const nativeRegistrationId = lateJoinRequest
+          ? (joined.session.groupInvitations?.[currentUserId]?.invitationId ?? joined.callId)
+          : joined.callId
         const nativeRegistration = await veloraSystemCalls.registerOutgoingCall({
-          callId: joined.callId,
+          callId: nativeRegistrationId,
+          ...(lateJoinRequest ? { roomCallId: joined.callId, isGroupCall: true } : {}),
           conversationId: input.conversationId,
           peerName: joined.session.isGroupCall
             ? joined.session.groupName || 'Group call'
@@ -2399,13 +2534,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         try {
           assertOutgoingAttemptCurrent()
         } catch (error) {
-          await veloraSystemCalls.endCall(joined.callId).catch(() => undefined)
+          await veloraSystemCalls.endCall(nativeRegistrationId).catch(() => undefined)
           throw error
         }
         if (!nativeRegistration.success) throw new Error('native_outgoing_registration_failed')
         useCallStore.getState().patch({
           phase: 'outgoing_ringing',
           direction: 'outgoing',
+          groupHostUserId: joined.session.isGroupCall ? joined.session.initiatorId : null,
+          groupInvitationId: lateJoinRequest ? nativeRegistrationId : null,
           callId: joined.callId,
           conversationId: input.conversationId,
           peerUserId: input.peerUserId ?? null,
@@ -2420,6 +2557,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             ? (joined.session.groupIdentityRevision ?? 0)
             : -1,
           groupParticipantIds: joined.session.isGroupCall ? joined.session.participantIds : [],
+          groupInvitations: joined.session.groupInvitations ?? {},
+          groupInvitationRevision: joined.session.lifecycleRevision ?? 0,
           groupReconnectingUserIds: [],
           callType,
           muted: false,
@@ -3108,7 +3247,23 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
 
     const handleCallRejected = (payload: CallRejectedPayload) => {
-      rememberTerminalCall(terminalCallIdsRef.current, payload.callId)
+      const state = useCallStore.getState()
+      if (
+        state.isGroupCall &&
+        state.callId === payload.callId &&
+        (payload.invitationId ?? payload.callId) !== state.groupInvitationId
+      )
+        return
+      if (payload.isGroupCall || (state.isGroupCall && state.callId === payload.callId)) {
+        rememberTerminalCall(
+          terminalCallIdsRef.current,
+          invitationTerminalKey(payload.callId, payload.invitationId),
+        )
+      } else rememberTerminalCall(terminalCallIdsRef.current, payload.callId)
+      veloraSystemCalls.dismissIncomingCall(
+        payload.callId,
+        payload.invitationId ?? (payload.isGroupCall ? payload.callId : undefined),
+      )
       if (!isCurrentCall(payload.callId)) {
         return
       }
@@ -3336,6 +3491,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
 
     const handleCallAnswered = (payload: CallAnsweredPayload) => {
+      const current = useCallStore.getState()
+      if (
+        current.isGroupCall &&
+        current.callId === payload.callId &&
+        payload.answeredElsewhere &&
+        (payload.invitationId ?? payload.callId) !== current.groupInvitationId
+      )
+        return
       if (!isCurrentCall(payload.callId)) return
 
       const state = useCallStore.getState()
@@ -3386,6 +3549,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    const handleGroupInvitationState = (payload: GroupInvitationStatePayload) => {
+      const patch = getGroupInvitationPatch(useCallStore.getState(), payload)
+      if (patch) useCallStore.getState().patch(patch)
+    }
+
     socket.on('connect', handleConnect)
     socket.on('call_socket_ready', handleSocketReady)
     socket.on('disconnect', handleDisconnect)
@@ -3394,6 +3562,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     socket.on('new_producer', handleNewProducer)
     socket.on('group_mic_state_changed', handleGroupMicStateChanged)
     socket.on('group_call_identity_changed', handleGroupCallIdentityChanged)
+    socket.on('group_invitation_state', handleGroupInvitationState)
     socket.on('producer_closed', handleProducerClosed)
     socket.on('call_type_changed', handleCallTypeChanged)
     socket.on('video_state_changed', handleVideoStateChanged)
@@ -3422,6 +3591,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socket.off('new_producer', handleNewProducer)
       socket.off('group_mic_state_changed', handleGroupMicStateChanged)
       socket.off('group_call_identity_changed', handleGroupCallIdentityChanged)
+      socket.off('group_invitation_state', handleGroupInvitationState)
       socket.off('producer_closed', handleProducerClosed)
       socket.off('call_type_changed', handleCallTypeChanged)
       socket.off('video_state_changed', handleVideoStateChanged)
@@ -3498,6 +3668,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<UseCallValue>(
     () => ({
+      inviteGroupMember,
       startVoiceCall,
       joinGroupCall,
       startVideoCall,
@@ -3513,6 +3684,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       dismissCallError,
     }),
     [
+      inviteGroupMember,
       acceptIncomingCall,
       dismissCallError,
       endCall,

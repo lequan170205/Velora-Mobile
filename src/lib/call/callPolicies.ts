@@ -16,6 +16,7 @@ import type {
   CameraFacing,
   IncomingCallPayload,
   GroupCallIdentityChangedPayload,
+  GroupInvitationStatePayload,
 } from '../../types/call.types'
 import type { Conversation } from '../../types/conversation.types'
 import type {
@@ -316,7 +317,8 @@ export const toNativeIncomingCallPayload = (
 ): NativeCallPayload => {
   const nativePayload: NativeCallPayload = {
     type: 'INCOMING_CALL',
-    callId: payload.callId,
+    callId: payload.invitationId ?? payload.callId,
+    ...(payload.invitationId ? { roomCallId: payload.callId } : {}),
     conversationId: payload.conversationId,
     initiatorId: payload.initiatorId,
     targetUserId: payload.targetUserId,
@@ -335,4 +337,61 @@ export const toNativeIncomingCallPayload = (
   if (payload.groupName) nativePayload.groupName = payload.groupName
   if (payload.groupAvatarUrl) nativePayload.groupAvatarUrl = payload.groupAvatarUrl
   return nativePayload
+}
+
+export const invitationTerminalKey = (callId: string, invitationId?: string | null) =>
+  `invite:${callId}:${invitationId ?? callId}`
+
+export const getGroupInvitationPatch = (
+  state: CallUiState,
+  payload: GroupInvitationStatePayload,
+): Partial<CallUiState> | null => {
+  if (
+    !payload ||
+    !state.isGroupCall ||
+    state.callId !== payload.callId ||
+    state.phase === 'idle' ||
+    state.phase === 'ending' ||
+    !Number.isSafeInteger(payload.lifecycleRevision) ||
+    payload.lifecycleRevision < 0 ||
+    payload.lifecycleRevision <= state.groupInvitationRevision ||
+    !payload.invitations ||
+    typeof payload.invitations !== 'object' ||
+    Array.isArray(payload.invitations)
+  )
+    return null
+  const statuses = ['ringing', 'joining', 'in_call', 'declined', 'busy', 'expired', 'left']
+  if (
+    Object.values(payload.invitations).some(
+      (invite) =>
+        !invite ||
+        typeof invite.invitationId !== 'string' ||
+        !invite.invitationId ||
+        !statuses.includes(invite.status) ||
+        !Number.isFinite(Date.parse(invite.expiresAt)) ||
+        !Number.isFinite(Date.parse(invite.sentAt)),
+    )
+  )
+    return null
+  return {
+    groupInvitations: payload.invitations,
+    groupInvitationRevision: payload.lifecycleRevision,
+  }
+}
+
+export const getGroupLeaveWarning = (
+  state: CallUiState,
+  conversationId: string,
+  currentUserId?: string,
+) => {
+  if (
+    !state.isGroupCall ||
+    state.conversationId !== conversationId ||
+    state.phase === 'idle' ||
+    state.phase === 'ending'
+  )
+    return ''
+  return state.groupHostUserId === currentUserId
+    ? ' Leaving also ends the group call for everyone because you started it.'
+    : ' Leaving also disconnects you from the group call; other participants can keep talking.'
 }

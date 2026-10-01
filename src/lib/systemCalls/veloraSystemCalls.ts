@@ -2,11 +2,15 @@ import { requireOptionalNativeModule } from 'expo'
 import * as Device from 'expo-device'
 import { Platform } from 'react-native'
 
+import { useCallStore } from '../../stores/callStore'
+
 import type { CallType } from '../../types/call.types'
 
 export type NativeCallPayload = {
   type: 'INCOMING_CALL'
   callId: string
+  roomCallId?: string
+  invitationId?: string
   conversationId: string
   initiatorId: string
   targetUserId: string
@@ -36,6 +40,9 @@ export type NativeCallAction =
       action: 'remote_end'
       actionId: string
       callId: string
+      roomCallId?: string
+      invitationId?: string
+      isGroupCall?: boolean
       /** The account that owned the persisted native terminal action. */
       accountId?: string
       callUuid?: string
@@ -108,6 +115,8 @@ export type CallKitTransactionResult = {
 
 export type NativeOutgoingCallPayload = {
   callId: string
+  roomCallId?: string
+  isGroupCall?: boolean
   conversationId: string
   peerName: string
   callType: CallType
@@ -148,6 +157,21 @@ type VeloraSystemCallsNativeModule = Partial<VeloraSystemCallsModule> & {
 const nativeModule = requireOptionalNativeModule<VeloraSystemCallsNativeModule>('VeloraSystemCalls')
 const isIosSimulator = Platform.OS === 'ios' && !Device.isDevice
 
+// The native lifecycle is per invitation; SFU/socket lifecycle stays per room.
+const nativeCallId = (callId: string) => {
+  const state = useCallStore.getState()
+  return state.callId === callId ? (state.groupInvitationId ?? callId) : callId
+}
+const roomAction = (action: NativeCallAction): NativeCallAction => {
+  const state = useCallStore.getState()
+  if ('isGroupCall' in action && action.isGroupCall !== true && action.roomCallId) return action
+  const roomCallId =
+    action.roomCallId ?? (state.groupInvitationId === action.callId ? state.callId : null)
+  return roomCallId || action.isGroupCall === true
+    ? { ...action, callId: roomCallId ?? action.callId, invitationId: action.callId }
+    : action
+}
+
 const simulatorCallResult = (callId: string): Promise<CallKitTransactionResult> =>
   Promise.resolve({
     success: true,
@@ -185,7 +209,8 @@ export const veloraSystemCalls = {
 
   getPendingCallAction() {
     if (isIosSimulator) return null
-    return nativeModule?.getPendingCallAction?.() ?? null
+    const action = nativeModule?.getPendingCallAction?.() ?? null
+    return action ? roomAction(action) : null
   },
 
   getAudioSessionConfigurationState() {
@@ -246,11 +271,13 @@ export const veloraSystemCalls = {
   },
 
   setCallActive(callId: string) {
+    callId = nativeCallId(callId)
     if (isIosSimulator) return true
     return nativeModule?.setCallActive?.(callId) ?? false
   },
 
   setCallType(callId: string, callType: CallType) {
+    callId = nativeCallId(callId)
     if (isIosSimulator) return true
     return nativeModule?.setCallType?.(callId, callType) ?? false
   },
@@ -260,6 +287,7 @@ export const veloraSystemCalls = {
   },
 
   endCall(callId: string): Promise<CallKitTransactionResult> {
+    callId = nativeCallId(callId)
     if (isIosSimulator) {
       nativeModule?.deactivateSimulatorAudioSession?.(callId)
       return simulatorCallResult(callId)
@@ -277,6 +305,7 @@ export const veloraSystemCalls = {
   },
 
   reportCallFailed(callId: string): Promise<CallKitTransactionResult> {
+    callId = nativeCallId(callId)
     if (isIosSimulator) {
       nativeModule?.deactivateSimulatorAudioSession?.(callId)
       return simulatorCallResult(callId)
@@ -294,7 +323,9 @@ export const veloraSystemCalls = {
     )
   },
 
-  dismissIncomingCall(callId: string): Promise<CallKitTransactionResult> {
+  dismissIncomingCall(callId: string, invitationId?: string): Promise<CallKitTransactionResult> {
+    // An explicit invitation may equal the initial room ID; never remap it.
+    callId = invitationId ?? nativeCallId(callId)
     if (isIosSimulator) {
       nativeModule?.deactivateSimulatorAudioSession?.(callId)
       return simulatorCallResult(callId)
@@ -327,7 +358,7 @@ export const veloraSystemCalls = {
     }
 
     return nativeModule.addListener('onCallAction', (event) => {
-      listener(event as NativeCallAction)
+      listener(roomAction(event as NativeCallAction))
     })
   },
 

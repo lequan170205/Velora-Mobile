@@ -92,6 +92,15 @@ export const useNativeCallActions = ({
       // JS app is cold-starting or authentication is still hydrating; waiting
       // for credentials here can leave an obsolete CallKit surface visible.
       if (action.action === 'remote_end') {
+        const state = useCallStore.getState()
+        if (
+          action.invitationId &&
+          state.callId === action.callId &&
+          state.groupInvitationId !== action.invitationId
+        ) {
+          completeNativeCallAction(action.actionId)
+          return
+        }
         processingNativeActionIdsRef.current.add(action.actionId)
         try {
           const liveUserId = useAuthStore.getState().user?.id
@@ -101,7 +110,7 @@ export const useNativeCallActions = ({
           // A journaled terminal action from another signed-in account may
           // dismiss its own stale native UI, but must never tear down an
           // unrelated in-app call for the current account.
-          veloraSystemCalls.dismissIncomingCall(action.callId)
+          veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
           if (belongsToCurrentAccount && isCurrentCall(action.callId)) {
             await teardownOnce('native_remote_end')
           }
@@ -116,6 +125,19 @@ export const useNativeCallActions = ({
 
       try {
         processingNativeActionIdsRef.current.add(action.actionId)
+        const current = useCallStore.getState()
+        if (
+          action.invitationId &&
+          current.callId === action.callId &&
+          current.groupInvitationId &&
+          current.groupInvitationId !== action.invitationId
+        ) {
+          if (action.action === 'answer')
+            veloraSystemCalls.completePendingAnswer(action.actionId, false, 'invitation_superseded')
+          veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
+          completeNativeCallAction(action.actionId)
+          return
+        }
 
         // `currentUserId` belongs to the render that started this async action.
         // Re-read auth after network boundaries so an account switch cannot let
@@ -131,12 +153,21 @@ export const useNativeCallActions = ({
             (!action.accountId || action.accountId === liveUserId),
           )
         }
+        const isInvitationSuperseded = () => {
+          const live = useCallStore.getState()
+          return Boolean(
+            action.invitationId &&
+            live.callId === action.callId &&
+            live.groupInvitationId &&
+            live.groupInvitationId !== action.invitationId,
+          )
+        }
         const abandonActionForAccountChange = async () => {
           if (action.action === 'answer') {
             veloraSystemCalls.completePendingAnswer(action.actionId, false, 'account_changed')
           }
-          veloraSystemCalls.dismissIncomingCall(action.callId)
-          if (isCurrentCall(action.callId)) {
+          veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
+          if (isCurrentCall(action.callId) && !isInvitationSuperseded()) {
             await teardownOnce('native_action_account_changed')
           }
           completeNativeCallAction(action.actionId)
@@ -190,7 +221,7 @@ export const useNativeCallActions = ({
           }
 
           if (hasConflictingCall()) {
-            veloraSystemCalls.dismissIncomingCall(action.callId)
+            veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
             completeNativeCallAction(action.actionId)
             return
           }
@@ -211,7 +242,7 @@ export const useNativeCallActions = ({
               return
             }
 
-            veloraSystemCalls.dismissIncomingCall(action.callId)
+            veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
             completeNativeCallAction(action.actionId)
             return
           }
@@ -221,8 +252,17 @@ export const useNativeCallActions = ({
             return
           }
 
+          if (
+            isInvitationSuperseded() ||
+            (action.invitationId && callState.invitationId !== action.invitationId)
+          ) {
+            veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
+            completeNativeCallAction(action.actionId)
+            return
+          }
+
           if (callState.status !== 'active' || !prepareIncomingCallFromState(callState)) {
-            veloraSystemCalls.dismissIncomingCall(action.callId)
+            veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
             completeNativeCallAction(action.actionId)
             return
           }
@@ -235,7 +275,7 @@ export const useNativeCallActions = ({
           if (resumed) {
             completeNativeCallAction(action.actionId)
           } else {
-            veloraSystemCalls.dismissIncomingCall(action.callId)
+            veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
             completeNativeCallAction(action.actionId)
           }
           return
@@ -245,7 +285,7 @@ export const useNativeCallActions = ({
           if (action.action === 'answer') {
             veloraSystemCalls.completePendingAnswer(action.actionId, false, 'busy')
           }
-          veloraSystemCalls.dismissIncomingCall(action.callId)
+          veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
           completeNativeCallAction(action.actionId)
           return
         }
@@ -270,7 +310,7 @@ export const useNativeCallActions = ({
             await acceptIncomingCall('native', action.actionId)
           } else {
             veloraSystemCalls.completePendingAnswer(action.actionId, false, 'unauthenticated')
-            veloraSystemCalls.dismissIncomingCall(action.callId)
+            veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
           }
           completeNativeCallAction(action.actionId)
           return
@@ -292,13 +332,22 @@ export const useNativeCallActions = ({
             return
           }
 
-          veloraSystemCalls.dismissIncomingCall(action.callId)
+          veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
           completeNativeCallAction(action.actionId)
           return
         }
 
         if (!isActionAccountCurrent()) {
           await abandonActionForAccountChange()
+          return
+        }
+
+        if (
+          isInvitationSuperseded() ||
+          (action.invitationId && callState.invitationId !== action.invitationId)
+        ) {
+          veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
+          completeNativeCallAction(action.actionId)
           return
         }
 
@@ -313,7 +362,7 @@ export const useNativeCallActions = ({
           if (isCurrentCall(action.callId)) {
             await teardownOnce('native_action_terminal_state')
           } else {
-            veloraSystemCalls.dismissIncomingCall(action.callId)
+            veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
           }
           completeNativeCallAction(action.actionId)
           return
@@ -329,8 +378,8 @@ export const useNativeCallActions = ({
               await abandonActionForAccountChange()
               return
             }
-            if (hasConflictingCall()) {
-              veloraSystemCalls.dismissIncomingCall(action.callId)
+            if (hasConflictingCall() || isInvitationSuperseded()) {
+              veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
               completeNativeCallAction(action.actionId)
               return
             }
@@ -360,6 +409,11 @@ export const useNativeCallActions = ({
                 await abandonActionForAccountChange()
                 return
               }
+              if (isInvitationSuperseded()) {
+                veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
+                completeNativeCallAction(action.actionId)
+                return
+              }
               await emitAndWaitForEvent<'leave_call', 'call_left'>(
                 socket,
                 'leave_call',
@@ -371,7 +425,9 @@ export const useNativeCallActions = ({
                   filter: (payload) => payload.callId === action.callId,
                 },
               )
-              void groupWinnerAction.clear(currentUserId, action.callId).catch(() => undefined)
+              void groupWinnerAction
+                .clear(currentUserId, action.callId, winningActionId)
+                .catch(() => undefined)
               if (!isActionAccountCurrent()) {
                 await abandonActionForAccountChange()
                 return
@@ -379,9 +435,9 @@ export const useNativeCallActions = ({
             } else {
               socket.emit('leave_call', { callId: action.callId, reason: 'ended' })
             }
-            await teardownOnce('native_end_call')
+            if (!isInvitationSuperseded()) await teardownOnce('native_end_call')
           } else {
-            veloraSystemCalls.dismissIncomingCall(action.callId)
+            veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
           }
           completeNativeCallAction(action.actionId)
           return
@@ -391,7 +447,7 @@ export const useNativeCallActions = ({
           prepareIncomingCallFromState(callState)
           await rejectIncomingCall()
         } else {
-          veloraSystemCalls.dismissIncomingCall(action.callId)
+          veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
         }
         completeNativeCallAction(action.actionId)
       } catch (error) {
