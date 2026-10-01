@@ -43,6 +43,21 @@ const debugCall = (...args: Parameters<typeof console.warn>) => {
   if (__DEV__) console.warn(...args)
 }
 
+const drainNativeJournal = async (
+  processAction: (action: NativeCallAction) => Promise<void>,
+  completedActionIds: Set<string>,
+) => {
+  let pending = veloraSystemCalls.getPendingCallAction()
+  // Drain the bounded journal; auth-gated or retryable entries stay pending.
+  for (let replayed = 0; pending && replayed < 64; replayed += 1) {
+    await processAction(pending)
+    if (!completedActionIds.has(pending.actionId)) return
+    const next = veloraSystemCalls.getPendingCallAction()
+    if (next?.actionId === pending.actionId) return
+    pending = next
+  }
+}
+
 export const useNativeCallActions = ({
   isLoading,
   isAuthenticated,
@@ -236,7 +251,10 @@ export const useNativeCallActions = ({
                 nativeActionRetryTimeoutRef.current = null
                 const pendingAction = veloraSystemCalls.getPendingCallAction()
                 if (pendingAction?.actionId === action.actionId) {
-                  void processNativeCallAction(pendingAction)
+                  void drainNativeJournal(
+                    processNativeCallAction,
+                    completedNativeActionIdsRef.current,
+                  )
                 }
               }, 1500)
               return
@@ -326,7 +344,10 @@ export const useNativeCallActions = ({
               nativeActionRetryTimeoutRef.current = null
               const pendingAction = veloraSystemCalls.getPendingCallAction()
               if (pendingAction?.actionId === action.actionId) {
-                void processNativeCallAction(pendingAction)
+                void drainNativeJournal(
+                  processNativeCallAction,
+                  completedNativeActionIdsRef.current,
+                )
               }
             }, 1500)
             return
@@ -492,10 +513,9 @@ export const useNativeCallActions = ({
   )
 
   const processPendingNativeCallAction = useCallback(
-    (source: 'auth_ready' | 'app_resume') => {
+    async (source: 'auth_ready' | 'app_resume') => {
       const pendingAction = veloraSystemCalls.getPendingCallAction()
       if (!pendingAction) return
-
       debugCall(
         '[Call] pending_native_action_replayed',
         JSON.stringify({
@@ -505,9 +525,9 @@ export const useNativeCallActions = ({
           actionId: shortCallId(pendingAction.actionId),
         }),
       )
-      void processNativeCallAction(pendingAction)
+      await drainNativeJournal(processNativeCallAction, completedNativeActionIdsRef.current)
     },
-    [processNativeCallAction],
+    [completedNativeActionIdsRef, processNativeCallAction],
   )
 
   return { processNativeCallAction, processPendingNativeCallAction }

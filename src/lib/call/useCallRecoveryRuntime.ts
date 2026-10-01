@@ -220,7 +220,7 @@ export const useCallRecoveryRuntime = ({
     remoteVideoEnabledByProducerRef.current.clear()
     remoteVideoRevisionByProducerRef.current.clear()
     try {
-      const groupGuest = state.isGroupCall && state.direction === 'incoming'
+      const groupGuest = state.isGroupCall && state.groupHostUserId !== currentUserId
       const answerAction = incomingAnswerActionRef.current
       if (groupGuest && answerAction?.callId !== state.callId) {
         throw new Error('group_answer_action_unavailable')

@@ -922,6 +922,53 @@ test('group guest rejoin carries the winning answer action', async () => {
   assert.equal(harness.state.phase, 'active')
 })
 
+test('outgoing late-join guests retain winner proof on active and pre-active reconnect', async () => {
+  const recovery = createRecoveryRuntime({ groupAnswerActionId: 'late-join-proof' })
+  recovery.state.direction = 'outgoing'
+  recovery.state.groupHostUserId = 'host'
+  await recovery.runtime.recoverActiveCall()
+  assert.equal(recovery.rejoinCalls[0].actionId, 'late-join-proof')
+
+  const state = {
+    callId: 'room',
+    phase: 'connecting',
+    direction: 'outgoing',
+    isGroupCall: true,
+    groupHostUserId: 'host',
+    groupReconnectingUserIds: [],
+    patch: () => {},
+  }
+  const sent = []
+  const { useCallSocketRuntime } = loadTypeScriptModule(
+    path.join(root, 'src/lib/call/useCallSocketRuntime.ts'),
+    {
+      react: { useCallback: (fn) => fn },
+      '../../stores/authStore': { useAuthStore: { getState: () => ({ user: { id: 'guest' } }) } },
+      '../../stores/callStore': { useCallStore: { getState: () => state } },
+      './callConstants': {},
+      './callDebug': callDebug,
+      './callSocket': {
+        emitAndWaitForEvent: async (_socket, event, payload) => {
+          sent.push([event, payload])
+          return { callId: 'room', session: { participantIds: ['host', 'guest'] } }
+        },
+      },
+    },
+  )
+  const runtime = useCallSocketRuntime({
+    incomingAnswerActionRef: { current: { callId: 'room', actionId: 'late-join-proof' } },
+    acceptingIncomingCallIdRef: { current: null },
+    waitRegistryRef: { current: new Set() },
+    socketGenerationRef: { current: 1 },
+    telemetrySessionRef: { current: null },
+  })
+  await runtime.restorePreActiveCallMembership({}, 'room')
+  assert.deepEqual(sent, [['rejoin_call', { callId: 'room', actionId: 'late-join-proof' }]])
+  state.groupHostUserId = 'guest'
+  await runtime.restorePreActiveCallMembership({}, 'room')
+  assert.deepEqual(sent.at(-1), ['join_call', { callId: 'room' }])
+})
+
 test('group peer reconnect state is scoped to joined peers and clears on return', () => {
   const harness = createRecoveryRuntime({ groupAnswerActionId: 'winning-action' })
   const event = {

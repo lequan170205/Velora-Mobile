@@ -38,6 +38,19 @@ class VeloraNativeCallLifecycleTest {
   }
 
   @Test
+  fun `outgoing registration returns success and rejects conflicting or invalid identities`() {
+    val registered = VeloraCallNotifications.registerOutgoingCall(context, mapOf("callId" to "outgoing", "callType" to "VOICE"))
+    assertEquals(true, registered["success"])
+    assertEquals("outgoing", registered["callId"])
+    val conflicting = VeloraCallNotifications.registerOutgoingCall(context, mapOf("callId" to "other"))
+    assertEquals(false, conflicting["success"])
+    assertEquals("outgoing", VeloraSystemCallStore.getCurrentCall(context)?.callId)
+    val invalid = VeloraCallNotifications.registerOutgoingCall(context, mapOf("callId" to " "))
+    assertEquals(false, invalid["success"])
+    assertEquals("missing_call_id", invalid["errorCode"])
+  }
+
+  @Test
   fun `ringing call transitions to active without cancelling ongoing notification`() {
     val callId = "call-active"
     val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

@@ -242,7 +242,7 @@ export const useCallSocketRuntime = ({
         (state.phase === 'incoming_ringing' && acceptingIncomingCallIdRef.current === callId)
       if (!shouldRestoreMembership) return
 
-      if (state.isGroupCall && state.direction === 'incoming') {
+      if (state.isGroupCall && state.groupHostUserId !== useAuthStore.getState().user?.id) {
         // The accept request itself restores a pending answer. Once accepted,
         // only the winning action may rejoin on a fresh socket.
         if (state.phase === 'incoming_ringing') return

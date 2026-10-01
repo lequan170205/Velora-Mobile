@@ -169,8 +169,13 @@ object VeloraCallNotifications {
     return builder.build()
   }
 
-  fun registerOutgoingCall(context: Context, payload: Map<String, Any?>) {
-    val callId = payload["callId"] as? String ?: return
+  fun registerOutgoingCall(context: Context, payload: Map<String, Any?>): Map<String, Any?> {
+    val callId = (payload["callId"] as? String)?.takeIf { it.isNotBlank() }
+      ?: return mapOf(
+        "success" to false, "callId" to null, "callUuid" to null,
+        "errorCode" to "missing_call_id",
+        "errorMessage" to "Outgoing call registration requires a non-empty callId.",
+      )
     if (
       !VeloraSystemCallStore.beginRingingCall(
         context,
@@ -179,10 +184,15 @@ object VeloraCallNotifications {
         payload["callType"] as? String,
       )
     ) {
-      return
+      return mapOf(
+        "success" to false, "callId" to callId, "callUuid" to null,
+        "errorCode" to "native_outgoing_registration_rejected",
+        "errorMessage" to "The call is terminal or another native call is in progress.",
+      )
     }
     ensureCallChannel(context)
     notificationManager(context).notify(ringingNotificationId(callId), ongoingNotification(context, payload))
+    return mapOf("success" to true, "callId" to callId, "callUuid" to null)
   }
 
   fun setCallActive(context: Context, callId: String): Boolean {

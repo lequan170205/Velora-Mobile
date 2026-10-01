@@ -4,6 +4,8 @@ const path = require('node:path')
 const test = require('node:test')
 const ts = require('typescript')
 
+global.__DEV__ = false
+
 const root = path.resolve(__dirname, '..')
 const load = (file, mocks) => {
   const source = fs.readFileSync(path.join(root, file), 'utf8')
@@ -22,24 +24,47 @@ const load = (file, mocks) => {
 
 test('native bridge keeps invitation tombstones separate and translates cold journal actions to the live room', async () => {
   const ended = []
-  let raw = {type: 'INCOMING_CALL', action: 'answer', actionId: 'answer-1', callId: 'invite-new', roomCallId: 'room', isGroupCall: true}
-  let current = {callId: 'room', groupInvitationId: 'invite-new'}
-  const {veloraSystemCalls} = load('src/lib/systemCalls/veloraSystemCalls.ts', {
-    expo: {requireOptionalNativeModule: () => ({getPendingCallAction: () => raw, endCall: async (id) => {ended.push(id); return {success: true}}, dismissIncomingCall: async (id) => {ended.push(id); return {success: true}}})},
-    'expo-device': {isDevice: true},
-    'react-native': {Platform: {OS: 'ios'}},
-    '../../stores/callStore': {useCallStore: {getState: () => current}},
+  let raw = {
+    type: 'INCOMING_CALL',
+    action: 'answer',
+    actionId: 'answer-1',
+    callId: 'invite-new',
+    roomCallId: 'room',
+    isGroupCall: true,
+  }
+  let current = { callId: 'room', groupInvitationId: 'invite-new' }
+  const { veloraSystemCalls } = load('src/lib/systemCalls/veloraSystemCalls.ts', {
+    expo: {
+      requireOptionalNativeModule: () => ({
+        getPendingCallAction: () => raw,
+        endCall: async (id) => {
+          ended.push(id)
+          return { success: true }
+        },
+        dismissIncomingCall: async (id) => {
+          ended.push(id)
+          return { success: true }
+        },
+      }),
+    },
+    'expo-device': { isDevice: true },
+    'react-native': { Platform: { OS: 'ios' } },
+    '../../stores/callStore': { useCallStore: { getState: () => current } },
   })
-  assert.deepEqual(veloraSystemCalls.getPendingCallAction(), {...raw, callId: 'room', invitationId: 'invite-new'})
+  assert.deepEqual(veloraSystemCalls.getPendingCallAction(), {
+    ...raw,
+    callId: 'room',
+    invitationId: 'invite-new',
+  })
   await veloraSystemCalls.endCall('room')
   await veloraSystemCalls.endCall('invite-old')
   assert.deepEqual(ended, ['invite-new', 'invite-old'])
   await veloraSystemCalls.dismissIncomingCall('room', 'room')
   assert.equal(ended.at(-1), 'room')
-  current = {callId: null, groupInvitationId: null}
+  current = { callId: null, groupInvitationId: null }
   assert.equal(veloraSystemCalls.getPendingCallAction().callId, 'room')
   assert.equal(veloraSystemCalls.getPendingCallAction().invitationId, 'invite-new')
-  raw = {...raw, callId: 'initial-room', roomCallId: undefined}
+  raw = { ...raw, callId: 'initial-room', roomCallId: undefined }
   assert.equal(veloraSystemCalls.getPendingCallAction().invitationId, 'initial-room')
 })
 
@@ -86,7 +111,8 @@ const coldEndHarness = (
   rejoinFails = false,
   leaveFails = false,
   callStateOverride = {},
-  uiState = {phase: 'idle', callId: null},
+  uiState = { phase: 'idle', callId: null },
+  journal = [],
 ) => {
   const events = []
   const pending = { action, actionId: 'end-1', callId: 'call-1', accountId: 'guest-a' }
@@ -110,7 +136,12 @@ const coldEndHarness = (
     },
     '../systemCalls/veloraSystemCalls': {
       veloraSystemCalls: {
-        clearPendingCallAction: (id) => events.push(['clear', id]),
+        getPendingCallAction: () => journal[0] ?? null,
+        clearPendingCallAction: (id) => {
+          events.push(['clear', id])
+          const index = journal.findIndex((entry) => entry.actionId === id)
+          if (index >= 0) journal.splice(index, 1)
+        },
         dismissIncomingCall: (id, invitationId) => events.push(['dismiss', invitationId ?? id]),
       },
     },
@@ -132,7 +163,7 @@ const coldEndHarness = (
     },
   })
   const completed = new Set()
-  const { processNativeCallAction } = useNativeCallActions({
+  const { processNativeCallAction, processPendingNativeCallAction } = useNativeCallActions({
     isLoading: false,
     isAuthenticated: true,
     currentUserId: 'guest-a',
@@ -147,13 +178,39 @@ const coldEndHarness = (
     prepareIncomingCallFromState: () => true,
     prepareIncomingCallFromPayload: () => true,
     resumeAcceptedCall: async () => false,
-    acceptIncomingCall: async () => {},
+    acceptIncomingCall: async () => events.push(['accept']),
     endCall: async () => {},
     ensureCallSocketConnected: async () => socket,
     rejectIncomingCall: async () => {},
   })
-  return { events, pending, completed, processNativeCallAction }
+  return { events, pending, completed, processNativeCallAction, processPendingNativeCallAction }
 }
+
+test('cold replay drains old terminal entries before answering a repeat invitation', async () => {
+  const journal = [
+    { action: 'remote_end', actionId: 'old-terminal', callId: 'call-1', invitationId: 'call-1' },
+    { action: 'answer', actionId: 'new-answer', callId: 'call-1', invitationId: 'new-invite' },
+  ]
+  const harness = coldEndHarness('winner', 'end', false, false, {}, undefined, journal)
+  await harness.processPendingNativeCallAction('auth_ready')
+  assert.equal(journal.length, 0)
+  assert.equal(harness.events.filter(([event]) => event === 'accept').length, 1)
+  assert.equal(harness.completed.has('new-answer'), true)
+})
+
+test('journal drain stops at an unfinished retry instead of spinning or skipping it', async () => {
+  const journal = [{ action: 'end', actionId: 'retry-end', callId: 'call-1' }]
+  const harness = coldEndHarness(null, 'end', false, false, {}, undefined, journal)
+  const originalWarn = console.warn
+  console.warn = () => {}
+  try {
+    await harness.processPendingNativeCallAction('app_resume')
+  } finally {
+    console.warn = originalWarn
+  }
+  assert.equal(journal.length, 1)
+  assert.equal(harness.completed.has('retry-end'), false)
+})
 
 test('cold group guest end rejoins with winner proof before confirmed leave', async () => {
   const harness = coldEndHarness('winner-1')
@@ -169,17 +226,30 @@ test('cold group guest end rejoins with winner proof before confirmed leave', as
 
 test('stale native end and remote-end cannot tear down a newer invitation', async () => {
   for (const action of ['end', 'remote_end']) {
-    const harness = coldEndHarness('winner', action, false, false, {invitationId: 'new'}, {callId: 'call-1', phase: 'incoming_ringing', groupInvitationId: 'new'})
-    await harness.processNativeCallAction({...harness.pending, invitationId: 'old'})
-    assert.equal(harness.events.some(([event]) => event === 'teardown' || event === 'leave_call'), false)
+    const harness = coldEndHarness(
+      'winner',
+      action,
+      false,
+      false,
+      { invitationId: 'new' },
+      { callId: 'call-1', phase: 'incoming_ringing', groupInvitationId: 'new' },
+    )
+    await harness.processNativeCallAction({ ...harness.pending, invitationId: 'old' })
+    assert.equal(
+      harness.events.some(([event]) => event === 'teardown' || event === 'leave_call'),
+      false,
+    )
     assert.equal(harness.completed.has('end-1'), true)
   }
 })
 
 test('cold stale end rejects the older invitation after the authoritative state read', async () => {
-  const harness = coldEndHarness('winner', 'end', false, false, {invitationId: 'new'})
-  await harness.processNativeCallAction({...harness.pending, invitationId: 'old'})
-  assert.deepEqual(harness.events, [['dismiss', 'old'], ['clear', 'end-1']])
+  const harness = coldEndHarness('winner', 'end', false, false, { invitationId: 'new' })
+  await harness.processNativeCallAction({ ...harness.pending, invitationId: 'old' })
+  assert.deepEqual(harness.events, [
+    ['dismiss', 'old'],
+    ['clear', 'end-1'],
+  ])
 })
 
 test('missing winner proof never reports a successful leave', async () => {
