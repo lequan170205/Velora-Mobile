@@ -40,6 +40,7 @@ import { AppText } from '../../src/components/base/AppText'
 import { queryKeys } from '../../src/constants/queryKeys'
 import { colors } from '../../src/constants/theme'
 import { createCallRequestId } from '../../src/lib/call/callSocket'
+import { getVisibleGroupSpeakerId } from '../../src/lib/call/groupActiveSpeaker'
 import { veloraSystemCalls } from '../../src/lib/systemCalls/veloraSystemCalls'
 import { useCall } from '../../src/providers/CallProvider'
 import { useAuthStore } from '../../src/stores/authStore'
@@ -578,6 +579,7 @@ export default function ActiveCallScreen() {
     </CallDock>
   )
 
+  const activeSpeakerId = getVisibleGroupSpeakerId(useCallStore.getState(), currentUser?.id)
   const participantRows = isGroupCall
     ? groupPeopleIds.map((userId, index) => {
         const member = groupMembers.find((item) => item.userId === userId)
@@ -614,6 +616,7 @@ export default function ActiveCallScreen() {
               : null,
           isReconnecting,
           micStatus,
+          isSpeaking: activeSpeakerId === userId,
         }
       })
     : [
@@ -624,6 +627,7 @@ export default function ActiveCallScreen() {
           subtitle: currentUser?.username ? `@${currentUser.username}` : null,
           isReconnecting: false,
           micStatus: null,
+          isSpeaking: false,
         },
         {
           id: 'peer',
@@ -632,6 +636,7 @@ export default function ActiveCallScreen() {
           subtitle: null,
           isReconnecting: false,
           micStatus: null,
+          isSpeaking: false,
         },
       ]
   const joinedUserIds = new Set(groupPeopleIds)
@@ -694,9 +699,18 @@ export default function ActiveCallScreen() {
               key={person.id}
               className="flex-row items-center py-3"
               accessible
-              accessibilityLabel={`${person.name}, ${person.isReconnecting ? 'reconnecting to this call' : 'in this call'}${person.micStatus ? `, ${person.micStatus}` : ''}`}
+              accessibilityLabel={`${person.name}, ${person.isReconnecting ? 'reconnecting to this call' : 'in this call'}${person.micStatus ? `, ${person.micStatus}` : ''}${person.isSpeaking ? ', speaking' : ''}`}
             >
-              <PeerAvatar avatarUrl={person.avatarUrl} name={person.name} size={56} />
+              <View
+                style={{
+                  borderWidth: 2,
+                  borderRadius: 32,
+                  padding: 2,
+                  borderColor: person.isSpeaking ? colors.call.textPrimary : 'transparent',
+                }}
+              >
+                <PeerAvatar avatarUrl={person.avatarUrl} name={person.name} size={56} />
+              </View>
               <View className="ml-4 min-w-0 flex-1">
                 <AppText
                   className="text-[17px] font-semibold"
@@ -713,14 +727,20 @@ export default function ActiveCallScreen() {
                 {person.micStatus ? (
                   <View className="mt-1 flex-row items-center" accessible={false}>
                     <MaterialIcons
-                      name={person.micStatus === 'Mic on' ? 'mic' : 'mic-off'}
+                      name={
+                        person.isSpeaking
+                          ? 'graphic-eq'
+                          : person.micStatus === 'Mic on'
+                            ? 'mic'
+                            : 'mic-off'
+                      }
                       size={18}
                       color={colors.call.textSecondary}
                       accessibilityElementsHidden
                       importantForAccessibility="no"
                     />
                     <AppText className="ml-1 text-sm" style={{ color: colors.call.textSecondary }}>
-                      {person.micStatus}
+                      {person.isSpeaking ? 'Speaking' : person.micStatus}
                     </AppText>
                   </View>
                 ) : null}

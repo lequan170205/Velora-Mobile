@@ -26,6 +26,8 @@ const initialState: CallUiState = {
   groupReconnectingUserIds: [],
   groupMicStates: {},
   groupMicSyncError: false,
+  groupActiveSpeaker: null,
+  groupSpeakerRevision: -1,
   callType: null,
   muted: false,
   speakerEnabled: false,

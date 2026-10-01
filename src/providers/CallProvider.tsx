@@ -64,6 +64,7 @@ import {
   reconcileRemoteVideoProducerTombstones,
   shouldApplyRemoteVideoRevision,
 } from '../lib/call/callVideoState'
+import { getGroupSpeakerPatch, GROUP_SPEAKER_TTL_MS } from '../lib/call/groupActiveSpeaker'
 import { groupWinnerAction } from '../lib/call/groupWinnerAction'
 import { type RtcQualityCounters, type RtcQualityStreak } from '../lib/call/rtcStats'
 import { useCallLocalMediaRuntime } from '../lib/call/useCallLocalMediaRuntime'
@@ -101,6 +102,7 @@ import type {
   CallType,
   CallTypeChangedPayload,
   GroupMicStateChangedPayload,
+  GroupActiveSpeakerPayload,
   GroupCallIdentityChangedPayload,
   GroupInvitationStatePayload,
   IncomingCallPayload,
@@ -3126,6 +3128,32 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
     socketRef.current = socket
 
+    let groupSpeakerTimeout: ReturnType<typeof setTimeout> | undefined
+    const clearGroupSpeaker = () => {
+      clearTimeout(groupSpeakerTimeout)
+      groupSpeakerTimeout = undefined
+      if (useCallStore.getState().groupActiveSpeaker)
+        useCallStore.getState().patch({ groupActiveSpeaker: null })
+    }
+    const handleGroupActiveSpeaker = (payload: GroupActiveSpeakerPayload) => {
+      const patch = getGroupSpeakerPatch(
+        useCallStore.getState(),
+        payload,
+        currentUserId,
+        audioProducerRef.current?.id ?? null,
+      )
+      if (!patch) return
+      clearTimeout(groupSpeakerTimeout)
+      useCallStore.getState().patch(patch)
+      if (patch.groupActiveSpeaker) {
+        groupSpeakerTimeout = setTimeout(() => {
+          const state = useCallStore.getState()
+          if (state.callId === payload.callId && state.groupSpeakerRevision === payload.revision)
+            state.patch({ groupActiveSpeaker: null })
+        }, GROUP_SPEAKER_TTL_MS)
+      }
+    }
+
     const handleSocketReady = (payload?: CallSocketReadyPayload) => {
       callSocketAuthenticatedRef.current = true
       flushPendingLocalVideoProducerClosures()
@@ -3151,6 +3179,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
 
     const handleDisconnect = (reason: string) => {
+      clearGroupSpeaker()
       const state = useCallStore.getState()
       const { callId: disconnectedCallId, phase } = state
       callSocketAuthenticatedRef.current = false
@@ -3561,6 +3590,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     socket.on('new_peer', handleNewPeer)
     socket.on('new_producer', handleNewProducer)
     socket.on('group_mic_state_changed', handleGroupMicStateChanged)
+    socket.on('group_active_speaker', handleGroupActiveSpeaker)
     socket.on('group_call_identity_changed', handleGroupCallIdentityChanged)
     socket.on('group_invitation_state', handleGroupInvitationState)
     socket.on('producer_closed', handleProducerClosed)
@@ -3577,6 +3607,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     void ensureCallSocketConnected('runtime').catch(() => undefined)
 
     return () => {
+      clearGroupSpeaker()
       socket.off('connect', handleConnect)
       socket.off('call_socket_ready', handleSocketReady)
       socket.off('disconnect', handleDisconnect)
@@ -3590,6 +3621,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socket.off('new_peer', handleNewPeer)
       socket.off('new_producer', handleNewProducer)
       socket.off('group_mic_state_changed', handleGroupMicStateChanged)
+      socket.off('group_active_speaker', handleGroupActiveSpeaker)
       socket.off('group_call_identity_changed', handleGroupCallIdentityChanged)
       socket.off('group_invitation_state', handleGroupInvitationState)
       socket.off('producer_closed', handleProducerClosed)

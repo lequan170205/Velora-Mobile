@@ -146,6 +146,12 @@ export interface SetGroupMicStatePayload {
   requestId: string
 }
 
+export interface GroupActiveSpeakerPayload {
+  callId: string
+  revision: number
+  speaker: { userId: string; producerId: string; micRevision: number } | null
+}
+
 export interface GroupMicStateChangedPayload {
   callId: string
   userId: string
@@ -484,6 +490,7 @@ export interface CallServerEvents {
   video_state_changed: (payload: VideoStateChangedPayload) => void
   video_state_updated: (payload: VideoStateUpdatedPayload) => void
   group_mic_state_changed: (payload: GroupMicStateChangedPayload) => void
+  group_active_speaker: (payload: GroupActiveSpeakerPayload) => void
   group_call_identity_changed: (payload: GroupCallIdentityChangedPayload) => void
   group_mic_state_updated: (payload: GroupMicStateUpdatedPayload) => void
   call_answered: (payload: CallAnsweredPayload) => void
@@ -539,6 +546,9 @@ export interface CallUiState {
   groupReconnectingUserIds: string[]
   groupMicStates: Record<string, { producerId: string; enabled: boolean | null; revision: number }>
   groupMicSyncError: boolean
+  groupActiveSpeaker:
+    (NonNullable<GroupActiveSpeakerPayload['speaker']> & { expiresAt: number }) | null
+  groupSpeakerRevision: number
   callType: CallType | null
   muted: boolean
   speakerEnabled: boolean
