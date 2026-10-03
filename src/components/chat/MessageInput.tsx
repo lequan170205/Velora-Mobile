@@ -1,4 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons'
+import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
 import * as ImagePicker from 'expo-image-picker'
 import React, { memo, useCallback, useImperativeHandle, useRef, useState } from 'react'
@@ -481,7 +482,15 @@ const MessageInputComponent = function MessageInput(
   }))
 
   return (
-    <Animated.View className="bg-bg-primary" style={containerStyle}>
+    <Animated.View style={containerStyle}>
+      {/* Full-bleed light frost, deliberately borderless: no hairline, no
+          enclosing card — the composer just sits on translucent glass while
+          messages scroll beneath it. */}
+      <BlurView intensity={28} tint="light" pointerEvents="none" style={StyleSheet.absoluteFill} />
+      <View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.9)' }]}
+      />
       {replyTo ? (
         <Animated.View
           entering={FadeInDown.duration(170).withInitialValues({

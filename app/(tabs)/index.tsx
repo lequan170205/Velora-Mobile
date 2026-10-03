@@ -1,9 +1,10 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useIsFocused } from '@react-navigation/native'
 import { useQueryClient } from '@tanstack/react-query'
+import { BlurView } from 'expo-blur'
 import { useRouter } from 'expo-router'
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { AppState, FlatList, RefreshControl, ScrollView, View } from 'react-native'
+import { AppState, FlatList, RefreshControl, ScrollView, StyleSheet, View } from 'react-native'
 import Animated, {
   FadeInDown,
   ReduceMotion,
@@ -48,12 +49,35 @@ interface MatchSummary {
   picture?: string
 }
 
-function ConversationsHeader({ onCreateGroup }: { onCreateGroup: () => void }) {
+function ConversationsHeader({
+  onCreateGroup,
+  onLayoutHeight,
+  topInset,
+}: {
+  onCreateGroup: () => void
+  onLayoutHeight?: (height: number) => void
+  topInset: number
+}) {
   return (
     <Animated.View
       entering={SECTION_ENTERING}
-      className="flex-row items-end justify-between bg-bg-primary px-5 pb-3 pt-2"
+      onLayout={
+        onLayoutHeight ? (event) => onLayoutHeight(event.nativeEvent.layout.height) : undefined
+      }
+      className="flex-row items-end justify-between px-5 pb-3"
+      style={{
+        paddingTop: topInset + 6,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.bg.glassBorder,
+      }}
     >
+      {/* Same frost recipe as the docked tab bar so the list scrolls beneath
+          the header with no seam at the status bar. */}
+      <BlurView intensity={28} tint="light" pointerEvents="none" style={StyleSheet.absoluteFill} />
+      <View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.92)' }]}
+      />
       <View>
         <AppText className="text-xs2 font-semibold uppercase tracking-[1.8px] text-brand">
           Velora
@@ -152,6 +176,7 @@ export default function ConversationsScreen() {
   const deferredSearchQuery = useDeferredValue(searchQuery)
   const [relativeTimeTick, setRelativeTimeTick] = useState(() => Date.now())
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [conversationsHeaderHeight, setConversationsHeaderHeight] = useState(0)
   const warmedConversationSignatureRef = useRef('')
 
   const handleRefresh = useCallback(async () => {
@@ -315,7 +340,7 @@ export default function ConversationsScreen() {
   if (isLoading) {
     return (
       <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
-        <ConversationsHeader onCreateGroup={openNewGroup} />
+        <ConversationsHeader onCreateGroup={openNewGroup} topInset={0} />
         <ConversationListSkeleton />
       </SafeAreaView>
     )
@@ -324,7 +349,7 @@ export default function ConversationsScreen() {
   if (isError) {
     return (
       <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
-        <ConversationsHeader onCreateGroup={openNewGroup} />
+        <ConversationsHeader onCreateGroup={openNewGroup} topInset={0} />
         <View className="flex-1 items-center justify-center px-6">
           <View className="h-12 w-12 items-center justify-center rounded-[18px] bg-surface-accent">
             <MaterialIcons name="cloud-off" size={22} color={colors.brand.primary} />
@@ -352,8 +377,7 @@ export default function ConversationsScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
-      <ConversationsHeader onCreateGroup={openNewGroup} />
+    <View className="flex-1 bg-bg-primary">
       <FlatList
         data={filteredConversations}
         extraData={relativeTimeTick}
@@ -361,7 +385,7 @@ export default function ConversationsScreen() {
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        contentInsetAdjustmentBehavior="automatic"
+        contentInsetAdjustmentBehavior="never"
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
@@ -371,8 +395,9 @@ export default function ConversationsScreen() {
           />
         }
         contentContainerStyle={{
-          // The tab bar overlays the list (frosted glass), so clear content
-          // past it. SafeAreaView already pads the bottom inset slice.
+          // Clear the floating glass header at the top and the docked frosted
+          // tab bar at the bottom (no automatic insets — both are manual).
+          paddingTop: conversationsHeaderHeight,
           paddingBottom: getDockedTabBarHeight(insets.bottom) - insets.bottom + 16,
         }}
         ListHeaderComponent={
@@ -486,6 +511,15 @@ export default function ConversationsScreen() {
           </View>
         }
       />
-    </SafeAreaView>
+
+      {/* Frosted header floats above the list so rows scroll beneath it. */}
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 25 }}>
+        <ConversationsHeader
+          onCreateGroup={openNewGroup}
+          onLayoutHeight={setConversationsHeaderHeight}
+          topInset={insets.top}
+        />
+      </View>
+    </View>
   )
 }

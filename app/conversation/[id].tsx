@@ -72,6 +72,7 @@ export default function ChatScreen() {
   const [openingActiveCall, setOpeningActiveCall] = useState(false)
   const [selectCallMembersOpen, setSelectCallMembersOpen] = useState(false)
   const [bannerNowMs, setBannerNowMs] = useState(Date.now())
+  const [headerOverlayHeight, setHeaderOverlayHeight] = useState(0)
   const callStartInFlightRef = useRef(false)
   const openingCallRef = useRef(false)
   const activeTypers = useChatStore(
@@ -311,6 +312,11 @@ export default function ChatScreen() {
     restoreComposerAfterContextMenu,
   })
 
+  const showCallActions =
+    callPhase === 'idle' &&
+    !serverCall &&
+    (currentConversation?.isGroup === true || Boolean(otherUserId))
+
   const groupTypingLabel = useMemo(() => {
     return getGroupTypingLabel({
       activeTypers,
@@ -548,38 +554,8 @@ export default function ChatScreen() {
   }
 
   return (
-    <View className="flex-1 bg-bg-primary" style={{ paddingTop: insets.top }}>
+    <View className="flex-1 bg-bg-primary">
       <View className="flex-1 z-10">
-        <ConversationHeader
-          activeGroupCall={activeGroupCall}
-          openingActiveCall={openingActiveCall}
-          {...(avatarUrl ? { avatarUrl } : {})}
-          displayName={displayName}
-          groupTypingLabel={groupTypingLabel}
-          isConnected={isConnected}
-          isGroup={isGroup}
-          isOnline={isOnline}
-          participantCount={currentConversation?.participantIds.length ?? 0}
-          callActionsDisabled={callPhase !== 'idle' || pendingCallType !== null}
-          pendingCallType={pendingCallType}
-          presenceLabel={presenceLabel}
-          queuedMessageCount={queuedMessageCount}
-          showCallActions={
-            callPhase === 'idle' &&
-            !serverCall &&
-            (currentConversation?.isGroup === true || Boolean(otherUserId))
-          }
-          showVideoCallAction={!currentConversation?.isGroup}
-          onBack={handleBack}
-          onOpenGroupInfo={handleOpenGroupInfo}
-          onOpenActiveGroupCall={() => {
-            void handleOpenActiveGroupCall()
-          }}
-          onStartVideoCall={handleStartVideoCall}
-          onStartVoiceCall={handleStartVoiceCall}
-          onSelectGroupCallMembers={() => setSelectCallMembersOpen(true)}
-        />
-
         <View
           style={{ flex: 1, overflow: 'hidden', backgroundColor: 'transparent' }}
           onLayout={handleMessageViewportLayout}
@@ -594,7 +570,9 @@ export default function ChatScreen() {
                         loadingIndicatorStyle,
                         {
                           position: 'absolute',
-                          top: 0,
+                          // Hang below the floating glass header instead of
+                          // sliding underneath it.
+                          top: headerOverlayHeight + 8,
                           left: 0,
                           right: 0,
                           zIndex: 20,
@@ -649,7 +627,9 @@ export default function ChatScreen() {
                     keyExtractor={keyExtractor}
                     getItemType={getItemType}
                     contentContainerStyle={{
-                      paddingBottom: 20,
+                      // The list is inverted, so content-end padding lands
+                      // visually at the top, clearing the floating header.
+                      paddingBottom: headerOverlayHeight + 20,
                     }}
                     onEndReached={currentOlderLoader}
                     onEndReachedThreshold={0.2}
@@ -724,6 +704,37 @@ export default function ChatScreen() {
               </Animated.View>
             </View>
           </Animated.View>
+        </View>
+
+        {/* Frosted header floats above the list so messages scroll beneath it. */}
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 25 }}>
+          <ConversationHeader
+            activeGroupCall={activeGroupCall}
+            openingActiveCall={openingActiveCall}
+            {...(avatarUrl ? { avatarUrl } : {})}
+            displayName={displayName}
+            groupTypingLabel={groupTypingLabel}
+            isConnected={isConnected}
+            isGroup={isGroup}
+            isOnline={isOnline}
+            participantCount={currentConversation?.participantIds.length ?? 0}
+            callActionsDisabled={callPhase !== 'idle' || pendingCallType !== null}
+            pendingCallType={pendingCallType}
+            presenceLabel={presenceLabel}
+            queuedMessageCount={queuedMessageCount}
+            showCallActions={showCallActions}
+            showVideoCallAction={!currentConversation?.isGroup}
+            onBack={handleBack}
+            onOpenGroupInfo={handleOpenGroupInfo}
+            onOpenActiveGroupCall={() => {
+              void handleOpenActiveGroupCall()
+            }}
+            onSelectGroupCallMembers={() => setSelectCallMembersOpen(true)}
+            onStartVideoCall={handleStartVideoCall}
+            onStartVoiceCall={handleStartVoiceCall}
+            onLayoutHeight={setHeaderOverlayHeight}
+            topInset={insets.top}
+          />
         </View>
 
         <MessageContextMenu

@@ -1,6 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons'
+import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
-import { ActivityIndicator, View } from 'react-native'
+import { ActivityIndicator, StyleSheet, View } from 'react-native'
 import Animated, {
   ReduceMotion,
   useAnimatedStyle,
@@ -104,6 +105,11 @@ type ConversationHeaderProps = {
   onStartVideoCall: () => void
   onStartVoiceCall: () => void
   onSelectGroupCallMembers: () => void
+  /** Reports the header's rendered height so the list can pad beneath the overlay. */
+  onLayoutHeight?: (height: number) => void
+  /** Safe-area top inset; the glass surface covers it so content scrolls
+      seamlessly beneath the status bar. */
+  topInset?: number
 }
 
 export const ConversationHeader = ({
@@ -128,6 +134,8 @@ export const ConversationHeader = ({
   onStartVideoCall,
   onStartVoiceCall,
   onSelectGroupCallMembers,
+  onLayoutHeight,
+  topInset = 0,
 }: ConversationHeaderProps) => {
   const subtitleColor = groupTypingLabel
     ? colors.brand.primary
@@ -136,7 +144,25 @@ export const ConversationHeader = ({
       : colors.text.tertiary
 
   return (
-    <View className="z-10 border-b border-border-light bg-bg-primary px-2 pb-2.5 pt-1">
+    <View
+      className="z-10 px-2 pb-2.5 pt-1"
+      onLayout={
+        onLayoutHeight ? (event) => onLayoutHeight(event.nativeEvent.layout.height) : undefined
+      }
+      style={{
+        paddingTop: topInset + 4,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.bg.glassBorder,
+      }}
+    >
+      {/* Same frost recipe as the docked tab bar: a light blur with a separate
+          high-opacity tint layer reads as clean glass; tinting the BlurView
+          itself (or blurring harder) looks muddy. */}
+      <BlurView intensity={28} tint="light" pointerEvents="none" style={StyleSheet.absoluteFill} />
+      <View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.92)' }]}
+      />
       <View className="flex-row items-center">
         <AppPressable
           className="h-11 w-11 items-center justify-center rounded-full"
