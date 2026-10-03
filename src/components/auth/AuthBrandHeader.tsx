@@ -26,8 +26,8 @@ export function AuthBrandHeader({ compact = false }: AuthBrandHeaderProps) {
       <View
         className={
           compact
-            ? 'h-[76px] w-[76px] items-center justify-center rounded-[24px] border border-[#F5EEE9] bg-white'
-            : 'h-[112px] w-[112px] items-center justify-center rounded-[30px] border border-[#F5EEE9] bg-white'
+            ? 'h-[76px] w-[76px] items-center justify-center rounded-[24px] border border-border-warm-soft bg-white'
+            : 'h-[112px] w-[112px] items-center justify-center rounded-[30px] border border-border-warm-soft bg-white'
         }
       >
         <Image

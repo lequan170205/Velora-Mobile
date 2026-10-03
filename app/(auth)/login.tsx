@@ -8,7 +8,6 @@ import { Link, useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
-  Alert,
   Keyboard,
   Text,
   TextInput,
@@ -18,16 +17,30 @@ import {
   useWindowDimensions,
 } from 'react-native'
 import { useKeyboardState } from 'react-native-keyboard-controller'
+import Animated, { Easing, FadeIn, FadeInDown, ReduceMotion } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { authApi } from '../../src/api/auth.api'
 import { AuthBrandHeader } from '../../src/components/auth/AuthBrandHeader'
+import { AppPressable } from '../../src/components/base/AppPressable'
 import { ShortFormScreen } from '../../src/components/base/ShortFormScreen'
 import { GoogleIcon } from '../../src/components/ui/GoogleIcon'
 import { colors } from '../../src/constants/theme'
 import { cn } from '../../src/lib/cn'
 import { resumePushTokenRegistration } from '../../src/lib/notifications/pushTokenOperationState'
 import { useAuthStore } from '../../src/stores/authStore'
+
+// Auth surfaces sit at MOTION 2-3: one quiet entrance cascade, reduced-motion aware.
+const EASE_OUT = Easing.bezier(0.22, 1, 0.36, 1)
+const HEADLINE_ENTERING = FadeInDown.duration(260)
+  .delay(80)
+  .easing(EASE_OUT)
+  .reduceMotion(ReduceMotion.System)
+const FORM_ENTERING = FadeInDown.duration(240)
+  .delay(160)
+  .easing(EASE_OUT)
+  .reduceMotion(ReduceMotion.System)
+const ERROR_ENTERING = FadeIn.duration(170).easing(EASE_OUT).reduceMotion(ReduceMotion.System)
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets()
@@ -76,7 +89,6 @@ export default function LoginScreen() {
       } else {
         const errorMsg = error?.response?.data?.message || 'Login failed'
         setError(errorMsg)
-        Alert.alert('Error', errorMsg)
       }
     } finally {
       setIsLoading(false)
@@ -107,13 +119,13 @@ export default function LoginScreen() {
           case statusCodes.IN_PROGRESS:
             break
           case statusCodes.PLAY_SERVICES_NOT_AVAILABLE:
-            Alert.alert('Error', 'Play services not available or outdated')
+            setError('Google Play services is not available. Please try again.')
             break
           default:
-            Alert.alert('Error', err.message || 'Google Sign-In failed')
+            setError(err.message || 'Google Sign-In failed. Please try again.')
         }
       } else {
-        Alert.alert('Error', 'An unknown error occurred during Google Sign-In')
+        setError('Google Sign-In failed. Please try again.')
       }
     } finally {
       setIsLoading(false)
@@ -143,7 +155,7 @@ export default function LoginScreen() {
           <View className="flex-1">
             <AuthBrandHeader compact={isCompactLayout} />
 
-            <View className="mt-2">
+            <Animated.View entering={HEADLINE_ENTERING} className="mt-2">
               <Text
                 className={cn(
                   'w-full font-heading text-text-primary',
@@ -152,26 +164,32 @@ export default function LoginScreen() {
                     : 'text-[42px] leading-[44px] tracking-[-1.2px]',
                 )}
               >
-                Back to the <Text className="text-brand">group?</Text>
+                Back to the group?
               </Text>
               <Text className="mt-2 text-base font-sans leading-6 text-text-secondary">
                 Sign in and catch up.
               </Text>
-            </View>
+            </Animated.View>
 
-            <View className={cn('flex-1', isCompactLayout ? 'mt-4' : 'mt-6')}>
+            <Animated.View
+              entering={FORM_ENTERING}
+              className={cn('flex-1', isCompactLayout ? 'mt-4' : 'mt-6')}
+            >
               <View className={isCompactLayout ? 'mb-2' : 'mb-4'}>
                 <Text className="mb-2 text-sm2 font-semibold text-text-primary">Email address</Text>
                 <View
                   className={cn(
-                    'flex-row items-center rounded-[20px] px-4',
+                    'flex-row items-center rounded-[20px] border px-4',
                     isCompactLayout ? 'h-12' : 'h-14',
-                    isEmailFocused ? 'bg-surface-cream-focus' : 'bg-surface-cream',
+                    isEmailFocused
+                      ? 'border-border-warm bg-surface-cream-focus'
+                      : 'border-border-warm-soft bg-surface-cream',
                   )}
                 >
                   <MaterialIcons name="mail-outline" size={20} color={colors.brand.secondary} />
                   <TextInput
                     ref={emailInputRef}
+                    accessibilityLabel="Email address"
                     className="ml-3 flex-1 text-md font-sans text-text-primary"
                     placeholder="Enter your email"
                     placeholderTextColor={colors.text.tertiary}
@@ -197,14 +215,17 @@ export default function LoginScreen() {
                 <Text className="mb-2 text-sm2 font-semibold text-text-primary">Password</Text>
                 <View
                   className={cn(
-                    'flex-row items-center rounded-[20px] px-4',
+                    'flex-row items-center rounded-[20px] border px-4',
                     isCompactLayout ? 'h-12' : 'h-14',
-                    isPasswordFocused ? 'bg-surface-cream-focus' : 'bg-surface-cream',
+                    isPasswordFocused
+                      ? 'border-border-warm bg-surface-cream-focus'
+                      : 'border-border-warm-soft bg-surface-cream',
                   )}
                 >
                   <MaterialIcons name="lock-outline" size={20} color={colors.brand.secondary} />
                   <TextInput
                     ref={passwordInputRef}
+                    accessibilityLabel="Password"
                     className="ml-3 flex-1 text-md font-sans text-text-primary"
                     placeholder="Enter your password"
                     placeholderTextColor={colors.text.tertiary}
@@ -225,6 +246,8 @@ export default function LoginScreen() {
                     className="h-11 w-11 items-center justify-center"
                     onPress={() => setShowPassword(!showPassword)}
                     hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
                   >
                     <MaterialIcons
                       name={showPassword ? 'visibility' : 'visibility-off'}
@@ -238,7 +261,10 @@ export default function LoginScreen() {
               <View className="mt-3 h-11 flex-row items-center">
                 <View className="min-w-0 flex-1 flex-row items-center pr-3">
                   {error ? (
-                    <>
+                    <Animated.View
+                      entering={ERROR_ENTERING}
+                      className="flex-1 flex-row items-center"
+                    >
                       <MaterialIcons name="error-outline" size={18} color={colors.status.error} />
                       <Text
                         className="ml-2 flex-1 text-base2 font-medium leading-5 text-status-error"
@@ -248,7 +274,7 @@ export default function LoginScreen() {
                       >
                         {error}
                       </Text>
-                    </>
+                    </Animated.View>
                   ) : null}
                 </View>
                 <Link href="/(auth)/forgot-password" asChild>
@@ -261,7 +287,7 @@ export default function LoginScreen() {
                 </Link>
               </View>
 
-              <TouchableOpacity
+              <AppPressable
                 className={cn(
                   'flex-row items-center justify-center rounded-[20px] bg-brand',
                   isCompactLayout ? 'mt-3 h-12' : 'mt-5 h-14',
@@ -269,13 +295,16 @@ export default function LoginScreen() {
                 onPress={handleLogin}
                 disabled={isLoading}
                 activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Sign in"
+                accessibilityState={{ disabled: isLoading, busy: isLoading }}
               >
                 {isLoading ? (
                   <ActivityIndicator color={colors.text.inverse} size="small" />
                 ) : (
                   <Text className="text-md font-bold text-white">Sign In</Text>
                 )}
-              </TouchableOpacity>
+              </AppPressable>
 
               <View className={cn('flex-row items-center', isCompactLayout ? 'my-3' : 'my-5')}>
                 <View className="h-px flex-1 bg-border-default" />
@@ -321,7 +350,7 @@ export default function LoginScreen() {
                   </TouchableOpacity>
                 </Link>
               </View>
-            </View>
+            </Animated.View>
           </View>
         </TouchableWithoutFeedback>
       </ShortFormScreen>

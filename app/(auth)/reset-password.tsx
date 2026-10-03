@@ -178,7 +178,7 @@ export default function ResetPasswordScreen() {
           </View>
         </>
       ) : (
-        <View className="rounded-[22px] border border-warm bg-surface-cream px-5 py-6">
+        <View className="rounded-[22px] border border-border-warm bg-surface-cream px-5 py-6">
           <View className="h-12 w-12 items-center justify-center rounded-[16px] bg-[#FFF2E8]">
             <MaterialIcons name="check-circle-outline" size={24} color={colors.brand.tertiary} />
           </View>
