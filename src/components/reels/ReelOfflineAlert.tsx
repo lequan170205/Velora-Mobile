@@ -3,6 +3,7 @@ import React, { useEffect } from 'react'
 import { Text, View } from 'react-native'
 import Animated, {
   Easing,
+  ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -21,7 +22,8 @@ export function ReelOfflineAlert({ topOffset, visible }: ReelOfflineAlertProps) 
   useEffect(() => {
     visibilityProgress.value = withTiming(visible ? 1 : 0, {
       duration: visible ? 180 : 140,
-      easing: visible ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+      easing: Easing.out(Easing.cubic),
+      reduceMotion: ReduceMotion.System,
     })
   }, [visibilityProgress, visible])
 

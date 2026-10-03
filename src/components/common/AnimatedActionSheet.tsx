@@ -5,6 +5,7 @@ import Animated, {
   FadeInDown,
   interpolate,
   LinearTransition,
+  ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -76,7 +77,8 @@ export function AnimatedActionSheet({
       setIsClosing(true)
       progress.value = withTiming(0, {
         duration: 150,
-        easing: Easing.in(Easing.cubic),
+        easing: Easing.out(Easing.cubic),
+        reduceMotion: ReduceMotion.System,
       })
 
       if (closeTimeoutRef.current) {

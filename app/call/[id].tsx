@@ -49,7 +49,7 @@ const CALL_LAYOUT_ENTERING = FadeIn.duration(220)
   .easing(Easing.out(Easing.cubic))
   .reduceMotion(ReduceMotion.System)
 const CALL_LAYOUT_EXITING = FadeOut.duration(140)
-  .easing(Easing.in(Easing.cubic))
+  .easing(Easing.out(Easing.cubic))
   .reduceMotion(ReduceMotion.System)
 
 function CallDock({ children }: { children: ReactNode }) {
