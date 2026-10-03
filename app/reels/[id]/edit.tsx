@@ -263,7 +263,7 @@ export default function EditReelDetailsScreen() {
               void refetch()
             }}
           >
-            <Text style={{ color: colors.text.inverse, fontWeight: '800' }}>Try again</Text>
+            <Text style={{ color: colors.text.inverse, fontWeight: '700' }}>Try again</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -310,7 +310,7 @@ export default function EditReelDetailsScreen() {
               void handleSave()
             }}
           >
-            <Text style={{ color: colors.text.inverse, fontWeight: '800' }}>
+            <Text style={{ color: colors.text.inverse, fontWeight: '700' }}>
               {isBusy ? 'Saving' : 'Save'}
             </Text>
           </TouchableOpacity>
@@ -339,7 +339,7 @@ export default function EditReelDetailsScreen() {
               </View>
 
               <View className="ml-3 flex-1">
-                <Text style={{ color: colors.reel.ink, fontWeight: '800' }} numberOfLines={1}>
+                <Text style={{ color: colors.reel.ink, fontWeight: '700' }} numberOfLines={1}>
                   {reel.status === 'COMPLETED' ? 'Ready reel' : reel.status}
                 </Text>
                 <Text
@@ -364,7 +364,7 @@ export default function EditReelDetailsScreen() {
             </View>
 
             <View className="mt-3 rounded-[22px] bg-reel-canvas px-4 py-3">
-              <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '800' }}>
+              <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '700' }}>
                 Title
               </Text>
               <TextInput
@@ -380,7 +380,7 @@ export default function EditReelDetailsScreen() {
             </View>
 
             <View className="mt-3 min-h-[180px] rounded-[22px] bg-reel-canvas px-4 py-3">
-              <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '800' }}>
+              <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '700' }}>
                 Caption
               </Text>
               <TextInput
@@ -418,7 +418,7 @@ export default function EditReelDetailsScreen() {
                 />
               </View>
               <View className="ml-3 flex-1">
-                <Text style={{ color: colors.reel.ink, fontWeight: '800' }} numberOfLines={1}>
+                <Text style={{ color: colors.reel.ink, fontWeight: '700' }} numberOfLines={1}>
                   {reel.series?.title ?? 'No series'}
                 </Text>
                 <Text className="mt-0.5 text-xs2" style={{ color: colors.reel.inkSecondary }}>
@@ -445,7 +445,7 @@ export default function EditReelDetailsScreen() {
                 <View className="ml-3 flex-1">
                   <Text
                     className="capitalize"
-                    style={{ color: colors.reel.ink, fontWeight: '800' }}
+                    style={{ color: colors.reel.ink, fontWeight: '700' }}
                   >
                     {visibility}
                   </Text>
@@ -471,7 +471,7 @@ export default function EditReelDetailsScreen() {
                       style={{
                         color: visibility === option ? colors.text.inverse : colors.reel.ink,
                         fontSize: 12,
-                        fontWeight: '800',
+                        fontWeight: '700',
                       }}
                     >
                       {option}

@@ -42,7 +42,7 @@ function EditorToolbarAction({ active = false, icon, label, onPress }: EditorToo
         />
         <Text
           className="ml-1.5 text-xs2"
-          style={{ color: active ? colors.text.inverse : colors.reel.ink, fontWeight: '800' }}
+          style={{ color: active ? colors.text.inverse : colors.reel.ink, fontWeight: '700' }}
         >
           {label}
         </Text>

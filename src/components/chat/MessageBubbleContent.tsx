@@ -1,7 +1,7 @@
 import React from 'react'
 import { Text, View } from 'react-native'
 
-import { colors, typography } from '../../constants/theme'
+import { colors, radius, typography } from '../../constants/theme'
 import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../lib/chatMedia'
 import { cn } from '../../lib/cn'
 import { formatDurationLabel } from '../../lib/reels'
@@ -44,13 +44,13 @@ const previewImageStyle = {
 const previewTextStyle = {
   flexShrink: 1,
   fontFamily: typography.fonts.body,
-  fontSize: 15,
+  fontSize: typography.sizes.base,
   lineHeight: 22,
 } as const
 
 const previewDurationBadgeStyle = {
   backgroundColor: 'rgba(12,12,13,0.68)',
-  borderRadius: 999,
+  borderRadius: radius.full,
   bottom: 10,
   paddingHorizontal: 8,
   paddingVertical: 4,
@@ -60,7 +60,7 @@ const previewDurationBadgeStyle = {
 
 const previewDurationTextStyle = {
   color: colors.text.inverse,
-  fontSize: 11,
+  fontSize: typography.sizes.xs,
   fontWeight: '600',
 } as const
 

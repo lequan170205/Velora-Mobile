@@ -30,7 +30,7 @@ import Animated, {
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
-import { colors } from '../../constants/theme'
+import { colors, radius, typography } from '../../constants/theme'
 import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../lib/chatMedia'
 import {
   getPreferredReelReplyPreviewContent,
@@ -287,7 +287,7 @@ const ComposerAccessorySlot = memo(function ComposerAccessorySlot({
           style={{
             width: 40,
             height: 40,
-            borderRadius: 20,
+            borderRadius: radius.xl,
             alignItems: 'center',
             justifyContent: 'center',
             backgroundColor: BRAND,
@@ -551,7 +551,7 @@ const MessageInputComponent = function MessageInput(
               style={{
                 width: 38,
                 height: 52,
-                borderRadius: 12,
+                borderRadius: radius.sm,
                 alignItems: 'center',
                 justifyContent: 'center',
                 backgroundColor: colors.media.surface,
@@ -573,7 +573,7 @@ const MessageInputComponent = function MessageInput(
                 marginRight: 10,
               }}
             >
-              <Text style={{ fontSize: 12, fontWeight: '800', color: BRAND }}>{replyInitial}</Text>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: BRAND }}>{replyInitial}</Text>
             </View>
           )}
 
@@ -589,7 +589,10 @@ const MessageInputComponent = function MessageInput(
             >
               {replySenderLabel}
             </Text>
-            <Text style={{ fontSize: 13, color: TEXT_SECONDARY, lineHeight: 17 }} numberOfLines={1}>
+            <Text
+              style={{ fontSize: typography.sizes.sm, color: TEXT_SECONDARY, lineHeight: 17 }}
+              numberOfLines={1}
+            >
               {replyPreviewText}
             </Text>
           </View>
@@ -700,11 +703,11 @@ export const MessageInput = memo(React.forwardRef(MessageInputComponent))
 const styles = StyleSheet.create({
   composerPill: {
     backgroundColor: colors.surface.cream,
-    borderRadius: 20,
+    borderRadius: radius.xl,
   },
   textInput: {
     color: TEXT_PRIMARY,
-    fontSize: 16,
+    fontSize: typography.sizes.md,
     lineHeight: 21,
     maxHeight: 108,
     minHeight: 38,

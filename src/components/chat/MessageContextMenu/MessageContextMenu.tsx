@@ -32,7 +32,7 @@ import Animated, {
 import Svg, { Path } from 'react-native-svg'
 import { scheduleOnRN } from 'react-native-worklets'
 
-import { colors } from '../../../constants/theme'
+import { colors, radius, typography } from '../../../constants/theme'
 import { useAddReaction, useRemoveReaction } from '../../../hooks/useMessageActions'
 import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../../lib/chatMedia'
 import { RECALLED_PREVIEW_TEXT } from '../../../lib/replyPreview'
@@ -1398,13 +1398,13 @@ function shadowStyle(color: string) {
 const styles = StyleSheet.create({
   actionIconWrap: {
     alignItems: 'center',
-    borderRadius: 16,
+    borderRadius: radius.lg,
     height: 32,
     justifyContent: 'center',
     width: 32,
   },
   actionLabel: {
-    fontSize: 15,
+    fontSize: typography.sizes.base,
     fontWeight: '500',
   },
   actionRow: {
@@ -1458,14 +1458,14 @@ const styles = StyleSheet.create({
   },
   contextReactionChip: {
     alignItems: 'center',
-    borderRadius: 999,
+    borderRadius: radius.full,
     flexDirection: 'row',
     gap: 3,
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
   contextReactionCount: {
-    fontSize: 11,
+    fontSize: typography.sizes.xs,
     fontWeight: '600',
   },
   contextReactionEmoji: {
@@ -1484,7 +1484,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   contextReplyContent: {
-    fontSize: 15,
+    fontSize: typography.sizes.base,
     lineHeight: 24,
   },
   contextReplyHeader: {
@@ -1508,7 +1508,7 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
   },
   contextReplyThumbnail: {
-    borderRadius: 12,
+    borderRadius: radius.sm,
     height: 42,
     marginRight: 10,
     width: 42,
@@ -1520,7 +1520,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   contextVisualReplyCaption: {
-    fontSize: 13,
+    fontSize: typography.sizes.sm,
     lineHeight: 18,
     marginHorizontal: 4,
     marginTop: 8,
@@ -1530,12 +1530,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   contextVisualReplyImage: {
-    borderRadius: 16,
+    borderRadius: radius.lg,
     height: '100%',
     width: '100%',
   },
   contextVisualReplyMedia: {
-    borderRadius: 16,
+    borderRadius: radius.lg,
     overflow: 'hidden',
   },
   contextVisualReplyPlayButton: {
@@ -1590,7 +1590,7 @@ const styles = StyleSheet.create({
     paddingBottom: SAFE_VERTICAL,
   },
   focusBubble: {
-    borderRadius: 16,
+    borderRadius: radius.lg,
     flex: 1,
     overflow: 'hidden',
   },
@@ -1605,7 +1605,7 @@ const styles = StyleSheet.create({
   },
   reactionButton: {
     alignItems: 'center',
-    borderRadius: 16,
+    borderRadius: radius.lg,
     gap: 1,
     justifyContent: 'center',
     minHeight: 45,
@@ -1616,7 +1616,7 @@ const styles = StyleSheet.create({
     lineHeight: 40,
   },
   reactionGestureTarget: {
-    borderRadius: 16,
+    borderRadius: radius.lg,
   },
   reactionRow: {
     alignItems: 'center',

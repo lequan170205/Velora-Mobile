@@ -27,7 +27,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { scheduleOnRN } from 'react-native-worklets'
 
-import { colors } from '../../constants/theme'
+import { colors, radius, typography } from '../../constants/theme'
 import { formatDurationLabel } from '../../lib/reels'
 import { AppVideoPlayer } from '../video/AppVideoPlayer'
 
@@ -1084,7 +1084,7 @@ const styles = StyleSheet.create({
   },
   durationBadge: {
     backgroundColor: 'rgba(255,255,255,0.14)',
-    borderRadius: 999,
+    borderRadius: radius.full,
     flexShrink: 0,
     marginLeft: 8,
     paddingHorizontal: 9,
@@ -1092,7 +1092,7 @@ const styles = StyleSheet.create({
   },
   durationBadgeText: {
     color: colors.text.inverse,
-    fontSize: 11,
+    fontSize: typography.sizes.xs,
     fontWeight: '500',
   },
   hero: {
@@ -1132,12 +1132,12 @@ const styles = StyleSheet.create({
   },
   senderMetaContext: {
     color: 'rgba(255,255,255,0.5)',
-    fontSize: 11,
+    fontSize: typography.sizes.xs,
     marginTop: 1,
   },
   senderMetaName: {
     color: colors.text.inverse,
-    fontSize: 13,
+    fontSize: typography.sizes.sm,
     fontWeight: '500',
   },
   topBar: {
@@ -1170,12 +1170,12 @@ const styles = StyleSheet.create({
   },
   topBarSubtitle: {
     color: 'rgba(255,255,255,0.55)',
-    fontSize: 11,
+    fontSize: typography.sizes.xs,
     marginTop: 1,
   },
   topBarTitle: {
     color: colors.text.inverse,
-    fontSize: 15,
+    fontSize: typography.sizes.base,
     fontWeight: '600',
   },
 })

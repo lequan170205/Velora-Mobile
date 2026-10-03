@@ -15,7 +15,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 
-import { colors } from '../../constants/theme'
+import { colors, radius, typography } from '../../constants/theme'
 import {
   calculateChatMediaDisplaySize,
   getChatMediaMaxWidth,
@@ -286,7 +286,7 @@ export function ChatMediaBubble({
     <View
       style={{
         backgroundColor: 'rgba(12,12,13,0.68)',
-        borderRadius: 999,
+        borderRadius: radius.full,
         bottom: 10,
         paddingHorizontal: 8,
         paddingVertical: 4,
@@ -294,7 +294,9 @@ export function ChatMediaBubble({
         right: 10,
       }}
     >
-      <Text style={{ color: colors.text.inverse, fontSize: 11, fontWeight: '600' }}>
+      <Text
+        style={{ color: colors.text.inverse, fontSize: typography.sizes.xs, fontWeight: '600' }}
+      >
         {durationLabel}
       </Text>
     </View>
@@ -316,7 +318,7 @@ export function ChatMediaBubble({
             <View
               style={{
                 backgroundColor: 'rgba(255,255,255,0.16)',
-                borderRadius: 999,
+                borderRadius: radius.full,
                 height: 4,
                 marginBottom: 10,
                 overflow: 'hidden',
@@ -325,7 +327,7 @@ export function ChatMediaBubble({
               <Animated.View
                 style={[
                   progressStyle,
-                  { backgroundColor: colors.brand.primary, borderRadius: 999, height: 4 },
+                  { backgroundColor: colors.brand.primary, borderRadius: radius.full, height: 4 },
                 ]}
               />
             </View>
@@ -355,7 +357,7 @@ export function ChatMediaBubble({
                 }}
                 style={{
                   backgroundColor: 'rgba(255,255,255,0.14)',
-                  borderRadius: 999,
+                  borderRadius: radius.full,
                   marginLeft: 12,
                   paddingHorizontal: 12,
                   paddingVertical: 8,
@@ -376,7 +378,7 @@ export function ChatMediaBubble({
                 }}
                 style={{
                   backgroundColor: 'rgba(255,255,255,0.14)',
-                  borderRadius: 999,
+                  borderRadius: radius.full,
                   marginLeft: 12,
                   paddingHorizontal: 12,
                   paddingVertical: 8,

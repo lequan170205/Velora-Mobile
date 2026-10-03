@@ -268,7 +268,7 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
               </View>
 
               <View className="ml-4 flex-1">
-                <Text style={{ color: colors.reel.ink, fontWeight: '800' }}>
+                <Text style={{ color: colors.reel.ink, fontWeight: '700' }}>
                   {controller.orientationMessage}
                 </Text>
                 <Text className="mt-1 text-sm2" style={{ color: colors.reel.inkSecondary }}>
@@ -288,7 +288,7 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
                   void controller.handlePickFromLibrary()
                 }}
               >
-                <Text className="text-center" style={{ color: colors.reel.ink, fontWeight: '800' }}>
+                <Text className="text-center" style={{ color: colors.reel.ink, fontWeight: '700' }}>
                   Replace
                 </Text>
               </TouchableOpacity>

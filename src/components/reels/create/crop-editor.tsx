@@ -311,7 +311,7 @@ export function CropEditor({
         >
           <Text
             className="rounded-full bg-reel-accent px-4 py-2.5"
-            style={{ color: colors.text.inverse, fontWeight: '800' }}
+            style={{ color: colors.text.inverse, fontWeight: '700' }}
           >
             Done
           </Text>
@@ -353,7 +353,7 @@ export function CropEditor({
             style={({ pressed }) => [styles.framingButton, { opacity: pressed ? 0.78 : 1 }]}
           >
             <MaterialIcons name="refresh" size={18} color={colors.text.inverse} />
-            <Text className="ml-2" style={{ color: colors.text.inverse, fontWeight: '800' }}>
+            <Text className="ml-2" style={{ color: colors.text.inverse, fontWeight: '700' }}>
               Reset
             </Text>
           </Pressable>

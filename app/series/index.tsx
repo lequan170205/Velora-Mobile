@@ -94,7 +94,7 @@ export default function OwnedReelSeriesScreen() {
             onPress={() => createSheetRef.current?.present()}
           >
             <MaterialIcons name="add" size={18} color={colors.text.inverse} />
-            <Text className="ml-1" style={{ color: colors.text.inverse, fontWeight: '800' }}>
+            <Text className="ml-1" style={{ color: colors.text.inverse, fontWeight: '700' }}>
               New
             </Text>
           </TouchableOpacity>
@@ -184,7 +184,7 @@ export default function OwnedReelSeriesScreen() {
                   className="mt-5 min-h-11 justify-center rounded-full bg-reel-accent px-5"
                   onPress={() => void refetch()}
                 >
-                  <Text style={{ color: colors.text.inverse, fontWeight: '800' }}>Try again</Text>
+                  <Text style={{ color: colors.text.inverse, fontWeight: '700' }}>Try again</Text>
                 </TouchableOpacity>
               </View>
             ) : (
@@ -206,7 +206,7 @@ export default function OwnedReelSeriesScreen() {
                   onPress={() => createSheetRef.current?.present()}
                 >
                   <MaterialIcons name="add" size={18} color={colors.text.inverse} />
-                  <Text className="ml-2" style={{ color: colors.text.inverse, fontWeight: '800' }}>
+                  <Text className="ml-2" style={{ color: colors.text.inverse, fontWeight: '700' }}>
                     Create series
                   </Text>
                 </TouchableOpacity>
@@ -225,7 +225,7 @@ export default function OwnedReelSeriesScreen() {
                 {isFetchingNextPage ? (
                   <ActivityIndicator color={colors.reel.accent} size="small" />
                 ) : (
-                  <Text style={{ color: colors.reel.ink, fontWeight: '800' }}>Load more</Text>
+                  <Text style={{ color: colors.reel.ink, fontWeight: '700' }}>Load more</Text>
                 )}
               </TouchableOpacity>
             ) : null

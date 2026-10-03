@@ -21,7 +21,7 @@ import Animated, {
 } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 
-import { colors } from '../../constants/theme'
+import { colors, radius, typography } from '../../constants/theme'
 import {
   calculateChatMediaDisplaySize,
   getResolvedMediaPosterUri,
@@ -1350,7 +1350,7 @@ const MessageBubbleComponent = function MessageBubble({
                                   style={{
                                     width: 38,
                                     height: 52,
-                                    borderRadius: 12,
+                                    borderRadius: radius.sm,
                                     overflow: 'hidden',
                                     backgroundColor: colors.media.surface,
                                     marginRight: 10,
@@ -1386,7 +1386,7 @@ const MessageBubbleComponent = function MessageBubble({
                                   style={{
                                     width: 38,
                                     height: 52,
-                                    borderRadius: 12,
+                                    borderRadius: radius.sm,
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     backgroundColor: colors.media.surface,
@@ -1416,7 +1416,7 @@ const MessageBubbleComponent = function MessageBubble({
                                 </Text>
                                 <Text
                                   style={{
-                                    fontSize: 13,
+                                    fontSize: typography.sizes.sm,
                                     color: colors.text.secondary,
                                     lineHeight: 17,
                                   }}
@@ -1437,7 +1437,7 @@ const MessageBubbleComponent = function MessageBubble({
                                   style={{
                                     width: replyPreviewMediaSize.displayWidth,
                                     height: replyPreviewMediaSize.displayHeight,
-                                    borderRadius: 16,
+                                    borderRadius: radius.lg,
                                     overflow: 'hidden',
                                     backgroundColor:
                                       replyPreviewMeta.type === 'video'

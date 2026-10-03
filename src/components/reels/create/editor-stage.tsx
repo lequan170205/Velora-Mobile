@@ -231,7 +231,7 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
 
           <View className="absolute inset-x-0 bottom-0 px-3 pb-3">
             <View className="flex-row items-center justify-between rounded-full bg-white/92 px-3 py-2">
-              <Text style={{ color: colors.reel.ink, fontSize: 12, fontWeight: '800' }}>
+              <Text style={{ color: colors.reel.ink, fontSize: 12, fontWeight: '700' }}>
                 {positionLabel} / {durationLabel}
               </Text>
               <View className="flex-row gap-2">
@@ -286,7 +286,7 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
           <View className="flex-row items-center gap-2">
             {controller.editState.trim ? (
               <View className="rounded-full bg-brand-soft px-2.5 py-2">
-                <Text style={{ color: colors.brand.tertiary, fontSize: 11, fontWeight: '800' }}>
+                <Text style={{ color: colors.brand.tertiary, fontSize: 11, fontWeight: '700' }}>
                   Trimmed • {formatTrimDurationLabel(displayedDurationMs)}
                 </Text>
               </View>

@@ -334,7 +334,7 @@ export default function ManageReelSeriesScreen() {
             className="mt-6 min-h-11 justify-center rounded-full bg-reel-accent px-5"
             onPress={() => void refetch()}
           >
-            <Text style={{ color: colors.text.inverse, fontWeight: '800' }}>Try again</Text>
+            <Text style={{ color: colors.text.inverse, fontWeight: '700' }}>Try again</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -357,7 +357,7 @@ export default function ManageReelSeriesScreen() {
             className="mt-6 min-h-11 justify-center px-5"
             onPress={() => router.back()}
           >
-            <Text style={{ color: colors.brand.tertiary, fontWeight: '800' }}>Go back</Text>
+            <Text style={{ color: colors.brand.tertiary, fontWeight: '700' }}>Go back</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -483,7 +483,7 @@ export default function ManageReelSeriesScreen() {
               {orderedReels.length === 0 ? (
                 <View className="mt-4 items-center rounded-[22px] bg-reel-canvas px-5 py-7">
                   <MaterialIcons name="video-library" size={28} color="rgba(46,36,30,0.36)" />
-                  <Text className="mt-3" style={{ color: colors.reel.ink, fontWeight: '800' }}>
+                  <Text className="mt-3" style={{ color: colors.reel.ink, fontWeight: '700' }}>
                     No episodes yet
                   </Text>
                   <Text
@@ -538,7 +538,7 @@ export default function ManageReelSeriesScreen() {
                   disabled={!orderChanged || isBusy}
                   onPress={() => void handleSaveOrder()}
                 >
-                  <Text style={{ color: colors.text.inverse, fontWeight: '800' }}>
+                  <Text style={{ color: colors.text.inverse, fontWeight: '700' }}>
                     {reorderSeries.isPending ? 'Saving order…' : 'Save episode order'}
                   </Text>
                 </TouchableOpacity>
@@ -551,7 +551,7 @@ export default function ManageReelSeriesScreen() {
                   Details
                 </Text>
                 <View className="mt-3 rounded-[22px] bg-reel-canvas px-4 py-3">
-                  <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '800' }}>
+                  <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '700' }}>
                     Title
                   </Text>
                   <TextInput
@@ -565,7 +565,7 @@ export default function ManageReelSeriesScreen() {
                   />
                 </View>
                 <View className="mt-3 rounded-[22px] bg-reel-canvas px-4 py-3">
-                  <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '800' }}>
+                  <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '700' }}>
                     Description · optional
                   </Text>
                   <TextInput
@@ -610,7 +610,7 @@ export default function ManageReelSeriesScreen() {
                           style={{
                             color: selected ? colors.text.inverse : colors.reel.ink,
                             fontSize: 11.5,
-                            fontWeight: '800',
+                            fontWeight: '700',
                           }}
                           numberOfLines={1}
                         >
@@ -632,7 +632,7 @@ export default function ManageReelSeriesScreen() {
                   disabled={!metadataChanged || isBusy}
                   onPress={() => void handleSaveDetails()}
                 >
-                  <Text style={{ color: colors.text.inverse, fontWeight: '800' }}>
+                  <Text style={{ color: colors.text.inverse, fontWeight: '700' }}>
                     {updateSeries.isPending ? 'Saving…' : 'Save details'}
                   </Text>
                 </TouchableOpacity>
@@ -652,7 +652,7 @@ export default function ManageReelSeriesScreen() {
                   <MaterialIcons name="delete-outline" size={19} color={colors.brand.tertiary} />
                   <Text
                     className="ml-2"
-                    style={{ color: colors.brand.tertiary, fontWeight: '800' }}
+                    style={{ color: colors.brand.tertiary, fontWeight: '700' }}
                   >
                     Delete series
                   </Text>
@@ -702,7 +702,7 @@ const styles = (StyleSheet?.create ?? (<T extends Record<string, unknown>>(s: T)
   },
   episodeTitle: {
     color: colors.reel.ink,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   episodeTitleContainer: {
     flex: 1,
