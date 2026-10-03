@@ -516,6 +516,23 @@ function renderMessageReceiptContent({
   ) : null
 }
 
+function renderReactionBadges(
+  reactionSummary: Record<string, number>,
+  onReactionPress?: (emoji: string) => void,
+) {
+  return Object.entries(reactionSummary).map(([emoji, count]) => (
+    <Pressable
+      key={emoji}
+      onPress={() => onReactionPress?.(emoji)}
+      hitSlop={6}
+      className={cn('flex-row items-center rounded-full px-2 py-1 bg-surface-input')}
+    >
+      <Text className="text-xs">{emoji}</Text>
+      <Text className={cn('text-xs ml-0.5 text-text-muted')}>{count}</Text>
+    </Pressable>
+  ))
+}
+
 const MessageBubbleComponent = function MessageBubble({
   message,
   repliedMessage,
@@ -1580,19 +1597,7 @@ const MessageBubbleComponent = function MessageBubble({
                           )
                         }
                       >
-                        {Object.entries(reactionSummary).map(([emoji, count]) => (
-                          <Pressable
-                            key={emoji}
-                            onPress={() => onReactionPress?.(emoji)}
-                            hitSlop={6}
-                            className={cn(
-                              'flex-row items-center rounded-full px-2 py-1 bg-surface-input',
-                            )}
-                          >
-                            <Text className="text-xs">{emoji}</Text>
-                            <Text className={cn('text-xs ml-0.5 text-text-muted')}>{count}</Text>
-                          </Pressable>
-                        ))}
+                        {renderReactionBadges(reactionSummary, onReactionPress)}
                       </View>
                     )}
                   </View>
