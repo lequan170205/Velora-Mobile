@@ -51,6 +51,7 @@ import { useAuthStore } from '@/stores/authStore'
 
 import { reelsApi } from '../../api/reels.api'
 import { DEFAULT_REELS_LIMIT } from '../../constants/reels'
+import { colors } from '../../constants/theme'
 import { useFriends } from '../../hooks/useFriends'
 import { useFriendsReelsFeed, useRecommendedReelsFeed, useReelContext } from '../../hooks/useReels'
 import { flattenRecommendedReelPages } from '../../lib/recommendationFeed'
@@ -2049,7 +2050,11 @@ export function ReelsViewer({
           <View
             key={item.id}
             collapsable={false}
-            style={{ width: '100%', height: viewportHeight, backgroundColor: '#050505' }}
+            style={{
+              width: '100%',
+              height: viewportHeight,
+              backgroundColor: colors.reel.canvasDark,
+            }}
           />
         )
       }
@@ -2120,7 +2125,7 @@ export function ReelsViewer({
                 paddingVertical: 8,
               }}
             >
-              <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '600' }}>
+              <Text style={{ color: colors.text.inverse, fontSize: 11, fontWeight: '600' }}>
                 {item.recommendation.candidateSource} · rank {item.recommendation.rank}
               </Text>
               <Text style={{ color: '#D1D5DB', fontSize: 10, marginTop: 2 }}>
@@ -2175,7 +2180,7 @@ export function ReelsViewer({
 
   if (isActiveError && reels.length === 0 && !shouldShowOfflineSkeleton && !shouldLoadPublicFeed) {
     return (
-      <View className="flex-1 items-center justify-center bg-[#050505] px-6">
+      <View className="flex-1 items-center justify-center bg-reel-canvas-dark px-6">
         <StatusBar style="light" hidden={clearDisplay} />
 
         <View
@@ -2189,7 +2194,7 @@ export function ReelsViewer({
           }}
         >
           <View className="h-14 w-14 items-center justify-center rounded-[18px] border border-brand/30 bg-brand/14">
-            <MaterialIcons name="error-outline" size={28} color="#FF935B" />
+            <MaterialIcons name="error-outline" size={28} color={colors.brand.secondary} />
           </View>
 
           <Text className="mt-4 text-center font-heading text-xl text-white">Feed unavailable</Text>
@@ -2216,7 +2221,7 @@ export function ReelsViewer({
 
   return (
     <GestureDetector gesture={rootGesture}>
-      <View className="flex-1 bg-[#050505]" onLayout={handleLayout}>
+      <View className="flex-1 bg-reel-canvas-dark" onLayout={handleLayout}>
         <StatusBar style="light" />
 
         <Animated.View
@@ -2270,7 +2275,7 @@ export function ReelsViewer({
             <ReelOfflineSkeleton height={videoViewportHeight} bottomContentInset={0} />
           ) : (
             <View
-              className="flex-1 bg-[#050505]"
+              className="flex-1 bg-reel-canvas-dark"
               style={{ height: viewportHeight || windowHeight }}
             />
           )}
@@ -2313,7 +2318,7 @@ export function ReelsViewer({
                   pullRefreshIconSpinStyle,
                 ]}
               >
-                <MaterialIcons name="refresh" size={24} color="#FFFFFF" />
+                <MaterialIcons name="refresh" size={24} color={colors.text.inverse} />
               </Animated.View>
             </View>
           </Animated.View>
@@ -2347,7 +2352,7 @@ export function ReelsViewer({
               }}
             >
               <View className="h-14 w-14 items-center justify-center rounded-[18px] border border-white/16 bg-white/10">
-                <ActivityIndicator color="#FF935B" size="small" />
+                <ActivityIndicator color={colors.brand.secondary} size="small" />
               </View>
               <Text className="mt-4 text-center font-heading text-xl text-white">
                 Loading reels
@@ -2390,7 +2395,7 @@ export function ReelsViewer({
               {isActiveError ? (
                 <>
                   <View className="h-14 w-14 items-center justify-center rounded-[18px] border border-brand/30 bg-brand/14">
-                    <MaterialIcons name="error-outline" size={28} color="#FF935B" />
+                    <MaterialIcons name="error-outline" size={28} color={colors.brand.secondary} />
                   </View>
                   <Text className="mt-4 text-center font-heading text-xl text-white">
                     Feed unavailable
@@ -2418,7 +2423,7 @@ export function ReelsViewer({
                         selectedFeedTab === 'friends' ? 'people-outline' : 'play-circle-outline'
                       }
                       size={28}
-                      color="#FF935B"
+                      color={colors.brand.secondary}
                     />
                   </View>
 
@@ -2482,7 +2487,7 @@ export function ReelsViewer({
             className="absolute inset-x-0 z-20 items-center"
             style={{ top: headerContentBottom + 16, elevation: 20 }}
           >
-            <ActivityIndicator color="#FF7A45" size="small" />
+            <ActivityIndicator color={colors.reel.accent} size="small" />
           </View>
         ) : null}
 
@@ -2510,7 +2515,7 @@ export function ReelsViewer({
                   activeOpacity={0.72}
                   onPress={handleExitContext}
                 >
-                  <MaterialIcons name="arrow-back" size={26} color="#FFFFFF" />
+                  <MaterialIcons name="arrow-back" size={26} color={colors.text.inverse} />
                 </TouchableOpacity>
               </View>
               <View className="min-w-0 flex-1 items-center px-2">
@@ -2612,7 +2617,7 @@ export function ReelsViewer({
                     activeOpacity={0.72}
                     onPress={() => router.push('/reels/create')}
                   >
-                    <Ionicons name="add" size={28} color="#FFFFFF" />
+                    <Ionicons name="add" size={28} color={colors.text.inverse} />
                   </TouchableOpacity>
                 </>
               ) : (

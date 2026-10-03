@@ -13,6 +13,7 @@ import { Gesture, GestureDetector, Pressable } from 'react-native-gesture-handle
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 
+import { colors } from '../../constants/theme'
 import { ReelVideo } from '../reels/ReelVideo'
 
 import { VideoProgressBar } from './VideoProgressBar'
@@ -531,7 +532,7 @@ export const AppVideoPlayer = forwardRef<ReelVideoHandle, AppVideoPlayerProps>(
 
         {shouldShowStartupLoader || shouldShowBufferingLoader ? (
           <View pointerEvents="none" style={styles.bufferingOverlay}>
-            <ActivityIndicator color="#FFFFFF" size="small" />
+            <ActivityIndicator color={colors.text.inverse} size="small" />
           </View>
         ) : null}
 
@@ -549,7 +550,7 @@ export const AppVideoPlayer = forwardRef<ReelVideoHandle, AppVideoPlayerProps>(
                 onPress={handleSkipBackward}
                 style={[styles.skipButton, safeDuration <= 0 ? styles.skipButtonDisabled : null]}
               >
-                <MaterialIcons color="#FFFFFF" name="replay-10" size={30} />
+                <MaterialIcons color={colors.text.inverse} name="replay-10" size={30} />
               </Pressable>
 
               <Pressable
@@ -574,7 +575,7 @@ export const AppVideoPlayer = forwardRef<ReelVideoHandle, AppVideoPlayerProps>(
                 onPress={handleSkipForward}
                 style={[styles.skipButton, safeDuration <= 0 ? styles.skipButtonDisabled : null]}
               >
-                <MaterialIcons color="#FFFFFF" name="forward-10" size={30} />
+                <MaterialIcons color={colors.text.inverse} name="forward-10" size={30} />
               </Pressable>
             </View>
           </View>
@@ -599,7 +600,7 @@ export const AppVideoPlayer = forwardRef<ReelVideoHandle, AppVideoPlayerProps>(
               <View style={styles.rowSpacer} />
               <Pressable hitSlop={12} onPress={handleToggleMuted} style={styles.iconButton}>
                 <MaterialIcons
-                  color="#FFFFFF"
+                  color={colors.text.inverse}
                   name={resolvedMuted ? 'volume-off' : 'volume-up'}
                   size={22}
                 />
@@ -610,7 +611,7 @@ export const AppVideoPlayer = forwardRef<ReelVideoHandle, AppVideoPlayerProps>(
 
         {hasPlaybackError ? (
           <View style={styles.errorOverlay}>
-            <MaterialIcons color="#FFFFFF" name="error-outline" size={28} />
+            <MaterialIcons color={colors.text.inverse} name="error-outline" size={28} />
             <Text style={styles.errorTitle}>Unable to play this video</Text>
             <Text style={styles.errorSubtitle}>Check your connection and try again.</Text>
             <Pressable hitSlop={12} onPress={handleRetry} style={styles.retryButton}>
@@ -673,7 +674,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   errorTitle: {
-    color: '#FFFFFF',
+    color: colors.text.inverse,
     fontSize: 17,
     fontWeight: '600',
     marginTop: 12,
@@ -690,7 +691,7 @@ const styles = StyleSheet.create({
   },
   playButton: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.92)',
+    backgroundColor: colors.bg.frost,
     borderRadius: 999,
     height: 68,
     justifyContent: 'center',
@@ -699,7 +700,7 @@ const styles = StyleSheet.create({
   retryButton: {
     alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.12)',
-    borderColor: 'rgba(255,255,255,0.18)',
+    borderColor: colors.media.overlayBorder,
     borderRadius: 999,
     borderWidth: 1,
     justifyContent: 'center',
@@ -708,7 +709,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   retryLabel: {
-    color: '#FFFFFF',
+    color: colors.text.inverse,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -718,7 +719,7 @@ const styles = StyleSheet.create({
   skipButton: {
     alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.16)',
-    borderColor: 'rgba(255,255,255,0.18)',
+    borderColor: colors.media.overlayBorder,
     borderRadius: 999,
     borderWidth: 1,
     height: 52,
@@ -730,7 +731,7 @@ const styles = StyleSheet.create({
     opacity: 0.38,
   },
   timeLabel: {
-    color: '#FFFFFF',
+    color: colors.text.inverse,
     fontSize: 13,
     fontWeight: '500',
   },

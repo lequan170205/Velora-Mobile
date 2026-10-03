@@ -11,6 +11,21 @@ module.exports = {
         'bg-elevated': '#FFFFFF',
         'bg-glass': 'rgba(255,255,255,0.88)',
         'bg-glass-border': 'rgba(17,17,17,0.05)',
+        // Frost tint layer over BlurView (intensity 28) for floating headers/composer
+        'bg-frost': 'rgba(255,255,255,0.92)',
+        // Reels & series studio — warm creator world (see theme.ts reel family)
+        'reel-canvas': '#F7F2EC',
+        'reel-canvas-dark': '#050505',
+        'reel-ink': '#17120F',
+        'reel-ink-strong': 'rgba(46,36,30,0.66)',
+        'reel-ink-secondary': 'rgba(46,36,30,0.58)',
+        'reel-muted': '#8A8379',
+        'reel-accent': '#FF7A45',
+        'reel-border': '#E9DED5',
+        'reel-skeleton': '#EDE9E3',
+        // Media surfaces (chat media cards, viewer overlays, video players)
+        'media-surface': '#111111',
+        'media-overlay-border': 'rgba(255,255,255,0.18)',
         // Surfaces
         'surface-card': '#FFFFFF',
         'surface-input': '#F5F5F5',

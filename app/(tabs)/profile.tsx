@@ -26,6 +26,7 @@ import {
   ReelThumbnailTile,
 } from '../../src/components/reels/ReelThumbnailGrid'
 import { ReelSeriesPickerSheet } from '../../src/components/reels/series/ReelSeriesPickerSheet'
+import { colors } from '../../src/constants/theme'
 import { useFriends } from '../../src/hooks/useFriends'
 import { useUpdateAvatar } from '../../src/hooks/useProfile'
 import {
@@ -108,7 +109,11 @@ function EmptyReelsState({
   return (
     <View className="items-center px-5 pb-2 pt-7">
       <View className="h-12 w-12 items-center justify-center rounded-[18px] border border-brand-soft bg-surface-accent">
-        <MaterialIcons name={isPrivate ? 'lock-outline' : 'grid-on'} size={24} color="#D85A21" />
+        <MaterialIcons
+          name={isPrivate ? 'lock-outline' : 'grid-on'}
+          size={24}
+          color={colors.brand.tertiary}
+        />
       </View>
       <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
         {isPrivate ? 'No private reels' : 'No reels yet'}
@@ -135,7 +140,7 @@ function EmptySeriesState({ onCreate }: { onCreate: () => void }) {
   return (
     <View className="items-center px-5 pb-2 pt-7">
       <View className="h-12 w-12 items-center justify-center rounded-[18px] border border-brand-soft bg-surface-accent">
-        <MaterialIcons name="video-library" size={24} color="#D85A21" />
+        <MaterialIcons name="video-library" size={24} color={colors.brand.tertiary} />
       </View>
       <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
         No series yet
@@ -173,10 +178,10 @@ function SeriesLoadingList({ cardWidth, cardHeight }: { cardWidth: number; cardH
             height: cardHeight,
           }}
         >
-          <View className="w-full bg-[#EDE9E3]" style={{ height: thumbnailHeight }} />
+          <View className="w-full bg-reel-skeleton" style={{ height: thumbnailHeight }} />
           <View className="px-3 py-2">
-            <View className="h-4 w-3/4 bg-[#EDE9E3]" />
-            <View className="mt-1 h-3 w-1/2 bg-[#EDE9E3]" />
+            <View className="h-4 w-3/4 bg-reel-skeleton" />
+            <View className="mt-1 h-3 w-1/2 bg-reel-skeleton" />
           </View>
         </View>
       ))}
@@ -215,7 +220,7 @@ function SeriesHighlight({
       style={{
         width: cardWidth,
         height: cardHeight,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: colors.bg.primary,
         borderColor: '#EDE7E1',
         borderWidth: 1,
       }}
@@ -225,7 +230,7 @@ function SeriesHighlight({
       accessibilityLabel={`Open ${series.title}`}
       className="overflow-hidden"
     >
-      <View className="w-full overflow-hidden bg-[#EDE9E3]" style={{ height: thumbnailHeight }}>
+      <View className="w-full overflow-hidden bg-reel-skeleton" style={{ height: thumbnailHeight }}>
         {cover ? (
           <Image
             source={{ uri: cover }}
@@ -234,8 +239,8 @@ function SeriesHighlight({
             transition={200}
           />
         ) : (
-          <View className="flex-1 items-center justify-center bg-[#EDE9E3]">
-            <MaterialIcons name="layers" size={32} color="#8A8379" />
+          <View className="flex-1 items-center justify-center bg-reel-skeleton">
+            <MaterialIcons name="layers" size={32} color={colors.reel.muted} />
           </View>
         )}
 
@@ -253,7 +258,7 @@ function SeriesHighlight({
           {series.title}
         </AppText>
         <View className="mt-1 flex-row items-center">
-          <MaterialIcons name="video-library" size={14} color="#D85A21" />
+          <MaterialIcons name="video-library" size={14} color={colors.brand.tertiary} />
           <AppText className="ml-1 text-[12px] leading-4 text-text-secondary" numberOfLines={1}>
             {episodeCount === 0
               ? 'No videos yet'
@@ -446,7 +451,7 @@ export default function ProfileScreen() {
   if (!user) {
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-bg-primary">
-        <ActivityIndicator color="#FF6B2C" size="large" />
+        <ActivityIndicator color={colors.brand.primary} size="large" />
       </SafeAreaView>
     )
   }
@@ -499,8 +504,8 @@ export default function ProfileScreen() {
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={handleRefresh}
-            colors={['#FF6B2C']}
-            tintColor="#FF6B2C"
+            colors={[colors.brand.primary]}
+            tintColor={colors.brand.primary}
           />
         }
         ListHeaderComponent={
@@ -522,7 +527,7 @@ export default function ProfileScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Open profile settings"
               >
-                <MaterialIcons name="menu" size={21} color="#D85A21" />
+                <MaterialIcons name="menu" size={21} color={colors.brand.tertiary} />
               </SafeTouchableOpacity>
             </View>
 
@@ -541,7 +546,7 @@ export default function ProfileScreen() {
                       width: 88,
                       height: 88,
                       borderRadius: 28,
-                      backgroundColor: '#F5F5F5',
+                      backgroundColor: colors.surface.muted,
                     }}
                   />
                 ) : (
@@ -554,9 +559,9 @@ export default function ProfileScreen() {
 
                 <View className="absolute -bottom-1 -right-1 h-8 w-8 items-center justify-center rounded-[12px] border-2 border-bg-primary bg-brand">
                   {isUpdatingAvatar ? (
-                    <ActivityIndicator color="#FFFFFF" size="small" />
+                    <ActivityIndicator color={colors.text.inverse} size="small" />
                   ) : (
-                    <MaterialIcons name="photo-camera" size={15} color="#FFFFFF" />
+                    <MaterialIcons name="photo-camera" size={15} color={colors.text.inverse} />
                   )}
                 </View>
               </SafeTouchableOpacity>
@@ -656,7 +661,7 @@ export default function ProfileScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Create series"
                 >
-                  <MaterialIcons name="add" size={16} color="#FF6B2C" />
+                  <MaterialIcons name="add" size={16} color={colors.brand.primary} />
                   <AppText className="ml-0.5 text-sm2 font-semibold text-brand">New series</AppText>
                 </AppPressable>
               ) : null}
@@ -685,8 +690,8 @@ export default function ProfileScreen() {
                       }}
                       collapsable={false}
                       style={({ pressed }) => ({
-                        backgroundColor: isActive ? '#FFF4EC' : '#F5F5F5',
-                        borderColor: isActive ? '#FFF0E4' : '#F4F4F4',
+                        backgroundColor: isActive ? '#FFF4EC' : colors.surface.muted,
+                        borderColor: isActive ? '#FFF0E4' : colors.border.light,
                         borderWidth: 1,
                         opacity: pressed ? 0.76 : 1,
                       })}
@@ -697,11 +702,11 @@ export default function ProfileScreen() {
                       <MaterialIcons
                         name={tab.icon}
                         size={18}
-                        color={isActive ? '#D85A21' : '#6F6861'}
+                        color={isActive ? colors.brand.tertiary : '#6F6861'}
                       />
                       <AppText
                         className="ml-2 text-sm2 font-semibold"
-                        style={{ color: isActive ? '#D85A21' : '#777777' }}
+                        style={{ color: isActive ? colors.brand.tertiary : colors.text.secondary }}
                       >
                         {tab.label}
                       </AppText>
@@ -728,7 +733,7 @@ export default function ProfileScreen() {
         ListFooterComponent={
           (activeContentTab === 'series' ? isFetchingNextSeriesPage : isFetchingNextPage) ? (
             <View className="py-5">
-              <ActivityIndicator color="#FF6B2C" size="small" />
+              <ActivityIndicator color={colors.brand.primary} size="small" />
             </View>
           ) : null
         }

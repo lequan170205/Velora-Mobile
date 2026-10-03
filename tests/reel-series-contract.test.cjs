@@ -68,6 +68,11 @@ const loadReelsApi = () => {
 }
 
 const loadManageScreen = () => {
+  const stubValue = () =>
+    new Proxy(function stub() {}, {
+      get: (_target, prop) => (typeof prop === 'symbol' ? undefined : stubValue()),
+      apply: () => stubValue(),
+    })
   const compiled = ts.transpileModule(seriesManageScreen, {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
@@ -78,7 +83,10 @@ const loadManageScreen = () => {
   const context = {
     module: { exports: {} },
     exports: {},
-    require: () => ({}),
+    // The manage screen resolves design tokens (colors.reel.*, etc.) at module
+    // scope; stub every import as a permissive deep proxy so the transpiled
+    // module evaluates regardless of which tokens it references.
+    require: () => stubValue(),
   }
   context.exports = context.module.exports
   vm.runInNewContext(compiled, context)

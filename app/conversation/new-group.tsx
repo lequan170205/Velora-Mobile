@@ -10,6 +10,7 @@ import { AppPressable, AppText, AppTextInput } from '../../src/components/base'
 import { AppSearchBar } from '../../src/components/common/AppSearchBar'
 import { SafeTouchableOpacity } from '../../src/components/common/SafeTouchableOpacity'
 import { queryKeys } from '../../src/constants/queryKeys'
+import { colors } from '../../src/constants/theme'
 import { useFriends } from '../../src/hooks/useFriends'
 
 import type { Conversation } from '../../src/types/conversation.types'
@@ -90,7 +91,7 @@ export default function NewGroupScreen() {
           accessibilityRole="button"
           accessibilityLabel="Back"
         >
-          <MaterialIcons name="chevron-left" size={26} color="#161616" />
+          <MaterialIcons name="chevron-left" size={26} color={colors.text.primary} />
         </SafeTouchableOpacity>
         <AppText className="flex-1 text-md font-semibold text-text-primary">New group</AppText>
         <AppPressable
@@ -104,7 +105,7 @@ export default function NewGroupScreen() {
           activeOpacity={0.8}
         >
           {createGroup.isPending ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <ActivityIndicator size="small" color={colors.text.inverse} />
           ) : (
             <AppText
               className={canCreate ? 'font-semibold text-white' : 'font-semibold text-text-muted'}
@@ -118,7 +119,7 @@ export default function NewGroupScreen() {
       <View className="px-5 pb-4 pt-5">
         <View className="flex-row items-center">
           <View className="h-14 w-14 items-center justify-center rounded-full bg-surface-input">
-            <MaterialIcons name="groups" size={25} color="#FF6B2C" />
+            <MaterialIcons name="groups" size={25} color={colors.brand.primary} />
           </View>
           <View className="ml-3 flex-1">
             <AppText className="mb-1 text-xs uppercase tracking-[1.2px] text-text-muted">
@@ -129,7 +130,7 @@ export default function NewGroupScreen() {
               onChangeText={setName}
               maxLength={80}
               placeholder="e.g. Weekend crew"
-              placeholderTextColor="#A6A6A6"
+              placeholderTextColor={colors.text.tertiary}
               className="h-11 rounded-[16px] border border-border-light bg-surface-card px-3 text-base2 text-text-primary"
               returnKeyType="done"
             />
@@ -145,14 +146,14 @@ export default function NewGroupScreen() {
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholder="Search friends"
-            placeholderTextColor="#A6A6A6"
+            placeholderTextColor={colors.text.tertiary}
           />
         </View>
       </View>
 
       {isLoading ? (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#FF6B2C" />
+          <ActivityIndicator color={colors.brand.primary} />
         </View>
       ) : isError ? (
         <View className="flex-1 items-center justify-center px-6">
@@ -209,7 +210,9 @@ export default function NewGroupScreen() {
                       : 'h-6 w-6 items-center justify-center rounded-full border border-border-light bg-surface-card'
                   }
                 >
-                  {selected ? <MaterialIcons name="check" size={16} color="#FFFFFF" /> : null}
+                  {selected ? (
+                    <MaterialIcons name="check" size={16} color={colors.text.inverse} />
+                  ) : null}
                 </View>
               </SafeTouchableOpacity>
             )

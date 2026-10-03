@@ -1,7 +1,7 @@
 import React from 'react'
 import { Text, View } from 'react-native'
 
-import { typography } from '../../constants/theme'
+import { colors, typography } from '../../constants/theme'
 import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../lib/chatMedia'
 import { cn } from '../../lib/cn'
 import { formatDurationLabel } from '../../lib/reels'
@@ -59,7 +59,7 @@ const previewDurationBadgeStyle = {
 } as const
 
 const previewDurationTextStyle = {
-  color: '#FFFFFF',
+  color: colors.text.inverse,
   fontSize: 11,
   fontWeight: '600',
 } as const

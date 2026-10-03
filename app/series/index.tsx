@@ -26,6 +26,8 @@ import { useAuthStore } from '@/stores/authStore'
 import type { ReelSeriesListItem } from '@/types/reel.types'
 import type { BottomSheetModal } from '@gorhom/bottom-sheet'
 
+import { colors } from '../../src/constants/theme'
+
 const visibilityLabel = (visibility: ReelSeriesListItem['visibility']) =>
   visibility === 'friends' ? 'Friends' : visibility === 'private' ? 'Private' : 'Public'
 
@@ -66,7 +68,7 @@ export default function OwnedReelSeriesScreen() {
   )
 
   return (
-    <SafeAreaView className="flex-1 bg-[#F7F2EC]" edges={['top', 'bottom']}>
+    <SafeAreaView className="flex-1 bg-reel-canvas" edges={['top', 'bottom']}>
       <StatusBar style="dark" />
       <View className="flex-1 px-5 pt-2">
         <View className="min-h-[56px] justify-center">
@@ -76,23 +78,23 @@ export default function OwnedReelSeriesScreen() {
           <View className="absolute left-16 right-24 items-center">
             <Text
               className="text-xs2 uppercase tracking-[1.2px]"
-              style={{ color: 'rgba(46,36,30,0.58)' }}
+              style={{ color: colors.reel.inkSecondary }}
             >
               Profile
             </Text>
-            <Text className="mt-1 font-heading text-[22px]" style={{ color: '#17120F' }}>
+            <Text className="mt-1 font-heading text-[22px]" style={{ color: colors.reel.ink }}>
               Your series
             </Text>
           </View>
           <TouchableOpacity
             accessibilityLabel="Create series"
             accessibilityRole="button"
-            className="absolute right-0 min-h-11 flex-row items-center justify-center rounded-full bg-[#FF7A45] px-4"
+            className="absolute right-0 min-h-11 flex-row items-center justify-center rounded-full bg-reel-accent px-4"
             activeOpacity={0.84}
             onPress={() => createSheetRef.current?.present()}
           >
-            <MaterialIcons name="add" size={18} color="#FFFFFF" />
-            <Text className="ml-1" style={{ color: '#FFFFFF', fontWeight: '800' }}>
+            <MaterialIcons name="add" size={18} color={colors.text.inverse} />
+            <Text className="ml-1" style={{ color: colors.text.inverse, fontWeight: '800' }}>
               New
             </Text>
           </TouchableOpacity>
@@ -111,8 +113,8 @@ export default function OwnedReelSeriesScreen() {
             <RefreshControl
               refreshing={isRefetching}
               onRefresh={() => void refetch()}
-              colors={['#FF7A45']}
-              tintColor="#FF7A45"
+              colors={[colors.reel.accent]}
+              tintColor={colors.reel.accent}
             />
           }
           renderItem={({ item }) => {
@@ -125,7 +127,7 @@ export default function OwnedReelSeriesScreen() {
                 activeOpacity={0.84}
                 onPress={() => openSeries(item)}
               >
-                <View className="h-24 w-[68px] overflow-hidden rounded-[20px] bg-[#F7F2EC]">
+                <View className="h-24 w-[68px] overflow-hidden rounded-[20px] bg-reel-canvas">
                   {cover ? (
                     <Image
                       source={{ uri: cover }}
@@ -141,19 +143,19 @@ export default function OwnedReelSeriesScreen() {
                 <View className="ml-4 min-w-0 flex-1">
                   <Text
                     className="font-heading text-lg"
-                    style={{ color: '#17120F' }}
+                    style={{ color: colors.reel.ink }}
                     numberOfLines={1}
                   >
                     {item.title}
                   </Text>
-                  <Text className="mt-1 text-xs2" style={{ color: 'rgba(46,36,30,0.58)' }}>
+                  <Text className="mt-1 text-xs2" style={{ color: colors.reel.inkSecondary }}>
                     {item.episodeCount} {item.episodeCount === 1 ? 'episode' : 'episodes'} ·{' '}
                     {visibilityLabel(item.visibility)}
                   </Text>
                   {item.description?.trim() ? (
                     <Text
                       className="mt-2 text-sm2 leading-5"
-                      style={{ color: 'rgba(46,36,30,0.66)' }}
+                      style={{ color: colors.reel.inkStrong }}
                       numberOfLines={2}
                     >
                       {item.description.trim()}
@@ -167,44 +169,44 @@ export default function OwnedReelSeriesScreen() {
           ListEmptyComponent={
             isPending ? (
               <View className="flex-1 items-center justify-center py-16">
-                <ActivityIndicator color="#FF7A45" />
-                <Text className="mt-3 text-sm2" style={{ color: 'rgba(46,36,30,0.58)' }}>
+                <ActivityIndicator color={colors.reel.accent} />
+                <Text className="mt-3 text-sm2" style={{ color: colors.reel.inkSecondary }}>
                   Loading your series…
                 </Text>
               </View>
             ) : isError ? (
               <View className="flex-1 items-center justify-center rounded-[28px] bg-white px-6 py-8">
-                <MaterialIcons name="refresh" size={30} color="#D85A21" />
-                <Text className="mt-3 font-heading text-lg" style={{ color: '#17120F' }}>
+                <MaterialIcons name="refresh" size={30} color={colors.brand.tertiary} />
+                <Text className="mt-3 font-heading text-lg" style={{ color: colors.reel.ink }}>
                   Could not load series
                 </Text>
                 <TouchableOpacity
-                  className="mt-5 min-h-11 justify-center rounded-full bg-[#FF7A45] px-5"
+                  className="mt-5 min-h-11 justify-center rounded-full bg-reel-accent px-5"
                   onPress={() => void refetch()}
                 >
-                  <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>Try again</Text>
+                  <Text style={{ color: colors.text.inverse, fontWeight: '800' }}>Try again</Text>
                 </TouchableOpacity>
               </View>
             ) : (
               <View className="flex-1 items-center justify-center rounded-[28px] bg-white px-6 py-8">
-                <View className="h-14 w-14 items-center justify-center rounded-[20px] bg-[#FFF0E8]">
-                  <MaterialIcons name="video-library" size={27} color="#D85A21" />
+                <View className="h-14 w-14 items-center justify-center rounded-[20px] bg-brand-soft">
+                  <MaterialIcons name="video-library" size={27} color={colors.brand.tertiary} />
                 </View>
-                <Text className="mt-4 font-heading text-xl" style={{ color: '#17120F' }}>
+                <Text className="mt-4 font-heading text-xl" style={{ color: colors.reel.ink }}>
                   Start a series
                 </Text>
                 <Text
                   className="mt-2 text-center text-base2 leading-5"
-                  style={{ color: 'rgba(46,36,30,0.62)' }}
+                  style={{ color: colors.reel.inkSecondary }}
                 >
                   Group related reels into episodes viewers can watch in order.
                 </Text>
                 <TouchableOpacity
-                  className="mt-6 min-h-12 flex-row items-center justify-center rounded-full bg-[#FF7A45] px-6"
+                  className="mt-6 min-h-12 flex-row items-center justify-center rounded-full bg-reel-accent px-6"
                   onPress={() => createSheetRef.current?.present()}
                 >
-                  <MaterialIcons name="add" size={18} color="#FFFFFF" />
-                  <Text className="ml-2" style={{ color: '#FFFFFF', fontWeight: '800' }}>
+                  <MaterialIcons name="add" size={18} color={colors.text.inverse} />
+                  <Text className="ml-2" style={{ color: colors.text.inverse, fontWeight: '800' }}>
                     Create series
                   </Text>
                 </TouchableOpacity>
@@ -221,9 +223,9 @@ export default function OwnedReelSeriesScreen() {
                 onPress={() => void fetchNextPage()}
               >
                 {isFetchingNextPage ? (
-                  <ActivityIndicator color="#FF7A45" size="small" />
+                  <ActivityIndicator color={colors.reel.accent} size="small" />
                 ) : (
-                  <Text style={{ color: '#17120F', fontWeight: '800' }}>Load more</Text>
+                  <Text style={{ color: colors.reel.ink, fontWeight: '800' }}>Load more</Text>
                 )}
               </TouchableOpacity>
             ) : null

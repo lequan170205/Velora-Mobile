@@ -21,6 +21,7 @@ import Animated, {
 } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 
+import { colors } from '../../constants/theme'
 import {
   calculateChatMediaDisplaySize,
   getResolvedMediaPosterUri,
@@ -1311,7 +1312,7 @@ const MessageBubbleComponent = function MessageBubble({
                         }
                       >
                         <View className="mb-1 flex-row items-center px-1">
-                          <MaterialIcons name="reply" size={15} color="#A6A6A6" />
+                          <MaterialIcons name="reply" size={15} color={colors.text.tertiary} />
                           <Text className="ml-1.5 text-[12px] font-medium text-text-muted">
                             {senderDisplayName} replied to {replyPreviewMeta.senderLabel}
                           </Text>
@@ -1351,7 +1352,7 @@ const MessageBubbleComponent = function MessageBubble({
                                     height: 52,
                                     borderRadius: 12,
                                     overflow: 'hidden',
-                                    backgroundColor: '#111111',
+                                    backgroundColor: colors.media.surface,
                                     marginRight: 10,
                                   }}
                                 >
@@ -1373,7 +1374,11 @@ const MessageBubbleComponent = function MessageBubble({
                                       backgroundColor: 'rgba(0,0,0,0.18)',
                                     }}
                                   >
-                                    <MaterialIcons name="play-arrow" size={18} color="#FFFFFF" />
+                                    <MaterialIcons
+                                      name="play-arrow"
+                                      size={18}
+                                      color={colors.text.inverse}
+                                    />
                                   </View>
                                 </View>
                               ) : (
@@ -1384,12 +1389,16 @@ const MessageBubbleComponent = function MessageBubble({
                                     borderRadius: 12,
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    backgroundColor: '#111111',
+                                    backgroundColor: colors.media.surface,
                                     marginRight: 10,
                                     overflow: 'hidden',
                                   }}
                                 >
-                                  <MaterialIcons name="play-arrow" size={18} color="#FFFFFF" />
+                                  <MaterialIcons
+                                    name="play-arrow"
+                                    size={18}
+                                    color={colors.text.inverse}
+                                  />
                                 </View>
                               )}
 
@@ -1398,7 +1407,7 @@ const MessageBubbleComponent = function MessageBubble({
                                   style={{
                                     fontSize: 12,
                                     fontWeight: '700',
-                                    color: '#161616',
+                                    color: colors.text.primary,
                                     marginBottom: 2,
                                   }}
                                   numberOfLines={1}
@@ -1406,7 +1415,11 @@ const MessageBubbleComponent = function MessageBubble({
                                   {replyPreviewMeta.senderLabel}
                                 </Text>
                                 <Text
-                                  style={{ fontSize: 13, color: '#777777', lineHeight: 17 }}
+                                  style={{
+                                    fontSize: 13,
+                                    color: colors.text.secondary,
+                                    lineHeight: 17,
+                                  }}
                                   numberOfLines={1}
                                 >
                                   {replyPreviewMeta.contentLabel}
@@ -1427,7 +1440,9 @@ const MessageBubbleComponent = function MessageBubble({
                                     borderRadius: 16,
                                     overflow: 'hidden',
                                     backgroundColor:
-                                      replyPreviewMeta.type === 'video' ? '#111111' : '#EFEFEF',
+                                      replyPreviewMeta.type === 'video'
+                                        ? colors.media.surface
+                                        : '#EFEFEF',
                                     alignSelf: 'flex-start',
                                   }}
                                 >
@@ -1485,7 +1500,7 @@ const MessageBubbleComponent = function MessageBubble({
                                         <MaterialIcons
                                           name="play-arrow"
                                           size={24}
-                                          color="#FFFFFF"
+                                          color={colors.text.inverse}
                                         />
                                       </View>
                                     </View>
@@ -1542,7 +1557,7 @@ const MessageBubbleComponent = function MessageBubble({
                               )}
                               style={swipeIndicatorStyle}
                             >
-                              <MaterialIcons name="reply" size={16} color="#FF6B2C" />
+                              <MaterialIcons name="reply" size={16} color={colors.brand.primary} />
                             </Animated.View>
 
                             <Pressable

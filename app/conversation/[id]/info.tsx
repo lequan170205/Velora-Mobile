@@ -377,7 +377,7 @@ export default function GroupInfoScreen() {
             className="h-11 w-11 items-center justify-center"
             onPress={() => router.back()}
           >
-            <MaterialIcons name="chevron-left" size={26} color="#161616" />
+            <MaterialIcons name="chevron-left" size={26} color={colors.text.primary} />
           </SafeTouchableOpacity>
           <AppText className="font-semibold text-text-primary">Conversation info</AppText>
         </View>
@@ -514,7 +514,7 @@ export default function GroupInfoScreen() {
           accessibilityRole="button"
           accessibilityLabel="Back"
         >
-          <MaterialIcons name="chevron-left" size={26} color="#161616" />
+          <MaterialIcons name="chevron-left" size={26} color={colors.text.primary} />
         </SafeTouchableOpacity>
         <AppText className="flex-1 text-md font-semibold text-text-primary">Group info</AppText>
       </View>
@@ -542,7 +542,7 @@ export default function GroupInfoScreen() {
                 {isUpdatingPicture ? (
                   <ActivityIndicator size="small" color={colors.brand.primary} />
                 ) : (
-                  <MaterialIcons name="photo-camera" size={19} color="#161616" />
+                  <MaterialIcons name="photo-camera" size={19} color={colors.text.primary} />
                 )}
               </SafeTouchableOpacity>
             ) : null}
@@ -628,7 +628,7 @@ export default function GroupInfoScreen() {
               accessibilityLabel={showAddMembers ? 'Hide add members' : 'Add members'}
             >
               <View className="h-10 w-10 items-center justify-center rounded-full bg-surface-input">
-                <MaterialIcons name="person-add" size={20} color="#161616" />
+                <MaterialIcons name="person-add" size={20} color={colors.text.primary} />
               </View>
               <AppText className="ml-3 flex-1 font-medium text-text-primary">Add members</AppText>
               <MaterialIcons
@@ -822,7 +822,7 @@ export default function GroupInfoScreen() {
                           : 'admin-panel-settings'
                       }
                       size={20}
-                      color="#161616"
+                      color={colors.text.primary}
                     />
                   </View>
                   <AppText className="ml-3 font-medium text-text-primary">
@@ -838,7 +838,7 @@ export default function GroupInfoScreen() {
                   onPress={() => closeMemberActionsAndRun(selectedMember, confirmTransferOwnership)}
                 >
                   <View className="h-10 w-10 items-center justify-center rounded-full bg-surface-input">
-                    <MaterialIcons name="swap-horiz" size={21} color="#161616" />
+                    <MaterialIcons name="swap-horiz" size={21} color={colors.text.primary} />
                   </View>
                   <AppText className="ml-3 font-medium text-text-primary">
                     Transfer ownership

@@ -21,6 +21,7 @@ import { scheduleOnRN } from 'react-native-worklets'
 import { useOfflineReelVideoSource } from '@/hooks/useOfflineReelVideoSource'
 import type { BottomSheetModal } from '@gorhom/bottom-sheet'
 
+import { colors } from '../../constants/theme'
 import {
   useReelDetail,
   prefetchReelSeriesEpisodes,
@@ -264,13 +265,13 @@ const styles = StyleSheet.create({
     zIndex: 20,
   },
   video: {
-    backgroundColor: '#050505',
+    backgroundColor: colors.reel.canvasDark,
     height: '100%',
     width: '100%',
   },
   videoOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#050505',
+    backgroundColor: colors.reel.canvasDark,
   },
 })
 
@@ -1131,8 +1132,8 @@ const ReelFeedItemComponent = function ReelFeedItem({
   )
 
   return (
-    <View className="flex-1 overflow-hidden bg-[#050505]" style={{ height }}>
-      <View className="flex-1 overflow-hidden bg-[#050505]">
+    <View className="flex-1 overflow-hidden bg-reel-canvas-dark" style={{ height }}>
+      <View className="flex-1 overflow-hidden bg-reel-canvas-dark">
         {shouldRenderImmersiveBackground && posterUri ? (
           <>
             <Image
@@ -1266,7 +1267,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                 <Ionicons
                   name={isMuted ? 'volume-mute' : 'volume-high'}
                   size={16}
-                  color="#FFFFFF"
+                  color={colors.text.inverse}
                 />
               </TouchableOpacity>
 
@@ -1277,7 +1278,12 @@ const ReelFeedItemComponent = function ReelFeedItem({
                   setIsPausedByUser(false)
                 }}
               >
-                <Ionicons name="play" size={30} color="#FFFFFF" style={{ marginLeft: 3 }} />
+                <Ionicons
+                  name="play"
+                  size={30}
+                  color={colors.text.inverse}
+                  style={{ marginLeft: 3 }}
+                />
               </TouchableOpacity>
             </View>
           </View>
@@ -1367,7 +1373,11 @@ const ReelFeedItemComponent = function ReelFeedItem({
               {hasPlaybackError ? (
                 <>
                   <View className="mb-3 h-12 w-12 items-center justify-center rounded-full bg-white/10">
-                    <Ionicons name="alert-circle-outline" size={26} color="#FF935B" />
+                    <Ionicons
+                      name="alert-circle-outline"
+                      size={26}
+                      color={colors.brand.secondary}
+                    />
                   </View>
                   <Text className="text-center font-heading text-xl text-white">
                     Playback unavailable
@@ -1379,7 +1389,11 @@ const ReelFeedItemComponent = function ReelFeedItem({
               ) : isFailed ? (
                 <>
                   <View className="mb-3 h-12 w-12 items-center justify-center rounded-full bg-white/10">
-                    <Ionicons name="cloud-offline-outline" size={25} color="#FF935B" />
+                    <Ionicons
+                      name="cloud-offline-outline"
+                      size={25}
+                      color={colors.brand.secondary}
+                    />
                   </View>
                   <Text className="text-center font-heading text-xl text-white">Upload failed</Text>
                   <Text className="mt-2 text-center text-sm2 leading-5 text-white/70">
@@ -1409,7 +1423,11 @@ const ReelFeedItemComponent = function ReelFeedItem({
               ) : typeof processingProgress === 'number' ? (
                 <>
                   <View className="mb-3 h-12 w-12 items-center justify-center rounded-full bg-white/10">
-                    <Ionicons name="cloud-upload-outline" size={26} color="#FF935B" />
+                    <Ionicons
+                      name="cloud-upload-outline"
+                      size={26}
+                      color={colors.brand.secondary}
+                    />
                   </View>
                   <Text className="text-center font-heading text-xl text-white">Uploading</Text>
                   <View className="mt-4 w-full">
@@ -1432,7 +1450,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
               ) : (
                 <>
                   <View className="mb-3 h-12 w-12 items-center justify-center rounded-full bg-white/10">
-                    <Ionicons name="sync-outline" size={25} color="#FF935B" />
+                    <Ionicons name="sync-outline" size={25} color={colors.brand.secondary} />
                   </View>
                   <Text className="text-center font-heading text-xl text-white">Processing</Text>
                   <Text className="mt-2 text-center text-sm2 leading-5 text-white/70">
@@ -1514,7 +1532,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                           width: 42,
                           height: 42,
                           borderRadius: 21,
-                          backgroundColor: '#121212',
+                          backgroundColor: colors.media.surface,
                         }}
                       />
                     ) : (
@@ -1592,7 +1610,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                     setShowShareSheet(true)
                   }}
                 >
-                  <Ionicons name="paper-plane-outline" size={24} color="#FFFFFF" />
+                  <Ionicons name="paper-plane-outline" size={24} color={colors.text.inverse} />
                 </TouchableOpacity>
 
                 {canManageReel ? (
@@ -1605,7 +1623,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                       setShowActionsMenu(true)
                     }}
                   >
-                    <Ionicons name="ellipsis-horizontal" size={25} color="#FFFFFF" />
+                    <Ionicons name="ellipsis-horizontal" size={25} color={colors.text.inverse} />
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -1620,7 +1638,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                 onPress={onOpenSeriesEpisodes}
               >
                 <View className="flex-1 flex-row items-center pr-2">
-                  <MaterialIcons name="video-library" size={17} color="#FF6B2C" />
+                  <MaterialIcons name="video-library" size={17} color={colors.brand.primary} />
                   <Text
                     className="ml-2 font-heading text-xs2 font-bold text-white"
                     numberOfLines={1}

@@ -6,6 +6,8 @@ export const colors = {
     elevated: '#FFFFFF',
     glass: 'rgba(255,255,255,0.88)',
     glassBorder: 'rgba(17,17,17,0.05)',
+    // Frost tint layer over BlurView (intensity 28) for floating headers/composer
+    frost: 'rgba(255,255,255,0.92)',
   },
   // Brand — Clean orange accent
   brand: {
@@ -20,6 +22,7 @@ export const colors = {
     primary: '#161616',
     secondary: '#777777',
     tertiary: '#A6A6A6',
+    subtle: '#BEBEBE',
     inverse: '#FFFFFF',
   },
   // Status
@@ -51,6 +54,26 @@ export const colors = {
     textSecondary: 'rgba(247,247,248,0.64)',
     textMuted: 'rgba(247,247,248,0.54)',
     scrim: 'rgba(5,9,12,0.72)',
+  },
+  // Reels & series studio — the warm creator world. A deliberate second
+  // palette: cream canvas with warm-black ink and a warm-shifted brand orange
+  // (#FF7A45 vs app-wide #FF6B2C). Same semantic roles as the light canvas,
+  // so studio screens never borrow light-canvas neutrals (and vice versa).
+  reel: {
+    canvas: '#F7F2EC',
+    canvasDark: '#050505',
+    ink: '#17120F',
+    inkStrong: 'rgba(46,36,30,0.66)',
+    inkSecondary: 'rgba(46,36,30,0.58)',
+    muted: '#8A8379',
+    accent: '#FF7A45',
+    border: '#E9DED5',
+    skeleton: '#EDE9E3',
+  },
+  // Media surfaces shared by chat media cards, reels viewer overlays, video players
+  media: {
+    surface: '#111111',
+    overlayBorder: 'rgba(255,255,255,0.18)',
   },
   // Semantic
   surface: {
@@ -107,7 +130,6 @@ export const typography = {
     heading: 'SpaceGrotesk_600SemiBold',
     body: 'Inter_400Regular',
     bodyMedium: 'Inter_500Medium',
-    mono: 'SpaceMono_400Regular',
   },
   sizes: {
     xs: 11,

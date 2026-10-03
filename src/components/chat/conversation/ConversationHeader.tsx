@@ -161,7 +161,7 @@ export const ConversationHeader = ({
       <BlurView intensity={28} tint="light" pointerEvents="none" style={StyleSheet.absoluteFill} />
       <View
         pointerEvents="none"
-        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.92)' }]}
+        style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg.frost }]}
       />
       <View className="flex-row items-center">
         <AppPressable

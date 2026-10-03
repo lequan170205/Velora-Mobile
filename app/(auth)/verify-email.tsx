@@ -6,6 +6,7 @@ import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native'
 import { authApi } from '../../src/api/auth.api'
 import { AuthFlowLayout } from '../../src/components/auth/AuthFlowLayout'
 import { OtpCodeInput } from '../../src/components/auth/OtpCodeInput'
+import { colors } from '../../src/constants/theme'
 
 export default function VerifyEmailScreen() {
   const router = useRouter()
@@ -112,14 +113,14 @@ export default function VerifyEmailScreen() {
             activeOpacity={0.85}
           >
             {isLoading ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
+              <ActivityIndicator color={colors.text.inverse} size="small" />
             ) : (
               <>
                 <Text className="text-base font-bold text-white">Verify email</Text>
                 <MaterialIcons
                   name="arrow-forward"
                   size={17}
-                  color="#FFFFFF"
+                  color={colors.text.inverse}
                   style={{ marginLeft: 8 }}
                 />
               </>

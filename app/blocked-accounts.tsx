@@ -5,6 +5,7 @@ import React, { useCallback, useMemo } from 'react'
 import { ActivityIndicator, Alert, FlatList, Pressable, Text, View } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { colors } from '../src/constants/theme'
 import { useUnblockUser } from '../src/hooks/useFriendMutations'
 import { useBlockedUsersInfiniteQuery } from '../src/hooks/useFriends'
 import { getInitials } from '../src/lib/profile'
@@ -40,7 +41,7 @@ function EmptyState() {
   return (
     <View className="items-center px-8 pt-20">
       <View className="h-14 w-14 items-center justify-center rounded-full bg-brand-soft">
-        <MaterialIcons name="block" size={26} color="#D85A21" />
+        <MaterialIcons name="block" size={26} color={colors.brand.tertiary} />
       </View>
       <Text className="mt-4 font-heading text-lg text-text-primary">No blocked accounts</Text>
       <Text className="mt-2 text-center text-sm2 text-text-secondary">
@@ -109,7 +110,7 @@ export default function BlockedAccountsScreen() {
               style={{ opacity: isUnblocking || unblockUser.isPending ? 0.65 : 1 }}
             >
               {isUnblocking ? (
-                <ActivityIndicator color="#161616" size="small" />
+                <ActivityIndicator color={colors.text.primary} size="small" />
               ) : (
                 <Text className="font-medium text-sm2 text-text-primary">Unblock</Text>
               )}
@@ -136,7 +137,7 @@ export default function BlockedAccountsScreen() {
           className="mr-3 h-11 w-11 items-center justify-center rounded-full border border-border-light bg-surface-card"
           onPress={() => router.back()}
         >
-          <MaterialIcons name="arrow-back" size={22} color="#161616" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.text.primary} />
         </Pressable>
         <View className="flex-1">
           <Text className="text-xs2 uppercase tracking-[1.2px] text-text-muted">Privacy</Text>
@@ -174,7 +175,7 @@ export default function BlockedAccountsScreen() {
           ListFooterComponent={
             blockedUsersQuery.isFetchingNextPage ? (
               <View className="py-5">
-                <ActivityIndicator color="#D85A21" size="small" />
+                <ActivityIndicator color={colors.brand.tertiary} size="small" />
               </View>
             ) : null
           }

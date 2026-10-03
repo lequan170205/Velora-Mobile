@@ -229,7 +229,7 @@ export function ReelSeriesPickerSheet({
                     <MaterialIcons
                       name={option.icon}
                       size={18}
-                      color={selected ? '#FFFFFF' : colors.text.primary}
+                      color={selected ? colors.text.inverse : colors.text.primary}
                     />
                     <Text
                       className={
@@ -258,7 +258,7 @@ export function ReelSeriesPickerSheet({
               onPress={handleCreate}
             >
               {isSubmitting ? (
-                <ActivityIndicator color="#FFFFFF" />
+                <ActivityIndicator color={colors.text.inverse} />
               ) : (
                 <Text
                   className={

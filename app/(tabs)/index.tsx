@@ -76,7 +76,7 @@ function ConversationsHeader({
       <BlurView intensity={28} tint="light" pointerEvents="none" style={StyleSheet.absoluteFill} />
       <View
         pointerEvents="none"
-        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.92)' }]}
+        style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg.frost }]}
       />
       <View>
         <AppText className="text-xs2 font-semibold uppercase tracking-[1.8px] text-brand">
@@ -502,7 +502,7 @@ export default function ConversationsScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Create group chat"
               >
-                <MaterialIcons name="group-add" size={19} color="#FFFFFF" />
+                <MaterialIcons name="group-add" size={19} color={colors.text.inverse} />
                 <AppText className="ml-2 text-base2 font-semibold text-white">
                   Create a group
                 </AppText>

@@ -11,6 +11,8 @@ import {
 } from 'react-native'
 import Animated, { FadeIn } from 'react-native-reanimated'
 
+import { colors } from '../../../constants/theme'
+
 import type { ActionConfig, ImportState, MaterialIconName } from '../../../types/reel-creator'
 
 type IconButtonTone = 'camera' | 'light' | 'video'
@@ -33,20 +35,24 @@ export function GlassIconButton({
   const isLight = tone === 'light'
   const isVideo = tone === 'video'
   const backgroundColor = active
-    ? '#FF7A45'
+    ? colors.reel.accent
     : isLight
       ? '#FFFFFF'
       : isVideo
-        ? 'rgba(255,255,255,0.92)'
-        : 'rgba(255,255,255,0.18)'
+        ? colors.bg.frost
+        : colors.media.overlayBorder
   const borderColor = active
-    ? '#FF7A45'
+    ? colors.reel.accent
     : isLight
-      ? '#E9DDD2'
+      ? colors.reel.border
       : isVideo
         ? 'rgba(0,0,0,0.08)'
         : 'rgba(255,255,255,0.22)'
-  const iconColor = active ? '#FFFFFF' : isLight || isVideo ? '#171717' : '#FFFFFF'
+  const iconColor = active
+    ? colors.text.inverse
+    : isLight || isVideo
+      ? '#171717'
+      : colors.text.inverse
 
   return (
     <TouchableOpacity
@@ -103,7 +109,7 @@ export function SegmentedPill({
     >
       <Text
         className="text-sm2 font-medium"
-        style={{ color: active ? '#111111' : 'rgba(255,255,255,0.86)' }}
+        style={{ color: active ? colors.media.surface : 'rgba(255,255,255,0.86)' }}
       >
         {label}
       </Text>
@@ -129,7 +135,7 @@ export function ToolRailButton({
           active ? 'border-brand bg-brand/20' : 'border-white/12 bg-black/22'
         }`}
       >
-        <MaterialIcons name={icon} size={22} color="#FFFFFF" />
+        <MaterialIcons name={icon} size={22} color={colors.text.inverse} />
       </BlurView>
       <Text className={`mt-2 text-xs2 ${active ? 'text-white' : 'text-white/64'}`}>{label}</Text>
     </TouchableOpacity>
@@ -180,7 +186,7 @@ export function MetadataRow({
     >
       <View className="flex-row items-center">
         <View className="h-10 w-10 items-center justify-center rounded-full bg-white/10">
-          <MaterialIcons name={icon} size={20} color="#FFFFFF" />
+          <MaterialIcons name={icon} size={20} color={colors.text.inverse} />
         </View>
         <Text className="ml-3 text-base2 text-white">{title}</Text>
       </View>
@@ -213,7 +219,7 @@ export function ToggleRow({
     <View className="flex-row items-center justify-between rounded-[22px] bg-white/6 px-4 py-4">
       <View className="mr-4 flex-1 flex-row items-start">
         <View className="mt-1 h-10 w-10 items-center justify-center rounded-full bg-white/10">
-          <MaterialIcons name={icon} size={20} color="#FFFFFF" />
+          <MaterialIcons name={icon} size={20} color={colors.text.inverse} />
         </View>
         <View className="ml-3 flex-1">
           <Text className="text-base2 text-white">{title}</Text>
@@ -223,8 +229,8 @@ export function ToggleRow({
       <Switch
         value={value}
         onValueChange={onValueChange}
-        thumbColor="#FFFFFF"
-        trackColor={{ false: 'rgba(255,255,255,0.18)', true: 'rgba(255,107,44,0.72)' }}
+        thumbColor={colors.text.inverse}
+        trackColor={{ false: colors.media.overlayBorder, true: 'rgba(255,107,44,0.72)' }}
       />
     </View>
   )
@@ -242,12 +248,12 @@ export function ImportOverlay({ importState }: { importState: ImportState }) {
       pointerEvents="none"
     >
       <View className="w-full max-w-[280px] rounded-[28px] bg-white px-6 py-5">
-        <Text className="text-center font-heading text-xl" style={{ color: '#17120F' }}>
+        <Text className="text-center font-heading text-xl" style={{ color: colors.reel.ink }}>
           {importState.label}
         </Text>
-        <View className="mt-4 h-2 overflow-hidden rounded-full bg-[#F7F2EC]">
+        <View className="mt-4 h-2 overflow-hidden rounded-full bg-reel-canvas">
           <View
-            className="h-full rounded-full bg-[#FF7A45]"
+            className="h-full rounded-full bg-reel-accent"
             style={{ width: `${Math.max(12, importState.progress * 100)}%` }}
           />
         </View>

@@ -35,6 +35,8 @@ import { useAuthStore } from '@/stores/authStore'
 import type { Reel, ReelVisibility } from '@/types/reel.types'
 import type { BottomSheetModal } from '@gorhom/bottom-sheet'
 
+import { colors } from '../../../src/constants/theme'
+
 import type { RenderItemParams } from 'react-native-draggable-flatlist'
 
 const firstParam = (value?: string | string[]) => (Array.isArray(value) ? value[0] : value)
@@ -273,7 +275,7 @@ export default function ManageReelSeriesScreen() {
             onPress={() => confirmRemoveEpisode(reel)}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <MaterialIcons name="remove-circle-outline" size={21} color="#D85A21" />
+            <MaterialIcons name="remove-circle-outline" size={21} color={colors.brand.tertiary} />
           </TouchableOpacity>
         </TouchableOpacity>
       </ShadowDecorator>
@@ -309,30 +311,30 @@ export default function ManageReelSeriesScreen() {
 
   if (isPending) {
     return (
-      <View className="flex-1 items-center justify-center bg-[#F7F2EC]">
+      <View className="flex-1 items-center justify-center bg-reel-canvas">
         <StatusBar style="dark" />
-        <ActivityIndicator color="#FF7A45" />
+        <ActivityIndicator color={colors.reel.accent} />
       </View>
     )
   }
 
   if (isError || !series) {
     return (
-      <View className="flex-1 items-center justify-center bg-[#F7F2EC] px-6">
+      <View className="flex-1 items-center justify-center bg-reel-canvas px-6">
         <StatusBar style="dark" />
         <View className="items-center rounded-[28px] bg-white px-6 py-7">
-          <MaterialIcons name="error-outline" size={32} color="#D85A21" />
-          <Text className="mt-4 font-heading text-xl" style={{ color: '#17120F' }}>
+          <MaterialIcons name="error-outline" size={32} color={colors.brand.tertiary} />
+          <Text className="mt-4 font-heading text-xl" style={{ color: colors.reel.ink }}>
             Series unavailable
           </Text>
-          <Text className="mt-2 text-center text-base2" style={{ color: 'rgba(46,36,30,0.62)' }}>
+          <Text className="mt-2 text-center text-base2" style={{ color: colors.reel.inkSecondary }}>
             {errorMessage(error, 'Velora could not load this series.')}
           </Text>
           <TouchableOpacity
-            className="mt-6 min-h-11 justify-center rounded-full bg-[#FF7A45] px-5"
+            className="mt-6 min-h-11 justify-center rounded-full bg-reel-accent px-5"
             onPress={() => void refetch()}
           >
-            <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>Try again</Text>
+            <Text style={{ color: colors.text.inverse, fontWeight: '800' }}>Try again</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -341,21 +343,21 @@ export default function ManageReelSeriesScreen() {
 
   if (!isOwner) {
     return (
-      <View className="flex-1 items-center justify-center bg-[#F7F2EC] px-6">
+      <View className="flex-1 items-center justify-center bg-reel-canvas px-6">
         <StatusBar style="dark" />
         <View className="items-center rounded-[28px] bg-white px-6 py-7">
-          <MaterialIcons name="lock-outline" size={32} color="#D85A21" />
-          <Text className="mt-4 font-heading text-xl" style={{ color: '#17120F' }}>
+          <MaterialIcons name="lock-outline" size={32} color={colors.brand.tertiary} />
+          <Text className="mt-4 font-heading text-xl" style={{ color: colors.reel.ink }}>
             Owner controls only
           </Text>
-          <Text className="mt-2 text-center text-base2" style={{ color: 'rgba(46,36,30,0.62)' }}>
+          <Text className="mt-2 text-center text-base2" style={{ color: colors.reel.inkSecondary }}>
             Only the series owner can edit episodes or audience settings.
           </Text>
           <TouchableOpacity
             className="mt-6 min-h-11 justify-center px-5"
             onPress={() => router.back()}
           >
-            <Text style={{ color: '#D85A21', fontWeight: '800' }}>Go back</Text>
+            <Text style={{ color: colors.brand.tertiary, fontWeight: '800' }}>Go back</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -364,7 +366,7 @@ export default function ManageReelSeriesScreen() {
 
   return (
     <KeyboardAvoidingView
-      className="flex-1 bg-[#F7F2EC]"
+      className="flex-1 bg-reel-canvas"
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <StatusBar style="dark" />
@@ -379,13 +381,13 @@ export default function ManageReelSeriesScreen() {
           <View className="absolute left-16 right-16 items-center">
             <Text
               className="text-xs2 uppercase tracking-[1.2px]"
-              style={{ color: 'rgba(46,36,30,0.58)' }}
+              style={{ color: colors.reel.inkSecondary }}
             >
               Series
             </Text>
             <Text
               className="mt-1 font-heading text-[22px]"
-              style={{ color: '#17120F' }}
+              style={{ color: colors.reel.ink }}
               numberOfLines={1}
             >
               Manage episodes
@@ -400,7 +402,7 @@ export default function ManageReelSeriesScreen() {
             accessibilityState={{ selected: activeTab === 'episodes' }}
             accessibilityLabel="Episodes tab"
             className={`h-10 flex-1 flex-row items-center justify-center rounded-full ${
-              activeTab === 'episodes' ? 'bg-[#FF7A45]' : 'bg-transparent'
+              activeTab === 'episodes' ? 'bg-reel-accent' : 'bg-transparent'
             }`}
             activeOpacity={0.8}
             onPress={() => setActiveTab('episodes')}
@@ -408,11 +410,11 @@ export default function ManageReelSeriesScreen() {
             <MaterialIcons
               name="video-library"
               size={17}
-              color={activeTab === 'episodes' ? '#FFFFFF' : '#8A8379'}
+              color={activeTab === 'episodes' ? colors.text.inverse : colors.reel.muted}
             />
             <Text
               className="ml-1.5 text-xs2 font-bold"
-              style={{ color: activeTab === 'episodes' ? '#FFFFFF' : '#17120F' }}
+              style={{ color: activeTab === 'episodes' ? colors.text.inverse : colors.reel.ink }}
             >
               Episodes
             </Text>
@@ -423,7 +425,7 @@ export default function ManageReelSeriesScreen() {
             accessibilityState={{ selected: activeTab === 'settings' }}
             accessibilityLabel="Settings tab"
             className={`h-10 flex-1 flex-row items-center justify-center rounded-full ${
-              activeTab === 'settings' ? 'bg-[#FF7A45]' : 'bg-transparent'
+              activeTab === 'settings' ? 'bg-reel-accent' : 'bg-transparent'
             }`}
             activeOpacity={0.8}
             onPress={() => setActiveTab('settings')}
@@ -431,11 +433,11 @@ export default function ManageReelSeriesScreen() {
             <MaterialIcons
               name="settings"
               size={17}
-              color={activeTab === 'settings' ? '#FFFFFF' : '#8A8379'}
+              color={activeTab === 'settings' ? colors.text.inverse : colors.reel.muted}
             />
             <Text
               className="ml-1.5 text-xs2 font-bold"
-              style={{ color: activeTab === 'settings' ? '#FFFFFF' : '#17120F' }}
+              style={{ color: activeTab === 'settings' ? colors.text.inverse : colors.reel.ink }}
             >
               Settings
             </Text>
@@ -452,10 +454,10 @@ export default function ManageReelSeriesScreen() {
             <View className="rounded-[28px] bg-white p-4">
               <View className="flex-row items-center justify-between">
                 <View>
-                  <Text className="font-heading text-lg" style={{ color: '#17120F' }}>
+                  <Text className="font-heading text-lg" style={{ color: colors.reel.ink }}>
                     Episodes
                   </Text>
-                  <Text className="mt-1 text-xs2" style={{ color: 'rgba(46,36,30,0.58)' }}>
+                  <Text className="mt-1 text-xs2" style={{ color: colors.reel.inkSecondary }}>
                     Drag an episode to reorder, then save once.
                   </Text>
                 </View>
@@ -463,12 +465,15 @@ export default function ManageReelSeriesScreen() {
                   <TouchableOpacity
                     accessibilityRole="button"
                     accessibilityLabel="Add episodes to series"
-                    className="flex-row items-center rounded-full bg-[#FFF0E8] px-3 py-1.5"
+                    className="flex-row items-center rounded-full bg-brand-soft px-3 py-1.5"
                     disabled={isBusy}
                     onPress={() => episodePickerRef.current?.present()}
                   >
-                    <MaterialIcons name="add" size={16} color="#D85A21" />
-                    <Text className="ml-0.5 text-xs2 font-bold" style={{ color: '#D85A21' }}>
+                    <MaterialIcons name="add" size={16} color={colors.brand.tertiary} />
+                    <Text
+                      className="ml-0.5 text-xs2 font-bold"
+                      style={{ color: colors.brand.tertiary }}
+                    >
                       Add
                     </Text>
                   </TouchableOpacity>
@@ -476,25 +481,25 @@ export default function ManageReelSeriesScreen() {
               </View>
 
               {orderedReels.length === 0 ? (
-                <View className="mt-4 items-center rounded-[22px] bg-[#F7F2EC] px-5 py-7">
+                <View className="mt-4 items-center rounded-[22px] bg-reel-canvas px-5 py-7">
                   <MaterialIcons name="video-library" size={28} color="rgba(46,36,30,0.36)" />
-                  <Text className="mt-3" style={{ color: '#17120F', fontWeight: '800' }}>
+                  <Text className="mt-3" style={{ color: colors.reel.ink, fontWeight: '800' }}>
                     No episodes yet
                   </Text>
                   <Text
                     className="mt-1 text-center text-xs2"
-                    style={{ color: 'rgba(46,36,30,0.58)' }}
+                    style={{ color: colors.reel.inkSecondary }}
                   >
                     Add a reel from its edit screen or choose from your published reels below.
                   </Text>
                   <TouchableOpacity
                     accessibilityRole="button"
                     accessibilityLabel="Select from your reels"
-                    className="mt-4 flex-row items-center justify-center rounded-full bg-[#FF7A45] px-4 py-2.5"
+                    className="mt-4 flex-row items-center justify-center rounded-full bg-reel-accent px-4 py-2.5"
                     disabled={isBusy}
                     onPress={() => episodePickerRef.current?.present()}
                   >
-                    <MaterialIcons name="add" size={18} color="#FFFFFF" />
+                    <MaterialIcons name="add" size={18} color={colors.text.inverse} />
                     <Text className="ml-1 text-xs2 font-bold text-white">
                       Select from your reels
                     </Text>
@@ -529,11 +534,11 @@ export default function ManageReelSeriesScreen() {
 
               {orderedReels.length > 1 ? (
                 <TouchableOpacity
-                  className={`mt-4 min-h-12 items-center justify-center rounded-[20px] px-5 ${orderChanged && !isBusy ? 'bg-[#FF7A45]' : 'bg-[#E9DDD2]'}`}
+                  className={`mt-4 min-h-12 items-center justify-center rounded-[20px] px-5 ${orderChanged && !isBusy ? 'bg-reel-accent' : 'bg-reel-border'}`}
                   disabled={!orderChanged || isBusy}
                   onPress={() => void handleSaveOrder()}
                 >
-                  <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>
+                  <Text style={{ color: colors.text.inverse, fontWeight: '800' }}>
                     {reorderSeries.isPending ? 'Saving order…' : 'Save episode order'}
                   </Text>
                 </TouchableOpacity>
@@ -542,43 +547,43 @@ export default function ManageReelSeriesScreen() {
           ) : (
             <>
               <View className="rounded-[28px] bg-white p-4">
-                <Text className="font-heading text-lg" style={{ color: '#17120F' }}>
+                <Text className="font-heading text-lg" style={{ color: colors.reel.ink }}>
                   Details
                 </Text>
-                <View className="mt-3 rounded-[22px] bg-[#F7F2EC] px-4 py-3">
-                  <Text style={{ color: 'rgba(46,36,30,0.66)', fontSize: 12, fontWeight: '800' }}>
+                <View className="mt-3 rounded-[22px] bg-reel-canvas px-4 py-3">
+                  <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '800' }}>
                     Title
                   </Text>
                   <TextInput
                     className="mt-1 text-base2"
-                    style={{ color: '#17120F', padding: 0 }}
+                    style={{ color: colors.reel.ink, padding: 0 }}
                     value={title}
                     onChangeText={setTitle}
                     editable={!isBusy}
                     maxLength={220}
-                    selectionColor="#FF7A45"
+                    selectionColor={colors.reel.accent}
                   />
                 </View>
-                <View className="mt-3 rounded-[22px] bg-[#F7F2EC] px-4 py-3">
-                  <Text style={{ color: 'rgba(46,36,30,0.66)', fontSize: 12, fontWeight: '800' }}>
+                <View className="mt-3 rounded-[22px] bg-reel-canvas px-4 py-3">
+                  <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '800' }}>
                     Description · optional
                   </Text>
                   <TextInput
                     className="mt-2 min-h-20 text-base2"
-                    style={{ color: '#17120F', padding: 0 }}
+                    style={{ color: colors.reel.ink, padding: 0 }}
                     value={description}
                     onChangeText={setDescription}
                     editable={!isBusy}
                     maxLength={2000}
                     multiline
                     textAlignVertical="top"
-                    selectionColor="#FF7A45"
+                    selectionColor={colors.reel.accent}
                   />
                 </View>
 
                 <Text
                   className="mt-4 text-xs2 font-semibold uppercase tracking-[1px]"
-                  style={{ color: 'rgba(46,36,30,0.58)' }}
+                  style={{ color: colors.reel.inkSecondary }}
                 >
                   Audience
                 </Text>
@@ -590,7 +595,7 @@ export default function ManageReelSeriesScreen() {
                         key={option.value}
                         accessibilityRole="button"
                         accessibilityState={{ selected }}
-                        className={`min-h-[42px] flex-1 flex-row items-center justify-center rounded-[14px] px-2 py-2 ${selected ? 'bg-[#FF7A45]' : 'bg-[#F7F2EC]'}`}
+                        className={`min-h-[42px] flex-1 flex-row items-center justify-center rounded-[14px] px-2 py-2 ${selected ? 'bg-reel-accent' : 'bg-reel-canvas'}`}
                         activeOpacity={0.84}
                         disabled={isBusy}
                         onPress={() => handleSelectVisibility(option.value)}
@@ -598,12 +603,12 @@ export default function ManageReelSeriesScreen() {
                         <MaterialIcons
                           name={option.icon}
                           size={16}
-                          color={selected ? '#FFFFFF' : '#17120F'}
+                          color={selected ? colors.text.inverse : colors.reel.ink}
                         />
                         <Text
                           className="ml-1.5"
                           style={{
-                            color: selected ? '#FFFFFF' : '#17120F',
+                            color: selected ? colors.text.inverse : colors.reel.ink,
                             fontSize: 11.5,
                             fontWeight: '800',
                           }}
@@ -615,34 +620,40 @@ export default function ManageReelSeriesScreen() {
                     )
                   })}
                 </View>
-                <Text className="mt-2 text-xs2 leading-4" style={{ color: 'rgba(46,36,30,0.58)' }}>
+                <Text
+                  className="mt-2 text-xs2 leading-4"
+                  style={{ color: colors.reel.inkSecondary }}
+                >
                   Changing the audience updates every episode in this series.
                 </Text>
 
                 <TouchableOpacity
-                  className={`mt-4 min-h-12 items-center justify-center rounded-[20px] px-5 ${metadataChanged && !isBusy ? 'bg-[#FF7A45]' : 'bg-[#E9DDD2]'}`}
+                  className={`mt-4 min-h-12 items-center justify-center rounded-[20px] px-5 ${metadataChanged && !isBusy ? 'bg-reel-accent' : 'bg-reel-border'}`}
                   disabled={!metadataChanged || isBusy}
                   onPress={() => void handleSaveDetails()}
                 >
-                  <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>
+                  <Text style={{ color: colors.text.inverse, fontWeight: '800' }}>
                     {updateSeries.isPending ? 'Saving…' : 'Save details'}
                   </Text>
                 </TouchableOpacity>
               </View>
 
               <View className="mt-3 rounded-[28px] bg-white p-4">
-                <Text className="font-heading text-lg" style={{ color: '#17120F' }}>
+                <Text className="font-heading text-lg" style={{ color: colors.reel.ink }}>
                   Series controls
                 </Text>
                 <TouchableOpacity
                   accessibilityRole="button"
                   accessibilityLabel="Delete series"
-                  className="mt-3 min-h-12 flex-row items-center justify-center rounded-[20px] bg-[#FFF0E8] px-5"
+                  className="mt-3 min-h-12 flex-row items-center justify-center rounded-[20px] bg-brand-soft px-5"
                   disabled={isBusy}
                   onPress={confirmDeleteSeries}
                 >
-                  <MaterialIcons name="delete-outline" size={19} color="#D85A21" />
-                  <Text className="ml-2" style={{ color: '#D85A21', fontWeight: '800' }}>
+                  <MaterialIcons name="delete-outline" size={19} color={colors.brand.tertiary} />
+                  <Text
+                    className="ml-2"
+                    style={{ color: colors.brand.tertiary, fontWeight: '800' }}
+                  >
                     Delete series
                   </Text>
                 </TouchableOpacity>
@@ -672,7 +683,7 @@ export default function ManageReelSeriesScreen() {
 const styles = (StyleSheet?.create ?? (<T extends Record<string, unknown>>(s: T): T => s))({
   episodeCard: {
     alignItems: 'center',
-    backgroundColor: '#F7F2EC',
+    backgroundColor: colors.reel.canvas,
     borderColor: 'transparent',
     borderRadius: 22,
     borderWidth: 1,
@@ -681,16 +692,16 @@ const styles = (StyleSheet?.create ?? (<T extends Record<string, unknown>>(s: T)
     padding: 12,
   },
   episodeCardActive: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.bg.primary,
     borderColor: 'rgba(255, 122, 69, 0.35)',
     elevation: 6,
-    shadowColor: '#17120F',
+    shadowColor: colors.reel.ink,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 8,
   },
   episodeTitle: {
-    color: '#17120F',
+    color: colors.reel.ink,
     fontWeight: '800',
   },
   episodeTitleContainer: {
@@ -700,7 +711,7 @@ const styles = (StyleSheet?.create ?? (<T extends Record<string, unknown>>(s: T)
   },
   removeButton: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.bg.primary,
     borderRadius: 15,
     height: 44,
     justifyContent: 'center',
@@ -712,7 +723,7 @@ const styles = (StyleSheet?.create ?? (<T extends Record<string, unknown>>(s: T)
     width: 48,
   },
   thumbnailContainer: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.bg.primary,
     borderRadius: 14,
     height: 64,
     overflow: 'hidden',

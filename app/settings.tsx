@@ -9,6 +9,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { OfflineNetworkToggle } from '@/components/dev/OfflineNetworkToggle'
 
 import { queryKeys } from '../src/constants/queryKeys'
+import { colors } from '../src/constants/theme'
 import { resetLocalDatabase } from '../src/database/DatabaseManager'
 import { useReelSavingMode } from '../src/hooks/useReelSavingMode'
 import {
@@ -74,17 +75,24 @@ function SettingsActionRow({
       style={{ opacity: disabled ? 0.62 : 1 }}
     >
       <View className={`h-12 w-12 items-center justify-center rounded-full ${iconBackground}`}>
-        <MaterialIcons name={icon} size={20} color={isDestructive ? '#FF3B30' : '#161616'} />
+        <MaterialIcons
+          name={icon}
+          size={20}
+          color={isDestructive ? colors.status.error : colors.text.primary}
+        />
       </View>
       <View className="ml-3 flex-1 pr-3">
         <Text className={labelClassName}>{label}</Text>
         <Text className="mt-1 text-sm2 text-text-secondary">{description}</Text>
       </View>
       {isLoading ? (
-        <ActivityIndicator color={isDestructive ? '#FF3B30' : '#161616'} size="small" />
+        <ActivityIndicator
+          color={isDestructive ? colors.status.error : colors.text.primary}
+          size="small"
+        />
       ) : null}
       {showsChevron && !isLoading ? (
-        <MaterialIcons name="chevron-right" size={20} color="#BEBEBE" />
+        <MaterialIcons name="chevron-right" size={20} color={colors.text.subtle} />
       ) : null}
     </Pressable>
   )
@@ -108,7 +116,7 @@ function SettingsToggleRow({
   return (
     <View className="min-h-[80px] flex-row items-center rounded-[24px] bg-surface-muted px-4 py-4">
       <View className="h-12 w-12 items-center justify-center rounded-full bg-white">
-        <MaterialIcons name={icon} size={20} color="#161616" />
+        <MaterialIcons name={icon} size={20} color={colors.text.primary} />
       </View>
       <View className="ml-3 flex-1 pr-4">
         <Text className="font-medium text-md text-text-primary">{label}</Text>
@@ -117,10 +125,10 @@ function SettingsToggleRow({
       <Switch
         accessibilityLabel={label}
         disabled={disabled}
-        ios_backgroundColor="#D9D9D9"
+        ios_backgroundColor={colors.border.strong}
         onValueChange={onValueChange}
-        thumbColor="#FFFFFF"
-        trackColor={{ false: '#D9D9D9', true: 'rgba(255,107,44,0.72)' }}
+        thumbColor={colors.text.inverse}
+        trackColor={{ false: colors.border.strong, true: 'rgba(255,107,44,0.72)' }}
         value={value}
       />
     </View>
@@ -334,7 +342,7 @@ export default function SettingsScreen() {
   if (!user) {
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-bg-primary">
-        <ActivityIndicator color="#FF6B2C" size="large" />
+        <ActivityIndicator color={colors.brand.primary} size="large" />
       </SafeAreaView>
     )
   }
@@ -347,7 +355,7 @@ export default function SettingsScreen() {
           className="absolute inset-x-0 z-20 items-center"
           style={{ top: insets.top + 8 }}
         >
-          <View className="rounded-full px-4 py-2" style={{ backgroundColor: '#161616' }}>
+          <View className="rounded-full px-4 py-2" style={{ backgroundColor: colors.text.primary }}>
             <Text className="text-sm2 text-white">{feedbackMessage}</Text>
           </View>
         </View>
@@ -361,7 +369,7 @@ export default function SettingsScreen() {
           disabled={isBusy}
           onPress={closeSettings}
         >
-          <MaterialIcons name="arrow-back" size={22} color="#161616" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.text.primary} />
         </Pressable>
         <View className="flex-1">
           <Text className="text-xs2 uppercase tracking-[1.2px] text-text-muted">Profile</Text>

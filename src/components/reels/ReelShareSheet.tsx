@@ -21,6 +21,7 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { colors } from '../../constants/theme'
 import { useConversations } from '../../hooks/useConversations'
 import { useCreateReelShareLink, useShareReel } from '../../hooks/useReels'
 import { getInitials } from '../../lib/profile'
@@ -278,7 +279,7 @@ export function ReelShareSheet({ visible, reel, onClose }: ReelShareSheetProps) 
             activeOpacity={0.84}
             onPress={() => sheetRef.current?.dismiss()}
           >
-            <MaterialIcons name="close" size={20} color="#161616" />
+            <MaterialIcons name="close" size={20} color={colors.text.primary} />
           </TouchableOpacity>
         </View>
 
@@ -290,9 +291,9 @@ export function ReelShareSheet({ visible, reel, onClose }: ReelShareSheetProps) 
             onPress={handleNativeShare}
           >
             {createShareLink.isPending ? (
-              <ActivityIndicator color="#FF6B2C" size="small" />
+              <ActivityIndicator color={colors.brand.primary} size="small" />
             ) : (
-              <MaterialIcons name="ios-share" size={22} color="#161616" />
+              <MaterialIcons name="ios-share" size={22} color={colors.text.primary} />
             )}
             <Text className="mt-2 text-sm2 font-medium text-text-primary">Share link</Text>
           </TouchableOpacity>
@@ -303,7 +304,7 @@ export function ReelShareSheet({ visible, reel, onClose }: ReelShareSheetProps) 
             disabled={!canShare || createShareLink.isPending}
             onPress={handleCopyLink}
           >
-            <MaterialIcons name="content-copy" size={22} color="#161616" />
+            <MaterialIcons name="content-copy" size={22} color={colors.text.primary} />
             <Text className="mt-2 text-sm2 font-medium text-text-primary">Copy link</Text>
           </TouchableOpacity>
         </View>
@@ -321,7 +322,7 @@ export function ReelShareSheet({ visible, reel, onClose }: ReelShareSheetProps) 
             </View>
           ) : isLoadingConversations ? (
             <View className="items-center rounded-[24px] bg-surface-muted px-4 py-5">
-              <ActivityIndicator color="#FF6B2C" size="small" />
+              <ActivityIndicator color={colors.brand.primary} size="small" />
             </View>
           ) : targets.length === 0 ? (
             <View className="rounded-[24px] bg-surface-muted px-4 py-4">
@@ -367,9 +368,9 @@ export function ReelShareSheet({ visible, reel, onClose }: ReelShareSheetProps) 
                     </View>
 
                     {isSharingToTarget ? (
-                      <ActivityIndicator color="#FF6B2C" size="small" />
+                      <ActivityIndicator color={colors.brand.primary} size="small" />
                     ) : (
-                      <MaterialIcons name="send" size={20} color="#FF6B2C" />
+                      <MaterialIcons name="send" size={20} color={colors.brand.primary} />
                     )}
                   </TouchableOpacity>
                 )
@@ -384,13 +385,13 @@ export function ReelShareSheet({ visible, reel, onClose }: ReelShareSheetProps) 
 
 const styles = StyleSheet.create({
   handleIndicator: {
-    backgroundColor: '#D9D9D9',
+    backgroundColor: colors.border.strong,
     borderRadius: 9999,
     height: 6,
     width: 56,
   },
   sheetBackground: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.bg.primary,
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
     elevation: 18,

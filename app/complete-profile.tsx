@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { userApi } from '../src/api/user.api'
+import { colors } from '../src/constants/theme'
 import { resetLocalDatabase } from '../src/database/DatabaseManager'
 import { useUsernameAvailability } from '../src/hooks/useUsernameAvailability'
 import { cn } from '../src/lib/cn'
@@ -314,14 +315,14 @@ export default function CompleteProfileScreen() {
               activeOpacity={0.85}
             >
               {isSubmitting ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
+                <ActivityIndicator color={colors.text.inverse} size="small" />
               ) : (
                 <>
                   <Text className="text-base font-bold text-white">Continue</Text>
                   <MaterialIcons
                     name="arrow-forward"
                     size={17}
-                    color="#FFFFFF"
+                    color={colors.text.inverse}
                     style={{ marginLeft: 8 }}
                   />
                 </>

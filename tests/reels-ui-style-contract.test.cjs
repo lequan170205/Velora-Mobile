@@ -43,11 +43,11 @@ test('reels viewer keeps the original text tabs and capture controls', () => {
     /isSelected\s+\? 'font-bold text-white'\s+: 'font-semibold text-white\/85'/,
   )
   assert.match(reelsViewer, /isSelected \? 'w-6 bg-brand' : 'w-0 bg-transparent'/)
-  assert.match(reelsViewer, /<Ionicons name="add" size=\{28\} color="#FFFFFF"/)
+  assert.match(reelsViewer, /<Ionicons name="add" size=\{28\} color=\{colors\.text\.inverse\}/)
   assert.match(reelsViewer, /accessibilityLabel="Create reel"/)
   assert.match(reelsViewer, /enabled: shouldLoadPublicFeed && shouldShowFriendsTab/)
   assert.match(reelCreatorSharedUi, /active \? 'bg-white' : 'bg-white\/10'/)
-  assert.match(reelCreatorSharedUi, /color: active \? '#111111' : 'rgba\(255,255,255,0\.86\)'/)
+  assert.match(reelCreatorSharedUi, /color: active \? colors\.media\.surface : 'rgba\(255,255,255,0\.86\)'/)
   assert.match(reelCreatorSharedUi, /'bg-white\/10'/)
   assert.match(
     reelCreatorSharedUi,
@@ -75,7 +75,7 @@ test('reel video viewport ends above the docked rail and headers respect the saf
 })
 
 test('reels viewer states follow the dark glass icon, heading, copy, and CTA hierarchy', () => {
-  assert.match(reelsViewer, /ActivityIndicator color="#FF935B"/)
+  assert.match(reelsViewer, /ActivityIndicator color=\{colors\.brand\.secondary\}/)
   assert.match(reelsViewer, /Loading reels/)
   assert.match(reelsViewer, /Feed unavailable/)
   assert.match(reelsViewer, /rounded-\[32px\] border border-white\/14 bg-black\/52/)
@@ -131,8 +131,8 @@ test('reel feed item keeps playback and scrub contracts while making metadata re
   assert.match(reelFeedItem, /text-\[#FFB18E\]/)
   assert.match(reelFeedItem, /accessibilityLabel="Share reel"/)
   assert.match(reelFeedItem, /accessibilityLabel="More reel actions"/)
-  assert.match(reelFeedItem, /<Ionicons name="paper-plane-outline" size=\{24\} color="#FFFFFF"/)
-  assert.match(reelFeedItem, /<Ionicons name="ellipsis-horizontal" size=\{25\} color="#FFFFFF"/)
+  assert.match(reelFeedItem, /<Ionicons name="paper-plane-outline" size=\{24\} color=\{colors\.text\.inverse\}/)
+  assert.match(reelFeedItem, /<Ionicons name="ellipsis-horizontal" size=\{25\} color=\{colors\.text\.inverse\}/)
   assert.doesNotMatch(
     reelFeedItem,
     /accessibilityLabel="Share reel"[\s\S]{0,220}rounded-full border/,

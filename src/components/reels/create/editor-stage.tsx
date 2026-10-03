@@ -4,6 +4,7 @@ import { ScrollView, Text, TouchableOpacity, View, useWindowDimensions } from 'r
 import Animated, { FadeIn } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { colors } from '../../../constants/theme'
 import { getCreatorPreviewContentFit } from '../../../lib/reel-creator'
 import { getTrimDurationMs, formatTrimDurationLabel } from '../../../lib/reel-trim-geometry'
 import { formatDurationLabel } from '../../../lib/reels'
@@ -138,7 +139,7 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
 
   return (
     <Animated.View
-      className="flex-1 bg-[#F7F2EC]"
+      className="flex-1 bg-reel-canvas"
       entering={FadeIn.duration(180)}
       style={{
         paddingHorizontal: horizontalPadding,
@@ -154,13 +155,13 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
         <View className="absolute left-16 right-24 items-center">
           <Text
             className="text-xs2 uppercase tracking-[1.2px]"
-            style={{ color: 'rgba(46,36,30,0.58)' }}
+            style={{ color: colors.reel.inkSecondary }}
           >
             Preview
           </Text>
           <Text
             className="mt-1 font-heading text-[22px]"
-            style={{ color: '#17120F' }}
+            style={{ color: colors.reel.ink }}
             numberOfLines={1}
           >
             Preview clip
@@ -168,17 +169,17 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
         </View>
 
         <TouchableOpacity
-          className="absolute right-0 rounded-full bg-[#FF7A45] px-5 py-3"
+          className="absolute right-0 rounded-full bg-reel-accent px-5 py-3"
           activeOpacity={0.84}
           onPress={controller.goToPublishStage}
         >
-          <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>Next</Text>
+          <Text style={{ color: colors.text.inverse, fontWeight: '700' }}>Next</Text>
         </TouchableOpacity>
       </View>
 
       <View className="mt-2 items-center">
         <View
-          className="overflow-hidden rounded-[30px] border border-[#E5D8CC] bg-[#17120F]"
+          className="overflow-hidden rounded-[30px] border border-[#E5D8CC] bg-reel-ink"
           style={{
             width: previewWidth,
             height: previewHeight,
@@ -224,29 +225,29 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
                 }
                 controller.handleEditorProgress(progress)
               }}
-              style={{ width: '100%', height: '100%', backgroundColor: '#17120F' }}
+              style={{ width: '100%', height: '100%', backgroundColor: colors.reel.ink }}
             />
           )}
 
           <View className="absolute inset-x-0 bottom-0 px-3 pb-3">
             <View className="flex-row items-center justify-between rounded-full bg-white/92 px-3 py-2">
-              <Text style={{ color: '#17120F', fontSize: 12, fontWeight: '800' }}>
+              <Text style={{ color: colors.reel.ink, fontSize: 12, fontWeight: '800' }}>
                 {positionLabel} / {durationLabel}
               </Text>
               <View className="flex-row gap-2">
                 <TouchableOpacity
-                  className="h-9 w-9 items-center justify-center rounded-full bg-[#17120F]"
+                  className="h-9 w-9 items-center justify-center rounded-full bg-reel-ink"
                   activeOpacity={0.84}
                   onPress={controller.togglePreviewMuted}
                 >
                   <MaterialIcons
                     name={controller.isPreviewMuted ? 'volume-off' : 'volume-up'}
                     size={18}
-                    color="#FFFFFF"
+                    color={colors.text.inverse}
                   />
                 </TouchableOpacity>
                 <TouchableOpacity
-                  className="h-9 w-9 items-center justify-center rounded-full bg-[#FF7A45]"
+                  className="h-9 w-9 items-center justify-center rounded-full bg-reel-accent"
                   activeOpacity={0.84}
                   onPress={() => {
                     setIsPreviewPaused((current) => !current)
@@ -255,7 +256,7 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
                   <MaterialIcons
                     name={isPreviewPaused ? 'play-arrow' : 'pause'}
                     size={20}
-                    color="#FFFFFF"
+                    color={colors.text.inverse}
                   />
                 </TouchableOpacity>
               </View>
@@ -270,12 +271,12 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
       >
         <View className="flex-row items-center justify-between">
           <View className="flex-1 pr-3">
-            <Text className="font-heading text-lg" style={{ color: '#17120F' }}>
+            <Text className="font-heading text-lg" style={{ color: colors.reel.ink }}>
               Timeline
             </Text>
             <Text
               className="mt-0.5 text-xs2"
-              style={{ color: 'rgba(46,36,30,0.62)' }}
+              style={{ color: colors.reel.inkSecondary }}
               numberOfLines={1}
             >
               {controller.orientationMessage}
@@ -284,14 +285,14 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
 
           <View className="flex-row items-center gap-2">
             {controller.editState.trim ? (
-              <View className="rounded-full bg-[#FFF0E8] px-2.5 py-2">
-                <Text style={{ color: '#D85A21', fontSize: 11, fontWeight: '800' }}>
+              <View className="rounded-full bg-brand-soft px-2.5 py-2">
+                <Text style={{ color: colors.brand.tertiary, fontSize: 11, fontWeight: '800' }}>
                   Trimmed • {formatTrimDurationLabel(displayedDurationMs)}
                 </Text>
               </View>
             ) : null}
-            <View className="rounded-full bg-[#FFF0E8] px-3 py-2">
-              <Text style={{ color: '#D85A21', fontWeight: '700' }}>
+            <View className="rounded-full bg-brand-soft px-3 py-2">
+              <Text style={{ color: colors.brand.tertiary, fontWeight: '700' }}>
                 {controller.selectedAssetType
                   ? controller.selectedAssetType.replace('video/', '').toUpperCase()
                   : 'VIDEO'}
@@ -319,7 +320,7 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
           ).map((frame, index) => (
             <View
               key={`${frame.uri}-${frame.timeMs}-${index}`}
-              className="overflow-hidden rounded-[16px] border border-[#E9DED5] bg-[#F7F2EC]"
+              className="overflow-hidden rounded-[16px] border border-reel-border bg-reel-canvas"
             >
               <CropThumbnail
                 uri={frame.uri}

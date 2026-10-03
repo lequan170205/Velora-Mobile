@@ -293,7 +293,12 @@ const ComposerAccessorySlot = memo(function ComposerAccessorySlot({
             backgroundColor: BRAND,
           }}
         >
-          <MaterialIcons name="send" size={18} color="#FFFFFF" style={{ marginLeft: 2 }} />
+          <MaterialIcons
+            name="send"
+            size={18}
+            color={colors.text.inverse}
+            style={{ marginLeft: 2 }}
+          />
         </Pressable>
       </Animated.View>
     </Animated.View>
@@ -428,7 +433,7 @@ const MessageInputComponent = function MessageInput(
   }, [onSendMedia, waitForKeyboardToHide])
 
   const showCharCounter = text.length > 800
-  const counterColor = text.length > 950 ? '#FF3B30' : TEXT_MUTED
+  const counterColor = text.length > 950 ? colors.status.error : TEXT_MUTED
   const currentUserId = useAuthStore((state) => state.user?.id ?? null)
   const replyPreviewData =
     replyTo?.replyPreview && typeof replyTo.replyPreview !== 'string'
@@ -489,7 +494,7 @@ const MessageInputComponent = function MessageInput(
       <BlurView intensity={28} tint="light" pointerEvents="none" style={StyleSheet.absoluteFill} />
       <View
         pointerEvents="none"
-        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.9)' }]}
+        style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg.frost }]}
       />
       {replyTo ? (
         <Animated.View
@@ -514,7 +519,7 @@ const MessageInputComponent = function MessageInput(
                 height: isReplyReel ? 52 : 36,
                 borderRadius: isReplyReel ? 12 : 10,
                 overflow: 'hidden',
-                backgroundColor: isReplyVideo ? '#111111' : colors.surface.cream,
+                backgroundColor: isReplyVideo ? colors.media.surface : colors.surface.cream,
                 marginRight: 10,
               }}
             >
@@ -537,7 +542,7 @@ const MessageInputComponent = function MessageInput(
                     backgroundColor: 'rgba(0,0,0,0.18)',
                   }}
                 >
-                  <MaterialIcons name="play-arrow" size={16} color="#FFFFFF" />
+                  <MaterialIcons name="play-arrow" size={16} color={colors.text.inverse} />
                 </View>
               ) : null}
             </View>
@@ -549,12 +554,12 @@ const MessageInputComponent = function MessageInput(
                 borderRadius: 12,
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: '#111111',
+                backgroundColor: colors.media.surface,
                 marginRight: 10,
                 overflow: 'hidden',
               }}
             >
-              <MaterialIcons name="play-arrow" size={18} color="#FFFFFF" />
+              <MaterialIcons name="play-arrow" size={18} color={colors.text.inverse} />
             </View>
           ) : (
             <View

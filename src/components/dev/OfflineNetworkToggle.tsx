@@ -2,6 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons'
 import React from 'react'
 import { Pressable, Text, View } from 'react-native'
 
+import { colors } from '../../constants/theme'
 import { useNetworkStatus } from '../../providers/NetworkProvider'
 
 const shouldShowOfflineToggle = __DEV__ || process.env.EXPO_PUBLIC_ENABLE_OFFLINE_TOGGLE === 'true'
@@ -42,7 +43,7 @@ export function OfflineNetworkToggle() {
         <MaterialIcons
           name={isForceOffline ? 'wifi-off' : 'wifi'}
           size={20}
-          color={isForceOffline ? '#FF3B30' : '#161616'}
+          color={isForceOffline ? colors.status.error : colors.text.primary}
         />
       </View>
       <View className="ml-3 flex-1">
@@ -61,7 +62,7 @@ export function OfflineNetworkToggle() {
       <MaterialIcons
         name={isForceOffline ? 'toggle-on' : 'toggle-off'}
         size={36}
-        color={isForceOffline ? '#FF3B30' : '#BEBEBE'}
+        color={isForceOffline ? colors.status.error : colors.text.subtle}
       />
     </Pressable>
   )

@@ -139,7 +139,7 @@ export function ProfileActionsMenu({
 
 const styles = StyleSheet.create({
   handleIndicator: {
-    backgroundColor: '#D9D9D9',
+    backgroundColor: colors.border.strong,
     borderRadius: 9999,
     height: 6,
     width: 56,

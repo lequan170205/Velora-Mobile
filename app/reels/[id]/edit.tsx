@@ -37,6 +37,8 @@ import type {
 } from '@/types/reel.types'
 import type { BottomSheetModal } from '@gorhom/bottom-sheet'
 
+import { colors } from '../../../src/constants/theme'
+
 const buildCaptionValue = (description?: string, tags: string[] = []) => {
   const tagLine = tags
     .map((tag) => tag.trim().replace(/^#/, ''))
@@ -235,33 +237,33 @@ export default function EditReelDetailsScreen() {
 
   if (isPending) {
     return (
-      <View className="flex-1 items-center justify-center bg-[#F7F2EC]">
+      <View className="flex-1 items-center justify-center bg-reel-canvas">
         <StatusBar style="dark" />
-        <ActivityIndicator color="#FF7A45" />
+        <ActivityIndicator color={colors.reel.accent} />
       </View>
     )
   }
 
   if (isError || !reel) {
     return (
-      <View className="flex-1 items-center justify-center bg-[#F7F2EC] px-6">
+      <View className="flex-1 items-center justify-center bg-reel-canvas px-6">
         <StatusBar style="dark" />
         <View className="items-center rounded-[28px] bg-white px-6 py-7">
-          <MaterialIcons name="error-outline" size={32} color="#D85A21" />
-          <Text className="mt-4 font-heading text-xl" style={{ color: '#17120F' }}>
+          <MaterialIcons name="error-outline" size={32} color={colors.brand.tertiary} />
+          <Text className="mt-4 font-heading text-xl" style={{ color: colors.reel.ink }}>
             Reel unavailable
           </Text>
-          <Text className="mt-2 text-center text-base2" style={{ color: 'rgba(46,36,30,0.62)' }}>
+          <Text className="mt-2 text-center text-base2" style={{ color: colors.reel.inkSecondary }}>
             {errorMessage}
           </Text>
           <TouchableOpacity
-            className="mt-6 rounded-full bg-[#FF7A45] px-5 py-3"
+            className="mt-6 rounded-full bg-reel-accent px-5 py-3"
             activeOpacity={0.84}
             onPress={() => {
               void refetch()
             }}
           >
-            <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>Try again</Text>
+            <Text style={{ color: colors.text.inverse, fontWeight: '800' }}>Try again</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -270,7 +272,7 @@ export default function EditReelDetailsScreen() {
 
   return (
     <KeyboardAvoidingView
-      className="flex-1 bg-[#F7F2EC]"
+      className="flex-1 bg-reel-canvas"
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <StatusBar style="dark" />
@@ -289,18 +291,18 @@ export default function EditReelDetailsScreen() {
           <View className="absolute left-16 right-24 items-center">
             <Text
               className="text-xs2 uppercase tracking-[1.2px]"
-              style={{ color: 'rgba(46,36,30,0.58)' }}
+              style={{ color: colors.reel.inkSecondary }}
             >
               Edit
             </Text>
-            <Text className="mt-1 font-heading text-[22px]" style={{ color: '#17120F' }}>
+            <Text className="mt-1 font-heading text-[22px]" style={{ color: colors.reel.ink }}>
               Reel details
             </Text>
           </View>
 
           <TouchableOpacity
             className={`absolute right-0 rounded-full px-5 py-3 ${
-              hasChanges && !isBusy ? 'bg-[#FF7A45]' : 'bg-[#E9DDD2]'
+              hasChanges && !isBusy ? 'bg-reel-accent' : 'bg-reel-border'
             }`}
             activeOpacity={0.84}
             disabled={!hasChanges || isBusy}
@@ -308,7 +310,7 @@ export default function EditReelDetailsScreen() {
               void handleSave()
             }}
           >
-            <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>
+            <Text style={{ color: colors.text.inverse, fontWeight: '800' }}>
               {isBusy ? 'Saving' : 'Save'}
             </Text>
           </TouchableOpacity>
@@ -322,7 +324,7 @@ export default function EditReelDetailsScreen() {
         >
           <View className="rounded-[28px] bg-white p-3">
             <View className="flex-row items-center">
-              <View className="overflow-hidden rounded-[18px] border border-[#E9DED5] bg-[#F7F2EC]">
+              <View className="overflow-hidden rounded-[18px] border border-reel-border bg-reel-canvas">
                 {reel.thumbnailUrl ? (
                   <Image
                     source={{ uri: reel.thumbnailUrl }}
@@ -330,19 +332,19 @@ export default function EditReelDetailsScreen() {
                     style={{ width: 58, height: 82 }}
                   />
                 ) : (
-                  <View className="h-[82px] w-[58px] items-center justify-center bg-[#F7F2EC]">
-                    <MaterialIcons name="movie" size={20} color="#17120F" />
+                  <View className="h-[82px] w-[58px] items-center justify-center bg-reel-canvas">
+                    <MaterialIcons name="movie" size={20} color={colors.reel.ink} />
                   </View>
                 )}
               </View>
 
               <View className="ml-3 flex-1">
-                <Text style={{ color: '#17120F', fontWeight: '800' }} numberOfLines={1}>
+                <Text style={{ color: colors.reel.ink, fontWeight: '800' }} numberOfLines={1}>
                   {reel.status === 'COMPLETED' ? 'Ready reel' : reel.status}
                 </Text>
                 <Text
                   className="mt-1 text-xs2 leading-4"
-                  style={{ color: 'rgba(46,36,30,0.62)' }}
+                  style={{ color: colors.reel.inkSecondary }}
                   numberOfLines={2}
                 >
                   Update title, caption, hashtags, visibility, and series.
@@ -353,7 +355,7 @@ export default function EditReelDetailsScreen() {
 
           <View className="mt-3 rounded-[28px] bg-white px-4 py-4">
             <View className="flex-row items-center justify-between">
-              <Text className="font-heading text-lg" style={{ color: '#17120F' }}>
+              <Text className="font-heading text-lg" style={{ color: colors.reel.ink }}>
                 Details
               </Text>
               <Text style={{ color: 'rgba(46,36,30,0.48)', fontSize: 12 }}>
@@ -361,49 +363,49 @@ export default function EditReelDetailsScreen() {
               </Text>
             </View>
 
-            <View className="mt-3 rounded-[22px] bg-[#F7F2EC] px-4 py-3">
-              <Text style={{ color: 'rgba(46,36,30,0.66)', fontSize: 12, fontWeight: '800' }}>
+            <View className="mt-3 rounded-[22px] bg-reel-canvas px-4 py-3">
+              <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '800' }}>
                 Title
               </Text>
               <TextInput
                 className="mt-1 text-base2"
-                style={{ color: '#17120F', padding: 0 }}
+                style={{ color: colors.reel.ink, padding: 0 }}
                 placeholder="Name this reel"
                 placeholderTextColor="rgba(46,36,30,0.38)"
                 value={title}
                 onChangeText={setTitle}
                 editable={!isBusy}
-                selectionColor="#FF7A45"
+                selectionColor={colors.reel.accent}
               />
             </View>
 
-            <View className="mt-3 min-h-[180px] rounded-[22px] bg-[#F7F2EC] px-4 py-3">
-              <Text style={{ color: 'rgba(46,36,30,0.66)', fontSize: 12, fontWeight: '800' }}>
+            <View className="mt-3 min-h-[180px] rounded-[22px] bg-reel-canvas px-4 py-3">
+              <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '800' }}>
                 Caption
               </Text>
               <TextInput
                 className="mt-2 min-h-[136px] text-base2"
-                style={{ color: '#17120F', padding: 0 }}
+                style={{ color: colors.reel.ink, padding: 0 }}
                 placeholder="Write a caption and add hashtags like #velora"
                 placeholderTextColor="rgba(46,36,30,0.38)"
                 multiline
                 value={caption}
                 onChangeText={setCaption}
                 editable={!isBusy}
-                selectionColor="#FF7A45"
+                selectionColor={colors.reel.accent}
                 textAlignVertical="top"
               />
             </View>
           </View>
 
           <View className="mt-3 rounded-[28px] bg-white px-4 py-4">
-            <Text className="font-heading text-lg" style={{ color: '#17120F' }}>
+            <Text className="font-heading text-lg" style={{ color: colors.reel.ink }}>
               Series
             </Text>
             <TouchableOpacity
               accessibilityRole="button"
               accessibilityLabel="Change reel series"
-              className="mt-3 min-h-14 flex-row items-center rounded-[22px] bg-[#F7F2EC] px-4 py-3"
+              className="mt-3 min-h-14 flex-row items-center rounded-[22px] bg-reel-canvas px-4 py-3"
               activeOpacity={0.84}
               disabled={isBusy}
               onPress={() => seriesSheetRef.current?.present()}
@@ -412,21 +414,21 @@ export default function EditReelDetailsScreen() {
                 <MaterialIcons
                   name={reel.series ? 'video-library' : 'playlist-add'}
                   size={21}
-                  color="#D85A21"
+                  color={colors.brand.tertiary}
                 />
               </View>
               <View className="ml-3 flex-1">
-                <Text style={{ color: '#17120F', fontWeight: '800' }} numberOfLines={1}>
+                <Text style={{ color: colors.reel.ink, fontWeight: '800' }} numberOfLines={1}>
                   {reel.series?.title ?? 'No series'}
                 </Text>
-                <Text className="mt-0.5 text-xs2" style={{ color: 'rgba(46,36,30,0.58)' }}>
+                <Text className="mt-0.5 text-xs2" style={{ color: colors.reel.inkSecondary }}>
                   {reel.series
                     ? `Episode ${reel.series.episodeNumber} · Tap to move or remove`
                     : 'Add this reel to an episode collection'}
                 </Text>
               </View>
               {isUpdatingSeries ? (
-                <ActivityIndicator color="#FF7A45" size="small" />
+                <ActivityIndicator color={colors.reel.accent} size="small" />
               ) : (
                 <MaterialIcons name="chevron-right" size={21} color="rgba(46,36,30,0.42)" />
               )}
@@ -434,17 +436,20 @@ export default function EditReelDetailsScreen() {
           </View>
 
           <View className="mt-3 rounded-[28px] bg-white px-4 py-4">
-            <Text className="font-heading text-lg" style={{ color: '#17120F' }}>
+            <Text className="font-heading text-lg" style={{ color: colors.reel.ink }}>
               Visibility
             </Text>
             {reel.series ? (
-              <View className="mt-3 min-h-12 flex-row items-center rounded-[20px] bg-[#FFF0E8] px-4 py-3">
-                <MaterialIcons name="lock-outline" size={18} color="#D85A21" />
+              <View className="mt-3 min-h-12 flex-row items-center rounded-[20px] bg-brand-soft px-4 py-3">
+                <MaterialIcons name="lock-outline" size={18} color={colors.brand.tertiary} />
                 <View className="ml-3 flex-1">
-                  <Text className="capitalize" style={{ color: '#17120F', fontWeight: '800' }}>
+                  <Text
+                    className="capitalize"
+                    style={{ color: colors.reel.ink, fontWeight: '800' }}
+                  >
                     {visibility}
                   </Text>
-                  <Text className="mt-0.5 text-xs2" style={{ color: 'rgba(46,36,30,0.58)' }}>
+                  <Text className="mt-0.5 text-xs2" style={{ color: colors.reel.inkSecondary }}>
                     Episodes in a series share the same audience.
                   </Text>
                 </View>
@@ -455,7 +460,7 @@ export default function EditReelDetailsScreen() {
                   <TouchableOpacity
                     key={option}
                     className={`min-h-12 flex-1 items-center justify-center rounded-[18px] px-2 ${
-                      visibility === option ? 'bg-[#FF7A45]' : 'bg-[#F7F2EC]'
+                      visibility === option ? 'bg-reel-accent' : 'bg-reel-canvas'
                     }`}
                     activeOpacity={0.84}
                     disabled={isBusy}
@@ -464,7 +469,7 @@ export default function EditReelDetailsScreen() {
                     <Text
                       className="text-center capitalize"
                       style={{
-                        color: visibility === option ? '#FFFFFF' : '#17120F',
+                        color: visibility === option ? colors.text.inverse : colors.reel.ink,
                         fontSize: 12,
                         fontWeight: '800',
                       }}

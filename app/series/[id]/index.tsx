@@ -355,9 +355,9 @@ export default function ReelSeriesScreen() {
 
   if (isPending) {
     return (
-      <View className="flex-1 items-center justify-center bg-[#050505] px-6">
+      <View className="flex-1 items-center justify-center bg-reel-canvas-dark px-6">
         <StatusBar style="light" />
-        <ActivityIndicator color="#FF935B" />
+        <ActivityIndicator color={colors.brand.secondary} />
         <Text className="mt-4 font-heading text-xl text-white">Loading series</Text>
       </View>
     )
@@ -371,7 +371,7 @@ export default function ReelSeriesScreen() {
 
     return (
       <View
-        className="flex-1 items-center justify-center bg-[#050505] px-6"
+        className="flex-1 items-center justify-center bg-reel-canvas-dark px-6"
         style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
       >
         <StatusBar style="light" />
@@ -383,10 +383,10 @@ export default function ReelSeriesScreen() {
           activeOpacity={0.72}
           onPress={() => router.back()}
         >
-          <MaterialIcons name="arrow-back" size={26} color="#FFFFFF" />
+          <MaterialIcons name="arrow-back" size={26} color={colors.text.inverse} />
         </TouchableOpacity>
 
-        <MaterialIcons name="video-library" size={40} color="#FF935B" />
+        <MaterialIcons name="video-library" size={40} color={colors.brand.secondary} />
         <Text className="mt-4 text-center font-heading text-xl text-white">
           {isNotFound ? 'Series not found' : 'Series unavailable'}
         </Text>
@@ -413,7 +413,7 @@ export default function ReelSeriesScreen() {
   if (!initialReelId) {
     return (
       <View
-        className="flex-1 items-center justify-center bg-[#050505] px-6"
+        className="flex-1 items-center justify-center bg-reel-canvas-dark px-6"
         style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
       >
         <StatusBar style="light" />
@@ -431,9 +431,9 @@ export default function ReelSeriesScreen() {
             }
           }}
         >
-          <MaterialIcons name="arrow-back" size={26} color="#FFFFFF" />
+          <MaterialIcons name="arrow-back" size={26} color={colors.text.inverse} />
         </TouchableOpacity>
-        <MaterialIcons name="video-library" size={40} color="#FF935B" />
+        <MaterialIcons name="video-library" size={40} color={colors.brand.secondary} />
         <Text className="mt-4 text-center font-heading text-xl text-white">{series.title}</Text>
         <Text className="mt-2 text-center text-base2 text-white/70">
           This series has no episodes yet.
@@ -452,7 +452,7 @@ export default function ReelSeriesScreen() {
                 })
               }
             >
-              <MaterialIcons name="add" size={18} color="#FFFFFF" />
+              <MaterialIcons name="add" size={18} color={colors.text.inverse} />
               <Text className="ml-1.5 font-semibold text-white">Add episodes</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -464,7 +464,7 @@ export default function ReelSeriesScreen() {
                 router.push({ pathname: '/series/[id]/manage' as never, params: { id: series.id } })
               }
             >
-              <MaterialIcons name="settings" size={18} color="#FFFFFF" />
+              <MaterialIcons name="settings" size={18} color={colors.text.inverse} />
               <Text className="ml-1.5 font-semibold text-white">Manage</Text>
             </TouchableOpacity>
           </View>
@@ -474,7 +474,7 @@ export default function ReelSeriesScreen() {
   }
 
   return (
-    <View className="flex-1 bg-[#050505]">
+    <View className="flex-1 bg-reel-canvas-dark">
       <ReelsViewer
         mode="context"
         contextItems={episodes}
@@ -494,7 +494,7 @@ export default function ReelSeriesScreen() {
                 })
               }
             >
-              <MaterialIcons name="settings" size={24} color="#FFFFFF" />
+              <MaterialIcons name="settings" size={24} color={colors.text.inverse} />
             </TouchableOpacity>
           ) : undefined
         }

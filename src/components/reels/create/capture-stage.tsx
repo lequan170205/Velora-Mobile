@@ -8,6 +8,7 @@ import Animated, { FadeIn } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { durationOptions } from '../../../constants/reel-creator'
+import { colors } from '../../../constants/theme'
 import { formatDurationLabel } from '../../../lib/reels'
 import { ReelVideo } from '../ReelVideo'
 
@@ -131,7 +132,7 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
             loop
             muted={controller.isPreviewMuted}
             contentFit="cover"
-            style={{ width: '100%', height: '100%', backgroundColor: '#050505' }}
+            style={{ width: '100%', height: '100%', backgroundColor: colors.reel.canvasDark }}
           />
         ) : hasCameraAccess && !cameraError ? (
           <CameraView
@@ -155,13 +156,13 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
           />
         ) : (
           <LinearGradient
-            colors={['#050505', '#120F10', '#1A1311']}
+            colors={[colors.reel.canvasDark, '#120F10', '#1A1311']}
             start={{ x: 0.1, y: 0 }}
             end={{ x: 1, y: 1 }}
             className="flex-1 items-center justify-center px-8"
           >
             <View className="h-20 w-20 items-center justify-center rounded-full bg-white/10">
-              <MaterialIcons name="photo-camera" size={34} color="#FFFFFF" />
+              <MaterialIcons name="photo-camera" size={34} color={colors.text.inverse} />
             </View>
             <Text
               className="mt-5 text-center text-base2 leading-6"
@@ -170,14 +171,14 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
               {cameraError ?? 'Allow camera and microphone access to record inside Velora.'}
             </Text>
             <TouchableOpacity
-              className="mt-6 rounded-full bg-[#FF7A45] px-6 py-3.5"
+              className="mt-6 rounded-full bg-reel-accent px-6 py-3.5"
               activeOpacity={0.84}
               onPress={() => {
                 setCameraError(null)
                 void ensureCameraAccess()
               }}
             >
-              <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>
+              <Text style={{ color: colors.text.inverse, fontWeight: '700' }}>
                 {hasCameraAccess ? 'Retry camera' : 'Allow camera'}
               </Text>
             </TouchableOpacity>
@@ -223,7 +224,7 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
               >
                 <Text
                   style={{
-                    color: controller.selectedAsset ? '#D85A21' : '#17120F',
+                    color: controller.selectedAsset ? colors.brand.tertiary : colors.reel.ink,
                     fontWeight: '700',
                     lineHeight: 20,
                   }}
@@ -252,7 +253,7 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
             }}
           >
             <View className="flex-row items-center">
-              <View className="overflow-hidden rounded-[18px] border border-[#E9DED5]">
+              <View className="overflow-hidden rounded-[18px] border border-reel-border">
                 {controller.thumbnailUri ? (
                   <Image
                     source={{ uri: controller.thumbnailUri }}
@@ -260,17 +261,17 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
                     style={{ width: 60, height: 84 }}
                   />
                 ) : (
-                  <View className="h-[84px] w-[60px] items-center justify-center bg-[#F7F2EC]">
-                    <MaterialIcons name="movie" size={20} color="#17120F" />
+                  <View className="h-[84px] w-[60px] items-center justify-center bg-reel-canvas">
+                    <MaterialIcons name="movie" size={20} color={colors.reel.ink} />
                   </View>
                 )}
               </View>
 
               <View className="ml-4 flex-1">
-                <Text style={{ color: '#17120F', fontWeight: '800' }}>
+                <Text style={{ color: colors.reel.ink, fontWeight: '800' }}>
                   {controller.orientationMessage}
                 </Text>
-                <Text className="mt-1 text-sm2" style={{ color: 'rgba(46,36,30,0.62)' }}>
+                <Text className="mt-1 text-sm2" style={{ color: colors.reel.inkSecondary }}>
                   {formatDurationLabel(controller.selectedAsset.duration) || '0:00'} •{' '}
                   {controller.selectedAssetType
                     ? controller.selectedAssetType.replace('video/', '').toUpperCase()
@@ -281,22 +282,25 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
 
             <View className="mt-5 flex-row gap-3">
               <TouchableOpacity
-                className="flex-1 rounded-[22px] bg-[#F7F2EC] px-4 py-4"
+                className="flex-1 rounded-[22px] bg-reel-canvas px-4 py-4"
                 activeOpacity={0.84}
                 onPress={() => {
                   void controller.handlePickFromLibrary()
                 }}
               >
-                <Text className="text-center" style={{ color: '#17120F', fontWeight: '800' }}>
+                <Text className="text-center" style={{ color: colors.reel.ink, fontWeight: '800' }}>
                   Replace
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                className="flex-1 rounded-[22px] bg-[#FF7A45] px-4 py-4"
+                className="flex-1 rounded-[22px] bg-reel-accent px-4 py-4"
                 activeOpacity={0.84}
                 onPress={controller.goToEditStage}
               >
-                <Text className="text-center" style={{ color: '#FFFFFF', fontWeight: '700' }}>
+                <Text
+                  className="text-center"
+                  style={{ color: colors.text.inverse, fontWeight: '700' }}
+                >
                   Open preview
                 </Text>
               </TouchableOpacity>
@@ -337,7 +341,7 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
                   width: sideControlSize,
                   height: sideControlSize,
                   borderRadius: Math.min(24, sideControlSize * 0.32),
-                  backgroundColor: 'rgba(255,255,255,0.18)',
+                  backgroundColor: colors.media.overlayBorder,
                   borderWidth: 1,
                   borderColor: 'rgba(255,255,255,0.22)',
                 }}
@@ -350,7 +354,7 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
                   />
                 ) : (
                   <View className="flex-1 items-center justify-center">
-                    <MaterialIcons name="collections" size={24} color="#FFFFFF" />
+                    <MaterialIcons name="collections" size={24} color={colors.text.inverse} />
                   </View>
                 )}
               </TouchableOpacity>
@@ -358,12 +362,12 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
               <TouchableOpacity activeOpacity={0.9} onPress={handleRecordPress}>
                 <View
                   className={`items-center justify-center rounded-full ${
-                    isRecording ? 'bg-[#FF7A45]/18' : 'bg-white/10'
+                    isRecording ? 'bg-reel-accent/18' : 'bg-white/10'
                   }`}
                   style={{ width: recordOuterSize, height: recordOuterSize }}
                 >
                   <View
-                    className={`items-center justify-center bg-[#FF7A45] ${
+                    className={`items-center justify-center bg-reel-accent ${
                       isRecording ? 'rounded-[16px]' : 'rounded-full'
                     }`}
                     style={{
@@ -375,7 +379,7 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
                     <MaterialIcons
                       name={isRecording ? 'stop' : 'fiber-manual-record'}
                       size={28}
-                      color="#FFFFFF"
+                      color={colors.text.inverse}
                     />
                   </View>
                 </View>

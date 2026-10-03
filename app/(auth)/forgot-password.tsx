@@ -77,14 +77,14 @@ export default function ForgotPasswordScreen() {
             activeOpacity={0.85}
           >
             {isLoading ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
+              <ActivityIndicator color={colors.text.inverse} size="small" />
             ) : (
               <>
                 <Text className="text-base font-bold text-white">Send code</Text>
                 <MaterialIcons
                   name="arrow-forward"
                   size={17}
-                  color="#FFFFFF"
+                  color={colors.text.inverse}
                   style={{ marginLeft: 8 }}
                 />
               </>

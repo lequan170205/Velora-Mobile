@@ -2,6 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons'
 import React, { useState } from 'react'
 import { ActivityIndicator, View } from 'react-native'
 
+import { colors } from '../../constants/theme'
 import { cn } from '../../lib/cn'
 import { AppPressable, AppTextInput } from '../base'
 
@@ -29,17 +30,17 @@ export const AppSearchBar = React.forwardRef<NativeTextInputRef, AppSearchBarPro
       autoCorrect = false,
       className,
       containerClassName,
-      iconColor = '#FF935B',
+      iconColor = colors.brand.secondary,
       iconPlacement = 'right',
       inputClassName,
       isLoading = false,
-      loadingColor = '#FF6B2C',
+      loadingColor = colors.brand.primary,
       onChangeText,
       onClear,
       onFocus,
       onBlur,
       placeholder = 'Search',
-      placeholderTextColor = '#A6A6A6',
+      placeholderTextColor = colors.text.tertiary,
       returnKeyType = 'search',
       size = 'default',
       value,

@@ -953,7 +953,7 @@ export function ChatMediaViewer({
             onPress={close}
             style={styles.topBarAction}
           >
-            <MaterialIcons color="#FFFFFF" name="arrow-back" size={24} />
+            <MaterialIcons color={colors.text.inverse} name="arrow-back" size={24} />
           </Pressable>
 
           <View style={styles.topBarCenter}>
@@ -984,9 +984,9 @@ export function ChatMediaViewer({
               style={!activeItem?.canSave ? styles.disabled : undefined}
             >
               {savingMessageId === activeItem?.id ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
+                <ActivityIndicator color={colors.text.inverse} size="small" />
               ) : (
-                <MaterialIcons color="#FFFFFF" name="file-download" size={24} />
+                <MaterialIcons color={colors.text.inverse} name="file-download" size={24} />
               )}
             </Pressable>
             <Pressable
@@ -995,7 +995,7 @@ export function ChatMediaViewer({
               hitSlop={12}
               style={{ marginLeft: 20 }}
             >
-              <MaterialIcons color="#FFFFFF" name="more-vert" size={24} />
+              <MaterialIcons color={colors.text.inverse} name="more-vert" size={24} />
             </Pressable>
           </View>
         </Animated.View>
@@ -1059,7 +1059,7 @@ export function ChatMediaViewer({
 const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#050506',
+    backgroundColor: colors.reel.canvasDark,
   },
   bottomBar: {
     alignItems: 'center',
@@ -1091,7 +1091,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   durationBadgeText: {
-    color: '#FFFFFF',
+    color: colors.text.inverse,
     fontSize: 11,
     fontWeight: '500',
   },
@@ -1136,7 +1136,7 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   senderMetaName: {
-    color: '#FFFFFF',
+    color: colors.text.inverse,
     fontSize: 13,
     fontWeight: '500',
   },
@@ -1174,7 +1174,7 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   topBarTitle: {
-    color: '#FFFFFF',
+    color: colors.text.inverse,
     fontSize: 15,
     fontWeight: '600',
   },

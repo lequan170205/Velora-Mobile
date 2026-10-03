@@ -97,8 +97,8 @@ function ActionButton({
       : variant === 'danger'
         ? '#E5483B'
         : variant === 'muted'
-          ? '#8A8379'
-          : '#161616'
+          ? colors.reel.muted
+          : colors.text.primary
 
   return (
     <Pressable
@@ -142,7 +142,7 @@ function EmptyReelsState() {
   return (
     <View className="items-center px-5 pb-2 pt-7">
       <View className="h-12 w-12 items-center justify-center rounded-[18px] border border-brand-soft bg-surface-accent">
-        <MaterialIcons name="play-circle-outline" size={24} color="#D85A21" />
+        <MaterialIcons name="play-circle-outline" size={24} color={colors.brand.tertiary} />
       </View>
       <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
         No public reels yet
@@ -173,7 +173,12 @@ function FriendHighlight({ friend, onPress }: { friend: FriendSummary; onPress: 
         {friend.user.picture ? (
           <Image
             source={{ uri: friend.user.picture }}
-            style={{ width: 60, height: 60, borderRadius: 20, backgroundColor: '#F5F5F5' }}
+            style={{
+              width: 60,
+              height: 60,
+              borderRadius: 20,
+              backgroundColor: colors.surface.muted,
+            }}
           />
         ) : (
           <View className="h-[60px] w-[60px] items-center justify-center rounded-[20px] bg-surface-muted">
@@ -454,7 +459,7 @@ export default function PublicProfileScreen() {
   if (isProfileLoading) {
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-bg-primary">
-        <ActivityIndicator color="#FF6B2C" size="large" />
+        <ActivityIndicator color={colors.brand.primary} size="large" />
       </SafeAreaView>
     )
   }
@@ -481,8 +486,8 @@ export default function PublicProfileScreen() {
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={handleRefresh}
-            colors={['#FF6B2C']}
-            tintColor="#FF6B2C"
+            colors={[colors.brand.primary]}
+            tintColor={colors.brand.primary}
           />
         }
         ListHeaderComponent={
@@ -512,7 +517,7 @@ export default function PublicProfileScreen() {
                   onPress={handleOpenProfileActions}
                   style={{ opacity: blockUser.isPending ? 0.65 : 1 }}
                 >
-                  <MaterialIcons name="more-horiz" size={22} color="#D85A21" />
+                  <MaterialIcons name="more-horiz" size={22} color={colors.brand.tertiary} />
                 </SafeTouchableOpacity>
               ) : (
                 <View className="h-12 w-12 shrink-0" />
@@ -527,7 +532,7 @@ export default function PublicProfileScreen() {
                     width: 88,
                     height: 88,
                     borderRadius: 28,
-                    backgroundColor: '#F5F5F5',
+                    backgroundColor: colors.surface.muted,
                   }}
                 />
               ) : (
@@ -681,7 +686,7 @@ export default function PublicProfileScreen() {
         ListFooterComponent={
           isFetchingNextPage ? (
             <View className="py-5">
-              <ActivityIndicator color="#FF6B2C" size="small" />
+              <ActivityIndicator color={colors.brand.primary} size="small" />
             </View>
           ) : null
         }
@@ -726,7 +731,7 @@ export default function PublicProfileScreen() {
                 disabled={removeFriend.isPending}
                 onPress={handleCloseRemoveSheet}
               >
-                <MaterialIcons name="close" size={20} color="#161616" />
+                <MaterialIcons name="close" size={20} color={colors.text.primary} />
               </Pressable>
             </View>
 
@@ -744,13 +749,13 @@ export default function PublicProfileScreen() {
               <Pressable
                 accessibilityLabel={`Remove ${profile.fullName} from friends`}
                 accessibilityRole="button"
-                className="flex-1 rounded-full bg-[#FF3B30] py-3"
+                className="flex-1 rounded-full bg-status-error py-3"
                 disabled={removeFriend.isPending}
                 onPress={handleConfirmRemoveFriend}
                 style={{ opacity: removeFriend.isPending ? 0.7 : 1 }}
               >
                 {removeFriend.isPending ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
+                  <ActivityIndicator color={colors.text.inverse} size="small" />
                 ) : (
                   <Text className="text-center font-medium text-white">Remove</Text>
                 )}
@@ -765,7 +770,7 @@ export default function PublicProfileScreen() {
 
 const styles = StyleSheet.create({
   handleIndicator: {
-    backgroundColor: '#D9D9D9',
+    backgroundColor: colors.border.strong,
     borderRadius: 9999,
     height: 6,
     width: 56,

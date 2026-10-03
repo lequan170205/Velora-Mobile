@@ -21,6 +21,7 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { colors } from '../src/constants/theme'
 import { useUpdateProfile } from '../src/hooks/useProfile'
 import { useUsernameAvailability } from '../src/hooks/useUsernameAvailability'
 import { cn } from '../src/lib/cn'
@@ -294,7 +295,7 @@ export default function AccountScreen() {
   if (!user) {
     return (
       <View className="flex-1 items-center justify-center bg-bg-primary">
-        <ActivityIndicator color="#FF6B2C" size="large" />
+        <ActivityIndicator color={colors.brand.primary} size="large" />
       </View>
     )
   }
@@ -409,7 +410,7 @@ export default function AccountScreen() {
                       width: 72,
                       height: 72,
                       borderRadius: 36,
-                      backgroundColor: '#F5F5F5',
+                      backgroundColor: colors.surface.muted,
                     }}
                   />
                 ) : (
@@ -530,7 +531,7 @@ export default function AccountScreen() {
             >
               {isSaving ? (
                 <View className="flex-row items-center">
-                  <ActivityIndicator color="#FFFFFF" size="small" />
+                  <ActivityIndicator color={colors.text.inverse} size="small" />
                   <Text className="ml-2 text-base font-bold text-white">Saving...</Text>
                 </View>
               ) : (
@@ -547,7 +548,7 @@ export default function AccountScreen() {
                     <MaterialIcons
                       name="check"
                       size={18}
-                      color="#FFFFFF"
+                      color={colors.text.inverse}
                       style={{ marginLeft: 8 }}
                     />
                   ) : null}

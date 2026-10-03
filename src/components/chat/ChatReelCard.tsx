@@ -3,6 +3,7 @@ import React, { memo } from 'react'
 import { Image, Pressable, Text, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 
+import { colors } from '../../constants/theme'
 import { useReelDetail } from '../../hooks/useReels'
 
 import type { Message } from '../../types/conversation.types'
@@ -99,7 +100,7 @@ export const ChatReelCard = memo(function ChatReelCard({
         style={{
           width,
           height: thumbnailHeight,
-          backgroundColor: '#111111',
+          backgroundColor: colors.media.surface,
         }}
       >
         {thumbnailUri ? (
@@ -108,7 +109,7 @@ export const ChatReelCard = memo(function ChatReelCard({
             style={{
               width,
               height: thumbnailHeight,
-              backgroundColor: '#111111',
+              backgroundColor: colors.media.surface,
             }}
             resizeMode="cover"
           />
@@ -117,7 +118,7 @@ export const ChatReelCard = memo(function ChatReelCard({
             style={{
               width,
               height: thumbnailHeight,
-              backgroundColor: '#111111',
+              backgroundColor: colors.media.surface,
               alignItems: 'center',
               justifyContent: 'center',
             }}
@@ -142,7 +143,7 @@ export const ChatReelCard = memo(function ChatReelCard({
                   width: overlayAvatarSize,
                   height: overlayAvatarSize,
                   borderRadius: overlayAvatarSize / 2,
-                  backgroundColor: 'rgba(255,255,255,0.18)',
+                  backgroundColor: colors.media.overlayBorder,
                 }}
                 resizeMode="cover"
               />
@@ -154,7 +155,7 @@ export const ChatReelCard = memo(function ChatReelCard({
                 {hasReelCreatorIdentity ? (
                   <Text
                     style={{
-                      color: '#FFFFFF',
+                      color: colors.text.inverse,
                       fontSize: isCompact ? 9 : 10,
                       fontWeight: '600',
                     }}
@@ -162,7 +163,11 @@ export const ChatReelCard = memo(function ChatReelCard({
                     {reelCreatorInitial}
                   </Text>
                 ) : (
-                  <MaterialIcons name="movie-filter" size={overlayIconSize} color="#FFFFFF" />
+                  <MaterialIcons
+                    name="movie-filter"
+                    size={overlayIconSize}
+                    color={colors.text.inverse}
+                  />
                 )}
               </View>
             )}

@@ -146,7 +146,7 @@ export function AnimatedActionSheet({
           ]}
         >
           <View className="items-center pb-2">
-            <View className="h-1.5 w-14 rounded-full bg-[#D9D9D9]" />
+            <View className="h-1.5 w-14 rounded-full bg-border-strong" />
           </View>
 
           <Animated.View

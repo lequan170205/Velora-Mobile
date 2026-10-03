@@ -32,6 +32,7 @@ import Animated, {
 import Svg, { Path } from 'react-native-svg'
 import { scheduleOnRN } from 'react-native-worklets'
 
+import { colors } from '../../../constants/theme'
 import { useAddReaction, useRemoveReaction } from '../../../hooks/useMessageActions'
 import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../../lib/chatMedia'
 import { RECALLED_PREVIEW_TEXT } from '../../../lib/replyPreview'
@@ -1065,7 +1066,7 @@ function ContextMessagePreview({
           ]}
         >
           <View style={styles.contextReplyHeader}>
-            <MaterialIcons name="reply" size={15} color="#A6A6A6" />
+            <MaterialIcons name="reply" size={15} color={colors.text.tertiary} />
             <Text
               style={[styles.contextReplyHeaderText, { color: tokens.textSecondary }]}
               numberOfLines={1}
@@ -1113,7 +1114,7 @@ function ContextMessagePreview({
                   {replyPreview.type === 'video' ? (
                     <View pointerEvents="none" style={styles.contextVisualReplyPlayIcon}>
                       <View style={styles.contextVisualReplyPlayButton}>
-                        <MaterialIcons name="play-arrow" size={24} color="#FFFFFF" />
+                        <MaterialIcons name="play-arrow" size={24} color={colors.text.inverse} />
                       </View>
                     </View>
                   ) : null}
@@ -1224,7 +1225,7 @@ function renderBubblePreview({
           <View
             style={[
               styles.contextDirectMediaFallback,
-              { backgroundColor: isVideo ? '#111111' : '#EFEFEF' },
+              { backgroundColor: isVideo ? colors.media.surface : '#EFEFEF' },
             ]}
           >
             <MaterialIcons name={isVideo ? 'videocam' : 'image'} size={28} color="#A1A1AA" />
@@ -1268,7 +1269,7 @@ function renderBubblePreview({
             {hasCreatorIdentity ? (
               <Text style={styles.reelAvatarInitial}>{creatorInitial}</Text>
             ) : (
-              <MaterialIcons name="movie-filter" size={13} color="#FFFFFF" />
+              <MaterialIcons name="movie-filter" size={13} color={colors.text.inverse} />
             )}
           </View>
         )}
@@ -1625,7 +1626,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   reelAvatar: {
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: colors.media.overlayBorder,
     borderRadius: 11,
     height: 22,
     width: 22,
@@ -1639,7 +1640,7 @@ const styles = StyleSheet.create({
     width: 22,
   },
   reelAvatarInitial: {
-    color: '#FFFFFF',
+    color: colors.text.inverse,
     fontSize: 10,
     fontWeight: '600',
   },
@@ -1655,7 +1656,7 @@ const styles = StyleSheet.create({
     top: 0,
   },
   reelCreatorText: {
-    color: '#FFFFFF',
+    color: colors.text.inverse,
     flex: 1,
     fontSize: 12,
     fontWeight: '600',
@@ -1671,11 +1672,11 @@ const styles = StyleSheet.create({
     top: 0,
   },
   reelPreview: {
-    backgroundColor: '#101010',
+    backgroundColor: colors.media.surface,
     flex: 1,
   },
   reelPreviewFallback: {
-    backgroundColor: '#111111',
+    backgroundColor: colors.media.surface,
     flex: 1,
   },
   reelPreviewImage: {

@@ -80,7 +80,7 @@ export function CallFeedbackNotice({ visible, message, onDismiss }: CallFeedback
           marginBottom: Math.max(insets.bottom, 12) + bottomClearance,
           backgroundColor: colors.surface.modal,
           borderColor: colors.border.light,
-          shadowColor: '#161616',
+          shadowColor: colors.text.primary,
           shadowOffset: { width: 0, height: 8 },
           shadowOpacity: 0.14,
           shadowRadius: 20,

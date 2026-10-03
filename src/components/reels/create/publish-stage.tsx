@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { BottomSheetModal } from '@gorhom/bottom-sheet'
 
 import { MAX_CAPTION_LENGTH } from '../../../constants/reel-creator'
+import { colors } from '../../../constants/theme'
 import { getCreatorPreviewContentFit } from '../../../lib/reel-creator'
 import { formatTrimDurationLabel, getTrimDurationMs } from '../../../lib/reel-trim-geometry'
 import { ReelSeriesPickerSheet } from '../series/ReelSeriesPickerSheet'
@@ -73,12 +74,12 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
 
   return (
     <KeyboardAvoidingView
-      className="flex-1 bg-[#F7F2EC]"
+      className="flex-1 bg-reel-canvas"
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
     >
       <Animated.View
-        className="flex-1 bg-[#F7F2EC] px-5"
+        className="flex-1 bg-reel-canvas px-5"
         entering={FadeIn.duration(180)}
         style={{
           paddingTop: insets.top + 12,
@@ -93,13 +94,13 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
           <View className="absolute left-16 right-24 items-center">
             <Text
               className="text-xs2 uppercase tracking-[1.2px]"
-              style={{ color: 'rgba(46,36,30,0.58)' }}
+              style={{ color: colors.reel.inkSecondary }}
             >
               Publish
             </Text>
             <Text
               className="mt-1 font-heading text-[22px]"
-              style={{ color: '#17120F' }}
+              style={{ color: colors.reel.ink }}
               numberOfLines={1}
             >
               Finish reel
@@ -125,7 +126,7 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
           >
             <Text
               style={{
-                color: controller.draftSaveStatus === 'saved' ? '#2C7A3F' : '#17120F',
+                color: controller.draftSaveStatus === 'saved' ? '#2C7A3F' : colors.reel.ink,
                 fontWeight: '800',
               }}
             >
@@ -136,7 +137,7 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
 
         <View className="mt-3 rounded-[28px] bg-white p-3">
           <View className="flex-row items-center">
-            <View className="overflow-hidden rounded-[18px] border border-[#E9DED5] bg-[#17120F]">
+            <View className="overflow-hidden rounded-[18px] border border-reel-border bg-reel-ink">
               {controller.previewThumbnailUri ? (
                 <CropThumbnail
                   uri={controller.previewThumbnailUri}
@@ -149,42 +150,48 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
                   height={82}
                 />
               ) : (
-                <View className="h-[82px] w-[58px] items-center justify-center bg-[#F7F2EC]">
-                  <MaterialIcons name="movie" size={20} color="#17120F" />
+                <View className="h-[82px] w-[58px] items-center justify-center bg-reel-canvas">
+                  <MaterialIcons name="movie" size={20} color={colors.reel.ink} />
                 </View>
               )}
             </View>
 
             <View className="ml-3 flex-1">
-              <Text style={{ color: '#17120F', fontWeight: '800' }} numberOfLines={1}>
+              <Text style={{ color: colors.reel.ink, fontWeight: '800' }} numberOfLines={1}>
                 Clip ready
               </Text>
               <Text
                 className="mt-1 text-xs2 leading-4"
-                style={{ color: 'rgba(46,36,30,0.62)' }}
+                style={{ color: colors.reel.inkSecondary }}
                 numberOfLines={2}
               >
                 {editSummary || controller.orientationMessage}
               </Text>
               {isCropActive ? (
-                <View className="mt-2 self-start rounded-full bg-[#FFF0E8] px-2.5 py-1.5">
-                  <Text style={{ color: '#D85A21', fontSize: 11, fontWeight: '800' }}>Crop ✓</Text>
+                <View className="mt-2 self-start rounded-full bg-brand-soft px-2.5 py-1.5">
+                  <Text style={{ color: colors.brand.tertiary, fontSize: 11, fontWeight: '800' }}>
+                    Crop ✓
+                  </Text>
                 </View>
               ) : null}
               <View className="mt-2 flex-row gap-2">
                 <TouchableOpacity
-                  className="rounded-full bg-[#F7F2EC] px-3 py-2"
+                  className="rounded-full bg-reel-canvas px-3 py-2"
                   activeOpacity={0.84}
                   onPress={controller.goToCaptureStage}
                 >
-                  <Text style={{ color: '#17120F', fontSize: 12, fontWeight: '800' }}>Replace</Text>
+                  <Text style={{ color: colors.reel.ink, fontSize: 12, fontWeight: '800' }}>
+                    Replace
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  className="rounded-full bg-[#FFF0E8] px-3 py-2"
+                  className="rounded-full bg-brand-soft px-3 py-2"
                   activeOpacity={0.84}
                   onPress={controller.handleDiscardDraft}
                 >
-                  <Text style={{ color: '#D85A21', fontSize: 12, fontWeight: '800' }}>Discard</Text>
+                  <Text style={{ color: colors.brand.tertiary, fontSize: 12, fontWeight: '800' }}>
+                    Discard
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -193,7 +200,7 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
 
         <View className="mt-3 min-h-0 flex-1 rounded-[28px] bg-white px-4 py-4">
           <View className="flex-row items-center justify-between">
-            <Text className="font-heading text-lg" style={{ color: '#17120F' }}>
+            <Text className="font-heading text-lg" style={{ color: colors.reel.ink }}>
               Details
             </Text>
             <Text style={{ color: 'rgba(46,36,30,0.48)', fontSize: 12 }}>
@@ -201,29 +208,29 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
             </Text>
           </View>
 
-          <View className="mt-3 rounded-[22px] bg-[#F7F2EC] px-4 py-3">
-            <Text style={{ color: 'rgba(46,36,30,0.66)', fontSize: 12, fontWeight: '800' }}>
+          <View className="mt-3 rounded-[22px] bg-reel-canvas px-4 py-3">
+            <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '800' }}>
               Title
             </Text>
             <TextInput
               className="mt-1 text-base2"
-              style={{ color: '#17120F', padding: 0 }}
+              style={{ color: colors.reel.ink, padding: 0 }}
               placeholder="Name this reel"
               placeholderTextColor="rgba(46,36,30,0.38)"
               value={controller.title}
               onChangeText={controller.setTitle}
               editable={!controller.isPending}
-              selectionColor="#FF7A45"
+              selectionColor={colors.reel.accent}
             />
           </View>
 
-          <View className="mt-3 min-h-0 flex-1 rounded-[22px] bg-[#F7F2EC] px-4 py-3">
-            <Text style={{ color: 'rgba(46,36,30,0.66)', fontSize: 12, fontWeight: '800' }}>
+          <View className="mt-3 min-h-0 flex-1 rounded-[22px] bg-reel-canvas px-4 py-3">
+            <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '800' }}>
               Caption
             </Text>
             <TextInput
               className="mt-2 min-h-0 flex-1 text-base2"
-              style={{ color: '#17120F', padding: 0 }}
+              style={{ color: colors.reel.ink, padding: 0 }}
               placeholder="Write a caption and add hashtags like #velora"
               placeholderTextColor="rgba(46,36,30,0.38)"
               multiline
@@ -231,7 +238,7 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
               value={controller.caption}
               onChangeText={controller.setCaption}
               editable={!controller.isPending}
-              selectionColor="#FF7A45"
+              selectionColor={colors.reel.accent}
               textAlignVertical="top"
             />
           </View>
@@ -243,13 +250,15 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
                   {controller.filteredComposerSuggestions.map((suggestion) => (
                     <TouchableOpacity
                       key={suggestion}
-                      className="rounded-full bg-[#FFF0E8] px-3 py-2"
+                      className="rounded-full bg-brand-soft px-3 py-2"
                       activeOpacity={0.84}
                       onPress={() => {
                         controller.handleInsertComposerSuggestion(suggestion)
                       }}
                     >
-                      <Text style={{ color: '#D85A21', fontSize: 12, fontWeight: '800' }}>
+                      <Text
+                        style={{ color: colors.brand.tertiary, fontSize: 12, fontWeight: '800' }}
+                      >
                         {suggestion}
                       </Text>
                     </TouchableOpacity>
@@ -260,13 +269,13 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
           ) : null}
 
           <View className="mt-3">
-            <Text style={{ color: 'rgba(46,36,30,0.66)', fontSize: 12, fontWeight: '800' }}>
+            <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '800' }}>
               Series
             </Text>
             <TouchableOpacity
               accessibilityRole="button"
               accessibilityLabel="Choose reel series"
-              className="mt-2 min-h-14 flex-row items-center rounded-[22px] bg-[#F7F2EC] px-4 py-3"
+              className="mt-2 min-h-14 flex-row items-center rounded-[22px] bg-reel-canvas px-4 py-3"
               activeOpacity={0.84}
               disabled={controller.isPending}
               onPress={() => seriesSheetRef.current?.present()}
@@ -275,14 +284,14 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
                 <MaterialIcons
                   name={controller.seriesSelection ? 'video-library' : 'playlist-add'}
                   size={21}
-                  color="#D85A21"
+                  color={colors.brand.tertiary}
                 />
               </View>
               <View className="ml-3 flex-1">
-                <Text style={{ color: '#17120F', fontWeight: '800' }} numberOfLines={1}>
+                <Text style={{ color: colors.reel.ink, fontWeight: '800' }} numberOfLines={1}>
                   {controller.seriesSelection?.title ?? 'No series'}
                 </Text>
-                <Text className="mt-0.5 text-xs2" style={{ color: 'rgba(46,36,30,0.58)' }}>
+                <Text className="mt-0.5 text-xs2" style={{ color: colors.reel.inkSecondary }}>
                   {controller.seriesSelection
                     ? 'This reel will publish as the next episode.'
                     : 'Keep this reel standalone or add it to a series.'}
@@ -293,21 +302,21 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
           </View>
 
           <View className="mt-3">
-            <Text style={{ color: 'rgba(46,36,30,0.66)', fontSize: 12, fontWeight: '800' }}>
+            <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '800' }}>
               Visibility
             </Text>
             {controller.seriesSelection ? (
-              <View className="mt-2 min-h-12 flex-row items-center rounded-[20px] bg-[#FFF0E8] px-4 py-3">
-                <MaterialIcons name="lock-outline" size={18} color="#D85A21" />
+              <View className="mt-2 min-h-12 flex-row items-center rounded-[20px] bg-brand-soft px-4 py-3">
+                <MaterialIcons name="lock-outline" size={18} color={colors.brand.tertiary} />
                 <View className="ml-3 flex-1">
-                  <Text style={{ color: '#17120F', fontWeight: '800' }}>
+                  <Text style={{ color: colors.reel.ink, fontWeight: '800' }}>
                     {controller.visibility === 'friends'
                       ? 'Friends'
                       : controller.visibility === 'private'
                         ? 'Private'
                         : 'Public'}
                   </Text>
-                  <Text className="mt-0.5 text-xs2" style={{ color: 'rgba(46,36,30,0.58)' }}>
+                  <Text className="mt-0.5 text-xs2" style={{ color: colors.reel.inkSecondary }}>
                     Episodes in a series share the same audience.
                   </Text>
                 </View>
@@ -321,7 +330,7 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
                     <TouchableOpacity
                       key={option.value}
                       className={`flex-1 flex-row items-center justify-center rounded-[18px] px-2 py-3 ${
-                        isActive ? 'bg-[#17120F]' : 'bg-[#F7F2EC]'
+                        isActive ? 'bg-reel-ink' : 'bg-reel-canvas'
                       }`}
                       activeOpacity={0.84}
                       disabled={controller.isPending}
@@ -330,12 +339,12 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
                       <MaterialIcons
                         name={option.icon}
                         size={17}
-                        color={isActive ? '#FFFFFF' : '#17120F'}
+                        color={isActive ? colors.text.inverse : colors.reel.ink}
                       />
                       <Text
                         className="ml-2"
                         style={{
-                          color: isActive ? '#FFFFFF' : '#17120F',
+                          color: isActive ? colors.text.inverse : colors.reel.ink,
                           fontSize: 12,
                           fontWeight: '800',
                         }}
@@ -353,7 +362,7 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
 
         <TouchableOpacity
           className={`mt-3 rounded-[22px] px-5 py-4 ${
-            controller.isPending ? 'bg-[#D9805A]' : 'bg-[#FF7A45]'
+            controller.isPending ? 'bg-[#D9805A]' : 'bg-reel-accent'
           }`}
           activeOpacity={0.84}
           disabled={controller.isPending}
@@ -361,7 +370,7 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
             void controller.handlePublish()
           }}
         >
-          <Text className="text-center" style={{ color: '#FFFFFF', fontWeight: '800' }}>
+          <Text className="text-center" style={{ color: colors.text.inverse, fontWeight: '800' }}>
             {controller.isPending ? controller.publishProgressLabel : 'Publish reel'}
           </Text>
         </TouchableOpacity>

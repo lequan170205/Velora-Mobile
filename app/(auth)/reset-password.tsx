@@ -6,6 +6,7 @@ import { ActivityIndicator, Text, TextInput, TouchableOpacity, View } from 'reac
 import { authApi } from '../../src/api/auth.api'
 import { AuthFlowLayout } from '../../src/components/auth/AuthFlowLayout'
 import { OtpCodeInput } from '../../src/components/auth/OtpCodeInput'
+import { colors } from '../../src/constants/theme'
 import { cn } from '../../src/lib/cn'
 
 const inputClassName = (isFocused: boolean) =>
@@ -108,11 +109,16 @@ export default function ResetPasswordScreen() {
               activeOpacity={0.85}
             >
               {isLoading ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
+                <ActivityIndicator color={colors.text.inverse} size="small" />
               ) : (
                 <>
                   <Text className="text-base font-bold text-white">Update password</Text>
-                  <MaterialIcons name="check" size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                  <MaterialIcons
+                    name="check"
+                    size={18}
+                    color={colors.text.inverse}
+                    style={{ marginLeft: 8 }}
+                  />
                 </>
               )}
             </TouchableOpacity>
@@ -174,7 +180,7 @@ export default function ResetPasswordScreen() {
       ) : (
         <View className="rounded-[22px] border border-warm bg-surface-cream px-5 py-6">
           <View className="h-12 w-12 items-center justify-center rounded-[16px] bg-[#FFF2E8]">
-            <MaterialIcons name="check-circle-outline" size={24} color="#D85A21" />
+            <MaterialIcons name="check-circle-outline" size={24} color={colors.brand.tertiary} />
           </View>
           <Text className="mt-4 font-heading text-[24px] leading-[30px] text-text-primary">
             You&apos;re all set

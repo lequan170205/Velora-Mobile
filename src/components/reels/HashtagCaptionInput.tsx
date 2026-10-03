@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 
+import { colors } from '../../constants/theme'
 import { getCaptionSegments } from '../../lib/reels'
 
 interface HashtagCaptionInputProps {
@@ -12,7 +13,7 @@ interface HashtagCaptionInputProps {
 
 const styles = StyleSheet.create({
   hashtag: {
-    color: '#D85A21',
+    color: colors.brand.tertiary,
     fontFamily: 'Inter_500Medium',
   },
   input: {
@@ -31,13 +32,13 @@ const styles = StyleSheet.create({
     top: 0,
   },
   overlayText: {
-    color: '#161616',
+    color: colors.text.primary,
     fontFamily: 'Inter_400Regular',
     fontSize: 16,
     lineHeight: 24,
   },
   placeholder: {
-    color: '#A6A6A6',
+    color: colors.text.tertiary,
   },
 })
 
@@ -74,7 +75,7 @@ export function HashtagCaptionInput({
         className="flex-1"
         multiline
         scrollEnabled
-        selectionColor="#FF6B2C"
+        selectionColor={colors.brand.primary}
         textAlignVertical="top"
         value={value}
         onChangeText={onChangeText}

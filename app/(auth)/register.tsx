@@ -449,14 +449,14 @@ export default function RegisterScreen() {
                 accessibilityState={{ disabled: isPrimaryDisabled }}
               >
                 {isSubmitting ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
+                  <ActivityIndicator color={colors.text.inverse} size="small" />
                 ) : (
                   <>
                     <Text className="text-base font-bold text-white">{currentStep.cta}</Text>
                     <MaterialIcons
                       name={step === steps.length - 1 ? 'check' : 'arrow-forward'}
                       size={18}
-                      color="#FFFFFF"
+                      color={colors.text.inverse}
                       style={{ marginLeft: 8 }}
                     />
                   </>

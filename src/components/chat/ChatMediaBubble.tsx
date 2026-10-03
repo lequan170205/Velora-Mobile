@@ -267,7 +267,7 @@ export function ChatMediaBubble({
     width: mediaWidth,
   } as const
   const mediaBubbleStyle = {
-    backgroundColor: '#111111',
+    backgroundColor: colors.media.surface,
     borderRadius: 18,
     height: mediaHeight,
     overflow: 'hidden',
@@ -294,7 +294,9 @@ export function ChatMediaBubble({
         right: 10,
       }}
     >
-      <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '600' }}>{durationLabel}</Text>
+      <Text style={{ color: colors.text.inverse, fontSize: 11, fontWeight: '600' }}>
+        {durationLabel}
+      </Text>
     </View>
   ) : null
 
@@ -335,7 +337,7 @@ export function ChatMediaBubble({
               justifyContent: 'space-between',
             }}
           >
-            <Text style={{ color: '#FFFFFF', flex: 1, fontSize: 12, fontWeight: '600' }}>
+            <Text style={{ color: colors.text.inverse, flex: 1, fontSize: 12, fontWeight: '600' }}>
               {isFailed
                 ? message.media?.failureReason || uploadJob?.failureReason || 'Upload failed'
                 : isCancelRequested
@@ -359,7 +361,9 @@ export function ChatMediaBubble({
                   paddingVertical: 8,
                 }}
               >
-                <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>Retry</Text>
+                <Text style={{ color: colors.text.inverse, fontSize: 12, fontWeight: '700' }}>
+                  Retry
+                </Text>
               </TouchableOpacity>
             ) : canCancel ? (
               <TouchableOpacity
@@ -378,7 +382,9 @@ export function ChatMediaBubble({
                   paddingVertical: 8,
                 }}
               >
-                <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>Cancel</Text>
+                <Text style={{ color: colors.text.inverse, fontSize: 12, fontWeight: '700' }}>
+                  Cancel
+                </Text>
               </TouchableOpacity>
             ) : null}
           </View>
@@ -444,7 +450,7 @@ export function ChatMediaBubble({
               }}
             >
               <MaterialIcons
-                color="#FFFFFF"
+                color={colors.text.inverse}
                 name={isInlineVideoActive ? 'pause' : 'play-arrow'}
                 size={28}
               />

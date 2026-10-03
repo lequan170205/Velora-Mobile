@@ -45,8 +45,8 @@ export function ReelOfflineSkeleton({ bottomContentInset = 0, height }: ReelOffl
   }))
 
   return (
-    <View className="flex-1 bg-[#050505]" style={{ height }}>
-      <View className="flex-1 bg-[#050505]">
+    <View className="flex-1 bg-reel-canvas-dark" style={{ height }}>
+      <View className="flex-1 bg-reel-canvas-dark">
         <Animated.View className="absolute inset-0 bg-white/[0.03]" style={placeholderStyle} />
 
         <LinearGradient

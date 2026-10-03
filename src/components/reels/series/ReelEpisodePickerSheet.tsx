@@ -136,7 +136,7 @@ export function ReelEpisodePickerSheet({
             disabled={isSubmitting}
             onPress={() => sheetRef.current?.dismiss()}
           >
-            <MaterialIcons name="close" size={20} color="#17120F" />
+            <MaterialIcons name="close" size={20} color={colors.reel.ink} />
           </TouchableOpacity>
         </View>
 
@@ -148,14 +148,14 @@ export function ReelEpisodePickerSheet({
           </View>
         ) : isError ? (
           <View className="flex-1 items-center justify-center py-12">
-            <MaterialIcons name="error-outline" size={32} color="#D85A21" />
+            <MaterialIcons name="error-outline" size={32} color={colors.brand.tertiary} />
             <Text className="mt-2 text-sm2 font-semibold text-text-primary">
               Could not load candidate reels
             </Text>
           </View>
         ) : candidateReels.length === 0 ? (
           <View className="flex-1 items-center justify-center py-12">
-            <View className="h-14 w-14 items-center justify-center rounded-full bg-[#F7F2EC]">
+            <View className="h-14 w-14 items-center justify-center rounded-full bg-reel-canvas">
               <MaterialIcons name="video-library" size={28} color="rgba(46,36,30,0.36)" />
             </View>
             <Text className="mt-3 text-sm2 font-bold text-text-primary">No reels available</Text>
@@ -254,18 +254,18 @@ export function ReelEpisodePickerSheet({
             onPress={() => void handleAddSelected()}
           >
             {isSubmitting ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
+              <ActivityIndicator color={colors.text.inverse} size="small" />
             ) : (
               <>
                 <MaterialIcons
                   name="add"
                   size={18}
-                  color={selectedIds.length > 0 ? '#FFFFFF' : '#A89D94'}
+                  color={selectedIds.length > 0 ? colors.text.inverse : '#A89D94'}
                 />
                 <Text
                   style={[
                     styles.footerButtonText,
-                    { color: selectedIds.length > 0 ? '#FFFFFF' : '#A89D94' },
+                    { color: selectedIds.length > 0 ? colors.text.inverse : '#A89D94' },
                   ]}
                 >
                   {selectedIds.length === 0
@@ -288,7 +288,7 @@ const styles = StyleSheet.create({
     top: 6,
   },
   badgeText: {
-    color: '#FFFFFF',
+    color: colors.text.inverse,
     fontSize: 11,
     fontWeight: '700',
   },
@@ -301,7 +301,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   cardSelected: {
-    borderColor: '#FF7A45',
+    borderColor: colors.reel.accent,
     borderWidth: 2,
   },
   dimOverlay: {
@@ -317,10 +317,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   footerButtonActive: {
-    backgroundColor: '#FF7A45',
+    backgroundColor: colors.reel.accent,
   },
   footerButtonDisabled: {
-    backgroundColor: '#E9DDD2',
+    backgroundColor: colors.reel.border,
   },
   footerButtonText: {
     fontSize: 13,
@@ -328,7 +328,7 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   footerContainer: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.bg.primary,
     borderTopColor: '#EFE9E2',
     borderTopWidth: 1,
     paddingTop: 12,
@@ -351,7 +351,7 @@ const styles = StyleSheet.create({
   },
   selectedBadge: {
     alignItems: 'center',
-    backgroundColor: '#FF7A45',
+    backgroundColor: colors.reel.accent,
     borderRadius: 12,
     elevation: 2,
     height: 24,
@@ -359,7 +359,7 @@ const styles = StyleSheet.create({
     width: 24,
   },
   sheetBackground: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.bg.primary,
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
   },
@@ -377,13 +377,13 @@ const styles = StyleSheet.create({
     right: 0,
   },
   titleText: {
-    color: '#FFFFFF',
+    color: colors.text.inverse,
     fontSize: 10,
     fontWeight: '600',
   },
   unselectedBadge: {
     backgroundColor: 'rgba(0, 0, 0, 0.35)',
-    borderColor: 'rgba(255, 255, 255, 0.9)',
+    borderColor: colors.bg.frost,
     borderRadius: 12,
     borderWidth: 2,
     height: 24,

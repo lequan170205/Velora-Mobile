@@ -106,7 +106,7 @@ export const getDockedTabBarHeight = (safeAreaBottom: number) =>
 function getCustomTabBarTokens(theme: MD3Theme): { light: BarTheme; dark: BarTheme } {
   return {
     light: {
-      overlay: 'rgba(255, 255, 255, 0.92)',
+      overlay: colors.bg.frost,
       activeIcon: colors.brand.primary,
       inactiveIcon: theme.colors.onSurfaceVariant,
     },

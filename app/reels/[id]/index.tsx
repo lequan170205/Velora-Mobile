@@ -143,7 +143,7 @@ export default function ReelContextScreen() {
   }
 
   return (
-    <View className="flex-1 bg-[#050505]">
+    <View className="flex-1 bg-reel-canvas-dark">
       <ReelsViewer
         mode="context"
         reelId={reelId}

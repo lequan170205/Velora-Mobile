@@ -3,6 +3,8 @@ import React from 'react'
 import { Text, View } from 'react-native'
 import { Pressable } from 'react-native-gesture-handler'
 
+import { colors } from '../../../constants/theme'
+
 import type { MaterialIconName } from '../../../types/reel-creator'
 
 type EditorToolbarActionProps = {
@@ -22,7 +24,7 @@ function EditorToolbarAction({ active = false, icon, label, onPress }: EditorToo
       style={({ pressed }) => [
         {
           alignItems: 'center',
-          backgroundColor: active ? '#17120F' : '#F7F2EC',
+          backgroundColor: active ? colors.reel.ink : colors.reel.canvas,
           borderRadius: 18,
           flex: 1,
           justifyContent: 'center',
@@ -33,10 +35,14 @@ function EditorToolbarAction({ active = false, icon, label, onPress }: EditorToo
       ]}
     >
       <View className="flex-row items-center">
-        <MaterialIcons name={icon} size={17} color={active ? '#FFFFFF' : '#17120F'} />
+        <MaterialIcons
+          name={icon}
+          size={17}
+          color={active ? colors.text.inverse : colors.reel.ink}
+        />
         <Text
           className="ml-1.5 text-xs2"
-          style={{ color: active ? '#FFFFFF' : '#17120F', fontWeight: '800' }}
+          style={{ color: active ? colors.text.inverse : colors.reel.ink, fontWeight: '800' }}
         >
           {label}
         </Text>

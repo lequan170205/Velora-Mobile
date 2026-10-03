@@ -8,6 +8,7 @@ import Animated, { FadeIn, useAnimatedStyle, useSharedValue } from 'react-native
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { scheduleOnRN } from 'react-native-worklets'
 
+import { colors } from '../../../constants/theme'
 import { getCreatorPreviewContentFit, getTrimmedThumbnailFrame } from '../../../lib/reel-creator'
 import {
   MIN_TRIM_DURATION_MS,
@@ -337,7 +338,7 @@ export function TrimEditor({
 
   return (
     <Animated.View
-      className="flex-1 bg-[#F7F2EC]"
+      className="flex-1 bg-reel-canvas"
       entering={FadeIn.duration(160)}
       style={{ paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 8) }}
     >
@@ -360,7 +361,7 @@ export function TrimEditor({
           >
             Editor
           </Text>
-          <Text className="mt-0.5 font-heading text-lg" style={{ color: '#17120F' }}>
+          <Text className="mt-0.5 font-heading text-lg" style={{ color: colors.reel.ink }}>
             Trim video
           </Text>
         </View>
@@ -376,8 +377,8 @@ export function TrimEditor({
           ]}
         >
           <Text
-            className="rounded-full bg-[#FF7A45] px-4 py-2.5"
-            style={{ color: '#FFFFFF', fontWeight: '800' }}
+            className="rounded-full bg-reel-accent px-4 py-2.5"
+            style={{ color: colors.text.inverse, fontWeight: '800' }}
           >
             Done
           </Text>
@@ -386,7 +387,7 @@ export function TrimEditor({
 
       <View className="flex-1 justify-center px-4">
         <View
-          className="self-center overflow-hidden rounded-[30px] border border-[#E5D8CC] bg-[#17120F]"
+          className="self-center overflow-hidden rounded-[30px] border border-[#E5D8CC] bg-reel-ink"
           style={{ width: previewWidth, height: previewHeight }}
         >
           {activeCrop ? (
@@ -412,13 +413,13 @@ export function TrimEditor({
               playbackRange={playbackRange}
               ref={videoRef}
               onProgress={handlePreviewProgress}
-              style={{ width: '100%', height: '100%', backgroundColor: '#17120F' }}
+              style={{ width: '100%', height: '100%', backgroundColor: colors.reel.ink }}
             />
           )}
 
           <View className="absolute inset-x-0 bottom-0 flex-row items-center justify-between px-3 pb-3">
             <View className="rounded-full bg-white/92 px-3 py-2">
-              <Text style={{ color: '#17120F', fontSize: 12, fontWeight: '800' }}>
+              <Text style={{ color: colors.reel.ink, fontSize: 12, fontWeight: '800' }}>
                 {formatTrimDurationLabel(selectedDurationMs)} selected
               </Text>
             </View>
@@ -433,7 +434,7 @@ export function TrimEditor({
               <MaterialIcons
                 name={isPreviewPlaying ? 'pause' : 'play-arrow'}
                 size={20}
-                color="#FFFFFF"
+                color={colors.text.inverse}
               />
             </Pressable>
           </View>
@@ -446,15 +447,15 @@ export function TrimEditor({
       >
         <View className="flex-row items-center justify-between">
           <View>
-            <Text className="font-heading text-lg" style={{ color: '#17120F' }}>
+            <Text className="font-heading text-lg" style={{ color: colors.reel.ink }}>
               Choose the moment
             </Text>
-            <Text className="mt-0.5 text-xs2" style={{ color: 'rgba(46,36,30,0.62)' }}>
+            <Text className="mt-0.5 text-xs2" style={{ color: colors.reel.inkSecondary }}>
               Drag the handles to keep one continuous clip
             </Text>
           </View>
-          <View className="rounded-full bg-[#FFF0E8] px-3 py-2">
-            <Text style={{ color: '#D85A21', fontSize: 12, fontWeight: '800' }}>
+          <View className="rounded-full bg-brand-soft px-3 py-2">
+            <Text style={{ color: colors.brand.tertiary, fontSize: 12, fontWeight: '800' }}>
               {formatTrimDurationLabel(selectedDurationMs)}
             </Text>
           </View>
@@ -515,13 +516,13 @@ export function TrimEditor({
         </View>
 
         <View className="mt-2 flex-row items-center justify-between">
-          <Text style={{ color: '#D85A21', fontSize: 12, fontWeight: '800' }}>
+          <Text style={{ color: colors.brand.tertiary, fontSize: 12, fontWeight: '800' }}>
             {formatTrimTime(workingRange.startMs)}
           </Text>
-          <Text style={{ color: 'rgba(46,36,30,0.58)', fontSize: 12, fontWeight: '700' }}>
+          <Text style={{ color: colors.reel.inkSecondary, fontSize: 12, fontWeight: '700' }}>
             {formatTrimDurationLabel(selectedDurationMs)} selected
           </Text>
-          <Text style={{ color: '#D85A21', fontSize: 12, fontWeight: '800' }}>
+          <Text style={{ color: colors.brand.tertiary, fontSize: 12, fontWeight: '800' }}>
             {formatTrimTime(workingRange.endMs)}
           </Text>
         </View>
@@ -534,8 +535,8 @@ export function TrimEditor({
           onPress={handleReset}
           style={({ pressed }) => [styles.resetButton, { opacity: pressed ? 0.78 : 1 }]}
         >
-          <MaterialIcons name="refresh" size={18} color="#17120F" />
-          <Text className="ml-2" style={{ color: '#17120F', fontWeight: '800' }}>
+          <MaterialIcons name="refresh" size={18} color={colors.reel.ink} />
+          <Text className="ml-2" style={{ color: colors.reel.ink, fontWeight: '800' }}>
             Reset
           </Text>
         </Pressable>
@@ -566,7 +567,7 @@ const styles = StyleSheet.create({
     zIndex: 5,
   },
   handleVisual: {
-    backgroundColor: '#FF7A45',
+    backgroundColor: colors.reel.accent,
     borderRadius: 999,
     height: 92,
     width: HANDLE_VISUAL_WIDTH,
@@ -580,7 +581,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   playhead: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.bg.primary,
     bottom: -2,
     position: 'absolute',
     top: -2,
@@ -589,7 +590,7 @@ const styles = StyleSheet.create({
   },
   previewButton: {
     alignItems: 'center',
-    backgroundColor: '#FF7A45',
+    backgroundColor: colors.reel.accent,
     borderRadius: 999,
     height: 40,
     justifyContent: 'center',
@@ -597,7 +598,7 @@ const styles = StyleSheet.create({
   },
   resetButton: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.bg.primary,
     borderColor: '#E6DAD0',
     borderRadius: 999,
     borderWidth: 1,
@@ -608,7 +609,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   selectedRange: {
-    borderColor: '#FF7A45',
+    borderColor: colors.reel.accent,
     borderRadius: 14,
     borderWidth: 3,
     bottom: 0,
@@ -629,8 +630,8 @@ const styles = StyleSheet.create({
   },
   timelineTrack: {
     alignSelf: 'stretch',
-    backgroundColor: '#F7F2EC',
-    borderColor: '#E9DED5',
+    backgroundColor: colors.reel.canvas,
+    borderColor: colors.reel.border,
     borderRadius: 14,
     borderWidth: 1,
     height: 72,

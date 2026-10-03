@@ -8,6 +8,7 @@ import Animated, { FadeIn, useSharedValue, withTiming } from 'react-native-reani
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { scheduleOnRN } from 'react-native-worklets'
 
+import { colors } from '../../../constants/theme'
 import {
   REEL_CROP_MAX_SCALE,
   getCoverScale,
@@ -266,7 +267,7 @@ export function CropEditor({
 
   return (
     <Animated.View
-      className="flex-1 bg-[#17120F]"
+      className="flex-1 bg-reel-ink"
       entering={FadeIn.duration(160)}
       style={{ paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 8) }}
     >
@@ -293,7 +294,7 @@ export function CropEditor({
           >
             Editor
           </Text>
-          <Text className="mt-0.5 font-heading text-lg" style={{ color: '#FFFFFF' }}>
+          <Text className="mt-0.5 font-heading text-lg" style={{ color: colors.text.inverse }}>
             Crop video
           </Text>
         </View>
@@ -309,8 +310,8 @@ export function CropEditor({
           ]}
         >
           <Text
-            className="rounded-full bg-[#FF7A45] px-4 py-2.5"
-            style={{ color: '#FFFFFF', fontWeight: '800' }}
+            className="rounded-full bg-reel-accent px-4 py-2.5"
+            style={{ color: colors.text.inverse, fontWeight: '800' }}
           >
             Done
           </Text>
@@ -351,8 +352,8 @@ export function CropEditor({
             onPress={handleReset}
             style={({ pressed }) => [styles.framingButton, { opacity: pressed ? 0.78 : 1 }]}
           >
-            <MaterialIcons name="refresh" size={18} color="#FFFFFF" />
-            <Text className="ml-2" style={{ color: '#FFFFFF', fontWeight: '800' }}>
+            <MaterialIcons name="refresh" size={18} color={colors.text.inverse} />
+            <Text className="ml-2" style={{ color: colors.text.inverse, fontWeight: '800' }}>
               Reset
             </Text>
           </Pressable>
@@ -376,7 +377,7 @@ const styles = StyleSheet.create({
   },
   framingButton: {
     alignItems: 'center',
-    backgroundColor: '#FF7A45',
+    backgroundColor: colors.reel.accent,
     borderRadius: 999,
     flex: 0,
     flexDirection: 'row',

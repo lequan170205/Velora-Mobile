@@ -124,7 +124,7 @@ function SearchHeader({
         {isBotLoading ? (
           <ActivityIndicator color={colors.brand.tertiary} size="small" />
         ) : (
-          <MaterialIcons name="auto-awesome" size={21} color="#D85A21" />
+          <MaterialIcons name="auto-awesome" size={21} color={colors.brand.tertiary} />
         )}
       </SafeTouchableOpacity>
     </View>
@@ -146,8 +146,8 @@ function SearchTabButton({
       onPress={onPress}
       collapsable={false}
       style={({ pressed }) => ({
-        backgroundColor: active ? '#FFFFFF' : 'transparent',
-        borderColor: '#F4F4F4',
+        backgroundColor: active ? colors.bg.primary : 'transparent',
+        borderColor: colors.border.light,
         borderWidth: active ? 1 : 0,
         opacity: pressed ? 0.76 : 1,
       })}
@@ -155,7 +155,10 @@ function SearchTabButton({
       accessibilityState={{ selected: active }}
       accessibilityLabel={`${label} search results`}
     >
-      <AppText className="text-sm2 font-semibold" style={{ color: active ? '#161616' : '#777777' }}>
+      <AppText
+        className="text-sm2 font-semibold"
+        style={{ color: active ? colors.text.primary : colors.text.secondary }}
+      >
         {label}
       </AppText>
     </Pressable>
@@ -205,7 +208,7 @@ function SearchMessageState({
   return (
     <View className="mx-5 mt-5 items-center rounded-[24px] border border-brand-soft bg-surface-accent px-6 py-9">
       <View className="h-12 w-12 items-center justify-center rounded-[18px] border border-brand-soft bg-bg-primary">
-        <MaterialIcons name={icon} size={22} color="#D85A21" />
+        <MaterialIcons name={icon} size={22} color={colors.brand.tertiary} />
       </View>
       <AppText className="mt-4 text-center font-heading text-lg text-text-primary" selectable>
         {title}
@@ -271,7 +274,7 @@ function EmptyQueryState({
     <View className="mx-5 mt-5 rounded-[24px] border border-brand-soft bg-surface-accent px-4 py-5">
       <View className="flex-row items-start">
         <View className="h-11 w-11 items-center justify-center rounded-[16px] border border-brand-soft bg-bg-primary">
-          <MaterialIcons name="explore" size={21} color="#D85A21" />
+          <MaterialIcons name="explore" size={21} color={colors.brand.tertiary} />
         </View>
         <View className="ml-3 min-w-0 flex-1">
           <AppText className="font-heading text-lg text-text-primary" selectable>

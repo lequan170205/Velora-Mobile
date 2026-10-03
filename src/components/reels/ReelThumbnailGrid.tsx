@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient'
 import React from 'react'
 import { Pressable, Text, View } from 'react-native'
 
+import { colors } from '../../constants/theme'
 import { cn } from '../../lib/cn'
 
 import type { Reel } from '../../types/reel.types'
@@ -82,7 +83,7 @@ export function ReelThumbnailTile({
         />
       ) : (
         <View className="flex-1 items-center justify-center bg-[#141414]">
-          <MaterialIcons name="play-arrow" size={28} color="#FFFFFF" />
+          <MaterialIcons name="play-arrow" size={28} color={colors.text.inverse} />
         </View>
       )}
 
@@ -92,7 +93,7 @@ export function ReelThumbnailTile({
       />
 
       <View className="absolute bottom-2 left-2 right-2 flex-row items-center">
-        <MaterialIcons name="play-arrow" size={15} color="#FFFFFF" />
+        <MaterialIcons name="play-arrow" size={15} color={colors.text.inverse} />
         <Text className="ml-0.5 text-xs2 font-semibold text-white">
           {formatViews(reel.viewCount)}
         </Text>

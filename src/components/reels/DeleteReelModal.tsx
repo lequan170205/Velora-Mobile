@@ -3,6 +3,8 @@ import { Image } from 'expo-image'
 import React from 'react'
 import { ActivityIndicator, Modal, Text, TouchableOpacity, View } from 'react-native'
 
+import { colors } from '../../constants/theme'
+
 import type { Reel } from '../../types/reel.types'
 
 interface DeleteReelModalProps {
@@ -32,10 +34,13 @@ export function DeleteReelModal({
             <View className="h-14 w-14 items-center justify-center rounded-full bg-red-100">
               <MaterialIcons name="delete-outline" size={28} color="#DC2626" />
             </View>
-            <Text className="mt-4 text-center font-heading text-xl" style={{ color: '#17120F' }}>
+            <Text
+              className="mt-4 text-center font-heading text-xl"
+              style={{ color: colors.reel.ink }}
+            >
               Delete this reel?
             </Text>
-            <Text className="mt-2 text-center text-sm2" style={{ color: 'rgba(46,36,30,0.62)' }}>
+            <Text className="mt-2 text-center text-sm2" style={{ color: colors.reel.inkSecondary }}>
               This action cannot be undone. The reel will be permanently removed.
             </Text>
           </View>
@@ -52,12 +57,12 @@ export function DeleteReelModal({
 
           <View className="mt-6 flex-row gap-3">
             <TouchableOpacity
-              className="flex-1 rounded-[22px] bg-[#F7F2EC] px-4 py-4"
+              className="flex-1 rounded-[22px] bg-reel-canvas px-4 py-4"
               activeOpacity={0.84}
               onPress={onCancel}
               disabled={isDeleting}
             >
-              <Text className="text-center font-bold" style={{ color: '#17120F' }}>
+              <Text className="text-center font-bold" style={{ color: colors.reel.ink }}>
                 Cancel
               </Text>
             </TouchableOpacity>
@@ -69,7 +74,7 @@ export function DeleteReelModal({
               disabled={isDeleting}
             >
               {isDeleting ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
+                <ActivityIndicator color={colors.text.inverse} size="small" />
               ) : (
                 <Text className="text-center font-bold text-white">Delete</Text>
               )}

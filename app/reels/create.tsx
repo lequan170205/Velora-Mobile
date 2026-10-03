@@ -20,7 +20,7 @@ export default function CreateReelScreen() {
     )
 
   return (
-    <View className="flex-1 bg-[#F7F2EC]">
+    <View className="flex-1 bg-reel-canvas">
       <StatusBar style={controller.stage === 'capture' ? 'light' : 'dark'} />
       <View className="flex-1">
         {activeStage}

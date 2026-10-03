@@ -2,6 +2,7 @@ import { useRootNavigationState, useRouter, useSegments } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { ActivityIndicator, Image, Text, TouchableOpacity, View } from 'react-native'
 
+import { colors } from '../constants/theme'
 import { reelEventQueue } from '../services/reelEventQueue'
 import { useAuthStore } from '../stores/authStore'
 
@@ -26,7 +27,7 @@ function AuthLoadingScreen({ showProgress }: { showProgress: boolean }) {
           accessibilityLabel="Checking your sign-in"
           accessibilityState={{ busy: true }}
         >
-          <ActivityIndicator color="#FF6B2C" size="large" />
+          <ActivityIndicator color={colors.brand.primary} size="large" />
           <Text className="mt-4 text-center text-base2 text-text-secondary">
             Checking your sign-in...
           </Text>

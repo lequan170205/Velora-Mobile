@@ -3,6 +3,8 @@ import { StyleSheet, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { scheduleOnRN } from 'react-native-worklets'
 
+import { colors } from '../../constants/theme'
+
 interface VideoProgressBarProps {
   bufferedRatio: number
   isScrubbing?: boolean
@@ -127,7 +129,7 @@ const styles = StyleSheet.create({
     top: 0,
   },
   playbackTrack: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.bg.primary,
     borderRadius: 999,
     height: '100%',
     left: 0,
@@ -135,7 +137,7 @@ const styles = StyleSheet.create({
     top: 0,
   },
   thumb: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.bg.primary,
     borderRadius: 999,
     height: 12,
     marginLeft: -6,
@@ -155,7 +157,7 @@ const styles = StyleSheet.create({
     minHeight: 26,
   },
   track: {
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: colors.media.overlayBorder,
     borderRadius: 999,
     height: 4,
     overflow: 'hidden',

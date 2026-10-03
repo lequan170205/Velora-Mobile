@@ -3,6 +3,7 @@ import { Image } from 'expo-image'
 import React, { useEffect, useRef, useState, type ReactNode } from 'react'
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native'
 
+import { colors } from '../../constants/theme'
 import { isRemoteMediaUri } from '../../lib/chatMedia'
 
 type ChatMediaKind = 'image' | 'video'
@@ -21,7 +22,7 @@ interface ChatMediaFrameProps {
 
 const FRAME_BACKGROUND: Record<ChatMediaKind, string> = {
   image: '#EFEFEF',
-  video: '#0C0C0D',
+  video: colors.media.surface,
 }
 
 const PLACEHOLDER_ICON_COLOR: Record<ChatMediaKind, string> = {

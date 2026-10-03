@@ -131,7 +131,7 @@ function EmptyState({ section, onFindPeople }: { section: Section; onFindPeople:
   return (
     <View className="items-center px-8 pb-6 pt-16">
       <View className="h-12 w-12 items-center justify-center rounded-[18px] border border-brand-soft bg-surface-accent">
-        <MaterialIcons name={iconName} size={22} color="#D85A21" />
+        <MaterialIcons name={iconName} size={22} color={colors.brand.tertiary} />
       </View>
       <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
         {content[0]}
@@ -287,7 +287,7 @@ export function FriendActionsSheet({
                 disabled={actionsDisabled}
                 onPress={() => close()}
               >
-                <MaterialIcons name="close" size={20} color="#161616" />
+                <MaterialIcons name="close" size={20} color={colors.text.primary} />
               </AppPressable>
             </View>
 
@@ -319,13 +319,13 @@ export function FriendActionsSheet({
                         : `Block ${user.fullName}`
                     }
                     accessibilityRole="button"
-                    className="h-12 flex-1 items-center justify-center rounded-full bg-[#FF3B30]"
+                    className="h-12 flex-1 items-center justify-center rounded-full bg-status-error"
                     disabled={actionsDisabled}
                     onPress={confirmDestructiveAction}
                     style={{ opacity: actionsDisabled ? 0.7 : 1 }}
                   >
                     {isConfirmationPending ? (
-                      <ActivityIndicator color="#FFFFFF" size="small" />
+                      <ActivityIndicator color={colors.text.inverse} size="small" />
                     ) : (
                       <AppText className="font-semibold text-white">
                         {confirmation === 'remove' ? 'Remove' : 'Block'}
@@ -345,7 +345,7 @@ export function FriendActionsSheet({
                   onPress={() => close(() => onViewProfile(friend))}
                 >
                   <View className="h-12 w-12 items-center justify-center rounded-full bg-bg-primary">
-                    <MaterialIcons name="person-outline" size={21} color="#161616" />
+                    <MaterialIcons name="person-outline" size={21} color={colors.text.primary} />
                   </View>
                   <View className="ml-3 flex-1">
                     <AppText className="font-semibold text-md text-text-primary">
@@ -355,7 +355,7 @@ export function FriendActionsSheet({
                       See posts and profile details
                     </AppText>
                   </View>
-                  <MaterialIcons name="chevron-right" size={20} color="#8A8379" />
+                  <MaterialIcons name="chevron-right" size={20} color={colors.reel.muted} />
                 </AppPressable>
 
                 <AppPressable
@@ -377,7 +377,7 @@ export function FriendActionsSheet({
                       Stop showing this account as a friend
                     </AppText>
                   </View>
-                  <MaterialIcons name="chevron-right" size={20} color="#8A8379" />
+                  <MaterialIcons name="chevron-right" size={20} color={colors.reel.muted} />
                 </AppPressable>
 
                 <AppPressable
@@ -399,7 +399,7 @@ export function FriendActionsSheet({
                       Stop this account from interacting with you
                     </AppText>
                   </View>
-                  <MaterialIcons name="chevron-right" size={20} color="#8A8379" />
+                  <MaterialIcons name="chevron-right" size={20} color={colors.reel.muted} />
                 </AppPressable>
               </View>
             )}
@@ -602,7 +602,7 @@ export default function FriendsScreen() {
                 accessibilityLabel={`Actions for ${user.fullName}`}
               >
                 {removing ? (
-                  <ActivityIndicator color="#8A8379" size="small" />
+                  <ActivityIndicator color={colors.reel.muted} size="small" />
                 ) : (
                   <MaterialIcons name="more-horiz" size={20} color="#6F6861" />
                 )}
@@ -673,7 +673,7 @@ export default function FriendsScreen() {
             accessibilityRole="button"
             accessibilityLabel="Find people in contacts"
           >
-            <MaterialIcons name="person-add-alt-1" size={21} color="#D85A21" />
+            <MaterialIcons name="person-add-alt-1" size={21} color={colors.brand.tertiary} />
           </SafeTouchableOpacity>
         </View>
       </View>
@@ -697,8 +697,8 @@ export default function FriendsScreen() {
               onPress={() => setSection(value)}
               collapsable={false}
               style={({ pressed }) => ({
-                backgroundColor: isActive ? '#FFFFFF' : 'transparent',
-                borderColor: '#F4F4F4',
+                backgroundColor: isActive ? colors.bg.primary : 'transparent',
+                borderColor: colors.border.light,
                 borderWidth: isActive ? 1 : 0,
                 opacity: pressed ? 0.76 : 1,
               })}
@@ -708,12 +708,12 @@ export default function FriendsScreen() {
             >
               <AppText
                 className="text-sm2 font-semibold"
-                style={{ color: isActive ? '#161616' : '#777777' }}
+                style={{ color: isActive ? colors.text.primary : colors.text.secondary }}
               >
                 {label}
               </AppText>
               {count !== null && count > 0 ? (
-                <AppText className="ml-1.5 text-xs2" style={{ color: '#A6A6A6' }}>
+                <AppText className="ml-1.5 text-xs2" style={{ color: colors.text.tertiary }}>
                   {count}
                 </AppText>
               ) : null}
@@ -732,7 +732,7 @@ export default function FriendsScreen() {
       ) : activeQuery.isError && items.length === 0 ? (
         <View className="mx-5 mt-4 items-center rounded-[24px] border border-brand-soft bg-surface-accent px-6 py-9">
           <View className="h-12 w-12 items-center justify-center rounded-[18px] border border-brand-soft bg-bg-primary">
-            <MaterialIcons name="cloud-off" size={22} color="#D85A21" />
+            <MaterialIcons name="cloud-off" size={22} color={colors.brand.tertiary} />
           </View>
           <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
             Could not load friends
@@ -763,15 +763,15 @@ export default function FriendsScreen() {
             <RefreshControl
               refreshing={activeQuery.isRefetching && !isFetchingNext}
               onRefresh={refresh}
-              colors={['#D85A21']}
-              tintColor="#D85A21"
+              colors={[colors.brand.tertiary]}
+              tintColor={colors.brand.tertiary}
             />
           }
           ListEmptyComponent={<EmptyState section={section} onFindPeople={openContactsSearch} />}
           ListFooterComponent={
             isFetchingNext ? (
               <View className="py-5">
-                <ActivityIndicator color="#D85A21" size="small" />
+                <ActivityIndicator color={colors.brand.tertiary} size="small" />
               </View>
             ) : null
           }
@@ -800,7 +800,7 @@ export default function FriendsScreen() {
 
 const styles = StyleSheet.create({
   handleIndicator: {
-    backgroundColor: '#D9D9D9',
+    backgroundColor: colors.border.strong,
     borderRadius: 9999,
     height: 6,
     width: 56,

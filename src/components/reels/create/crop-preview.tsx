@@ -3,6 +3,7 @@ import React, { useEffect, useMemo } from 'react'
 import { View } from 'react-native'
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated'
 
+import { colors } from '../../../constants/theme'
 import { getCoverScale, getCropTransformFromRect } from '../../../lib/reel-crop-geometry'
 
 import { CropGridOverlay } from './crop-grid-overlay'
@@ -66,7 +67,7 @@ export function CropPreview({
           width: geometry.viewportWidth,
           height: geometry.viewportHeight,
           overflow: 'hidden',
-          backgroundColor: '#17120F',
+          backgroundColor: colors.reel.ink,
           borderRadius: 28,
           borderWidth: 1,
           borderColor: 'rgba(255,255,255,0.14)',
@@ -81,7 +82,7 @@ export function CropPreview({
           contentFit="contain"
           playbackRange={playbackRange}
           ref={videoRef}
-          style={{ width: '100%', height: '100%', backgroundColor: '#17120F' }}
+          style={{ width: '100%', height: '100%', backgroundColor: colors.reel.ink }}
           {...(onProgress ? { onProgress } : {})}
         />
       </View>
@@ -94,7 +95,7 @@ export function CropPreview({
         width: geometry.viewportWidth,
         height: geometry.viewportHeight,
         overflow: 'hidden',
-        backgroundColor: '#17120F',
+        backgroundColor: colors.reel.ink,
         borderRadius: 28,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.22)',
@@ -123,7 +124,7 @@ export function CropPreview({
             disableOrientationAwareContentFit
             playbackRange={playbackRange}
             ref={videoRef}
-            style={{ width: '100%', height: '100%', backgroundColor: '#17120F' }}
+            style={{ width: '100%', height: '100%', backgroundColor: colors.reel.ink }}
             {...(onProgress ? { onProgress } : {})}
           />
         </Animated.View>
@@ -212,7 +213,7 @@ export function CropThumbnail({
       <Image
         source={{ uri }}
         contentFit={contentFit}
-        style={{ width, height, backgroundColor: '#17120F' }}
+        style={{ width, height, backgroundColor: colors.reel.ink }}
       />
     )
   }
@@ -229,7 +230,7 @@ export function CropThumbnail({
   const transform: CropTransform = getCropTransformFromRect(crop, geometry)
 
   return (
-    <View style={{ width, height, overflow: 'hidden', backgroundColor: '#17120F' }}>
+    <View style={{ width, height, overflow: 'hidden', backgroundColor: colors.reel.ink }}>
       <View
         style={{
           position: 'absolute',
