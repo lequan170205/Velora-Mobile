@@ -466,6 +466,56 @@ export interface MessageBubbleContextMenuPayload {
   gestureState?: MessageContextMenuGestureState
 }
 
+function renderMessageReceiptContent({
+  primaryStatusLabel,
+  readReceiptParticipants,
+  visibleReceiptParticipants,
+  hiddenReceiptCount,
+}: {
+  primaryStatusLabel: string | null
+  readReceiptParticipants: ChatParticipant[]
+  visibleReceiptParticipants: ChatParticipant[]
+  hiddenReceiptCount: number
+}) {
+  return primaryStatusLabel || readReceiptParticipants.length > 0 ? (
+    <View className="flex-row justify-end items-center gap-1 px-1">
+      {readReceiptParticipants.length > 0 ? (
+        <View className="flex-row items-center">
+          {visibleReceiptParticipants.map((participant, index) => {
+            const initial =
+              participant.name?.charAt(0).toUpperCase() ||
+              participant.fullName?.charAt(0).toUpperCase() ||
+              participant.email?.charAt(0).toUpperCase() ||
+              '?'
+
+            return participant.picture ? (
+              <Image
+                key={participant.id}
+                source={{ uri: participant.picture }}
+                className="h-4 w-4 rounded-full border border-bg-primary"
+                style={{ marginLeft: index === 0 ? 0 : -4, zIndex: 4 - index }}
+              />
+            ) : (
+              <View
+                key={participant.id}
+                className="h-4 w-4 items-center justify-center rounded-full border border-bg-primary bg-surface-muted"
+                style={{ marginLeft: index === 0 ? 0 : -4, zIndex: 4 - index }}
+              >
+                <Text className="text-[8px] font-medium text-text-primary">{initial}</Text>
+              </View>
+            )
+          })}
+          {hiddenReceiptCount > 0 ? (
+            <Text className="ml-1 text-[10px] text-text-muted">+{hiddenReceiptCount}</Text>
+          ) : null}
+        </View>
+      ) : primaryStatusLabel ? (
+        <Text className="text-[11px] text-text-muted">{primaryStatusLabel}</Text>
+      ) : null}
+    </View>
+  ) : null
+}
+
 const MessageBubbleComponent = function MessageBubble({
   message,
   repliedMessage,
@@ -1628,47 +1678,12 @@ const MessageBubbleComponent = function MessageBubble({
           </View>
 
           <Animated.View style={primaryMetaRowStyle} className="w-full">
-            {primaryStatusLabel || readReceiptParticipants.length > 0 ? (
-              <View className="flex-row justify-end items-center gap-1 px-1">
-                {readReceiptParticipants.length > 0 ? (
-                  <View className="flex-row items-center">
-                    {visibleReceiptParticipants.map((participant, index) => {
-                      const initial =
-                        participant.name?.charAt(0).toUpperCase() ||
-                        participant.fullName?.charAt(0).toUpperCase() ||
-                        participant.email?.charAt(0).toUpperCase() ||
-                        '?'
-
-                      return participant.picture ? (
-                        <Image
-                          key={participant.id}
-                          source={{ uri: participant.picture }}
-                          className="h-4 w-4 rounded-full border border-bg-primary"
-                          style={{ marginLeft: index === 0 ? 0 : -4, zIndex: 4 - index }}
-                        />
-                      ) : (
-                        <View
-                          key={participant.id}
-                          className="h-4 w-4 items-center justify-center rounded-full border border-bg-primary bg-surface-muted"
-                          style={{ marginLeft: index === 0 ? 0 : -4, zIndex: 4 - index }}
-                        >
-                          <Text className="text-[8px] font-medium text-text-primary">
-                            {initial}
-                          </Text>
-                        </View>
-                      )
-                    })}
-                    {hiddenReceiptCount > 0 ? (
-                      <Text className="ml-1 text-[10px] text-text-muted">
-                        +{hiddenReceiptCount}
-                      </Text>
-                    ) : null}
-                  </View>
-                ) : primaryStatusLabel ? (
-                  <Text className="text-[11px] text-text-muted">{primaryStatusLabel}</Text>
-                ) : null}
-              </View>
-            ) : null}
+            {renderMessageReceiptContent({
+              primaryStatusLabel,
+              readReceiptParticipants,
+              visibleReceiptParticipants,
+              hiddenReceiptCount,
+            })}
           </Animated.View>
         </Animated.View>
 

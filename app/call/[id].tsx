@@ -10,17 +10,7 @@ import { useKeepAwake } from 'expo-keep-awake'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import {
-  Children,
-  type ComponentProps,
-  isValidElement,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Image, Platform, useWindowDimensions, View } from 'react-native'
 import Animated, {
   Easing,
@@ -37,6 +27,9 @@ import { RTCView } from 'react-native-webrtc'
 import { conversationApi } from '../../src/api/conversation.api'
 import { AppPressable } from '../../src/components/base/AppPressable'
 import { AppText } from '../../src/components/base/AppText'
+import { IconButton } from '../../src/components/call/IconButton'
+import { PeerAvatar } from '../../src/components/call/PeerAvatar'
+import { VideoParticipantGrid } from '../../src/components/call/VideoParticipantGrid'
 import { queryKeys } from '../../src/constants/queryKeys'
 import { colors } from '../../src/constants/theme'
 import { createCallRequestId } from '../../src/lib/call/callSocket'
@@ -58,56 +51,6 @@ const CALL_LAYOUT_EXITING = FadeOut.duration(140)
   .easing(Easing.in(Easing.cubic))
   .reduceMotion(ReduceMotion.System)
 
-type IconName = ComponentProps<typeof MaterialIcons>['name']
-
-function IconButton({
-  icon,
-  label,
-  onPress,
-  disabled = false,
-  selected = false,
-  expanded,
-  destructive = false,
-  size = 48,
-}: {
-  icon: IconName
-  label: string
-  onPress: () => void
-  disabled?: boolean
-  selected?: boolean
-  expanded?: boolean
-  destructive?: boolean
-  size?: number
-}) {
-  return (
-    <AppPressable
-      activeOpacity={disabled ? 1 : 0.68}
-      disabled={disabled}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled, selected, expanded }}
-      className="items-center justify-center rounded-full"
-      style={{
-        width: size,
-        height: size,
-        opacity: disabled ? 0.34 : 1,
-        backgroundColor: destructive
-          ? colors.call.endCall
-          : selected
-            ? colors.bubble.outgoing
-            : colors.call.control,
-      }}
-    >
-      <MaterialIcons
-        name={icon}
-        size={destructive ? 27 : 25}
-        color={selected && !destructive ? colors.bubble.outgoingText : colors.call.textPrimary}
-      />
-    </AppPressable>
-  )
-}
-
 function CallDock({ children }: { children: ReactNode }) {
   return (
     <View
@@ -123,77 +66,6 @@ function CallDock({ children }: { children: ReactNode }) {
       }}
     >
       {children}
-    </View>
-  )
-}
-
-function VideoParticipantGrid({
-  children,
-  isLandscape,
-}: {
-  children: ReactNode
-  isLandscape: boolean
-}) {
-  const tiles = Children.toArray(children)
-  const columns = Math.max(1, tiles.length === 2 && !isLandscape ? 1 : Math.min(2, tiles.length))
-  const rows = Array.from({ length: Math.ceil(tiles.length / columns) }, (_, rowIndex) =>
-    tiles.slice(rowIndex * columns, (rowIndex + 1) * columns),
-  )
-
-  return (
-    <View className="flex-1" style={{ gap: 3 }}>
-      {rows.map((row, rowIndex) => (
-        <View key={`video-row-${rowIndex}`} className="flex-1 flex-row" style={{ gap: 3 }}>
-          {row.map((tile, tileIndex) => (
-            <View
-              key={
-                isValidElement(tile) && tile.key !== null
-                  ? String(tile.key)
-                  : `video-tile-${rowIndex}-${tileIndex}`
-              }
-              className="flex-1"
-            >
-              {tile}
-            </View>
-          ))}
-        </View>
-      ))}
-    </View>
-  )
-}
-
-function PeerAvatar({
-  avatarUrl,
-  name,
-  size,
-}: {
-  avatarUrl: string | null
-  name: string | null
-  size: number
-}) {
-  const initial = (name || 'U').trim().charAt(0).toUpperCase() || 'U'
-
-  return (
-    <View
-      className="items-center justify-center overflow-hidden rounded-full"
-      style={{
-        width: size,
-        height: size,
-        backgroundColor: colors.call.avatarFallback,
-        borderColor: colors.call.avatarBorder,
-        borderWidth: 1,
-      }}
-    >
-      {avatarUrl ? (
-        <Image source={{ uri: avatarUrl }} resizeMode="cover" className="h-full w-full" />
-      ) : (
-        <AppText
-          className="font-heading font-semibold"
-          style={{ color: colors.call.textSecondary, fontSize: size * 0.38 }}
-        >
-          {initial}
-        </AppText>
-      )}
     </View>
   )
 }

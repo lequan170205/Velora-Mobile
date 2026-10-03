@@ -89,10 +89,12 @@ test('outgoing video call stays on the identity layout until the peer answers', 
 
 test('joined video participants use a camera-state-independent adaptive grid', () => {
   const source = read('app/call/[id].tsx')
-  assert.match(source, /function VideoParticipantGrid/)
-  assert.match(source, /const tiles = Children\.toArray\(children\)/)
-  assert.match(source, /tiles\.length === 2 && !isLandscape \? 1/)
-  assert.match(source, /Math\.min\(2, tiles\.length\)/)
+  const grid = read('src/components/call/VideoParticipantGrid.tsx')
+  assert.match(source, /import \{ VideoParticipantGrid \} from '\.\.\/\.\.\/src\/components\/call\/VideoParticipantGrid'/)
+  assert.match(grid, /function VideoParticipantGrid/)
+  assert.match(grid, /const tiles = Children\.toArray\(children\)/)
+  assert.match(grid, /tiles\.length === 2 && !isLandscape \? 1/)
+  assert.match(grid, /Math\.min\(2, tiles\.length\)/)
   assert.match(source, /<VideoParticipantGrid isLandscape=\{isLandscape\}>/)
   assert.match(source, /key="remote-participant"/)
   assert.match(source, /key="local-participant"/)
@@ -177,7 +179,9 @@ test('AppPressable preserves inline styles through NativeWind interop', () => {
 
 test('enabled call controls use the outgoing message bubble color', () => {
   const source = read('app/call/[id].tsx')
-  assert.match(source, /selected\s*\? colors\.bubble\.outgoing/)
+  const button = read('src/components/call/IconButton.tsx')
+  assert.match(source, /import \{ IconButton \} from '\.\.\/\.\.\/src\/components\/call\/IconButton'/)
+  assert.match(button, /selected\s*\? colors\.bubble\.outgoing/)
   assert.match(source, /selected=\{cameraEnabled\}/)
   assert.match(source, /selected=\{!muted\}/)
   assert.match(source, /selected=\{speakerEnabled\}/)
