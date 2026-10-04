@@ -188,6 +188,7 @@ export default function LoginScreen() {
                 >
                   <MaterialIcons name="mail-outline" size={20} color={colors.brand.secondary} />
                   <TextInput
+                    keyboardAppearance="light"
                     ref={emailInputRef}
                     accessibilityLabel="Email address"
                     className="ml-3 flex-1 text-md font-sans text-text-primary"
@@ -224,6 +225,7 @@ export default function LoginScreen() {
                 >
                   <MaterialIcons name="lock-outline" size={20} color={colors.brand.secondary} />
                   <TextInput
+                    keyboardAppearance="light"
                     ref={passwordInputRef}
                     accessibilityLabel="Password"
                     className="ml-3 flex-1 text-md font-sans text-text-primary"

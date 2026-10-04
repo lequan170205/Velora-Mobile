@@ -257,6 +257,7 @@ export default function RegisterScreen() {
                           color={colors.brand.secondary}
                         />
                         <TextInput
+                          keyboardAppearance="light"
                           ref={fullNameInputRef}
                           className="ml-3 flex-1 py-1 text-[16px] font-medium text-text-primary"
                           placeholder="Enter your full name"
@@ -302,6 +303,7 @@ export default function RegisterScreen() {
                     </Text>
                     <View className={inputClassName(focusedInput === 'email')}>
                       <TextInput
+                        keyboardAppearance="light"
                         ref={emailInputRef}
                         className="py-1 text-[16px] font-medium text-text-primary"
                         placeholder="name@email.com"
@@ -343,6 +345,7 @@ export default function RegisterScreen() {
                     <View className={inputClassName(focusedInput === 'password')}>
                       <View className="flex-row items-center">
                         <TextInput
+                          keyboardAppearance="light"
                           ref={passwordInputRef}
                           className="flex-1 py-1 text-[16px] font-medium text-text-primary"
                           placeholder="At least 8 characters"
@@ -398,6 +401,7 @@ export default function RegisterScreen() {
                     </Text>
                     <View className={inputClassName(focusedInput === 'confirmPassword')}>
                       <TextInput
+                        keyboardAppearance="light"
                         ref={confirmPasswordInputRef}
                         className="py-1 text-[16px] font-medium text-text-primary"
                         placeholder="Re-enter your password"
@@ -430,7 +434,7 @@ export default function RegisterScreen() {
 
             <View className="mt-auto pt-8">
               {error && !isValidationError ? (
-                <View className="mb-4 rounded-[16px] bg-[#FFF0EF] px-4 py-3">
+                <View className="mb-4 rounded-[16px] bg-surface-error px-4 py-3">
                   <Text className="text-center text-base2 font-medium text-status-error">
                     {error}
                   </Text>
@@ -439,7 +443,7 @@ export default function RegisterScreen() {
 
               <TouchableOpacity
                 className={cn(
-                  'h-14 flex-row items-center justify-center rounded-[20px] bg-brand',
+                  'h-14 flex-row items-center justify-center rounded-full bg-brand',
                   isPrimaryDisabled ? 'opacity-40' : null,
                 )}
                 onPress={handleNext}

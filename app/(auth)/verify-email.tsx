@@ -95,19 +95,19 @@ export default function VerifyEmailScreen() {
       footer={
         <View>
           {error ? (
-            <View className="mb-4 rounded-[16px] bg-[#FFF0EF] px-4 py-3">
+            <View className="mb-4 rounded-[16px] bg-surface-error px-4 py-3">
               <Text className="text-center text-base2 font-medium text-status-error">{error}</Text>
             </View>
           ) : null}
 
           {notice ? (
-            <View className="mb-4 rounded-[16px] bg-[#FFF4EC] px-4 py-3">
+            <View className="mb-4 rounded-[16px] bg-surface-accent px-4 py-3">
               <Text className="text-center text-base2 font-medium text-[#A6501B]">{notice}</Text>
             </View>
           ) : null}
 
           <TouchableOpacity
-            className="h-14 flex-row items-center justify-center rounded-[20px] bg-brand"
+            className="h-14 flex-row items-center justify-center rounded-full bg-brand"
             onPress={handleVerify}
             disabled={isLoading}
             activeOpacity={0.85}
@@ -129,7 +129,7 @@ export default function VerifyEmailScreen() {
 
           <View className="mt-5 items-center">
             {countdown > 0 ? (
-              <View className="rounded-[16px] bg-[#F7F5F3] px-4 py-2.5">
+              <View className="rounded-[16px] bg-bg-secondary px-4 py-2.5">
                 <Text className="text-base2 font-medium text-text-secondary">
                   Resend in{' '}
                   <Text className="font-semibold text-text-primary">
@@ -139,7 +139,7 @@ export default function VerifyEmailScreen() {
               </View>
             ) : (
               <TouchableOpacity
-                className="rounded-[16px] bg-[#F7F5F3] px-4 py-2.5"
+                className="rounded-[16px] bg-bg-secondary px-4 py-2.5"
                 onPress={handleResend}
                 activeOpacity={0.75}
                 disabled={isResending}

@@ -32,6 +32,7 @@ module.exports = {
         'surface-modal': '#FFFFFF',
         'surface-focus': '#F5F5F5',
         'surface-accent': '#FFF4EC',
+        'surface-error': '#FFF1F0',
         'surface-muted': '#F5F5F5',
         // Warm cream input family shared by auth and chat composers
         'surface-cream': '#FFFBF8',

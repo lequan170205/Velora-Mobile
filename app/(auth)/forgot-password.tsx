@@ -65,13 +65,13 @@ export default function ForgotPasswordScreen() {
       footer={
         <View>
           {error ? (
-            <View className="mb-4 rounded-[16px] bg-[#FFF0EF] px-4 py-3">
+            <View className="mb-4 rounded-[16px] bg-surface-error px-4 py-3">
               <Text className="text-center text-base2 font-medium text-status-error">{error}</Text>
             </View>
           ) : null}
 
           <TouchableOpacity
-            className="h-14 flex-row items-center justify-center rounded-[20px] bg-brand"
+            className="h-14 flex-row items-center justify-center rounded-full bg-brand"
             onPress={handleReset}
             disabled={isLoading}
             activeOpacity={0.85}
@@ -106,6 +106,7 @@ export default function ForgotPasswordScreen() {
         <View className={inputClassName(isFocused)}>
           <MaterialIcons name="mail-outline" size={20} color={colors.brand.secondary} />
           <TextInput
+            keyboardAppearance="light"
             className="ml-3 flex-1 text-md font-sans text-text-primary"
             placeholder="Enter your email"
             placeholderTextColor={colors.text.tertiary}

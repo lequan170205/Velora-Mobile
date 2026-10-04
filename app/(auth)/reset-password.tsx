@@ -86,7 +86,7 @@ export default function ResetPasswordScreen() {
       footer={
         isCompleted ? (
           <TouchableOpacity
-            className="h-14 flex-row items-center justify-center rounded-[20px] bg-brand"
+            className="h-14 flex-row items-center justify-center rounded-full bg-brand"
             onPress={() => router.replace(`/(auth)/login?email=${encodeURIComponent(email)}`)}
             activeOpacity={0.85}
           >
@@ -103,7 +103,7 @@ export default function ResetPasswordScreen() {
             ) : null}
 
             <TouchableOpacity
-              className="h-14 flex-row items-center justify-center rounded-[20px] bg-brand"
+              className="h-14 flex-row items-center justify-center rounded-full bg-brand"
               onPress={handleReset}
               disabled={isLoading}
               activeOpacity={0.85}
@@ -147,6 +147,7 @@ export default function ResetPasswordScreen() {
               <Text className="mb-1.5 text-sm2 font-semibold text-text-primary">New password</Text>
               <View className="flex-row items-center">
                 <TextInput
+                  keyboardAppearance="light"
                   ref={newPasswordInputRef}
                   className="flex-1 py-1 text-[16px] font-medium text-text-primary"
                   placeholder="At least 8 characters"

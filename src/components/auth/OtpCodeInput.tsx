@@ -63,6 +63,7 @@ export function OtpCodeInput({
         </View>
 
         <TextInput
+          keyboardAppearance="light"
           ref={resolvedInputRef}
           value={normalizedValue}
           onChangeText={handleChangeText}
