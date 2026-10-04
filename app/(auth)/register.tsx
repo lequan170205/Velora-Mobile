@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { authApi } from '../../src/api/auth.api'
 import { ShortFormScreen } from '../../src/components/base/ShortFormScreen'
-import { colors } from '../../src/constants/theme'
+import { colors, shadows } from '../../src/constants/theme'
 import { cn } from '../../src/lib/cn'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -61,7 +61,10 @@ const getConfirmPasswordError = (password: string, confirmPassword: string) => {
 }
 
 const inputClassName = (isFocused: boolean) =>
-  cn('rounded-[20px] px-4 py-3.5', isFocused ? 'bg-surface-cream-focus' : 'bg-white')
+  cn(
+    'h-14 flex-row items-center rounded-[20px] border px-4',
+    isFocused ? 'border-border-warm bg-surface-cream-focus' : 'border-border-warm-soft bg-white',
+  )
 
 type FocusableField = 'fullName' | 'email' | 'password' | 'confirmPassword'
 
@@ -211,7 +214,7 @@ export default function RegisterScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={step === 0 ? 'Back to sign in' : 'Back to profile details'}
               >
-                <MaterialIcons name="arrow-back" size={20} color="#1C1C1E" />
+                <MaterialIcons name="arrow-back" size={20} color={colors.text.primary} />
                 <Text className="ml-1.5 text-sm2 font-semibold text-text-primary">Back</Text>
               </TouchableOpacity>
 
@@ -231,7 +234,7 @@ export default function RegisterScreen() {
             </View>
 
             <View className="pt-6">
-              <Text className="font-heading text-[32px] leading-[36px] tracking-[-0.6px] text-text-primary">
+              <Text className="font-heading text-[40px] leading-[44px] tracking-[-1.1px] text-text-primary">
                 {currentStep.title}
               </Text>
               <Text className="mt-2 text-base font-sans leading-6 text-text-secondary">
@@ -259,7 +262,7 @@ export default function RegisterScreen() {
                         <TextInput
                           keyboardAppearance="light"
                           ref={fullNameInputRef}
-                          className="ml-3 flex-1 py-1 text-[16px] font-medium text-text-primary"
+                          className="ml-3 flex-1 text-md font-sans text-text-primary"
                           placeholder="Enter your full name"
                           placeholderTextColor={colors.text.tertiary}
                           value={fullName}
@@ -305,7 +308,7 @@ export default function RegisterScreen() {
                       <TextInput
                         keyboardAppearance="light"
                         ref={emailInputRef}
-                        className="py-1 text-[16px] font-medium text-text-primary"
+                        className="flex-1 text-md font-sans text-text-primary"
                         placeholder="name@email.com"
                         placeholderTextColor={colors.text.tertiary}
                         value={email}
@@ -347,7 +350,7 @@ export default function RegisterScreen() {
                         <TextInput
                           keyboardAppearance="light"
                           ref={passwordInputRef}
-                          className="flex-1 py-1 text-[16px] font-medium text-text-primary"
+                          className="flex-1 text-md font-sans text-text-primary"
                           placeholder="At least 8 characters"
                           placeholderTextColor={colors.text.tertiary}
                           value={password}
@@ -403,7 +406,7 @@ export default function RegisterScreen() {
                       <TextInput
                         keyboardAppearance="light"
                         ref={confirmPasswordInputRef}
-                        className="py-1 text-[16px] font-medium text-text-primary"
+                        className="flex-1 text-md font-sans text-text-primary"
                         placeholder="Re-enter your password"
                         placeholderTextColor={colors.text.tertiary}
                         value={confirmPassword}
@@ -446,6 +449,7 @@ export default function RegisterScreen() {
                   'h-14 flex-row items-center justify-center rounded-full bg-brand',
                   isPrimaryDisabled ? 'opacity-40' : null,
                 )}
+                style={shadows.glow}
                 onPress={handleNext}
                 disabled={isPrimaryDisabled}
                 activeOpacity={0.85}
@@ -456,7 +460,7 @@ export default function RegisterScreen() {
                   <ActivityIndicator color={colors.text.inverse} size="small" />
                 ) : (
                   <>
-                    <Text className="text-base font-bold text-white">{currentStep.cta}</Text>
+                    <Text className="text-lg font-bold text-white">{currentStep.cta}</Text>
                     <MaterialIcons
                       name={step === steps.length - 1 ? 'check' : 'arrow-forward'}
                       size={18}
