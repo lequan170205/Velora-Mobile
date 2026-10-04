@@ -272,27 +272,29 @@ export default function LoginScreen() {
                 </Link>
               </View>
 
-              <AppPressable
-                className="mt-4 h-14 flex-row items-center justify-center rounded-full bg-brand"
-                style={shadows.glow}
-                onPress={handleLogin}
-                disabled={isLoading}
-                activeOpacity={0.85}
-                accessibilityRole="button"
-                accessibilityLabel="Sign in"
-                accessibilityState={{ disabled: isLoading, busy: isLoading }}
-              >
-                {isLoading ? (
-                  <ActivityIndicator color={colors.text.inverse} size="small" />
-                ) : (
-                  <Text className="text-lg font-bold text-white">Sign In</Text>
-                )}
-              </AppPressable>
+              {/* Action stack anchors to the bottom: slack space collects
+                  between the form fields and Sign In, keeping CTA + OR +
+                  Google + the sign-up footer together as one group. */}
+              <View className="mt-auto pt-4">
+                <AppPressable
+                  className="h-14 flex-row items-center justify-center rounded-full bg-brand"
+                  style={shadows.glow}
+                  onPress={handleLogin}
+                  disabled={isLoading}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel="Sign in"
+                  accessibilityState={{ disabled: isLoading, busy: isLoading }}
+                >
+                  {isLoading ? (
+                    <ActivityIndicator color={colors.text.inverse} size="small" />
+                  ) : (
+                    <Text className="text-lg font-bold text-white">Sign In</Text>
+                  )}
+                </AppPressable>
+              </View>
 
-              {/* Secondary cluster anchors to the bottom: slack space collects
-                  between the primary CTA and this divider, keeping OR + Google
-                  + the sign-up footer together as one group. */}
-              <View className="mt-auto mb-4 flex-row items-center pt-4">
+              <View className="mt-4 mb-4 flex-row items-center">
                 <View className="h-px flex-1 bg-border-default" />
                 <Text className="px-4 text-xs2 font-semibold uppercase tracking-[1px] text-text-muted">
                   OR
