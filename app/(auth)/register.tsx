@@ -61,7 +61,7 @@ const getConfirmPasswordError = (password: string, confirmPassword: string) => {
 }
 
 const inputClassName = (isFocused: boolean) =>
-  cn('rounded-[20px] px-4 py-3.5', isFocused ? 'bg-surface-cream-focus' : 'bg-surface-cream')
+  cn('rounded-[20px] px-4 py-3.5', isFocused ? 'bg-surface-cream-focus' : 'bg-white')
 
 type FocusableField = 'fullName' | 'email' | 'password' | 'confirmPassword'
 
@@ -187,7 +187,7 @@ export default function RegisterScreen() {
   }
 
   return (
-    <View className="flex-1 bg-bg-primary">
+    <View className="flex-1 bg-surface-cream">
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <ShortFormScreen
           className="flex-1"
@@ -205,7 +205,7 @@ export default function RegisterScreen() {
             <View className="flex-row items-center">
               <TouchableOpacity
                 onPress={handleBack}
-                className="h-11 flex-row items-center justify-center rounded-[16px] border border-[#EEE7E2] bg-white px-3"
+                className="h-11 flex-row items-center justify-center rounded-[16px] border border-border-warm-soft bg-white px-3"
                 activeOpacity={0.8}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 accessibilityRole="button"

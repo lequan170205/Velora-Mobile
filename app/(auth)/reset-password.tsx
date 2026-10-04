@@ -10,7 +10,7 @@ import { colors } from '../../src/constants/theme'
 import { cn } from '../../src/lib/cn'
 
 const inputClassName = (isFocused: boolean) =>
-  cn('rounded-[20px] px-4 py-3.5', isFocused ? 'bg-surface-cream-focus' : 'bg-surface-cream')
+  cn('rounded-[20px] px-4 py-3.5', isFocused ? 'bg-surface-cream-focus' : 'bg-white')
 
 export default function ResetPasswordScreen() {
   const router = useRouter()
@@ -178,8 +178,8 @@ export default function ResetPasswordScreen() {
           </View>
         </>
       ) : (
-        <View className="rounded-[22px] border border-border-warm bg-surface-cream px-5 py-6">
-          <View className="h-12 w-12 items-center justify-center rounded-[16px] bg-[#FFF2E8]">
+        <View className="rounded-[22px] border border-border-warm bg-white px-5 py-6">
+          <View className="h-12 w-12 items-center justify-center rounded-[16px] bg-brand-soft">
             <MaterialIcons name="check-circle-outline" size={24} color={colors.brand.tertiary} />
           </View>
           <Text className="mt-4 font-heading text-[24px] leading-[30px] text-text-primary">

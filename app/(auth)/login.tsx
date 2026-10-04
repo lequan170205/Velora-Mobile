@@ -25,7 +25,7 @@ import { AuthBrandHeader } from '../../src/components/auth/AuthBrandHeader'
 import { AppPressable } from '../../src/components/base/AppPressable'
 import { ShortFormScreen } from '../../src/components/base/ShortFormScreen'
 import { GoogleIcon } from '../../src/components/ui/GoogleIcon'
-import { colors } from '../../src/constants/theme'
+import { colors, shadows } from '../../src/constants/theme'
 import { cn } from '../../src/lib/cn'
 import { resumePushTokenRegistration } from '../../src/lib/notifications/pushTokenOperationState'
 import { useAuthStore } from '../../src/stores/authStore'
@@ -133,7 +133,7 @@ export default function LoginScreen() {
   }
 
   return (
-    <View className="flex-1 bg-bg-primary">
+    <View className="flex-1 bg-surface-cream">
       <ShortFormScreen
         // Focus enables the native channel before the keyboard starts moving;
         // keyboard visibility keeps it enabled until the closing animation ends.
@@ -145,7 +145,7 @@ export default function LoginScreen() {
             ? Math.max(insets.bottom + 12, 32)
             : Math.max(insets.bottom + 48, 76),
           paddingHorizontal: 24,
-          paddingTop: insets.top + (isCompactLayout ? 4 : 10),
+          paddingTop: insets.top + (isCompactLayout ? 4 : 18),
         }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -155,25 +155,25 @@ export default function LoginScreen() {
           <View className="flex-1">
             <AuthBrandHeader compact={isCompactLayout} />
 
-            <Animated.View entering={HEADLINE_ENTERING} className="mt-2">
+            <Animated.View entering={HEADLINE_ENTERING} className="mt-3">
               <Text
                 className={cn(
                   'w-full font-heading text-text-primary',
                   isCompactLayout
-                    ? 'text-[36px] leading-[38px] tracking-[-1px]'
-                    : 'text-[42px] leading-[44px] tracking-[-1.2px]',
+                    ? 'text-[38px] leading-[41px] tracking-[-1.05px]'
+                    : 'text-[44px] leading-[48px] tracking-[-1.2px]',
                 )}
               >
                 Back to the group?
               </Text>
-              <Text className="mt-2 text-base font-sans leading-6 text-text-secondary">
+              <Text className="mt-2.5 text-base font-sans leading-6 text-text-secondary">
                 Sign in and catch up.
               </Text>
             </Animated.View>
 
             <Animated.View
               entering={FORM_ENTERING}
-              className={cn('flex-1', isCompactLayout ? 'mt-4' : 'mt-6')}
+              className={cn('flex-1', isCompactLayout ? 'mt-5' : 'mt-8')}
             >
               <View className={isCompactLayout ? 'mb-2' : 'mb-4'}>
                 <Text className="mb-2 text-sm2 font-semibold text-text-primary">Email address</Text>
@@ -183,7 +183,7 @@ export default function LoginScreen() {
                     isCompactLayout ? 'h-12' : 'h-14',
                     isEmailFocused
                       ? 'border-border-warm bg-surface-cream-focus'
-                      : 'border-border-warm-soft bg-surface-cream',
+                      : 'border-border-warm-soft bg-white',
                   )}
                 >
                   <MaterialIcons name="mail-outline" size={20} color={colors.brand.secondary} />
@@ -219,7 +219,7 @@ export default function LoginScreen() {
                     isCompactLayout ? 'h-12' : 'h-14',
                     isPasswordFocused
                       ? 'border-border-warm bg-surface-cream-focus'
-                      : 'border-border-warm-soft bg-surface-cream',
+                      : 'border-border-warm-soft bg-white',
                   )}
                 >
                   <MaterialIcons name="lock-outline" size={20} color={colors.brand.secondary} />
@@ -289,9 +289,10 @@ export default function LoginScreen() {
 
               <AppPressable
                 className={cn(
-                  'flex-row items-center justify-center rounded-[20px] bg-brand',
+                  'flex-row items-center justify-center rounded-full bg-brand',
                   isCompactLayout ? 'mt-3 h-12' : 'mt-5 h-14',
                 )}
+                style={shadows.glow}
                 onPress={handleLogin}
                 disabled={isLoading}
                 activeOpacity={0.85}
@@ -302,7 +303,7 @@ export default function LoginScreen() {
                 {isLoading ? (
                   <ActivityIndicator color={colors.text.inverse} size="small" />
                 ) : (
-                  <Text className="text-md font-bold text-white">Sign In</Text>
+                  <Text className="text-lg font-bold text-white">Sign In</Text>
                 )}
               </AppPressable>
 
@@ -316,7 +317,7 @@ export default function LoginScreen() {
 
               <TouchableOpacity
                 className={cn(
-                  'flex-row items-center justify-center rounded-[20px] bg-surface-cream px-4',
+                  'flex-row items-center justify-center rounded-full border border-border-warm-soft bg-white px-4',
                   isCompactLayout ? 'min-h-12 py-2.5' : 'min-h-14 py-3',
                 )}
                 onPress={handleGoogleLogin}

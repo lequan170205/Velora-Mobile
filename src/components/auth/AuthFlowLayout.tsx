@@ -45,7 +45,7 @@ export function AuthFlowLayout({
   const progressItems = Array.from({ length: Math.max(progressTotal, 1) })
 
   return (
-    <View className="flex-1 bg-bg-primary">
+    <View className="flex-1 bg-surface-cream">
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <ShortFormScreen
           className="flex-1"
@@ -67,7 +67,7 @@ export function AuthFlowLayout({
             <View className="flex-row items-center justify-between">
               <TouchableOpacity
                 onPress={onBack}
-                className="h-11 w-11 items-center justify-center rounded-[16px] border border-[#EEE7E2] bg-white"
+                className="h-11 w-11 items-center justify-center rounded-[16px] border border-border-warm-soft bg-white"
                 activeOpacity={0.8}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
