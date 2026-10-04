@@ -45,7 +45,7 @@ const ERROR_ENTERING = FadeIn.duration(170).easing(EASE_OUT).reduceMotion(Reduce
 export default function LoginScreen() {
   const insets = useSafeAreaInsets()
   const { fontScale, height: windowHeight } = useWindowDimensions()
-  const isCompactLayout = windowHeight - insets.top - insets.bottom < 720 || fontScale > 1.1
+  const isCompactLayout = windowHeight - insets.top - insets.bottom < 820 || fontScale > 1.1
   const params = useLocalSearchParams<{ email?: string }>()
   const emailInputRef = useRef<TextInput>(null)
   const passwordInputRef = useRef<TextInput>(null)
@@ -160,7 +160,7 @@ export default function LoginScreen() {
                 className={cn(
                   'w-full font-heading text-text-primary',
                   isCompactLayout
-                    ? 'text-[38px] leading-[41px] tracking-[-1.05px]'
+                    ? 'text-[40px] leading-[43px] tracking-[-1.1px]'
                     : 'text-[44px] leading-[48px] tracking-[-1.2px]',
                 )}
               >
@@ -179,8 +179,7 @@ export default function LoginScreen() {
                 <Text className="mb-2 text-sm2 font-semibold text-text-primary">Email address</Text>
                 <View
                   className={cn(
-                    'flex-row items-center rounded-[20px] border px-4',
-                    isCompactLayout ? 'h-12' : 'h-14',
+                    'h-14 flex-row items-center rounded-[20px] border px-4',
                     isEmailFocused
                       ? 'border-border-warm bg-surface-cream-focus'
                       : 'border-border-warm-soft bg-white',
@@ -216,8 +215,7 @@ export default function LoginScreen() {
                 <Text className="mb-2 text-sm2 font-semibold text-text-primary">Password</Text>
                 <View
                   className={cn(
-                    'flex-row items-center rounded-[20px] border px-4',
-                    isCompactLayout ? 'h-12' : 'h-14',
+                    'h-14 flex-row items-center rounded-[20px] border px-4',
                     isPasswordFocused
                       ? 'border-border-warm bg-surface-cream-focus'
                       : 'border-border-warm-soft bg-white',
@@ -292,7 +290,8 @@ export default function LoginScreen() {
               <AppPressable
                 className={cn(
                   'flex-row items-center justify-center rounded-full bg-brand',
-                  isCompactLayout ? 'mt-3 h-12' : 'mt-5 h-14',
+                  isCompactLayout ? 'mt-3' : 'mt-5',
+                  'h-14',
                 )}
                 style={shadows.glow}
                 onPress={handleLogin}
