@@ -36,5 +36,7 @@ export const toTransportOptions = (
     iceParameters: payload.iceParameters as unknown as MediasoupTypes.IceParameters,
     iceCandidates: payload.iceCandidates as unknown as MediasoupTypes.IceCandidate[],
     dtlsParameters: payload.dtlsParameters as unknown as MediasoupTypes.DtlsParameters,
+    ...(payload.iceServers ? { iceServers: payload.iceServers } : {}),
+    iceTransportPolicy: 'all',
   }
 }

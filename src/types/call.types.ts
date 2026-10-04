@@ -298,6 +298,7 @@ export interface TransportCreatedPayload {
   iceParameters: Record<string, unknown>
   iceCandidates: unknown[]
   dtlsParameters: Record<string, unknown>
+  iceServers?: { urls: string[]; username: string; credential: string }[]
 }
 
 export interface TransportConnectedPayload {
