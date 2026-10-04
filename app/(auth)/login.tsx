@@ -289,7 +289,10 @@ export default function LoginScreen() {
                 )}
               </AppPressable>
 
-              <View className="flex-row items-center my-4">
+              {/* Secondary cluster anchors to the bottom: slack space collects
+                  between the primary CTA and this divider, keeping OR + Google
+                  + the sign-up footer together as one group. */}
+              <View className="mt-auto mb-4 flex-row items-center pt-4">
                 <View className="h-px flex-1 bg-border-default" />
                 <Text className="px-4 text-xs2 font-semibold uppercase tracking-[1px] text-text-muted">
                   OR
@@ -312,7 +315,7 @@ export default function LoginScreen() {
                 </Text>
               </TouchableOpacity>
 
-              <View className="mt-auto flex-row flex-wrap items-center justify-center pt-3">
+              <View className="flex-row flex-wrap items-center justify-center pt-3">
                 <Text
                   className="text-center text-base2 font-sans text-text-secondary"
                   style={{ flexShrink: 1 }}
