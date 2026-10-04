@@ -45,7 +45,7 @@ const ERROR_ENTERING = FadeIn.duration(170).easing(EASE_OUT).reduceMotion(Reduce
 export default function LoginScreen() {
   const insets = useSafeAreaInsets()
   const { fontScale, height: windowHeight } = useWindowDimensions()
-  const isCompactLayout = windowHeight - insets.top - insets.bottom < 820 || fontScale > 1.1
+  const isCompactLayout = windowHeight - insets.top - insets.bottom < 720 || fontScale > 1.1
   const params = useLocalSearchParams<{ email?: string }>()
   const emailInputRef = useRef<TextInput>(null)
   const passwordInputRef = useRef<TextInput>(null)

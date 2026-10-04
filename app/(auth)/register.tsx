@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
+  useWindowDimensions,
 } from 'react-native'
 import { useKeyboardState } from 'react-native-keyboard-controller'
 import Animated, { FadeInRight, FadeOutLeft } from 'react-native-reanimated'
@@ -60,9 +61,10 @@ const getConfirmPasswordError = (password: string, confirmPassword: string) => {
   return ''
 }
 
-const inputClassName = (isFocused: boolean) =>
+const inputClassName = (isFocused: boolean, compact: boolean) =>
   cn(
-    'h-14 flex-row items-center rounded-[20px] border px-4',
+    'flex-row items-center rounded-[20px] border px-4',
+    compact ? 'h-12' : 'h-14',
     isFocused ? 'border-border-warm bg-surface-cream-focus' : 'border-border-warm-soft bg-white',
   )
 
@@ -76,6 +78,9 @@ function StepIndicator({ active }: { active: boolean }) {
 
 export default function RegisterScreen() {
   const insets = useSafeAreaInsets()
+  const { fontScale, height: windowHeight } = useWindowDimensions()
+  // Same compact rule as login (small-screen devices or enlarged system text).
+  const isCompactLayout = windowHeight - insets.top - insets.bottom < 720 || fontScale > 1.1
   const router = useRouter()
   const fullNameInputRef = useRef<TextInput>(null)
   const emailInputRef = useRef<TextInput>(null)
@@ -252,7 +257,7 @@ export default function RegisterScreen() {
                 <View className="flex-1">
                   <View>
                     <Text className="mb-2 text-sm2 font-semibold text-text-primary">Full name</Text>
-                    <View className={inputClassName(focusedInput === 'fullName')}>
+                    <View className={inputClassName(focusedInput === 'fullName', isCompactLayout)}>
                       <View className="flex-row items-center">
                         <MaterialIcons
                           name="person-outline"
@@ -304,7 +309,7 @@ export default function RegisterScreen() {
                     <Text className="mb-2 text-sm2 font-semibold text-text-primary">
                       Email address
                     </Text>
-                    <View className={inputClassName(focusedInput === 'email')}>
+                    <View className={inputClassName(focusedInput === 'email', isCompactLayout)}>
                       <TextInput
                         keyboardAppearance="light"
                         ref={emailInputRef}
@@ -345,7 +350,7 @@ export default function RegisterScreen() {
 
                   <View>
                     <Text className="mb-2 text-sm2 font-semibold text-text-primary">Password</Text>
-                    <View className={inputClassName(focusedInput === 'password')}>
+                    <View className={inputClassName(focusedInput === 'password', isCompactLayout)}>
                       <View className="flex-row items-center">
                         <TextInput
                           keyboardAppearance="light"
@@ -402,7 +407,12 @@ export default function RegisterScreen() {
                     <Text className="mb-2 text-sm2 font-semibold text-text-primary">
                       Confirm password
                     </Text>
-                    <View className={inputClassName(focusedInput === 'confirmPassword')}>
+                    <View
+                      className={inputClassName(
+                        focusedInput === 'confirmPassword',
+                        isCompactLayout,
+                      )}
+                    >
                       <TextInput
                         keyboardAppearance="light"
                         ref={confirmPasswordInputRef}
@@ -446,7 +456,8 @@ export default function RegisterScreen() {
 
               <TouchableOpacity
                 className={cn(
-                  'h-14 flex-row items-center justify-center rounded-full bg-brand',
+                  'flex-row items-center justify-center rounded-full bg-brand',
+                  isCompactLayout ? 'h-12' : 'h-14',
                   isPrimaryDisabled ? 'opacity-40' : null,
                 )}
                 style={shadows.glow}
