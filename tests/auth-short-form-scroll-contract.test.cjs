@@ -22,7 +22,13 @@ test('login remains visually fixed while preserving keyboard focus recovery', ()
   assert.match(source, /accessibilityRole="alert"/)
   assert.match(source, /accessibilityLiveRegion="polite"/)
   assert.doesNotMatch(source, /error \? \([\s\S]{0,120}mt-4 rounded-\[16px\]/)
-  assert.match(source, /<AuthBrandHeader compact=\{isCompactLayout\} \/>/)
+  // Single coherent layout sized to fit standard screens (~830pt of content
+  // against the 874pt iPhone 17 viewport); the compact brand header keeps the
+  // hero proportionate at that scale.
+  assert.match(source, /<AuthBrandHeader compact \/>/)
+  assert.match(source, /paddingTop: insets\.top \+ 8/)
+  assert.match(source, /paddingBottom: Math\.max\(insets\.bottom \+ 24, 40\)/)
+  assert.match(source, /min-h-14/)
   assert.match(source, /Continue with Google/)
   assert.match(source, /Don&apos;t have an account\?/)
 })

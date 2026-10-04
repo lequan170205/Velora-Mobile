@@ -14,7 +14,6 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
-  useWindowDimensions,
 } from 'react-native'
 import { useKeyboardState } from 'react-native-keyboard-controller'
 import Animated, { Easing, FadeIn, FadeInDown, ReduceMotion } from 'react-native-reanimated'
@@ -44,8 +43,6 @@ const ERROR_ENTERING = FadeIn.duration(170).easing(EASE_OUT).reduceMotion(Reduce
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets()
-  const { fontScale, height: windowHeight } = useWindowDimensions()
-  const isCompactLayout = windowHeight - insets.top - insets.bottom < 820 || fontScale > 1.1
   const params = useLocalSearchParams<{ email?: string }>()
   const emailInputRef = useRef<TextInput>(null)
   const passwordInputRef = useRef<TextInput>(null)
@@ -141,11 +138,9 @@ export default function LoginScreen() {
         mode="insets"
         contentContainerStyle={{
           flexGrow: 1,
-          paddingBottom: isCompactLayout
-            ? Math.max(insets.bottom + 12, 32)
-            : Math.max(insets.bottom + 48, 76),
+          paddingBottom: Math.max(insets.bottom + 24, 40),
           paddingHorizontal: 24,
-          paddingTop: insets.top + (isCompactLayout ? 4 : 18),
+          paddingTop: insets.top + 8,
         }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -153,17 +148,10 @@ export default function LoginScreen() {
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View className="flex-1">
-            <AuthBrandHeader compact={isCompactLayout} />
+            <AuthBrandHeader compact />
 
-            <Animated.View entering={HEADLINE_ENTERING} className="mt-3">
-              <Text
-                className={cn(
-                  'w-full font-heading text-text-primary',
-                  isCompactLayout
-                    ? 'text-[40px] leading-[43px] tracking-[-1.1px]'
-                    : 'text-[44px] leading-[48px] tracking-[-1.2px]',
-                )}
-              >
+            <Animated.View entering={HEADLINE_ENTERING} className="mt-2">
+              <Text className="w-full font-heading text-[40px] leading-[43px] tracking-[-1.1px] text-text-primary">
                 Back to the group?
               </Text>
               <Text className="mt-2.5 text-base font-sans leading-6 text-text-secondary">
@@ -171,11 +159,8 @@ export default function LoginScreen() {
               </Text>
             </Animated.View>
 
-            <Animated.View
-              entering={FORM_ENTERING}
-              className={cn('flex-1', isCompactLayout ? 'mt-5' : 'mt-8')}
-            >
-              <View className={isCompactLayout ? 'mb-2' : 'mb-4'}>
+            <Animated.View entering={FORM_ENTERING} className="flex-1 mt-5">
+              <View className="mb-3">
                 <Text className="mb-2 text-sm2 font-semibold text-text-primary">Email address</Text>
                 <View
                   className={cn(
@@ -288,11 +273,7 @@ export default function LoginScreen() {
               </View>
 
               <AppPressable
-                className={cn(
-                  'flex-row items-center justify-center rounded-full bg-brand',
-                  isCompactLayout ? 'mt-3' : 'mt-5',
-                  'h-14',
-                )}
+                className="mt-4 h-14 flex-row items-center justify-center rounded-full bg-brand"
                 style={shadows.glow}
                 onPress={handleLogin}
                 disabled={isLoading}
@@ -308,7 +289,7 @@ export default function LoginScreen() {
                 )}
               </AppPressable>
 
-              <View className={cn('flex-row items-center', isCompactLayout ? 'my-3' : 'my-5')}>
+              <View className="flex-row items-center my-4">
                 <View className="h-px flex-1 bg-border-default" />
                 <Text className="px-4 text-xs2 font-semibold uppercase tracking-[1px] text-text-muted">
                   OR
@@ -317,10 +298,7 @@ export default function LoginScreen() {
               </View>
 
               <TouchableOpacity
-                className={cn(
-                  'flex-row items-center justify-center rounded-full border border-border-warm-soft bg-white px-4',
-                  isCompactLayout ? 'min-h-12 py-2.5' : 'min-h-14 py-3',
-                )}
+                className="flex-row items-center justify-center rounded-full border border-border-warm-soft bg-white px-4 min-h-14 py-3"
                 onPress={handleGoogleLogin}
                 disabled={isLoading}
                 activeOpacity={0.8}
@@ -334,12 +312,7 @@ export default function LoginScreen() {
                 </Text>
               </TouchableOpacity>
 
-              <View
-                className={cn(
-                  'mt-auto flex-row flex-wrap items-center justify-center',
-                  isCompactLayout ? 'pt-4' : 'pt-7',
-                )}
-              >
+              <View className="mt-auto flex-row flex-wrap items-center justify-center pt-3">
                 <Text
                   className="text-center text-base2 font-sans text-text-secondary"
                   style={{ flexShrink: 1 }}
