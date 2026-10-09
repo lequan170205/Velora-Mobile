@@ -33,6 +33,7 @@ module.exports = {
         'surface-focus': '#F5F5F5',
         'surface-accent': '#FFF4EC',
         'surface-error': '#FFF1F0',
+        'surface-success': '#EAF8F0',
         'surface-muted': '#F5F5F5',
         // Warm cream input family shared by auth and chat composers
         'surface-cream': '#FFFBF8',
@@ -42,6 +43,8 @@ module.exports = {
         'brand-light': '#FF935B',
         'brand-dark': '#D85A21',
         'brand-soft': '#FFF0E4',
+        // Deep brand orange for brand-colored TEXT on light surfaces (>=4.5:1)
+        'brand-text': '#B24517',
         // Text — Crisp neutral hierarchy
         'text-primary': '#161616',
         'text-secondary': '#777777',
@@ -51,6 +54,9 @@ module.exports = {
         'status-online': '#34C759',
         'status-error': '#FF3B30',
         'status-success': '#34C759',
+        // Deep variants for status text on light surfaces (>=4.5:1)
+        'status-error-text': '#D3291F',
+        'status-success-deep': '#1F7A44',
         'call-green': '#34C759',
         // Borders
         'border-default': '#ECECEC',

@@ -16,6 +16,10 @@ export const colors = {
     tertiary: '#D85A21',
     soft: '#FFF0E4',
     gradient: ['#FF6B2C', '#FF935B'],
+    // Deep shade of the brand orange that keeps >=4.5:1 on white/cream/tinted
+    // light surfaces. Use for brand-colored TEXT (links, eyebrows, timestamps);
+    // fills and large display type keep using brand.primary.
+    text: '#B24517',
   },
   // Text — Crisp neutral hierarchy
   text: {
@@ -32,6 +36,10 @@ export const colors = {
     offline: '#B1B1B1',
     error: '#FF3B30',
     success: '#34C759',
+    // Deep variants for status TEXT on light surfaces (>=4.5:1); the vivid
+    // values above stay reserved for fills, dots, and icons.
+    errorText: '#D3291F',
+    successDeep: '#1F7A44',
   },
   // Calls — warm, media-first extension of the Velora brand
   call: {
@@ -82,6 +90,8 @@ export const colors = {
     modal: '#FFFFFF',
     accent: '#FFF4EC',
     error: '#FFF1F0',
+    // Success tint counterpart of surface.error for status pills/notices
+    success: '#EAF8F0',
     muted: '#F5F5F5',
     // Warm cream input family shared by auth and chat composers
     cream: '#FFFBF8',

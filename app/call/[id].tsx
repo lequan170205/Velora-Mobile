@@ -11,7 +11,7 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Image, Platform, useWindowDimensions, View } from 'react-native'
+import { Alert, Image, Platform, Switch, useWindowDimensions, View } from 'react-native'
 import Animated, {
   Easing,
   FadeIn,
@@ -97,6 +97,7 @@ export default function ActiveCallScreen() {
     groupMicStates,
     groupMicSyncError,
     groupInvitations,
+    groupHostUserId,
     isGroupCall,
     localStreamUrl,
     muted,
@@ -138,6 +139,7 @@ export default function ActiveCallScreen() {
     () => (isGroupCall ? [...new Set(groupParticipantIds)] : []),
     [groupParticipantIds, isGroupCall],
   )
+  const isGroupHost = isGroupCall && groupHostUserId === currentUser?.id
   const chromeProgress = useSharedValue(1)
   const isLandscape = width > height
   const systemTopInset =
@@ -230,11 +232,16 @@ export default function ActiveCallScreen() {
     }
   }
 
-  // A group call has no host: leaving only disconnects this member, so there is
-  // nothing to confirm on behalf of the others.
   const handleEndCallPress = useCallback(() => {
-    void endCall()
-  }, [endCall])
+    if (!isGroupHost) {
+      void endCall()
+      return
+    }
+    Alert.alert('End group call?', 'This will end the call for everyone.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'End for everyone', style: 'destructive', onPress: () => void endCall() },
+    ])
+  }, [endCall, isGroupHost])
 
   useKeepAwake()
 
@@ -385,7 +392,7 @@ export default function ActiveCallScreen() {
 
       <IconButton
         icon="call-end"
-        label={isGroupCall ? 'Leave call' : 'End call'}
+        label={isGroupHost ? 'End call for everyone' : isGroupCall ? 'Leave call' : 'End call'}
         destructive
         size={52}
         onPress={handleEndCallPress}
@@ -474,7 +481,7 @@ export default function ActiveCallScreen() {
         <View className="flex-row items-center justify-between px-5">
           <View className="h-11 w-11" />
           <AppText
-            className="font-heading text-[22px] font-bold"
+            className="text-center font-heading text-xl font-bold"
             style={{ color: colors.call.textPrimary }}
           >
             People
@@ -498,7 +505,7 @@ export default function ActiveCallScreen() {
           }}
         >
           <AppText
-            className="mb-3 mt-6 text-[18px] font-bold"
+            className="mb-3 mt-6 text-lg font-bold"
             style={{ color: colors.call.textPrimary }}
             accessibilityRole="header"
           >
@@ -514,7 +521,7 @@ export default function ActiveCallScreen() {
               <PeerAvatar avatarUrl={person.avatarUrl} name={person.name} size={56} />
               <View className="ml-4 min-w-0 flex-1">
                 <AppText
-                  className="text-[17px] font-semibold"
+                  className="text-lg font-semibold"
                   style={{ color: colors.call.textPrimary }}
                   numberOfLines={1}
                 >
@@ -546,7 +553,7 @@ export default function ActiveCallScreen() {
             <>
               <View className="mt-4 h-px" style={{ backgroundColor: colors.call.controlBorder }} />
               <AppText
-                className="mb-3 mt-6 text-[18px] font-bold"
+                className="mb-3 mt-6 text-lg font-bold"
                 style={{ color: colors.call.textPrimary }}
                 accessibilityRole="header"
               >
@@ -583,7 +590,7 @@ export default function ActiveCallScreen() {
                     <PeerAvatar avatarUrl={member.user.picture ?? null} name={name} size={56} />
                     <View className="ml-4 min-w-0 flex-1">
                       <AppText
-                        className="text-[17px]"
+                        className="text-lg"
                         style={{ color: colors.call.textSecondary }}
                         numberOfLines={1}
                       >
@@ -647,7 +654,7 @@ export default function ActiveCallScreen() {
         <View className="flex-row items-center justify-between px-5">
           <View className="h-11 w-11" />
           <AppText
-            className="font-heading text-[22px] font-bold"
+            className="text-center font-heading text-xl font-bold"
             style={{ color: colors.call.textPrimary }}
           >
             Call controls
@@ -681,10 +688,7 @@ export default function ActiveCallScreen() {
               <MaterialIcons name="call" size={24} color={colors.call.textPrimary} />
             </View>
             <View className="ml-3 min-w-0 flex-1">
-              <AppText
-                className="text-[16px] font-semibold"
-                style={{ color: colors.call.textPrimary }}
-              >
+              <AppText className="text-md font-semibold" style={{ color: colors.call.textPrimary }}>
                 Switch to voice call
               </AppText>
               <AppText className="mt-0.5 text-sm" style={{ color: colors.call.textSecondary }}>
@@ -712,21 +716,25 @@ export default function ActiveCallScreen() {
               />
             </View>
             <View className="ml-3 min-w-0 flex-1">
-              <AppText
-                className="text-[16px] font-semibold"
-                style={{ color: colors.call.textPrimary }}
-              >
+              <AppText className="text-md font-semibold" style={{ color: colors.call.textPrimary }}>
                 Speaker
               </AppText>
               <AppText className="mt-0.5 text-sm" style={{ color: colors.call.textSecondary }}>
                 {speakerEnabled ? 'On' : 'Off'}
               </AppText>
             </View>
-            <MaterialIcons
-              name={speakerEnabled ? 'toggle-on' : 'toggle-off'}
-              size={42}
-              color={speakerEnabled ? colors.bubble.outgoing : colors.call.textMuted}
-            />
+            {/* State display only: the row itself owns the tap so the switch
+                never double-fires alongside the row press. */}
+            <View pointerEvents="none">
+              <Switch
+                value={speakerEnabled}
+                trackColor={{
+                  true: colors.bubble.outgoing,
+                  false: colors.call.surfaceElevated,
+                }}
+                thumbColor={colors.call.textPrimary}
+              />
+            </View>
           </AppPressable>
         </View>
       </BottomSheetView>
@@ -953,14 +961,14 @@ export default function ActiveCallScreen() {
         >
           <PeerAvatar avatarUrl={peerAvatarUrl} name={peerName} size={isLandscape ? 84 : 110} />
           <AppText
-            className="mt-6 max-w-[86%] text-center font-heading text-[30px] font-bold tracking-[-0.5px]"
+            className="mt-6 max-w-[86%] text-center font-heading font-bold tracking-[-0.5px]"
             style={{ color: colors.call.textPrimary, fontSize: isLandscape ? 24 : 30 }}
             numberOfLines={2}
           >
             {peerName || 'Unknown'}
           </AppText>
           <AppText
-            className="mt-2 text-center text-[20px] font-medium"
+            className="mt-2 text-center text-lg font-medium"
             style={{ color: colors.call.textSecondary }}
           >
             {statusLabel}
@@ -988,7 +996,7 @@ export default function ActiveCallScreen() {
               className="mt-2 text-center text-sm"
               style={{ color: colors.call.textSecondary }}
             >
-              Leave call
+              {isGroupHost ? 'End call for everyone' : 'Leave call'}
             </AppText>
           ) : null}
         </Animated.View>

@@ -10,8 +10,11 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { colors } from '../../constants/theme'
 import { cn } from '../../lib/cn'
 import { ShortFormScreen } from '../base/ShortFormScreen'
+
+import { AuthHeadline } from './AuthHeadline'
 
 type AuthFlowLayoutProps = {
   children: ReactNode
@@ -20,6 +23,8 @@ type AuthFlowLayoutProps = {
   onBack: () => void
   progressActive?: number
   progressTotal?: number
+  /** Hide the step rail on screens that do not belong to the reset flow. */
+  showProgress?: boolean
   footer?: ReactNode
   scrollViewProps?: ScrollViewProps
 }
@@ -37,6 +42,7 @@ export function AuthFlowLayout({
   onBack,
   progressActive = 1,
   progressTotal = 2,
+  showProgress = true,
   footer,
   scrollViewProps,
 }: AuthFlowLayoutProps) {
@@ -70,33 +76,35 @@ export function AuthFlowLayout({
                 className="h-11 w-11 items-center justify-center rounded-[16px] border border-border-warm-soft bg-white"
                 activeOpacity={0.8}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Go back"
               >
-                <MaterialIcons name="arrow-back" size={22} color="#1C1C1E" />
+                <MaterialIcons name="arrow-back" size={22} color={colors.text.primary} />
               </TouchableOpacity>
 
-              <View className="ml-4 flex-1">
-                <View className="flex-row items-center gap-2">
-                  {progressItems.map((_, index) => (
-                    <StepIndicator key={index} active={index < progressActive} />
-                  ))}
+              {showProgress ? (
+                <View className="ml-4 flex-1">
+                  <View className="flex-row items-center gap-2">
+                    {progressItems.map((_, index) => (
+                      <StepIndicator key={index} active={index < progressActive} />
+                    ))}
+                  </View>
                 </View>
-              </View>
+              ) : (
+                <View className="flex-1" />
+              )}
             </View>
 
             <View className="pt-6">
-              {typeof title === 'string' ? (
-                <Text className="font-heading text-[32px] leading-[36px] tracking-[-0.6px] text-text-primary">
-                  {title}
-                </Text>
-              ) : (
-                title
-              )}
+              {typeof title === 'string' ? <AuthHeadline size="section" title={title} /> : title}
 
               {subtitle ? (
                 typeof subtitle === 'string' ? (
-                  <Text className="mt-2 text-base font-sans leading-6 text-text-secondary">
-                    {subtitle}
-                  </Text>
+                  <View className="mt-2">
+                    <Text className="text-base font-sans leading-6 text-text-secondary">
+                      {subtitle}
+                    </Text>
+                  </View>
                 ) : (
                   <View className="mt-2">{subtitle}</View>
                 )
