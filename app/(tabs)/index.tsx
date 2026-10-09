@@ -1,10 +1,11 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useIsFocused } from '@react-navigation/native'
+import { FlashList } from '@shopify/flash-list'
 import { useQueryClient } from '@tanstack/react-query'
 import { BlurView } from 'expo-blur'
 import { useRouter } from 'expo-router'
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { AppState, FlatList, RefreshControl, ScrollView, StyleSheet, View } from 'react-native'
+import { AppState, RefreshControl, ScrollView, StyleSheet, View } from 'react-native'
 import Animated, {
   FadeInDown,
   ReduceMotion,
@@ -79,7 +80,7 @@ function ConversationsHeader({
         style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg.frost }]}
       />
       <View>
-        <AppText className="text-xs2 font-semibold uppercase tracking-[1.8px] text-brand">
+        <AppText className="text-xs2 font-semibold uppercase tracking-[1.8px] text-brand-text">
           Velora
         </AppText>
         <AppText className="font-display text-[28px] leading-[34px] tracking-[-0.7px] text-text-primary">
@@ -138,27 +139,31 @@ function ConversationListSkeleton() {
 
 function useMatches(conversations: Conversation[] | undefined): MatchSummary[] {
   const { user } = useAuthStore()
-  if (!conversations) return []
+  const currentUserId = user?.id
 
-  return conversations
-    .filter((conversation) => !conversation.isGroup)
-    .flatMap((conversation) => {
-      const other = conversation.participants?.find(
-        (participant: ChatParticipant) => participant.id !== user?.id,
-      )
+  return useMemo(() => {
+    if (!conversations) return []
 
-      if (!other) return []
+    return conversations
+      .filter((conversation) => !conversation.isGroup)
+      .flatMap((conversation) => {
+        const other = conversation.participants?.find(
+          (participant: ChatParticipant) => participant.id !== currentUserId,
+        )
 
-      return [
-        {
-          id: other.id,
-          conversationId: conversation.id,
-          name: other.name || other.fullName || other.email?.split('@')[0] || '?',
-          ...(other.picture ? { picture: other.picture } : {}),
-        },
-      ]
-    })
-    .slice(0, 10)
+        if (!other) return []
+
+        return [
+          {
+            id: other.id,
+            conversationId: conversation.id,
+            name: other.name || other.fullName || other.email?.split('@')[0] || '?',
+            ...(other.picture ? { picture: other.picture } : {}),
+          },
+        ]
+      })
+      .slice(0, 10)
+  }, [conversations, currentUserId])
 }
 
 export default function ConversationsScreen() {
@@ -378,7 +383,7 @@ export default function ConversationsScreen() {
 
   return (
     <View className="flex-1 bg-bg-primary">
-      <FlatList
+      <FlashList
         data={filteredConversations}
         extraData={relativeTimeTick}
         renderItem={renderConversationItem}
@@ -468,7 +473,7 @@ export default function ConversationsScreen() {
           </View>
         }
         ListEmptyComponent={
-          <View className="mx-5 mt-4 items-center rounded-[24px] border border-brand-soft bg-surface-accent px-6 py-9">
+          <View className="mx-5 mt-4 items-center rounded-xl border border-brand-soft bg-surface-accent px-6 py-9">
             <View className="h-12 w-12 items-center justify-center rounded-[18px] border border-brand-soft bg-bg-primary">
               <MaterialIcons
                 name={deferredSearchQuery.trim() ? 'search-off' : 'chat-bubble-outline'}

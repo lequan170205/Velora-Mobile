@@ -1,12 +1,21 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'expo-router'
-import { useMemo, useState } from 'react'
-import { ActivityIndicator, Alert, FlatList, Image, View } from 'react-native'
+import { useMemo, useEffect, useState } from 'react'
+import { ActivityIndicator, Alert, FlatList, View } from 'react-native'
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { conversationApi } from '../../src/api/conversation.api'
 import { AppPressable, AppText, AppTextInput } from '../../src/components/base'
+import { ChatAvatar } from '../../src/components/chat/ChatAvatar'
 import { AppSearchBar } from '../../src/components/common/AppSearchBar'
 import { SafeTouchableOpacity } from '../../src/components/common/SafeTouchableOpacity'
 import { queryKeys } from '../../src/constants/queryKeys'
@@ -18,6 +27,34 @@ import type { FriendSummary } from '../../src/types/friend.types'
 
 const getFriendName = (friend: FriendSummary) =>
   friend.user.fullName || friend.user.username || 'Velora user'
+
+// Same pulse treatment as the inbox skeleton so both list surfaces load alike.
+const FriendRowSkeleton = function FriendRowSkeleton({ delay }: { delay: number }) {
+  const opacity = useSharedValue(1)
+
+  useEffect(() => {
+    opacity.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(withTiming(0.45, { duration: 640 }), withTiming(1, { duration: 640 })),
+        -1,
+        true,
+      ),
+    )
+  }, [delay, opacity])
+
+  const style = useAnimatedStyle(() => ({ opacity: opacity.value }))
+
+  return (
+    <Animated.View style={style} className="flex-row items-center px-5 py-3.5">
+      <View className="h-11 w-11 rounded-[15px] bg-bg-secondary" />
+      <View className="ml-3 flex-1 gap-2 overflow-hidden">
+        <View className="h-3.5 w-2/5 rounded-full bg-bg-secondary" />
+        <View className="h-3 w-1/3 rounded-full bg-bg-secondary" />
+      </View>
+    </Animated.View>
+  )
+}
 
 export default function NewGroupScreen() {
   const router = useRouter()
@@ -152,8 +189,10 @@ export default function NewGroupScreen() {
       </View>
 
       {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color={colors.brand.primary} />
+        <View pointerEvents="none">
+          {[0, 1, 2, 3, 4, 5].map((row) => (
+            <FriendRowSkeleton key={row} delay={row * 90} />
+          ))}
         </View>
       ) : isError ? (
         <View className="flex-1 items-center justify-center px-6">
@@ -161,10 +200,10 @@ export default function NewGroupScreen() {
             We couldn&apos;t load your friends.
           </AppText>
           <AppPressable
-            className="mt-4 rounded-full bg-brand px-5 py-3"
+            className="mt-4 h-11 items-center justify-center overflow-hidden rounded-full bg-brand px-6"
             onPress={() => void refetch()}
           >
-            <AppText className="font-medium text-white">Try again</AppText>
+            <AppText className="text-base2 font-semibold text-white">Try again</AppText>
           </AppPressable>
         </View>
       ) : (
@@ -182,17 +221,10 @@ export default function NewGroupScreen() {
                 onPress={() => toggleFriend(item.user.id)}
                 activeOpacity={0.75}
                 accessibilityRole="checkbox"
+                accessibilityLabel={`Select ${friendName}`}
                 accessibilityState={{ checked: selected }}
               >
-                {item.user.picture ? (
-                  <Image source={{ uri: item.user.picture }} className="h-11 w-11 rounded-full" />
-                ) : (
-                  <View className="h-11 w-11 items-center justify-center rounded-full bg-surface-input">
-                    <AppText className="font-medium text-text-primary">
-                      {friendName.charAt(0).toUpperCase()}
-                    </AppText>
-                  </View>
-                )}
+                <ChatAvatar name={friendName} picture={item.user.picture} size={44} />
                 <View className="ml-3 flex-1">
                   <AppText className="font-medium text-text-primary" numberOfLines={1}>
                     {friendName}

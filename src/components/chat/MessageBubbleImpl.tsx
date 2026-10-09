@@ -507,11 +507,11 @@ function renderMessageReceiptContent({
             )
           })}
           {hiddenReceiptCount > 0 ? (
-            <Text className="ml-1 text-[10px] text-text-muted">+{hiddenReceiptCount}</Text>
+            <Text className="ml-1 text-[10px] text-text-secondary">+{hiddenReceiptCount}</Text>
           ) : null}
         </View>
       ) : primaryStatusLabel ? (
-        <Text className="text-[11px] text-text-muted">{primaryStatusLabel}</Text>
+        <Text className="text-xs2 text-text-secondary">{primaryStatusLabel}</Text>
       ) : null}
     </View>
   ) : null
@@ -527,6 +527,8 @@ function renderReactionBadges(
       onPress={() => onReactionPress?.(emoji)}
       hitSlop={6}
       className={cn('flex-row items-center rounded-full px-2 py-1 bg-surface-input')}
+      accessibilityRole="button"
+      accessibilityLabel={`${emoji} reaction, ${count} ${count === 1 ? 'person' : 'people'}`}
     >
       <Text className="text-xs">{emoji}</Text>
       <Text className={cn('text-xs ml-0.5 text-text-muted')}>{count}</Text>
@@ -1289,7 +1291,7 @@ const MessageBubbleComponent = function MessageBubble({
                     include this label (the preview replica has no name). */}
                 {showSenderName && !isOwn && !isGroupedTop && !replyPreviewMeta ? (
                   <Text
-                    className="mb-0.5 ml-1.5 text-[12px] font-medium text-text-muted"
+                    className="mb-0.5 ml-1.5 text-sm2 font-medium text-text-secondary"
                     numberOfLines={1}
                   >
                     {senderDisplayName}
@@ -1313,7 +1315,7 @@ const MessageBubbleComponent = function MessageBubble({
                       >
                         <View className="mb-1 flex-row items-center px-1">
                           <MaterialIcons name="reply" size={15} color={colors.text.tertiary} />
-                          <Text className="ml-1.5 text-[12px] font-medium text-text-muted">
+                          <Text className="ml-1.5 text-sm2 font-medium text-text-secondary">
                             {senderDisplayName} replied to {replyPreviewMeta.senderLabel}
                           </Text>
                         </View>
@@ -1332,13 +1334,13 @@ const MessageBubbleComponent = function MessageBubble({
                             )
                           }}
                           className={cn(
-                            'max-w-full overflow-hidden rounded-[22px] bg-surface-input',
+                            'max-w-full overflow-hidden rounded-[18px] bg-surface-input',
                             replyPreviewMeta.type === 'text' ? 'px-4 py-3' : 'p-2',
                           )}
                         >
                           {replyPreviewMeta.type === 'text' ? (
                             <Text
-                              className="text-[15px] leading-[24px] text-text-secondary"
+                              className="text-base leading-[22px] text-text-secondary"
                               numberOfLines={3}
                             >
                               {replyPreviewMeta.contentLabel}
@@ -1404,12 +1406,7 @@ const MessageBubbleComponent = function MessageBubble({
 
                               <View style={{ flex: 1 }}>
                                 <Text
-                                  style={{
-                                    fontSize: 12,
-                                    fontWeight: '700',
-                                    color: colors.text.primary,
-                                    marginBottom: 2,
-                                  }}
+                                  className="mb-0.5 text-sm2 font-bold text-text-primary"
                                   numberOfLines={1}
                                 >
                                   {replyPreviewMeta.senderLabel}
@@ -1442,7 +1439,7 @@ const MessageBubbleComponent = function MessageBubble({
                                     backgroundColor:
                                       replyPreviewMeta.type === 'video'
                                         ? colors.media.surface
-                                        : '#EFEFEF',
+                                        : colors.surface.input,
                                     alignSelf: 'flex-start',
                                   }}
                                 >
@@ -1511,11 +1508,11 @@ const MessageBubbleComponent = function MessageBubble({
                                   <MaterialIcons
                                     name={replyPreviewMeta.iconName}
                                     size={16}
-                                    color="#8A8A8A"
+                                    color={colors.text.secondary}
                                     style={{ marginRight: 6 }}
                                   />
                                   <Text
-                                    className="flex-1 text-[14px] leading-[21px] text-text-secondary"
+                                    className="flex-1 text-base2 leading-[20px] text-text-secondary"
                                     numberOfLines={2}
                                   >
                                     {replyPreviewMeta.contentLabel}
@@ -1528,7 +1525,7 @@ const MessageBubbleComponent = function MessageBubble({
                               (replyPreviewMeta.type === 'image' ||
                                 replyPreviewMeta.type === 'video') ? (
                                 <Text
-                                  className="px-1 pt-2 text-[13px] leading-[18px] text-text-secondary"
+                                  className="px-1 pt-2 text-sm2 leading-[18px] text-text-secondary"
                                   numberOfLines={1}
                                 >
                                   {replyPreviewMeta.contentLabel}
@@ -1684,9 +1681,7 @@ const MessageBubbleComponent = function MessageBubble({
                             onPress={() => handleSendSuggestion(query)}
                             className="rounded-full border border-border-light bg-surface-card px-3 py-2"
                           >
-                            <Text className="text-[12px] font-medium text-text-primary">
-                              {query}
-                            </Text>
+                            <Text className="text-sm2 font-medium text-text-primary">{query}</Text>
                           </Pressable>
                         ))}
                       </View>
@@ -1712,7 +1707,7 @@ const MessageBubbleComponent = function MessageBubble({
           style={[timestampColumnStyle, { position: 'absolute', right: 0, top: 0, bottom: 0 }]}
           className="items-end justify-center"
         >
-          <Text className="text-[11px] text-text-muted" numberOfLines={1}>
+          <Text className="text-xs2 text-text-secondary" numberOfLines={1}>
             {timeLabel}
           </Text>
         </Animated.View>

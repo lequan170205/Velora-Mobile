@@ -667,7 +667,7 @@ const MessageInputComponent = function MessageInput(
                 position: 'absolute',
                 left: 10,
                 bottom: 1,
-                fontSize: 10,
+                fontSize: typography.sizes.xs,
                 fontWeight: '500',
                 color: counterColor,
               }}

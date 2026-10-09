@@ -156,7 +156,7 @@ export function MessageBubble(props: MessageBubbleProps) {
     return (
       <View className="items-center px-8 py-2.5">
         <View className="max-w-[88%] rounded-full bg-surface-input px-3.5 py-2">
-          <Text className="text-center text-xs2 leading-4 text-text-muted">
+          <Text className="text-center text-xs2 leading-4 text-text-secondary">
             {getGroupActivityLabel(props)}
           </Text>
         </View>

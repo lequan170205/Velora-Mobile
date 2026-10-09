@@ -138,9 +138,9 @@ export const ConversationHeader = ({
   topInset = 0,
 }: ConversationHeaderProps) => {
   const subtitleColor = groupTypingLabel
-    ? colors.brand.primary
+    ? colors.brand.text
     : !isGroup && isOnline
-      ? colors.status.online
+      ? colors.status.successDeep
       : colors.text.tertiary
 
   return (
@@ -291,8 +291,8 @@ export const ConversationHeader = ({
           <MaterialIcons name="cloud-off" size={17} color={colors.brand.primary} />
           <AppText className="flex-1 text-sm2 leading-[18px] text-text-primary">
             {queuedMessageCount > 0
-              ? `Reconnecting — ${queuedMessageCount} message${queuedMessageCount > 1 ? 's are' : ' is'} waiting to send.`
-              : 'Reconnecting — new messages will send automatically.'}
+              ? `Reconnecting: ${queuedMessageCount} message${queuedMessageCount > 1 ? 's are' : ' is'} waiting to send.`
+              : 'Reconnecting: new messages will send automatically.'}
           </AppText>
         </View>
       ) : null}

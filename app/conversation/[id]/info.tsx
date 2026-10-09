@@ -4,12 +4,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as ImagePicker from 'expo-image-picker'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Alert, Image, ScrollView, View } from 'react-native'
+import { ActivityIndicator, Alert, ScrollView, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { conversationApi } from '../../../src/api/conversation.api'
 import { mediaApi } from '../../../src/api/media.api'
 import { AppPressable, AppText, AppTextInput } from '../../../src/components/base'
+import { ChatAvatar } from '../../../src/components/chat/ChatAvatar'
 import { SafeTouchableOpacity } from '../../../src/components/common/SafeTouchableOpacity'
 import { queryKeys } from '../../../src/constants/queryKeys'
 import { colors } from '../../../src/constants/theme'
@@ -522,15 +523,7 @@ export default function GroupInfoScreen() {
       <ScrollView contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
         <View className="items-center px-5 pb-7 pt-6">
           <View className="relative">
-            {conversation.picture ? (
-              <Image source={{ uri: conversation.picture }} className="h-28 w-28 rounded-full" />
-            ) : (
-              <View className="h-28 w-28 items-center justify-center rounded-full bg-surface-input">
-                <AppText className="text-[32px] font-semibold text-text-primary">
-                  {groupName.charAt(0).toUpperCase()}
-                </AppText>
-              </View>
-            )}
+            <ChatAvatar name={groupName} picture={conversation.picture} size={112} />
             {canManageMetadata ? (
               <SafeTouchableOpacity
                 className="absolute -bottom-1 -right-1 h-10 w-10 items-center justify-center rounded-full border-2 border-bg-primary bg-surface-input"
@@ -554,7 +547,9 @@ export default function GroupInfoScreen() {
               onPress={removeGroupPicture}
               disabled={isUpdatingPicture}
             >
-              <AppText className="text-xs2 font-medium text-status-error">Remove photo</AppText>
+              <AppText className="text-xs2 font-medium text-status-error-text">
+                Remove photo
+              </AppText>
             </SafeTouchableOpacity>
           ) : null}
 
@@ -602,7 +597,7 @@ export default function GroupInfoScreen() {
                     accessibilityRole="button"
                     accessibilityLabel="Rename group"
                   >
-                    <MaterialIcons name="edit" size={17} color="#767676" />
+                    <MaterialIcons name="edit" size={17} color={colors.text.secondary} />
                   </SafeTouchableOpacity>
                 ) : null}
               </View>
@@ -634,7 +629,7 @@ export default function GroupInfoScreen() {
               <MaterialIcons
                 name={showAddMembers ? 'expand-less' : 'expand-more'}
                 size={23}
-                color="#8A8A8A"
+                color={colors.text.secondary}
               />
             </SafeTouchableOpacity>
           ) : null}
@@ -650,18 +645,7 @@ export default function GroupInfoScreen() {
                   const name = getFriendName(item)
                   return (
                     <View key={item.user.id} className="flex-row items-center py-2.5">
-                      {item.user.picture ? (
-                        <Image
-                          source={{ uri: item.user.picture }}
-                          className="h-10 w-10 rounded-full"
-                        />
-                      ) : (
-                        <View className="h-10 w-10 items-center justify-center rounded-full bg-surface-input">
-                          <AppText className="text-xs2 font-medium text-text-primary">
-                            {name.charAt(0).toUpperCase()}
-                          </AppText>
-                        </View>
-                      )}
+                      <ChatAvatar name={name} picture={item.user.picture} size={40} />
                       <View className="ml-3 min-w-0 flex-1">
                         <AppText className="font-medium text-text-primary" numberOfLines={1}>
                           {name}
@@ -703,15 +687,7 @@ export default function GroupInfoScreen() {
                   key={member.userId}
                   className="flex-row items-center border-b border-border-light px-5 py-3.5"
                 >
-                  {picture ? (
-                    <Image source={{ uri: picture }} className="h-11 w-11 rounded-full" />
-                  ) : (
-                    <View className="h-11 w-11 items-center justify-center rounded-full bg-surface-input">
-                      <AppText className="font-medium text-text-primary">
-                        {displayName.charAt(0).toUpperCase()}
-                      </AppText>
-                    </View>
-                  )}
+                  <ChatAvatar name={displayName} picture={picture} size={44} />
                   <View className="ml-3 min-w-0 flex-1">
                     <View className="min-w-0 flex-row items-center">
                       <AppText
@@ -722,7 +698,7 @@ export default function GroupInfoScreen() {
                       </AppText>
                       {member.role !== 'MEMBER' ? (
                         <View className="ml-2 shrink-0 rounded-full bg-surface-accent px-2 py-1">
-                          <AppText className="text-[10px] font-medium text-brand">
+                          <AppText className="text-[10px] font-medium text-brand-text">
                             {roleLabel(member.role)}
                           </AppText>
                         </View>
@@ -739,7 +715,7 @@ export default function GroupInfoScreen() {
                       accessibilityRole="button"
                       accessibilityLabel={`Actions for ${displayName}`}
                     >
-                      <MaterialIcons name="more-vert" size={22} color="#767676" />
+                      <MaterialIcons name="more-vert" size={22} color={colors.text.secondary} />
                     </SafeTouchableOpacity>
                   ) : null}
                 </View>
@@ -765,7 +741,7 @@ export default function GroupInfoScreen() {
               )}
             </View>
             <View className="ml-3 flex-1">
-              <AppText className="font-semibold text-status-error">Leave group</AppText>
+              <AppText className="font-semibold text-status-error-text">Leave group</AppText>
               {isOwner ? (
                 <AppText className="mt-0.5 text-xs2 text-text-muted">
                   Transfer ownership before leaving.
@@ -794,7 +770,7 @@ export default function GroupInfoScreen() {
             pressBehavior="close"
           />
         )}
-        handleIndicatorStyle={{ backgroundColor: '#D8D8D8', width: 40 }}
+        handleIndicatorStyle={{ backgroundColor: colors.border.strong, width: 40 }}
       >
         <BottomSheetView>
           {selectedMember ? (
@@ -858,7 +834,7 @@ export default function GroupInfoScreen() {
                   >
                     <MaterialIcons name="person-remove" size={20} color={colors.status.error} />
                   </View>
-                  <AppText className="ml-3 font-medium text-status-error">
+                  <AppText className="ml-3 font-medium text-status-error-text">
                     Remove from group
                   </AppText>
                 </SafeTouchableOpacity>

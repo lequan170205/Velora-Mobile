@@ -98,9 +98,7 @@ export const ConversationEmptyState = () => {
         <MaterialIcons name="chat-bubble-outline" size={22} color={colors.brand.primary} />
       </View>
       <Text className="mt-3 font-heading text-base text-text-primary">No messages yet</Text>
-      <Text className="mt-1 text-center text-sm2 text-text-secondary">
-        Be the first to say hi 👋
-      </Text>
+      <Text className="mt-1 text-center text-sm2 text-text-secondary">Be the first to say hi.</Text>
     </Animated.View>
   )
 }
