@@ -97,7 +97,6 @@ export default function ActiveCallScreen() {
     groupMicStates,
     groupMicSyncError,
     groupInvitations,
-    groupHostUserId,
     isGroupCall,
     localStreamUrl,
     muted,
