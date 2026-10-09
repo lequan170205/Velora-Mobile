@@ -145,12 +145,13 @@ test('terminal cleanup uses the captured invitation, leaves the room reusable an
   assert.equal(terminals.has('cold-room'), true)
 })
 
-test('leave warning uses the server host, not late-join outgoing direction', () => {
+test('leave warning does not treat whoever started the group call specially', () => {
   const state = {isGroupCall: true, conversationId: 'group', phase: 'active', direction: 'outgoing', groupHostUserId: 'host'}
-  assert.match(callPoliciesModule.getGroupLeaveWarning(state, 'group', 'guest'), /other participants can keep talking/)
-  assert.match(callPoliciesModule.getGroupLeaveWarning(state, 'group', 'host'), /ends the group call for everyone/)
-  assert.equal(callPoliciesModule.getGroupLeaveWarning(state, 'other', 'host'), '')
-  assert.equal(callPoliciesModule.getGroupLeaveWarning({...state, phase: 'idle'}, 'group', 'host'), '')
+  // Nobody owns a group call, so the warning is the same for whoever started it.
+  assert.match(callPoliciesModule.getGroupLeaveWarning(state, 'group'), /keeps going for everyone still in it/)
+  assert.doesNotMatch(callPoliciesModule.getGroupLeaveWarning(state, 'group'), /ends the group call for everyone/)
+  assert.equal(callPoliciesModule.getGroupLeaveWarning(state, 'other'), '')
+  assert.equal(callPoliciesModule.getGroupLeaveWarning({...state, phase: 'idle'}, 'group'), '')
 })
 
 test('live group identity clears removed avatars and rejects stale or unrelated snapshots', () => {

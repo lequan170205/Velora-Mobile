@@ -201,7 +201,7 @@ export default function GroupInfoScreen() {
       // Re-read after the RPC: never end another conversation's newer call.
       if (
         useAuthStore.getState().user?.id === currentUserId &&
-        getGroupLeaveWarning(useCallStore.getState(), conversationId, currentUserId)
+        getGroupLeaveWarning(useCallStore.getState(), conversationId)
       )
         await endCall('left')
     },
@@ -451,7 +451,7 @@ export default function GroupInfoScreen() {
   const confirmLeave = () => {
     Alert.alert(
       'Leave group?',
-      `You will no longer receive messages from this group.${getGroupLeaveWarning(useCallStore.getState(), conversationId, currentUserId)}`,
+      `You will no longer receive messages from this group.${getGroupLeaveWarning(useCallStore.getState(), conversationId)}`,
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Leave', style: 'destructive', onPress: () => leaveGroup.mutate() },

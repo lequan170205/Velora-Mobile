@@ -379,11 +379,7 @@ export const getGroupInvitationPatch = (
   }
 }
 
-export const getGroupLeaveWarning = (
-  state: CallUiState,
-  conversationId: string,
-  currentUserId?: string,
-) => {
+export const getGroupLeaveWarning = (state: CallUiState, conversationId: string) => {
   if (
     !state.isGroupCall ||
     state.conversationId !== conversationId ||
@@ -391,7 +387,6 @@ export const getGroupLeaveWarning = (
     state.phase === 'ending'
   )
     return ''
-  return state.groupHostUserId === currentUserId
-    ? ' Leaving also ends the group call for everyone because you started it.'
-    : ' Leaving also disconnects you from the group call; other participants can keep talking.'
+  // A group call has no host: leaving only disconnects this member.
+  return ' Leaving also disconnects you from the group call; it keeps going for everyone still in it.'
 }
