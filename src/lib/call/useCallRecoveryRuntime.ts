@@ -13,6 +13,7 @@ import {
   getGroupCallIdentityPatch,
   getGroupInvitationPatch,
   isCallSetupCancelledError,
+  isGroupGuestSeat,
   isConnectedTransportState,
   isTerminalRemoteMediaError,
   isWaitTimeoutError,
@@ -220,8 +221,8 @@ export const useCallRecoveryRuntime = ({
     remoteVideoEnabledByProducerRef.current.clear()
     remoteVideoRevisionByProducerRef.current.clear()
     try {
-      const groupGuest = state.isGroupCall && state.groupHostUserId !== currentUserId
       const answerAction = incomingAnswerActionRef.current
+      const groupGuest = isGroupGuestSeat(state, currentUserId, answerAction)
       if (groupGuest && answerAction?.callId !== state.callId) {
         throw new Error('group_answer_action_unavailable')
       }

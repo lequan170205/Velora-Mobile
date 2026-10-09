@@ -11,7 +11,7 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Image, Platform, useWindowDimensions, View } from 'react-native'
+import { Image, Platform, useWindowDimensions, View } from 'react-native'
 import Animated, {
   Easing,
   FadeIn,
@@ -97,7 +97,6 @@ export default function ActiveCallScreen() {
     groupMicStates,
     groupMicSyncError,
     groupInvitations,
-    groupHostUserId,
     isGroupCall,
     localStreamUrl,
     muted,
@@ -139,7 +138,6 @@ export default function ActiveCallScreen() {
     () => (isGroupCall ? [...new Set(groupParticipantIds)] : []),
     [groupParticipantIds, isGroupCall],
   )
-  const isGroupHost = isGroupCall && groupHostUserId === currentUser?.id
   const chromeProgress = useSharedValue(1)
   const isLandscape = width > height
   const systemTopInset =
@@ -232,16 +230,11 @@ export default function ActiveCallScreen() {
     }
   }
 
+  // A group call has no host: leaving only disconnects this member, so there is
+  // nothing to confirm on behalf of the others.
   const handleEndCallPress = useCallback(() => {
-    if (!isGroupHost) {
-      void endCall()
-      return
-    }
-    Alert.alert('End group call?', 'This will end the call for everyone.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'End for everyone', style: 'destructive', onPress: () => void endCall() },
-    ])
-  }, [endCall, isGroupHost])
+    void endCall()
+  }, [endCall])
 
   useKeepAwake()
 
@@ -392,7 +385,7 @@ export default function ActiveCallScreen() {
 
       <IconButton
         icon="call-end"
-        label={isGroupHost ? 'End call for everyone' : isGroupCall ? 'Leave call' : 'End call'}
+        label={isGroupCall ? 'Leave call' : 'End call'}
         destructive
         size={52}
         onPress={handleEndCallPress}
@@ -995,7 +988,7 @@ export default function ActiveCallScreen() {
               className="mt-2 text-center text-sm"
               style={{ color: colors.call.textSecondary }}
             >
-              {isGroupHost ? 'End call for everyone' : 'Leave call'}
+              Leave call
             </AppText>
           ) : null}
         </Animated.View>

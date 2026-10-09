@@ -196,12 +196,18 @@ test('group People exposes mic state as readable text, with an unknown fallback'
   assert.match(screen, /importantForAccessibility="no"/)
 })
 
-test('group call labels host ending separately from guest leaving', () => {
+test('group call has a single Leave action for everyone, whoever started it', () => {
   const screen = read('app/call/[id].tsx')
-  assert.match(screen, /const isGroupHost = isGroupCall && groupHostUserId === currentUser\?\.id/)
-  assert.match(screen, /Alert\.alert\('End group call\?', 'This will end the call for everyone\.'/)
-  assert.match(screen, /isGroupHost \? 'End call for everyone' : 'Leave call'/)
+  assert.doesNotMatch(screen, /isGroupHost|groupHostUserId/)
+  assert.doesNotMatch(screen, /End call for everyone|End for everyone|end the call for everyone/)
+  assert.match(screen, /label=\{isGroupCall \? 'Leave call' : 'End call'\}/)
   assert.match(screen, /Waiting for others to join…/)
+})
+
+test('call buttons stay disabled while the group already has a call in progress', () => {
+  const screen = read('app/conversation/[id].tsx')
+  // Starting a second call would only fail; the banner is the way in.
+  assert.match(screen, /callActionsDisabled=\{[\s\S]*?Boolean\(activeGroupCall\)/)
 })
 
 test('minimized group return control shows server roster count and local mic state', () => {

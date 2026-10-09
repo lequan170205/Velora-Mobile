@@ -379,6 +379,21 @@ export const getGroupInvitationPatch = (
   }
 }
 
+/**
+ * Whether this device holds a group seat that must prove its answer to rejoin.
+ * Everyone but the original creator does. A creator who left and came back
+ * through late join also holds an answer action, so the creator id alone
+ * cannot decide it.
+ */
+export const isGroupGuestSeat = (
+  state: Pick<CallUiState, 'isGroupCall' | 'groupHostUserId' | 'callId'>,
+  currentUserId: string | null | undefined,
+  answerAction: { callId: string } | null | undefined,
+) =>
+  state.isGroupCall &&
+  (state.groupHostUserId !== currentUserId ||
+    (state.callId !== null && answerAction?.callId === state.callId))
+
 export const getGroupLeaveWarning = (state: CallUiState, conversationId: string) => {
   if (
     !state.isGroupCall ||

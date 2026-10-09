@@ -145,6 +145,22 @@ test('terminal cleanup uses the captured invitation, leaves the room reusable an
   assert.equal(terminals.has('cold-room'), true)
 })
 
+test('a creator who rejoined through late join holds a guest seat that must prove its answer', () => {
+  const direct = {isGroupCall: false, groupHostUserId: null, callId: 'room'}
+  const group = {isGroupCall: true, groupHostUserId: 'host', callId: 'room'}
+  const action = (callId) => ({callId, actionId: 'proof'})
+
+  // Not a group call: never a guest seat.
+  assert.equal(callPoliciesModule.isGroupGuestSeat(direct, 'host', action('room')), false)
+  // Everybody but the creator holds a guest seat.
+  assert.equal(callPoliciesModule.isGroupGuestSeat(group, 'guest', null), true)
+  // The creator's original seat has no answer action and rejoins without proof.
+  assert.equal(callPoliciesModule.isGroupGuestSeat(group, 'host', null), false)
+  assert.equal(callPoliciesModule.isGroupGuestSeat(group, 'host', action('older-call')), false)
+  // A creator who left and late-joined holds an action for this very call.
+  assert.equal(callPoliciesModule.isGroupGuestSeat(group, 'host', action('room')), true)
+})
+
 test('leave warning does not treat whoever started the group call specially', () => {
   const state = {isGroupCall: true, conversationId: 'group', phase: 'active', direction: 'outgoing', groupHostUserId: 'host'}
   // Nobody owns a group call, so the warning is the same for whoever started it.

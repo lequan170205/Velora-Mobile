@@ -234,7 +234,11 @@ test('conversation call actions provide immediate single-flight loading feedback
   assert.match(screen, /callStartInFlightRef\.current/)
   assert.match(screen, /startVoiceCall\(\{/)
   assert.match(screen, /startVideoCall\(\{/)
-  assert.match(screen, /callActionsDisabled=\{callPhase !== 'idle' \|\| pendingCallType !== null\}/)
+  // A running group call also disables starting another one; the banner is the way in.
+  assert.match(
+    screen,
+    /callActionsDisabled=\{\s*callPhase !== 'idle' \|\| pendingCallType !== null \|\| Boolean\(activeGroupCall\)\s*\}/,
+  )
   assert.match(header, /<ActivityIndicator/)
   assert.match(header, /disabled=\{callActionsDisabled\}/)
   assert.match(header, /busy=\{pendingCallType === 'VIDEO'\}/)

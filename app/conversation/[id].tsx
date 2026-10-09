@@ -718,7 +718,11 @@ export default function ChatScreen() {
             isGroup={isGroup}
             isOnline={isOnline}
             participantCount={currentConversation?.participantIds.length ?? 0}
-            callActionsDisabled={callPhase !== 'idle' || pendingCallType !== null}
+            // With a group call already running, the banner is the way in; starting
+            // another one would only fail with a misleading "already in a call".
+            callActionsDisabled={
+              callPhase !== 'idle' || pendingCallType !== null || Boolean(activeGroupCall)
+            }
             pendingCallType={pendingCallType}
             presenceLabel={presenceLabel}
             queuedMessageCount={queuedMessageCount}

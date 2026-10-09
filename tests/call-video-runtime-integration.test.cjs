@@ -660,6 +660,7 @@ const createRecoveryRuntime = ({
       './callPolicies': {
         getGroupCallIdentityPatch: callPolicies.getGroupCallIdentityPatch,
         getGroupInvitationPatch: callPolicies.getGroupInvitationPatch,
+        isGroupGuestSeat: callPolicies.isGroupGuestSeat,
         isCallSetupCancelledError: (error) =>
           error instanceof Error && error.message === 'Call setup was cancelled',
         isConnectedTransportState: () => false,
@@ -947,6 +948,7 @@ test('outgoing late-join guests retain winner proof on active and pre-active rec
       '../../stores/callStore': { useCallStore: { getState: () => state } },
       './callConstants': {},
       './callDebug': callDebug,
+      './callPolicies': { isGroupGuestSeat: callPolicies.isGroupGuestSeat },
       './callSocket': {
         emitAndWaitForEvent: async (_socket, event, payload) => {
           sent.push([event, payload])
@@ -955,8 +957,9 @@ test('outgoing late-join guests retain winner proof on active and pre-active rec
       },
     },
   )
+  const incomingAnswerActionRef = { current: { callId: 'room', actionId: 'late-join-proof' } }
   const runtime = useCallSocketRuntime({
-    incomingAnswerActionRef: { current: { callId: 'room', actionId: 'late-join-proof' } },
+    incomingAnswerActionRef,
     acceptingIncomingCallIdRef: { current: null },
     waitRegistryRef: { current: new Set() },
     socketGenerationRef: { current: 1 },
@@ -964,9 +967,15 @@ test('outgoing late-join guests retain winner proof on active and pre-active rec
   })
   await runtime.restorePreActiveCallMembership({}, 'room')
   assert.deepEqual(sent, [['rejoin_call', { callId: 'room', actionId: 'late-join-proof' }]])
+  // The creator's original seat has no answer action and keeps the plain path.
   state.groupHostUserId = 'guest'
+  incomingAnswerActionRef.current = null
   await runtime.restorePreActiveCallMembership({}, 'room')
   assert.deepEqual(sent.at(-1), ['join_call', { callId: 'room' }])
+  // A creator who left and late-joined holds a proof and must present it.
+  incomingAnswerActionRef.current = { callId: 'room', actionId: 'late-join-proof' }
+  await runtime.restorePreActiveCallMembership({}, 'room')
+  assert.deepEqual(sent.at(-1), ['rejoin_call', { callId: 'room', actionId: 'late-join-proof' }])
 })
 
 test('group peer reconnect state is scoped to joined peers and clears on return', () => {
