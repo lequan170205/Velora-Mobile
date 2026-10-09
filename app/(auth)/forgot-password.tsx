@@ -1,20 +1,13 @@
-import { MaterialIcons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 import { useState } from 'react'
-import { ActivityIndicator, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { Text, TouchableOpacity, View } from 'react-native'
 
 import { authApi } from '../../src/api/auth.api'
+import { AuthField } from '../../src/components/auth/AuthField'
 import { AuthFlowLayout } from '../../src/components/auth/AuthFlowLayout'
-import { colors } from '../../src/constants/theme'
-import { cn } from '../../src/lib/cn'
+import { AuthPrimaryButton } from '../../src/components/auth/AuthPrimaryButton'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-const inputClassName = (isFocused: boolean) =>
-  cn(
-    'h-14 flex-row items-center rounded-[20px] px-4',
-    isFocused ? 'bg-surface-cream-focus' : 'bg-white',
-  )
 
 const getEmailError = (email: string) => {
   if (!email.trim()) return 'Enter your email.'
@@ -26,7 +19,6 @@ export default function ForgotPasswordScreen() {
   const router = useRouter()
   const [email, setEmail] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [isFocused, setIsFocused] = useState(false)
   const [error, setError] = useState('')
 
   const handleReset = async () => {
@@ -66,64 +58,44 @@ export default function ForgotPasswordScreen() {
         <View>
           {error ? (
             <View className="mb-4 rounded-[16px] bg-surface-error px-4 py-3">
-              <Text className="text-center text-base2 font-medium text-status-error">{error}</Text>
+              <Text className="text-center text-base2 font-medium text-status-error-text">
+                {error}
+              </Text>
             </View>
           ) : null}
 
-          <TouchableOpacity
-            className="h-14 flex-row items-center justify-center rounded-full bg-brand"
+          <AuthPrimaryButton
+            label="Send code"
             onPress={handleReset}
             disabled={isLoading}
-            activeOpacity={0.85}
-          >
-            {isLoading ? (
-              <ActivityIndicator color={colors.text.inverse} size="small" />
-            ) : (
-              <>
-                <Text className="text-base font-bold text-white">Send code</Text>
-                <MaterialIcons
-                  name="arrow-forward"
-                  size={17}
-                  color={colors.text.inverse}
-                  style={{ marginLeft: 8 }}
-                />
-              </>
-            )}
-          </TouchableOpacity>
+            isLoading={isLoading}
+            trailingIcon="arrow-forward"
+          />
 
           <TouchableOpacity
-            className="mt-4 items-center justify-center rounded-[18px] py-3"
+            className="mt-4 items-center justify-center rounded-[16px] py-3"
             onPress={() => router.replace('/(auth)/login')}
             activeOpacity={0.7}
           >
-            <Text className="text-base2 font-semibold text-brand">Back to sign in</Text>
+            <Text className="text-base2 font-semibold text-brand-text">Back to sign in</Text>
           </TouchableOpacity>
         </View>
       }
     >
       <View>
-        <Text className="mb-2 text-sm2 font-semibold text-text-primary">Email address</Text>
-        <View className={inputClassName(isFocused)}>
-          <MaterialIcons name="mail-outline" size={20} color={colors.brand.secondary} />
-          <TextInput
-            keyboardAppearance="light"
-            className="ml-3 flex-1 text-md font-sans text-text-primary"
-            placeholder="Enter your email"
-            placeholderTextColor={colors.text.tertiary}
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            autoCorrect={false}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
-            returnKeyType="done"
-            onSubmitEditing={handleReset}
-          />
-        </View>
-        <Text className="mt-3 text-base2 leading-5 text-text-secondary">
-          Use the same email you used when creating your account.
-        </Text>
+        <AuthField
+          label="Email address"
+          icon="mail-outline"
+          placeholder="Enter your email"
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          keyboardType="email-address"
+          autoCorrect={false}
+          returnKeyType="done"
+          onSubmitEditing={handleReset}
+          hint="Use the same email you used when creating your account."
+        />
       </View>
     </AuthFlowLayout>
   )

@@ -1,35 +1,27 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { Link, useRouter } from 'expo-router'
 import { useRef, useState } from 'react'
-import {
-  ActivityIndicator,
-  Keyboard,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  View,
-} from 'react-native'
+import { Keyboard, Text, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native'
 import { useKeyboardState } from 'react-native-keyboard-controller'
-import Animated, { FadeInRight, FadeOutLeft } from 'react-native-reanimated'
+import Animated, { FadeInRight, FadeOutLeft, ReduceMotion } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { authApi } from '../../src/api/auth.api'
+import { AuthField } from '../../src/components/auth/AuthField'
+import { AuthHeadline } from '../../src/components/auth/AuthHeadline'
+import { AuthPrimaryButton } from '../../src/components/auth/AuthPrimaryButton'
 import { ShortFormScreen } from '../../src/components/base/ShortFormScreen'
-import { colors, shadows } from '../../src/constants/theme'
-import { cn } from '../../src/lib/cn'
+import { colors } from '../../src/constants/theme'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const steps = [
   {
-    eyebrow: 'PROFILE DETAILS',
     title: 'Tell us about you',
     subtitle: 'Use the name your friends will recognize.',
     cta: 'Continue',
   },
   {
-    eyebrow: 'ACCOUNT DETAILS',
     title: 'Set up your login',
     subtitle: 'Use an email you can access and a secure password.',
     cta: 'Create my account',
@@ -60,27 +52,25 @@ const getConfirmPasswordError = (password: string, confirmPassword: string) => {
   return ''
 }
 
-const inputClassName = (isFocused: boolean) =>
-  cn(
-    'h-14 flex-row items-center rounded-[20px] border px-4',
-    isFocused ? 'border-border-warm bg-surface-cream-focus' : 'border-border-warm-soft bg-white',
-  )
-
 type FocusableField = 'fullName' | 'email' | 'password' | 'confirmPassword'
 
 function StepIndicator({ active }: { active: boolean }) {
   return (
-    <View className={cn('h-1.5 flex-1 rounded-full', active ? 'bg-brand' : 'bg-surface-focus')} />
+    <View
+      className={
+        active ? 'h-1.5 flex-1 rounded-full bg-brand' : 'h-1.5 flex-1 rounded-full bg-surface-focus'
+      }
+    />
   )
 }
 
 export default function RegisterScreen() {
   const insets = useSafeAreaInsets()
   const router = useRouter()
-  const fullNameInputRef = useRef<TextInput>(null)
-  const emailInputRef = useRef<TextInput>(null)
-  const passwordInputRef = useRef<TextInput>(null)
-  const confirmPasswordInputRef = useRef<TextInput>(null)
+  const fullNameInputRef = useRef<React.ComponentRef<typeof AuthField>>(null)
+  const emailInputRef = useRef<React.ComponentRef<typeof AuthField>>(null)
+  const passwordInputRef = useRef<React.ComponentRef<typeof AuthField>>(null)
+  const confirmPasswordInputRef = useRef<React.ComponentRef<typeof AuthField>>(null)
   const isKeyboardVisible = useKeyboardState((state) => state.isVisible)
 
   const [step, setStep] = useState(0)
@@ -89,7 +79,6 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
-  const [focusedInput, setFocusedInput] = useState<FocusableField | null>(null)
   const [showPassword, setShowPassword] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [touchedFields, setTouchedFields] = useState<Partial<Record<FocusableField, boolean>>>({})
@@ -108,10 +97,6 @@ export default function RegisterScreen() {
     Boolean,
   )
   const isValidationError = Boolean(error && validationErrors.includes(error))
-
-  const handleFieldFocus = (field: FocusableField) => {
-    setFocusedInput(field)
-  }
 
   const markFieldTouched = (field: FocusableField) => {
     setTouchedFields((currentFields) => ({ ...currentFields, [field]: true }))
@@ -191,19 +176,19 @@ export default function RegisterScreen() {
 
   return (
     <View className="flex-1 bg-surface-cream">
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <ShortFormScreen
-          className="flex-1"
-          contentContainerStyle={{
-            flexGrow: 1,
-            paddingBottom: Math.max(insets.bottom + 28, 44),
-            paddingHorizontal: 24,
-            paddingTop: insets.top + 10,
-          }}
-          keyboardDismissMode="on-drag"
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
+      <ShortFormScreen
+        className="flex-1"
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingBottom: Math.max(insets.bottom + 28, 44),
+          paddingHorizontal: 24,
+          paddingTop: insets.top + 10,
+        }}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View className="flex-1">
             <View className="flex-row items-center">
               <TouchableOpacity
@@ -219,12 +204,9 @@ export default function RegisterScreen() {
               </TouchableOpacity>
 
               <View className="ml-4 flex-1">
-                <View className="mb-2 flex-row items-center justify-between">
-                  <Text className="text-xs2 font-semibold uppercase tracking-[1px] text-text-muted">
-                    Step {step + 1} of {steps.length}
-                  </Text>
-                  <Text className="text-xs2 font-semibold text-brand">{currentStep.eyebrow}</Text>
-                </View>
+                <Text className="mb-2 text-xs2 font-semibold uppercase tracking-[1px] text-text-secondary">
+                  Step {step + 1} of {steps.length}
+                </Text>
                 <View className="flex-row items-center gap-2">
                   {steps.map((_, index) => (
                     <StepIndicator key={index} active={index <= step} />
@@ -234,9 +216,7 @@ export default function RegisterScreen() {
             </View>
 
             <View className="pt-6">
-              <Text className="font-heading text-[40px] leading-[44px] tracking-[-1.1px] text-text-primary">
-                {currentStep.title}
-              </Text>
+              <AuthHeadline size="hero" title={currentStep.title} />
               <Text className="mt-2 text-base font-sans leading-6 text-text-secondary">
                 {currentStep.subtitle}
               </Text>
@@ -244,193 +224,99 @@ export default function RegisterScreen() {
 
             <Animated.View
               key={step}
-              entering={FadeInRight.duration(220)}
-              exiting={FadeOutLeft.duration(180)}
+              entering={FadeInRight.duration(220).reduceMotion(ReduceMotion.System)}
+              exiting={FadeOutLeft.duration(180).reduceMotion(ReduceMotion.System)}
               className="mt-6 flex-1"
             >
               {step === 0 ? (
                 <View className="flex-1">
-                  <View>
-                    <Text className="mb-2 text-sm2 font-semibold text-text-primary">Full name</Text>
-                    <View className={inputClassName(focusedInput === 'fullName')}>
-                      <View className="flex-row items-center">
-                        <MaterialIcons
-                          name="person-outline"
-                          size={20}
-                          color={colors.brand.secondary}
-                        />
-                        <TextInput
-                          keyboardAppearance="light"
-                          ref={fullNameInputRef}
-                          className="ml-3 flex-1 text-md font-sans text-text-primary"
-                          placeholder="Enter your full name"
-                          placeholderTextColor={colors.text.tertiary}
-                          value={fullName}
-                          onChangeText={(value) => {
-                            setFullName(value)
-                            clearError()
-                          }}
-                          autoCapitalize="words"
-                          onFocus={() => handleFieldFocus('fullName')}
-                          onBlur={() => {
-                            markFieldTouched('fullName')
-                            setFocusedInput(null)
-                          }}
-                          maxLength={80}
-                          returnKeyType="done"
-                          onSubmitEditing={Keyboard.dismiss}
-                        />
-                      </View>
-                    </View>
-                    <Text
-                      className={cn(
-                        'mt-2 text-base2 leading-5',
-                        touchedFields.fullName && fullNameError
-                          ? 'font-medium text-status-error'
-                          : 'text-text-secondary',
-                      )}
-                    >
-                      {touchedFields.fullName && fullNameError
-                        ? fullNameError
-                        : 'This name will be visible on your profile.'}
-                    </Text>
-                  </View>
+                  <AuthField
+                    ref={fullNameInputRef}
+                    label="Full name"
+                    icon="person-outline"
+                    placeholder="Enter your full name"
+                    value={fullName}
+                    onChangeText={(value) => {
+                      setFullName(value)
+                      clearError()
+                    }}
+                    autoCapitalize="words"
+                    onBlur={() => markFieldTouched('fullName')}
+                    maxLength={80}
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
+                    hint="This name will be visible on your profile."
+                    error={touchedFields.fullName && fullNameError ? fullNameError : null}
+                  />
                 </View>
               ) : null}
 
               {step === 1 ? (
                 <View className="flex-1 gap-4">
-                  <View>
-                    <Text className="mb-2 text-sm2 font-semibold text-text-primary">
-                      Email address
-                    </Text>
-                    <View className={inputClassName(focusedInput === 'email')}>
-                      <TextInput
-                        keyboardAppearance="light"
-                        ref={emailInputRef}
-                        className="flex-1 text-md font-sans text-text-primary"
-                        placeholder="name@email.com"
-                        placeholderTextColor={colors.text.tertiary}
-                        value={email}
-                        onChangeText={(value) => {
-                          setEmail(value)
-                          clearError()
-                        }}
-                        autoCapitalize="none"
-                        keyboardType="email-address"
-                        autoCorrect={false}
-                        onFocus={() => handleFieldFocus('email')}
-                        onBlur={() => {
-                          markFieldTouched('email')
-                          setFocusedInput(null)
-                        }}
-                        returnKeyType="next"
-                        blurOnSubmit={false}
-                        onSubmitEditing={() => passwordInputRef.current?.focus()}
-                      />
-                    </View>
-                    <Text
-                      className={cn(
-                        'mt-2 text-base2 leading-5',
-                        touchedFields.email && emailError
-                          ? 'font-medium text-status-error'
-                          : 'text-text-secondary',
-                      )}
-                    >
-                      {touchedFields.email && emailError
-                        ? emailError
-                        : 'We will send your verification code here.'}
-                    </Text>
-                  </View>
+                  <AuthField
+                    ref={emailInputRef}
+                    label="Email address"
+                    icon="mail-outline"
+                    placeholder="name@email.com"
+                    value={email}
+                    onChangeText={(value) => {
+                      setEmail(value)
+                      clearError()
+                    }}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    autoCorrect={false}
+                    onBlur={() => markFieldTouched('email')}
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => passwordInputRef.current?.focus()}
+                    hint="We will send your verification code here."
+                    error={touchedFields.email && emailError ? emailError : null}
+                  />
 
-                  <View>
-                    <Text className="mb-2 text-sm2 font-semibold text-text-primary">Password</Text>
-                    <View className={inputClassName(focusedInput === 'password')}>
-                      <View className="flex-row items-center">
-                        <TextInput
-                          keyboardAppearance="light"
-                          ref={passwordInputRef}
-                          className="flex-1 text-md font-sans text-text-primary"
-                          placeholder="At least 8 characters"
-                          placeholderTextColor={colors.text.tertiary}
-                          value={password}
-                          onChangeText={(value) => {
-                            setPassword(value)
-                            clearError()
-                          }}
-                          secureTextEntry={!showPassword}
-                          autoCorrect={false}
-                          onFocus={() => handleFieldFocus('password')}
-                          onBlur={() => {
-                            markFieldTouched('password')
-                            setFocusedInput(null)
-                          }}
-                          returnKeyType="next"
-                          blurOnSubmit={false}
-                          onSubmitEditing={() => confirmPasswordInputRef.current?.focus()}
-                        />
-                        <TouchableOpacity
-                          className="h-10 w-10 items-center justify-center"
-                          onPress={() => setShowPassword((currentValue) => !currentValue)}
-                          activeOpacity={0.7}
-                          accessibilityRole="button"
-                          accessibilityLabel={showPassword ? 'Hide passwords' : 'Show passwords'}
-                        >
-                          <MaterialIcons
-                            name={showPassword ? 'visibility' : 'visibility-off'}
-                            size={20}
-                            color="#6E6E73"
-                          />
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                    <Text
-                      className={cn(
-                        'mt-2 text-base2 leading-5',
-                        touchedFields.password && passwordError
-                          ? 'font-medium text-status-error'
-                          : 'text-text-secondary',
-                      )}
-                    >
-                      {touchedFields.password && passwordError
-                        ? passwordError
-                        : 'Use 8 or more characters.'}
-                    </Text>
-                  </View>
+                  <AuthField
+                    ref={passwordInputRef}
+                    label="Password"
+                    icon="lock-outline"
+                    placeholder="At least 8 characters"
+                    value={password}
+                    onChangeText={(value) => {
+                      setPassword(value)
+                      clearError()
+                    }}
+                    autoCorrect={false}
+                    secureTextEntry={!showPassword}
+                    onToggleSecure={() => setShowPassword((currentValue) => !currentValue)}
+                    secureToggleLabels={{ show: 'Show passwords', hide: 'Hide passwords' }}
+                    onBlur={() => markFieldTouched('password')}
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => confirmPasswordInputRef.current?.focus()}
+                    hint="Use 8 or more characters."
+                    error={touchedFields.password && passwordError ? passwordError : null}
+                  />
 
-                  <View>
-                    <Text className="mb-2 text-sm2 font-semibold text-text-primary">
-                      Confirm password
-                    </Text>
-                    <View className={inputClassName(focusedInput === 'confirmPassword')}>
-                      <TextInput
-                        keyboardAppearance="light"
-                        ref={confirmPasswordInputRef}
-                        className="flex-1 text-md font-sans text-text-primary"
-                        placeholder="Re-enter your password"
-                        placeholderTextColor={colors.text.tertiary}
-                        value={confirmPassword}
-                        onChangeText={(value) => {
-                          setConfirmPassword(value)
-                          clearError()
-                        }}
-                        secureTextEntry={!showPassword}
-                        autoCorrect={false}
-                        onFocus={() => handleFieldFocus('confirmPassword')}
-                        onBlur={() => {
-                          markFieldTouched('confirmPassword')
-                          setFocusedInput(null)
-                        }}
-                        returnKeyType="done"
-                        onSubmitEditing={Keyboard.dismiss}
-                      />
-                    </View>
-                    {touchedFields.confirmPassword && confirmPasswordError ? (
-                      <Text className="mt-2 text-base2 font-medium leading-5 text-status-error">
-                        {confirmPasswordError}
-                      </Text>
-                    ) : null}
-                  </View>
+                  <AuthField
+                    ref={confirmPasswordInputRef}
+                    label="Confirm password"
+                    icon="lock-outline"
+                    placeholder="Re-enter your password"
+                    value={confirmPassword}
+                    onChangeText={(value) => {
+                      setConfirmPassword(value)
+                      clearError()
+                    }}
+                    autoCorrect={false}
+                    secureTextEntry={!showPassword}
+                    onBlur={() => markFieldTouched('confirmPassword')}
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
+                    error={
+                      touchedFields.confirmPassword && confirmPasswordError
+                        ? confirmPasswordError
+                        : null
+                    }
+                  />
                 </View>
               ) : null}
             </Animated.View>
@@ -438,38 +324,19 @@ export default function RegisterScreen() {
             <View className="mt-auto pt-8">
               {error && !isValidationError ? (
                 <View className="mb-4 rounded-[16px] bg-surface-error px-4 py-3">
-                  <Text className="text-center text-base2 font-medium text-status-error">
+                  <Text className="text-center text-base2 font-medium text-status-error-text">
                     {error}
                   </Text>
                 </View>
               ) : null}
 
-              <TouchableOpacity
-                className={cn(
-                  'h-14 flex-row items-center justify-center rounded-full bg-brand',
-                  isPrimaryDisabled ? 'opacity-40' : null,
-                )}
-                style={shadows.glow}
+              <AuthPrimaryButton
+                label={currentStep.cta}
                 onPress={handleNext}
                 disabled={isPrimaryDisabled}
-                activeOpacity={0.85}
-                accessibilityRole="button"
-                accessibilityState={{ disabled: isPrimaryDisabled }}
-              >
-                {isSubmitting ? (
-                  <ActivityIndicator color={colors.text.inverse} size="small" />
-                ) : (
-                  <>
-                    <Text className="text-lg font-bold text-white">{currentStep.cta}</Text>
-                    <MaterialIcons
-                      name={step === steps.length - 1 ? 'check' : 'arrow-forward'}
-                      size={18}
-                      color={colors.text.inverse}
-                      style={{ marginLeft: 8 }}
-                    />
-                  </>
-                )}
-              </TouchableOpacity>
+                isLoading={isSubmitting}
+                trailingIcon={step === steps.length - 1 ? 'check' : 'arrow-forward'}
+              />
 
               {!isKeyboardVisible ? (
                 <>
@@ -479,7 +346,7 @@ export default function RegisterScreen() {
                     </Text>
                     <Link href="/(auth)/login" asChild>
                       <TouchableOpacity activeOpacity={0.7}>
-                        <Text className="text-base2 font-semibold text-brand">Sign in</Text>
+                        <Text className="text-base2 font-semibold text-brand-text">Sign in</Text>
                       </TouchableOpacity>
                     </Link>
                   </View>
@@ -487,8 +354,8 @@ export default function RegisterScreen() {
               ) : null}
             </View>
           </View>
-        </ShortFormScreen>
-      </TouchableWithoutFeedback>
+        </TouchableWithoutFeedback>
+      </ShortFormScreen>
     </View>
   )
 }

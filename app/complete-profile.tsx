@@ -3,11 +3,9 @@ import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import {
   ActivityIndicator,
+  Alert,
   Keyboard,
-  KeyboardAvoidingView,
-  Platform,
   Text,
-  TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
@@ -15,6 +13,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { userApi } from '../src/api/user.api'
+import { AuthField } from '../src/components/auth/AuthField'
+import { AuthHeadline } from '../src/components/auth/AuthHeadline'
+import { AuthPrimaryButton } from '../src/components/auth/AuthPrimaryButton'
+import { ShortFormScreen } from '../src/components/base/ShortFormScreen'
 import { colors } from '../src/constants/theme'
 import { resetLocalDatabase } from '../src/database/DatabaseManager'
 import { useUsernameAvailability } from '../src/hooks/useUsernameAvailability'
@@ -22,9 +24,6 @@ import { cn } from '../src/lib/cn'
 import { performLogoutPushTokenCleanup } from '../src/lib/notifications/pushTokenLifecycle'
 import { MAX_USERNAME_LENGTH, getUsernameError, normalizeUsername } from '../src/lib/profile'
 import { useAuthStore } from '../src/stores/authStore'
-
-const inputClassName = (isFocused: boolean) =>
-  cn('rounded-[22px] px-4 py-3.5', isFocused ? 'bg-[#FFF7F1]' : 'bg-white')
 
 function StatusPill({
   label,
@@ -35,9 +34,9 @@ function StatusPill({
 }) {
   const toneClassName =
     tone === 'positive'
-      ? 'bg-[#EAF8F0] text-call-green'
+      ? 'bg-surface-success text-status-success-deep'
       : tone === 'danger'
-        ? 'bg-[#FFEAEA] text-status-error'
+        ? 'bg-surface-error text-status-error-text'
         : 'bg-surface-muted text-text-secondary'
 
   return (
@@ -54,7 +53,6 @@ export default function CompleteProfileScreen() {
 
   const [username, setUsername] = useState('')
   const [error, setError] = useState('')
-  const [focusedInput, setFocusedInput] = useState<string | null>(null)
   const [debouncedUsername, setDebouncedUsername] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -115,9 +113,9 @@ export default function CompleteProfileScreen() {
 
   const statusColorClass =
     usernameError || isUsernameTaken
-      ? 'text-status-error'
+      ? 'text-status-error-text'
       : isUsernameAvailable
-        ? 'text-call-green'
+        ? 'text-status-success-deep'
         : 'text-text-secondary'
 
   const handleSubmit = async () => {
@@ -180,157 +178,134 @@ export default function CompleteProfileScreen() {
     }
   }
 
+  const confirmSignOut = () => {
+    Alert.alert('Sign out?', 'You can sign back in with your email and password.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign out', style: 'destructive', onPress: () => void handleSignOut() },
+    ])
+  }
+
   return (
-    <KeyboardAvoidingView
-      className="flex-1 bg-bg-primary"
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View
-          className="flex-1 px-6"
-          style={{
-            paddingBottom: Math.max(insets.bottom, 20) + 24,
-            paddingTop: insets.top + 14,
-          }}
-        >
-          <View className="absolute right-[-42px] top-[72px] h-40 w-40 rounded-full bg-[#FFF1E8]" />
-          <View className="absolute left-[-54px] top-[188px] h-28 w-28 rounded-full bg-[#FFF6EF]" />
-
-          <View className="flex-row justify-end">
-            <TouchableOpacity
-              className="h-11 w-11 items-center justify-center rounded-full border border-[#F1E3D7] bg-white"
-              onPress={() => {
-                void handleSignOut()
-              }}
-              activeOpacity={0.8}
-            >
-              <MaterialIcons name="logout" size={20} color="#1C1C1E" />
-            </TouchableOpacity>
-          </View>
-
-          <View className="pt-9">
-            <Text className="font-heading text-[34px] leading-[38px] text-text-primary">
-              Choose your username
-            </Text>
-            <Text className="mt-2 text-base2 font-sans leading-6 text-text-secondary">
-              This is your public handle across Velora.
-            </Text>
-          </View>
-
-          <View className="mt-8 rounded-[28px] border border-[#F3E6DA] bg-white px-5 py-5">
-            <View className="flex-row items-center justify-between">
-              <View className="flex-1 pr-3">
-                <Text className="text-xs2 uppercase tracking-[1.2px] text-text-muted">
-                  Your profile
-                </Text>
-                <Text className="mt-2 font-heading text-[28px] leading-[32px] text-text-primary">
-                  @{normalizedUsername || 'username'}
-                </Text>
-              </View>
-
-              {isCheckingUsername ? (
-                <StatusPill label="Checking" />
-              ) : isUsernameAvailable ? (
-                <StatusPill label="Available" tone="positive" />
-              ) : isUsernameTaken ? (
-                <StatusPill label="Taken" tone="danger" />
-              ) : (
-                <StatusPill label="Handle" />
-              )}
-            </View>
-          </View>
-
-          <View className="mt-4">
-            <View className={inputClassName(focusedInput === 'username')}>
-              <Text className="mb-1.5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
-                Username
-              </Text>
-              <View className="flex-row items-center">
-                <Text className="pr-1 text-[18px] font-semibold text-text-primary">@</Text>
-                <TextInput
-                  className="flex-1 py-1 text-[18px] font-semibold text-text-primary"
-                  placeholder="username"
-                  placeholderTextColor="#AEAEB2"
-                  value={username}
-                  onChangeText={(value) => setUsername(normalizeUsername(value))}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  onFocus={() => setFocusedInput('username')}
-                  onBlur={() => setFocusedInput(null)}
-                  maxLength={MAX_USERNAME_LENGTH}
-                  returnKeyType="done"
-                  onSubmitEditing={() => {
-                    void handleSubmit()
-                  }}
-                />
-              </View>
+    <View className="flex-1 bg-surface-cream">
+      <ShortFormScreen
+        className="flex-1"
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingBottom: Math.max(insets.bottom + 28, 44),
+          paddingHorizontal: 24,
+          paddingTop: insets.top + 10,
+        }}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View className="flex-1">
+            <View className="flex-row justify-end">
+              <TouchableOpacity
+                className="h-11 w-11 items-center justify-center rounded-[16px] border border-border-warm-soft bg-white"
+                onPress={confirmSignOut}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Sign out"
+              >
+                <MaterialIcons name="logout" size={20} color={colors.text.primary} />
+              </TouchableOpacity>
             </View>
 
-            <View className="mt-3 flex-row items-center gap-2 px-1">
-              {isCheckingUsername ? (
-                <ActivityIndicator size="small" color="#6E6E73" />
-              ) : (
-                <MaterialIcons
-                  name={
-                    usernameError || isUsernameTaken
-                      ? 'error-outline'
-                      : isUsernameAvailable
-                        ? 'check-circle-outline'
-                        : 'info-outline'
-                  }
-                  size={18}
-                  color={
-                    usernameError || isUsernameTaken
-                      ? '#D94F4F'
-                      : isUsernameAvailable
-                        ? '#2B9F63'
-                        : '#6E6E73'
-                  }
-                />
-              )}
-              <Text className={cn('flex-1 text-base2 font-sans', statusColorClass)}>
-                {statusText}
+            <View className="pt-9">
+              <AuthHeadline size="hero" title="Choose your username" />
+              <Text className="mt-2 text-base2 font-sans leading-6 text-text-secondary">
+                This is your public handle across Velora.
               </Text>
             </View>
-          </View>
 
-          <View className="mt-auto pt-8">
-            {error ? (
-              <View className="mb-4 rounded-[18px] bg-[#FFE8E8] px-4 py-3">
-                <Text className="text-center text-base2 font-medium text-status-error">
-                  {error}
-                </Text>
+            <View className="mt-8 rounded-[20px] border border-border-warm bg-white px-5 py-5">
+              <View className="flex-row items-center justify-between">
+                <View className="flex-1 pr-3">
+                  <Text className="font-heading text-[28px] leading-[32px] text-text-primary">
+                    @{normalizedUsername || 'username'}
+                  </Text>
+                </View>
+
+                {isCheckingUsername ? (
+                  <StatusPill label="Checking" />
+                ) : isUsernameAvailable ? (
+                  <StatusPill label="Available" tone="positive" />
+                ) : isUsernameTaken ? (
+                  <StatusPill label="Taken" tone="danger" />
+                ) : (
+                  <StatusPill label="Handle" />
+                )}
               </View>
-            ) : null}
+            </View>
 
-            <TouchableOpacity
-              className={cn(
-                'h-[52px] flex-row items-center justify-center rounded-full',
-                canSubmit ? 'bg-brand' : 'bg-[#F4B89A]',
-              )}
-              onPress={() => {
-                void handleSubmit()
-              }}
-              disabled={!canSubmit}
-              activeOpacity={0.85}
-            >
-              {isSubmitting ? (
-                <ActivityIndicator color={colors.text.inverse} size="small" />
-              ) : (
-                <>
-                  <Text className="text-base font-bold text-white">Continue</Text>
+            <View className="mt-4">
+              <AuthField
+                label="Username"
+                leadingAccessory={
+                  <Text className="text-md font-semibold text-text-primary">@</Text>
+                }
+                placeholder="username"
+                value={username}
+                onChangeText={(value) => setUsername(normalizeUsername(value))}
+                autoCapitalize="none"
+                autoCorrect={false}
+                maxLength={MAX_USERNAME_LENGTH}
+                returnKeyType="done"
+                onSubmitEditing={() => {
+                  void handleSubmit()
+                }}
+              />
+
+              <View className="mt-3 flex-row items-center gap-2 px-1">
+                {isCheckingUsername ? (
+                  <ActivityIndicator size="small" color={colors.text.secondary} />
+                ) : (
                   <MaterialIcons
-                    name="arrow-forward"
-                    size={17}
-                    color={colors.text.inverse}
-                    style={{ marginLeft: 8 }}
+                    name={
+                      usernameError || isUsernameTaken
+                        ? 'error-outline'
+                        : isUsernameAvailable
+                          ? 'check-circle-outline'
+                          : 'info-outline'
+                    }
+                    size={18}
+                    color={
+                      usernameError || isUsernameTaken
+                        ? colors.status.errorText
+                        : isUsernameAvailable
+                          ? colors.status.successDeep
+                          : colors.text.secondary
+                    }
                   />
-                </>
-              )}
-            </TouchableOpacity>
+                )}
+                <Text className={statusColorClass}>{statusText}</Text>
+              </View>
+            </View>
+
+            <View className="mt-auto pt-8">
+              {error ? (
+                <View className="mb-4 rounded-[16px] bg-surface-error px-4 py-3">
+                  <Text className="text-center text-base2 font-medium text-status-error-text">
+                    {error}
+                  </Text>
+                </View>
+              ) : null}
+
+              <AuthPrimaryButton
+                label="Continue"
+                onPress={() => {
+                  void handleSubmit()
+                }}
+                disabled={!canSubmit}
+                isLoading={isSubmitting}
+                trailingIcon="arrow-forward"
+              />
+            </View>
           </View>
-        </View>
-      </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
+        </TouchableWithoutFeedback>
+      </ShortFormScreen>
+    </View>
   )
 }

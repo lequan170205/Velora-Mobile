@@ -1,12 +1,11 @@
-import { MaterialIcons } from '@expo/vector-icons'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native'
+import { Text, TouchableOpacity, View } from 'react-native'
 
 import { authApi } from '../../src/api/auth.api'
 import { AuthFlowLayout } from '../../src/components/auth/AuthFlowLayout'
+import { AuthPrimaryButton } from '../../src/components/auth/AuthPrimaryButton'
 import { OtpCodeInput } from '../../src/components/auth/OtpCodeInput'
-import { colors } from '../../src/constants/theme'
 
 export default function VerifyEmailScreen() {
   const router = useRouter()
@@ -90,42 +89,30 @@ export default function VerifyEmailScreen() {
         </Text>
       }
       onBack={() => router.back()}
-      progressActive={2}
-      progressTotal={2}
+      showProgress={false}
       footer={
         <View>
           {error ? (
             <View className="mb-4 rounded-[16px] bg-surface-error px-4 py-3">
-              <Text className="text-center text-base2 font-medium text-status-error">{error}</Text>
+              <Text className="text-center text-base2 font-medium text-status-error-text">
+                {error}
+              </Text>
             </View>
           ) : null}
 
           {notice ? (
             <View className="mb-4 rounded-[16px] bg-surface-accent px-4 py-3">
-              <Text className="text-center text-base2 font-medium text-[#A6501B]">{notice}</Text>
+              <Text className="text-center text-base2 font-medium text-brand-text">{notice}</Text>
             </View>
           ) : null}
 
-          <TouchableOpacity
-            className="h-14 flex-row items-center justify-center rounded-full bg-brand"
+          <AuthPrimaryButton
+            label="Verify email"
             onPress={handleVerify}
             disabled={isLoading}
-            activeOpacity={0.85}
-          >
-            {isLoading ? (
-              <ActivityIndicator color={colors.text.inverse} size="small" />
-            ) : (
-              <>
-                <Text className="text-base font-bold text-white">Verify email</Text>
-                <MaterialIcons
-                  name="arrow-forward"
-                  size={17}
-                  color={colors.text.inverse}
-                  style={{ marginLeft: 8 }}
-                />
-              </>
-            )}
-          </TouchableOpacity>
+            isLoading={isLoading}
+            trailingIcon="arrow-forward"
+          />
 
           <View className="mt-5 items-center">
             {countdown > 0 ? (
@@ -144,7 +131,7 @@ export default function VerifyEmailScreen() {
                 activeOpacity={0.75}
                 disabled={isResending}
               >
-                <Text className="text-base2 font-semibold text-brand">
+                <Text className="text-base2 font-semibold text-brand-text">
                   {isResending ? 'Sending...' : 'Resend code'}
                 </Text>
               </TouchableOpacity>
@@ -154,7 +141,7 @@ export default function VerifyEmailScreen() {
       }
     >
       <View>
-        <OtpCodeInput value={token} onChangeText={setToken} />
+        <OtpCodeInput value={token} onChangeText={setToken} hasError={Boolean(error)} />
         <Text className="mt-3 text-base2 leading-5 text-text-secondary">
           Paste the code to activate your account and finish setup.
         </Text>

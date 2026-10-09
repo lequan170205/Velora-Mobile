@@ -1,16 +1,16 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { authApi } from '../../src/api/auth.api'
+import { AuthField } from '../../src/components/auth/AuthField'
 import { AuthFlowLayout } from '../../src/components/auth/AuthFlowLayout'
+import { AuthPrimaryButton } from '../../src/components/auth/AuthPrimaryButton'
 import { OtpCodeInput } from '../../src/components/auth/OtpCodeInput'
 import { colors } from '../../src/constants/theme'
-import { cn } from '../../src/lib/cn'
 
-const inputClassName = (isFocused: boolean) =>
-  cn('rounded-[20px] px-4 py-3.5', isFocused ? 'bg-surface-cream-focus' : 'bg-white')
+import type { TextInput } from 'react-native'
 
 export default function ResetPasswordScreen() {
   const router = useRouter()
@@ -27,7 +27,6 @@ export default function ResetPasswordScreen() {
   const [newPassword, setNewPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const [focusedInput, setFocusedInput] = useState<'newPassword' | null>(null)
   const [error, setError] = useState('')
   const [isCompleted, setIsCompleted] = useState(false)
 
@@ -85,43 +84,27 @@ export default function ResetPasswordScreen() {
       progressTotal={2}
       footer={
         isCompleted ? (
-          <TouchableOpacity
-            className="h-14 flex-row items-center justify-center rounded-full bg-brand"
+          <AuthPrimaryButton
+            label="Back to sign in"
             onPress={() => router.replace(`/(auth)/login?email=${encodeURIComponent(email)}`)}
-            activeOpacity={0.85}
-          >
-            <Text className="text-base font-bold text-white">Back to sign in</Text>
-          </TouchableOpacity>
+          />
         ) : (
           <View>
             {error ? (
-              <View className="mb-4 rounded-[16px] bg-[#FFF0EF] px-4 py-3">
-                <Text className="text-center text-base2 font-medium text-status-error">
+              <View className="mb-4 rounded-[16px] bg-surface-error px-4 py-3">
+                <Text className="text-center text-base2 font-medium text-status-error-text">
                   {error}
                 </Text>
               </View>
             ) : null}
 
-            <TouchableOpacity
-              className="h-14 flex-row items-center justify-center rounded-full bg-brand"
+            <AuthPrimaryButton
+              label="Update password"
               onPress={handleReset}
               disabled={isLoading}
-              activeOpacity={0.85}
-            >
-              {isLoading ? (
-                <ActivityIndicator color={colors.text.inverse} size="small" />
-              ) : (
-                <>
-                  <Text className="text-base font-bold text-white">Update password</Text>
-                  <MaterialIcons
-                    name="check"
-                    size={18}
-                    color={colors.text.inverse}
-                    style={{ marginLeft: 8 }}
-                  />
-                </>
-              )}
-            </TouchableOpacity>
+              isLoading={isLoading}
+              trailingIcon="check"
+            />
           </View>
         )
       }
@@ -129,8 +112,8 @@ export default function ResetPasswordScreen() {
       {!isCompleted ? (
         <>
           {notice ? (
-            <View className="mb-4 rounded-[16px] bg-[#FFF4EC] px-4 py-3">
-              <Text className="text-center text-base2 font-medium text-[#A6501B]">{notice}</Text>
+            <View className="mb-4 rounded-[16px] bg-surface-accent px-4 py-3">
+              <Text className="text-center text-base2 font-medium text-brand-text">{notice}</Text>
             </View>
           ) : null}
 
@@ -140,50 +123,31 @@ export default function ResetPasswordScreen() {
               onChangeText={setToken}
               label="Reset code"
               inputRef={otpInputRef}
+              hasError={Boolean(error)}
               onSubmitEditing={() => newPasswordInputRef.current?.focus()}
             />
 
-            <View className={inputClassName(focusedInput === 'newPassword')}>
-              <Text className="mb-1.5 text-sm2 font-semibold text-text-primary">New password</Text>
-              <View className="flex-row items-center">
-                <TextInput
-                  keyboardAppearance="light"
-                  ref={newPasswordInputRef}
-                  className="flex-1 py-1 text-[16px] font-medium text-text-primary"
-                  placeholder="At least 8 characters"
-                  placeholderTextColor="#AEAEB2"
-                  value={newPassword}
-                  onChangeText={setNewPassword}
-                  secureTextEntry={!showPassword}
-                  autoCorrect={false}
-                  onFocus={() => setFocusedInput('newPassword')}
-                  onBlur={() => {
-                    setFocusedInput(null)
-                  }}
-                  returnKeyType="done"
-                  onSubmitEditing={handleReset}
-                />
-                <TouchableOpacity
-                  className="pl-4"
-                  onPress={() => setShowPassword((currentValue) => !currentValue)}
-                  activeOpacity={0.7}
-                >
-                  <MaterialIcons
-                    name={showPassword ? 'visibility' : 'visibility-off'}
-                    size={20}
-                    color="#6E6E73"
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
+            <AuthField
+              ref={newPasswordInputRef}
+              label="New password"
+              icon="lock-outline"
+              placeholder="At least 8 characters"
+              value={newPassword}
+              onChangeText={setNewPassword}
+              autoCorrect={false}
+              secureTextEntry={!showPassword}
+              onToggleSecure={() => setShowPassword((currentValue) => !currentValue)}
+              returnKeyType="done"
+              onSubmitEditing={handleReset}
+            />
           </View>
         </>
       ) : (
-        <View className="rounded-[22px] border border-border-warm bg-white px-5 py-6">
+        <View className="rounded-[20px] border border-border-warm bg-white px-5 py-6">
           <View className="h-12 w-12 items-center justify-center rounded-[16px] bg-brand-soft">
             <MaterialIcons name="check-circle-outline" size={24} color={colors.brand.tertiary} />
           </View>
-          <Text className="mt-4 font-heading text-[24px] leading-[30px] text-text-primary">
+          <Text className="mt-4 font-heading text-xl leading-[26px] text-text-primary">
             You&apos;re all set
           </Text>
           <Text className="mt-2 text-base2 leading-6 text-text-secondary">
