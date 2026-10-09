@@ -68,7 +68,14 @@ export function CallFeedbackNotice({ visible, message, onDismiss }: CallFeedback
   if (!visible || !message) return null
 
   const presentation = getCallFeedbackPresentation(message)
-  const bottomClearance = pathname.startsWith('/call/') ? 112 : 82
+  // Over the near-black call surface the notice must speak the dark call
+  // world; everywhere else it stays on the light product canvas.
+  const isCallSurface = pathname.startsWith('/call/')
+  const noticeBackground = isCallSurface ? colors.call.surfaceElevated : colors.surface.modal
+  const noticeBorder = isCallSurface ? colors.call.controlBorder : colors.border.light
+  const noticeTextColor = isCallSurface ? colors.call.textPrimary : colors.text.primary
+  const dismissIconColor = isCallSurface ? colors.call.textSecondary : colors.text.secondary
+  const bottomClearance = isCallSurface ? 112 : 82
 
   return (
     <View pointerEvents="box-none" className="absolute inset-0 z-[10000] justify-end px-4">
@@ -78,8 +85,8 @@ export function CallFeedbackNotice({ visible, message, onDismiss }: CallFeedback
         className="mx-auto w-full max-w-[420px] flex-row items-center rounded-[20px] border px-3 py-3"
         style={{
           marginBottom: Math.max(insets.bottom, 12) + bottomClearance,
-          backgroundColor: colors.surface.modal,
-          borderColor: colors.border.light,
+          backgroundColor: noticeBackground,
+          borderColor: noticeBorder,
           shadowColor: colors.text.primary,
           shadowOffset: { width: 0, height: 8 },
           shadowOpacity: 0.14,
@@ -98,7 +105,7 @@ export function CallFeedbackNotice({ visible, message, onDismiss }: CallFeedback
 
         <AppText
           className="ml-3 min-w-0 flex-1 text-[15px] font-medium leading-5"
-          style={{ color: colors.text.primary }}
+          style={{ color: noticeTextColor }}
           accessible
           accessibilityRole="alert"
           accessibilityLiveRegion="polite"
@@ -114,7 +121,7 @@ export function CallFeedbackNotice({ visible, message, onDismiss }: CallFeedback
           accessibilityRole="button"
           accessibilityLabel="Dismiss call notification"
         >
-          <MaterialIcons name="close" size={21} color={colors.text.secondary} />
+          <MaterialIcons name="close" size={21} color={dismissIconColor} />
         </AppPressable>
       </Animated.View>
     </View>

@@ -60,7 +60,7 @@ test('camera-off surface preserves background, local/remote identity, status and
           if (status) {
             assert.equal(label.type, 'AppText')
             assert.deepEqual(label.props, {
-              className: 'mt-4 max-w-[82%] text-center text-[16px] font-medium',
+              className: 'mt-4 max-w-[82%] text-center text-md font-medium',
               style: { color: colors.call.textPrimary }, numberOfLines: 2, children: status,
             })
           } else assert.equal(label, null)

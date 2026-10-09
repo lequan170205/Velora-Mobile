@@ -152,7 +152,10 @@ export function AnimatedActionSheet({
           </View>
 
           <Animated.View
-            entering={FadeInDown.springify().damping(18).stiffness(220)}
+            entering={FadeInDown.springify()
+              .damping(18)
+              .stiffness(220)
+              .reduceMotion(ReduceMotion.System)}
             layout={LinearTransition.springify().damping(18).stiffness(220)}
           >
             {children({ close, isClosing })}

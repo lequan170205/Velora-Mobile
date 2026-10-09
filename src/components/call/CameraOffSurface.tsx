@@ -46,7 +46,7 @@ export function CameraOffSurface({
 
       {status ? (
         <AppText
-          className="mt-4 max-w-[82%] text-center text-[16px] font-medium"
+          className="mt-4 max-w-[82%] text-center text-md font-medium"
           style={{ color: colors.call.textPrimary }}
           numberOfLines={2}
         >
