@@ -151,7 +151,9 @@ export default function LoginScreen() {
         showsVerticalScrollIndicator={false}
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View className="flex-1">
+          {/* The whole sign-in block is centered vertically, so tall screens
+              split the slack space evenly above and below it. */}
+          <View className="flex-1 justify-center">
             <AuthBrandHeader compact />
 
             <Animated.View entering={HEADLINE_ENTERING} className="mt-2">
@@ -161,7 +163,7 @@ export default function LoginScreen() {
               </Text>
             </Animated.View>
 
-            <Animated.View entering={FORM_ENTERING} className="flex-1 mt-5">
+            <Animated.View entering={FORM_ENTERING} className="mt-5">
               <View className="mb-3">
                 <AuthField
                   ref={emailInputRef}
@@ -238,10 +240,9 @@ export default function LoginScreen() {
                 </Link>
               </View>
 
-              {/* Action stack anchors to the bottom: slack space collects
-                  between the form fields and Sign In, keeping CTA + OR +
-                  Google + the sign-up footer together as one group. */}
-              <View className="mt-auto pt-4">
+              {/* Action stack follows the form at a fixed gap, keeping the form
+                  and Sign In together as one block. */}
+              <View className="mt-6">
                 <AuthPrimaryButton
                   label="Sign in"
                   onPress={handleLogin}
