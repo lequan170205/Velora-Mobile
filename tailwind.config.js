@@ -2,6 +2,11 @@
 module.exports = {
   content: ['./app/**/*.{js,jsx,ts,tsx}', './src/**/*.{js,jsx,ts,tsx}'],
   presets: [require('nativewind/preset')],
+  // `font-medium`/`font-semibold`/`font-bold` must select only the Inter file
+  // named in theme.fontFamily below. With the core fontWeight utility they also
+  // set fontWeight, and Android then renders Roboto because no bold variant of
+  // that single-weight family is registered.
+  corePlugins: { fontWeight: false },
   theme: {
     extend: {
       colors: {
