@@ -555,7 +555,8 @@ test('session recovery delays the visible check-in fallback across native and Ja
   assert.match(authProvider, /const isAuthPending = isLoading \|\| !rootNavigationState\?\.key/)
   assert.match(
     authProvider,
-    /if \(isLoading \|\| !rootNavigationState\?\.key \|\| !segments\[0\]\) return/,
+    // A redirect before the font-gated navigator mounts would remount the app.
+    /if \(isLoading \|\| !areFontsReady \|\| !rootNavigationState\?\.key \|\| !segments\[0\]\) return/,
   )
   assert.match(
     authProvider,
@@ -563,8 +564,19 @@ test('session recovery delays the visible check-in fallback across native and Ja
   )
   assert.match(
     authProvider,
-    /if \(isAuthPending\) \{\s*return <AuthLoadingScreen showProgress=\{hasAuthLoadingDelayElapsed\} \/>\s*\}/,
+    /if \(isAuthPending \|\| !areFontsReady\) \{\s*return <AuthLoadingScreen showProgress=\{hasAuthLoadingDelayElapsed && areFontsReady\} \/>\s*\}/,
   )
+  // Android clips text laid out with the fallback font once custom fonts load,
+  // so the app (and every text-bearing auth screen) waits for the fonts.
+  assert.ok(
+    authProvider.indexOf('if (isAuthPending || !areFontsReady)') <
+      authProvider.indexOf('<AuthNetworkErrorScreen onRetry'),
+    'the network error screen must not lay out text before the fonts are ready',
+  )
+  assert.match(rootLayout, /const areFontsReady = loaded \|\| Boolean\(error\)/)
+  assert.match(rootLayout, /<AuthProvider areFontsReady=\{areFontsReady\}>/)
+  // Gating individual screens leaves useSegments empty and skips the redirect.
+  assert.doesNotMatch(rootLayout, /screenLayout=/)
   assert.match(
     loadingScreen,
     /source=\{require\('\.\.\/\.\.\/assets\/images\/splash-icon\.png'\)\}/,

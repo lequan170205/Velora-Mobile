@@ -59,7 +59,17 @@ function AuthNetworkErrorScreen({ onRetry }: { onRetry: () => void }) {
   )
 }
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function AuthProvider({
+  areFontsReady,
+  children,
+}: {
+  // Android keeps text measured with the fallback font after the custom fonts
+  // arrive and clips it on the next redraw, so the app mounts only once they
+  // are ready. Gating the screens instead would mount nested navigators late,
+  // which leaves useSegments empty and skips the sign-in redirect below.
+  areFontsReady: boolean
+  children: React.ReactNode
+}) {
   const { authHydrationError, hydrateAuth, isAuthenticated, isLoading, user } = useAuthStore()
   const { isNetworkResolved, isOnline } = useNetworkStatus()
   const segments = useSegments()
@@ -105,8 +115,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // nested Stack has resolved its first route. Redirecting during that
     // window throws "Attempted to navigate before mounting the Root Layout"
     // on a cold start (especially on a fresh simulator). Wait for the first
-    // segment so the navigator is mounted before issuing a redirect.
-    if (isLoading || !rootNavigationState?.key || !segments[0]) return
+    // segment so the navigator is mounted before issuing a redirect. The
+    // navigator also stays unmounted until the fonts are ready (see below);
+    // a replace before that is handled by Expo Router's internal root stack,
+    // which remounts this whole provider tree.
+    if (isLoading || !areFontsReady || !rootNavigationState?.key || !segments[0]) return
 
     const inAuthGroup = segments[0] === '(auth)'
     const inCompleteProfile = segments[0] === 'complete-profile'
@@ -120,6 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       router.replace('/')
     }
   }, [
+    areFontsReady,
     authHydrationError,
     isAuthenticated,
     isLoading,
@@ -129,8 +143,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user?.username,
   ])
 
-  if (isAuthPending) {
-    return <AuthLoadingScreen showProgress={hasAuthLoadingDelayElapsed} />
+  if (isAuthPending || !areFontsReady) {
+    return <AuthLoadingScreen showProgress={hasAuthLoadingDelayElapsed && areFontsReady} />
   }
 
   if (!isAuthenticated && authHydrationError === 'network') {

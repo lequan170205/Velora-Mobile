@@ -73,6 +73,7 @@ function RootAppShell({ hasPendingNativeCallIntent }: RootAppShellProps) {
     Inter_600SemiBold,
     Inter_700Bold,
   })
+  const areFontsReady = loaded || Boolean(error)
   const { isReelSavingModeHydrated, reelSavingModeEnabled } = useReelSavingMode()
   const [isReelPlaybackVideoCacheReady, setIsReelPlaybackVideoCacheReady] = useState(
     Platform.OS !== 'ios',
@@ -92,13 +93,13 @@ function RootAppShell({ hasPendingNativeCallIntent }: RootAppShellProps) {
 
   useEffect(() => {
     if (
-      (loaded || error) &&
+      areFontsReady &&
       isReelPlaybackVideoCacheReady &&
       (!isAuthLoading || hasAuthStartupDelayElapsed)
     ) {
       SplashScreen.hideAsync()
     }
-  }, [error, hasAuthStartupDelayElapsed, isAuthLoading, isReelPlaybackVideoCacheReady, loaded])
+  }, [areFontsReady, hasAuthStartupDelayElapsed, isAuthLoading, isReelPlaybackVideoCacheReady])
 
   useEffect(() => {
     if (Platform.OS !== 'ios' || hasPendingNativeCallIntent) {
@@ -152,7 +153,7 @@ function RootAppShell({ hasPendingNativeCallIntent }: RootAppShellProps) {
             <BottomSheetModalProvider>
               <QueryProvider>
                 <NetworkProvider>
-                  <AuthProvider>
+                  <AuthProvider areFontsReady={areFontsReady}>
                     <CallProvider>
                       <PushTokenLifecycleProvider>
                         <SystemCallProvider>

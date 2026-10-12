@@ -227,7 +227,8 @@ test('cold-start bridge stays UI-free and scopes prewarm work to the authenticat
     'the UI-free cold-path bridge must render before the font/Reels app shell',
   )
   assert.ok(
-    rootLayout.indexOf('<AuthProvider>') < rootLayout.indexOf('<CallProvider>'),
+    rootLayout.indexOf('<AuthProvider') !== -1 &&
+      rootLayout.indexOf('<AuthProvider') < rootLayout.indexOf('<CallProvider>'),
     'full CallProvider must wait for the authenticated tree',
   )
   assert.match(rootLayout, /hasPendingNativeCallIntent/)
