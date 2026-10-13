@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { BottomSheetModal } from '@gorhom/bottom-sheet'
 
 import { MAX_CAPTION_LENGTH } from '../../../constants/reel-creator'
-import { colors } from '../../../constants/theme'
+import { colors, typography } from '../../../constants/theme'
 import { getCreatorPreviewContentFit } from '../../../lib/reel-creator'
 import { formatTrimDurationLabel, getTrimDurationMs } from '../../../lib/reel-trim-geometry'
 import { ReelSeriesPickerSheet } from '../series/ReelSeriesPickerSheet'
@@ -93,7 +93,7 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
 
           <View className="absolute left-16 right-24 items-center">
             <Text
-              className="text-xs2 uppercase tracking-[1.2px]"
+              className="font-sans text-xs2 uppercase tracking-[1.2px]"
               style={{ color: colors.reel.inkSecondary }}
             >
               Publish
@@ -127,7 +127,7 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
             <Text
               style={{
                 color: controller.draftSaveStatus === 'saved' ? '#2C7A3F' : colors.reel.ink,
-                fontWeight: '700',
+                fontFamily: typography.fonts.bodyBold,
               }}
             >
               {draftButtonLabel}
@@ -157,11 +157,14 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
             </View>
 
             <View className="ml-3 flex-1">
-              <Text style={{ color: colors.reel.ink, fontWeight: '700' }} numberOfLines={1}>
+              <Text
+                style={{ color: colors.reel.ink, fontFamily: typography.fonts.bodyBold }}
+                numberOfLines={1}
+              >
                 Clip ready
               </Text>
               <Text
-                className="mt-1 text-xs2 leading-4"
+                className="font-sans mt-1 text-xs2 leading-4"
                 style={{ color: colors.reel.inkSecondary }}
                 numberOfLines={2}
               >
@@ -169,7 +172,13 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
               </Text>
               {isCropActive ? (
                 <View className="mt-2 self-start rounded-full bg-brand-soft px-2.5 py-1.5">
-                  <Text style={{ color: colors.brand.tertiary, fontSize: 11, fontWeight: '700' }}>
+                  <Text
+                    style={{
+                      color: colors.brand.tertiary,
+                      fontSize: 11,
+                      fontFamily: typography.fonts.bodyBold,
+                    }}
+                  >
                     Crop ✓
                   </Text>
                 </View>
@@ -180,7 +189,13 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
                   activeOpacity={0.84}
                   onPress={controller.goToCaptureStage}
                 >
-                  <Text style={{ color: colors.reel.ink, fontSize: 12, fontWeight: '700' }}>
+                  <Text
+                    style={{
+                      color: colors.reel.ink,
+                      fontSize: 12,
+                      fontFamily: typography.fonts.bodyBold,
+                    }}
+                  >
                     Replace
                   </Text>
                 </TouchableOpacity>
@@ -189,7 +204,13 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
                   activeOpacity={0.84}
                   onPress={controller.handleDiscardDraft}
                 >
-                  <Text style={{ color: colors.brand.tertiary, fontSize: 12, fontWeight: '700' }}>
+                  <Text
+                    style={{
+                      color: colors.brand.tertiary,
+                      fontSize: 12,
+                      fontFamily: typography.fonts.bodyBold,
+                    }}
+                  >
                     Discard
                   </Text>
                 </TouchableOpacity>
@@ -203,13 +224,25 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
             <Text className="font-heading text-lg" style={{ color: colors.reel.ink }}>
               Details
             </Text>
-            <Text style={{ color: 'rgba(46,36,30,0.48)', fontSize: 12 }}>
+            <Text
+              style={{
+                fontFamily: typography.fonts.body,
+                color: 'rgba(46,36,30,0.48)',
+                fontSize: 12,
+              }}
+            >
               {controller.caption.length}/{MAX_CAPTION_LENGTH}
             </Text>
           </View>
 
           <View className="mt-3 rounded-[22px] bg-reel-canvas px-4 py-3">
-            <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '700' }}>
+            <Text
+              style={{
+                color: colors.reel.inkStrong,
+                fontSize: 12,
+                fontFamily: typography.fonts.bodyBold,
+              }}
+            >
               Title
             </Text>
             <TextInput
@@ -225,7 +258,13 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
           </View>
 
           <View className="mt-3 min-h-0 flex-1 rounded-[22px] bg-reel-canvas px-4 py-3">
-            <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '700' }}>
+            <Text
+              style={{
+                color: colors.reel.inkStrong,
+                fontSize: 12,
+                fontFamily: typography.fonts.bodyBold,
+              }}
+            >
               Caption
             </Text>
             <TextInput
@@ -257,7 +296,11 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
                       }}
                     >
                       <Text
-                        style={{ color: colors.brand.tertiary, fontSize: 12, fontWeight: '700' }}
+                        style={{
+                          color: colors.brand.tertiary,
+                          fontSize: 12,
+                          fontFamily: typography.fonts.bodyBold,
+                        }}
                       >
                         {suggestion}
                       </Text>
@@ -269,7 +312,13 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
           ) : null}
 
           <View className="mt-3">
-            <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '700' }}>
+            <Text
+              style={{
+                color: colors.reel.inkStrong,
+                fontSize: 12,
+                fontFamily: typography.fonts.bodyBold,
+              }}
+            >
               Series
             </Text>
             <TouchableOpacity
@@ -288,10 +337,16 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
                 />
               </View>
               <View className="ml-3 flex-1">
-                <Text style={{ color: colors.reel.ink, fontWeight: '700' }} numberOfLines={1}>
+                <Text
+                  style={{ color: colors.reel.ink, fontFamily: typography.fonts.bodyBold }}
+                  numberOfLines={1}
+                >
                   {controller.seriesSelection?.title ?? 'No series'}
                 </Text>
-                <Text className="mt-0.5 text-xs2" style={{ color: colors.reel.inkSecondary }}>
+                <Text
+                  className="font-sans mt-0.5 text-xs2"
+                  style={{ color: colors.reel.inkSecondary }}
+                >
                   {controller.seriesSelection
                     ? 'This reel will publish as the next episode.'
                     : 'Keep this reel standalone or add it to a series.'}
@@ -302,21 +357,30 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
           </View>
 
           <View className="mt-3">
-            <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '700' }}>
+            <Text
+              style={{
+                color: colors.reel.inkStrong,
+                fontSize: 12,
+                fontFamily: typography.fonts.bodyBold,
+              }}
+            >
               Visibility
             </Text>
             {controller.seriesSelection ? (
               <View className="mt-2 min-h-12 flex-row items-center rounded-[20px] bg-brand-soft px-4 py-3">
                 <MaterialIcons name="lock-outline" size={18} color={colors.brand.tertiary} />
                 <View className="ml-3 flex-1">
-                  <Text style={{ color: colors.reel.ink, fontWeight: '700' }}>
+                  <Text style={{ color: colors.reel.ink, fontFamily: typography.fonts.bodyBold }}>
                     {controller.visibility === 'friends'
                       ? 'Friends'
                       : controller.visibility === 'private'
                         ? 'Private'
                         : 'Public'}
                   </Text>
-                  <Text className="mt-0.5 text-xs2" style={{ color: colors.reel.inkSecondary }}>
+                  <Text
+                    className="font-sans mt-0.5 text-xs2"
+                    style={{ color: colors.reel.inkSecondary }}
+                  >
                     Episodes in a series share the same audience.
                   </Text>
                 </View>
@@ -342,11 +406,11 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
                         color={isActive ? colors.text.inverse : colors.reel.ink}
                       />
                       <Text
-                        className="ml-2"
+                        className="font-sans ml-2"
                         style={{
                           color: isActive ? colors.text.inverse : colors.reel.ink,
                           fontSize: 12,
-                          fontWeight: '700',
+                          fontFamily: typography.fonts.bodyBold,
                         }}
                         numberOfLines={1}
                       >
@@ -370,7 +434,10 @@ export function PublishStage({ controller }: { controller: ReelCreatorController
             void controller.handlePublish()
           }}
         >
-          <Text className="text-center" style={{ color: colors.text.inverse, fontWeight: '700' }}>
+          <Text
+            className="font-sans text-center"
+            style={{ color: colors.text.inverse, fontFamily: typography.fonts.bodyBold }}
+          >
             {controller.isPending ? controller.publishProgressLabel : 'Publish reel'}
           </Text>
         </TouchableOpacity>

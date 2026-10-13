@@ -8,7 +8,7 @@ import Animated, { FadeIn, useSharedValue, withTiming } from 'react-native-reani
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { scheduleOnRN } from 'react-native-worklets'
 
-import { colors } from '../../../constants/theme'
+import { colors, typography } from '../../../constants/theme'
 import {
   REEL_CROP_MAX_SCALE,
   getCoverScale,
@@ -280,8 +280,8 @@ export function CropEditor({
           style={({ pressed }) => [styles.headerAction, { opacity: pressed ? 0.72 : 1 }]}
         >
           <Text
-            className="text-base2"
-            style={{ color: 'rgba(255,255,255,0.82)', fontWeight: '700' }}
+            className="font-sans text-base2"
+            style={{ color: 'rgba(255,255,255,0.82)', fontFamily: typography.fonts.bodyBold }}
           >
             Cancel
           </Text>
@@ -289,7 +289,7 @@ export function CropEditor({
 
         <View className="items-center">
           <Text
-            className="text-xs2 uppercase tracking-[1.2px]"
+            className="font-sans text-xs2 uppercase tracking-[1.2px]"
             style={{ color: 'rgba(255,255,255,0.5)' }}
           >
             Editor
@@ -310,8 +310,8 @@ export function CropEditor({
           ]}
         >
           <Text
-            className="rounded-full bg-reel-accent px-4 py-2.5"
-            style={{ color: colors.text.inverse, fontWeight: '700' }}
+            className="font-sans rounded-full bg-reel-accent px-4 py-2.5"
+            style={{ color: colors.text.inverse, fontFamily: typography.fonts.bodyBold }}
           >
             Done
           </Text>
@@ -340,7 +340,10 @@ export function CropEditor({
       </View>
 
       <View style={[styles.footer, { minHeight: footerHeight }]}>
-        <Text className="text-center text-sm2" style={{ color: 'rgba(255,255,255,0.66)' }}>
+        <Text
+          className="font-sans text-center text-sm2"
+          style={{ color: 'rgba(255,255,255,0.66)' }}
+        >
           {isResetToFit
             ? 'Fit restored • pinch or drag to crop again'
             : 'Pinch to zoom • drag to reposition'}
@@ -353,7 +356,10 @@ export function CropEditor({
             style={({ pressed }) => [styles.framingButton, { opacity: pressed ? 0.78 : 1 }]}
           >
             <MaterialIcons name="refresh" size={18} color={colors.text.inverse} />
-            <Text className="ml-2" style={{ color: colors.text.inverse, fontWeight: '700' }}>
+            <Text
+              className="font-sans ml-2"
+              style={{ color: colors.text.inverse, fontFamily: typography.fonts.bodyBold }}
+            >
               Reset
             </Text>
           </Pressable>

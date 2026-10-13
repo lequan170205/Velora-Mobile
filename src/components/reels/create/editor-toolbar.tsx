@@ -3,7 +3,7 @@ import React from 'react'
 import { Text, View } from 'react-native'
 import { Pressable } from 'react-native-gesture-handler'
 
-import { colors } from '../../../constants/theme'
+import { colors, typography } from '../../../constants/theme'
 
 import type { MaterialIconName } from '../../../types/reel-creator'
 
@@ -41,8 +41,11 @@ function EditorToolbarAction({ active = false, icon, label, onPress }: EditorToo
           color={active ? colors.text.inverse : colors.reel.ink}
         />
         <Text
-          className="ml-1.5 text-xs2"
-          style={{ color: active ? colors.text.inverse : colors.reel.ink, fontWeight: '700' }}
+          className="font-sans ml-1.5 text-xs2"
+          style={{
+            color: active ? colors.text.inverse : colors.reel.ink,
+            fontFamily: typography.fonts.bodyBold,
+          }}
         >
           {label}
         </Text>

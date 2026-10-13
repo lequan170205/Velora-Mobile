@@ -26,7 +26,7 @@ import { useAuthStore } from '@/stores/authStore'
 import type { ReelSeriesListItem } from '@/types/reel.types'
 import type { BottomSheetModal } from '@gorhom/bottom-sheet'
 
-import { colors } from '../../src/constants/theme'
+import { colors, typography } from '../../src/constants/theme'
 
 const visibilityLabel = (visibility: ReelSeriesListItem['visibility']) =>
   visibility === 'friends' ? 'Friends' : visibility === 'private' ? 'Private' : 'Public'
@@ -77,7 +77,7 @@ export default function OwnedReelSeriesScreen() {
           </View>
           <View className="absolute left-16 right-24 items-center">
             <Text
-              className="text-xs2 uppercase tracking-[1.2px]"
+              className="font-sans text-xs2 uppercase tracking-[1.2px]"
               style={{ color: colors.reel.inkSecondary }}
             >
               Profile
@@ -94,7 +94,10 @@ export default function OwnedReelSeriesScreen() {
             onPress={() => createSheetRef.current?.present()}
           >
             <MaterialIcons name="add" size={18} color={colors.text.inverse} />
-            <Text className="ml-1" style={{ color: colors.text.inverse, fontWeight: '700' }}>
+            <Text
+              className="font-sans ml-1"
+              style={{ color: colors.text.inverse, fontFamily: typography.fonts.bodyBold }}
+            >
               New
             </Text>
           </TouchableOpacity>
@@ -148,13 +151,16 @@ export default function OwnedReelSeriesScreen() {
                   >
                     {item.title}
                   </Text>
-                  <Text className="mt-1 text-xs2" style={{ color: colors.reel.inkSecondary }}>
+                  <Text
+                    className="font-sans mt-1 text-xs2"
+                    style={{ color: colors.reel.inkSecondary }}
+                  >
                     {item.episodeCount} {item.episodeCount === 1 ? 'episode' : 'episodes'} ·{' '}
                     {visibilityLabel(item.visibility)}
                   </Text>
                   {item.description?.trim() ? (
                     <Text
-                      className="mt-2 text-sm2 leading-5"
+                      className="font-sans mt-2 text-sm2 leading-5"
                       style={{ color: colors.reel.inkStrong }}
                       numberOfLines={2}
                     >
@@ -170,7 +176,10 @@ export default function OwnedReelSeriesScreen() {
             isPending ? (
               <View className="flex-1 items-center justify-center py-16">
                 <ActivityIndicator color={colors.reel.accent} />
-                <Text className="mt-3 text-sm2" style={{ color: colors.reel.inkSecondary }}>
+                <Text
+                  className="font-sans mt-3 text-sm2"
+                  style={{ color: colors.reel.inkSecondary }}
+                >
                   Loading your series…
                 </Text>
               </View>
@@ -184,7 +193,11 @@ export default function OwnedReelSeriesScreen() {
                   className="mt-5 min-h-11 justify-center rounded-full bg-reel-accent px-5"
                   onPress={() => void refetch()}
                 >
-                  <Text style={{ color: colors.text.inverse, fontWeight: '700' }}>Try again</Text>
+                  <Text
+                    style={{ color: colors.text.inverse, fontFamily: typography.fonts.bodyBold }}
+                  >
+                    Try again
+                  </Text>
                 </TouchableOpacity>
               </View>
             ) : (
@@ -196,7 +209,7 @@ export default function OwnedReelSeriesScreen() {
                   Start a series
                 </Text>
                 <Text
-                  className="mt-2 text-center text-base2 leading-5"
+                  className="font-sans mt-2 text-center text-base2 leading-5"
                   style={{ color: colors.reel.inkSecondary }}
                 >
                   Group related reels into episodes viewers can watch in order.
@@ -206,7 +219,10 @@ export default function OwnedReelSeriesScreen() {
                   onPress={() => createSheetRef.current?.present()}
                 >
                   <MaterialIcons name="add" size={18} color={colors.text.inverse} />
-                  <Text className="ml-2" style={{ color: colors.text.inverse, fontWeight: '700' }}>
+                  <Text
+                    className="font-sans ml-2"
+                    style={{ color: colors.text.inverse, fontFamily: typography.fonts.bodyBold }}
+                  >
                     Create series
                   </Text>
                 </TouchableOpacity>
@@ -225,7 +241,9 @@ export default function OwnedReelSeriesScreen() {
                 {isFetchingNextPage ? (
                   <ActivityIndicator color={colors.reel.accent} size="small" />
                 ) : (
-                  <Text style={{ color: colors.reel.ink, fontWeight: '700' }}>Load more</Text>
+                  <Text style={{ color: colors.reel.ink, fontFamily: typography.fonts.bodyBold }}>
+                    Load more
+                  </Text>
                 )}
               </TouchableOpacity>
             ) : null

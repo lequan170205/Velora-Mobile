@@ -19,7 +19,7 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
-import { colors } from '../../../constants/theme'
+import { colors, typography } from '../../../constants/theme'
 import { useAddReelToSeries, useReelSeriesCandidates } from '../../../hooks/useReels'
 
 import type { Reel } from '../../../types/reel.types'
@@ -125,7 +125,7 @@ export function ReelEpisodePickerSheet({
         <View className="flex-row items-start justify-between pb-3 pt-1">
           <View className="flex-1 pr-3">
             <Text className="font-heading text-xl text-text-primary">Add episodes</Text>
-            <Text className="mt-0.5 text-xs2 leading-4 text-text-secondary">
+            <Text className="font-sans mt-0.5 text-xs2 leading-4 text-text-secondary">
               Tap reels in the order you want them added.
             </Text>
           </View>
@@ -144,7 +144,9 @@ export function ReelEpisodePickerSheet({
         {isPending && candidateReels.length === 0 ? (
           <View className="flex-1 items-center justify-center py-12">
             <ActivityIndicator color={colors.brand.primary} size="small" />
-            <Text className="mt-3 text-xs2 text-text-secondary">Loading available reels…</Text>
+            <Text className="font-sans mt-3 text-xs2 text-text-secondary">
+              Loading available reels…
+            </Text>
           </View>
         ) : isError ? (
           <View className="flex-1 items-center justify-center py-12">
@@ -159,7 +161,7 @@ export function ReelEpisodePickerSheet({
               <MaterialIcons name="video-library" size={28} color="rgba(46,36,30,0.36)" />
             </View>
             <Text className="mt-3 text-sm2 font-bold text-text-primary">No reels available</Text>
-            <Text className="mt-1 px-6 text-center text-xs2 text-text-secondary">
+            <Text className="font-sans mt-1 px-6 text-center text-xs2 text-text-secondary">
               There are no compatible standalone reels available for this series.
             </Text>
           </View>
@@ -289,8 +291,8 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     color: colors.text.inverse,
+    fontFamily: typography.fonts.bodyBold,
     fontSize: 11,
-    fontWeight: '700',
   },
   card: {
     backgroundColor: '#1F1915',
@@ -323,8 +325,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.reel.border,
   },
   footerButtonText: {
+    fontFamily: typography.fonts.bodyBold,
     fontSize: 13,
-    fontWeight: '700',
     marginLeft: 4,
   },
   footerContainer: {
@@ -378,8 +380,8 @@ const styles = StyleSheet.create({
   },
   titleText: {
     color: colors.text.inverse,
+    fontFamily: typography.fonts.bodySemibold,
     fontSize: 10,
-    fontWeight: '600',
   },
   unselectedBadge: {
     backgroundColor: 'rgba(0, 0, 0, 0.35)',

@@ -1382,7 +1382,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                   <Text className="text-center font-heading text-xl text-white">
                     Playback unavailable
                   </Text>
-                  <Text className="mt-2 text-center text-sm2 leading-5 text-white/70">
+                  <Text className="font-sans mt-2 text-center text-sm2 leading-5 text-white/70">
                     This reel could not be played.
                   </Text>
                 </>
@@ -1396,7 +1396,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                     />
                   </View>
                   <Text className="text-center font-heading text-xl text-white">Upload failed</Text>
-                  <Text className="mt-2 text-center text-sm2 leading-5 text-white/70">
+                  <Text className="font-sans mt-2 text-center text-sm2 leading-5 text-white/70">
                     {processingMessage || 'Something went wrong while uploading this reel.'}
                   </Text>
 
@@ -1453,7 +1453,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                     <Ionicons name="sync-outline" size={25} color={colors.brand.secondary} />
                   </View>
                   <Text className="text-center font-heading text-xl text-white">Processing</Text>
-                  <Text className="mt-2 text-center text-sm2 leading-5 text-white/70">
+                  <Text className="font-sans mt-2 text-center text-sm2 leading-5 text-white/70">
                     Your reel is being processed...
                   </Text>
                 </>

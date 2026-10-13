@@ -70,7 +70,9 @@ export function ReelPlaybackOptionsSheet({
           <View className="mt-1 flex-row items-start justify-between">
             <View className="flex-1 pr-4">
               <Text className="font-heading text-xl text-text-primary">Playback</Text>
-              <Text className="mt-1 text-base2 text-text-secondary">Reel viewing controls</Text>
+              <Text className="font-sans mt-1 text-base2 text-text-secondary">
+                Reel viewing controls
+              </Text>
             </View>
 
             <Pressable
@@ -83,7 +85,7 @@ export function ReelPlaybackOptionsSheet({
             </Pressable>
           </View>
 
-          <Text className="mb-3 mt-5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
+          <Text className="font-sans mb-3 mt-5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
             Captions
           </Text>
           <Pressable
@@ -99,7 +101,7 @@ export function ReelPlaybackOptionsSheet({
             </View>
             <View className="ml-3 flex-1 pr-3">
               <Text className="font-medium text-md text-text-primary">Live transcription</Text>
-              <Text className="mt-0.5 text-sm2 text-text-secondary">
+              <Text className="font-sans mt-0.5 text-sm2 text-text-secondary">
                 {transcriptionEnabled
                   ? 'Captions are on · tap to turn off'
                   : 'Captions are off · tap to turn on'}
@@ -112,7 +114,7 @@ export function ReelPlaybackOptionsSheet({
             />
           </Pressable>
 
-          <Text className="mb-3 mt-5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
+          <Text className="font-sans mb-3 mt-5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
             Display
           </Text>
           <Pressable
@@ -127,14 +129,14 @@ export function ReelPlaybackOptionsSheet({
             </View>
             <View className="ml-3 flex-1 pr-3">
               <Text className="font-medium text-md text-text-primary">Clear display</Text>
-              <Text className="mt-0.5 text-sm2 text-text-secondary">
+              <Text className="font-sans mt-0.5 text-sm2 text-text-secondary">
                 Hide controls and text to focus on the video
               </Text>
             </View>
             <MaterialIcons name="chevron-right" size={20} color={colors.text.tertiary} />
           </Pressable>
 
-          <Text className="mb-3 mt-5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
+          <Text className="font-sans mb-3 mt-5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
             Playback speed
           </Text>
           <View className="flex-row gap-2">

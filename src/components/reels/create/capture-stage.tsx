@@ -8,7 +8,7 @@ import Animated, { FadeIn } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { durationOptions } from '../../../constants/reel-creator'
-import { colors } from '../../../constants/theme'
+import { colors, typography } from '../../../constants/theme'
 import { formatDurationLabel } from '../../../lib/reels'
 import { ReelVideo } from '../ReelVideo'
 
@@ -165,7 +165,7 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
               <MaterialIcons name="photo-camera" size={34} color={colors.text.inverse} />
             </View>
             <Text
-              className="mt-5 text-center text-base2 leading-6"
+              className="font-sans mt-5 text-center text-base2 leading-6"
               style={{ color: 'rgba(255,255,255,0.72)' }}
             >
               {cameraError ?? 'Allow camera and microphone access to record inside Velora.'}
@@ -178,7 +178,7 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
                 void ensureCameraAccess()
               }}
             >
-              <Text style={{ color: colors.text.inverse, fontWeight: '700' }}>
+              <Text style={{ color: colors.text.inverse, fontFamily: typography.fonts.bodyBold }}>
                 {hasCameraAccess ? 'Retry camera' : 'Allow camera'}
               </Text>
             </TouchableOpacity>
@@ -225,7 +225,7 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
                 <Text
                   style={{
                     color: controller.selectedAsset ? colors.brand.tertiary : colors.reel.ink,
-                    fontWeight: '700',
+                    fontFamily: typography.fonts.bodyBold,
                     lineHeight: 20,
                   }}
                 >
@@ -268,10 +268,13 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
               </View>
 
               <View className="ml-4 flex-1">
-                <Text style={{ color: colors.reel.ink, fontWeight: '700' }}>
+                <Text style={{ color: colors.reel.ink, fontFamily: typography.fonts.bodyBold }}>
                   {controller.orientationMessage}
                 </Text>
-                <Text className="mt-1 text-sm2" style={{ color: colors.reel.inkSecondary }}>
+                <Text
+                  className="font-sans mt-1 text-sm2"
+                  style={{ color: colors.reel.inkSecondary }}
+                >
                   {formatDurationLabel(controller.selectedAsset.duration) || '0:00'} •{' '}
                   {controller.selectedAssetType
                     ? controller.selectedAssetType.replace('video/', '').toUpperCase()
@@ -288,7 +291,10 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
                   void controller.handlePickFromLibrary()
                 }}
               >
-                <Text className="text-center" style={{ color: colors.reel.ink, fontWeight: '700' }}>
+                <Text
+                  className="font-sans text-center"
+                  style={{ color: colors.reel.ink, fontFamily: typography.fonts.bodyBold }}
+                >
                   Replace
                 </Text>
               </TouchableOpacity>
@@ -298,8 +304,8 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
                 onPress={controller.goToEditStage}
               >
                 <Text
-                  className="text-center"
-                  style={{ color: colors.text.inverse, fontWeight: '700' }}
+                  className="font-sans text-center"
+                  style={{ color: colors.text.inverse, fontFamily: typography.fonts.bodyBold }}
                 >
                   Open preview
                 </Text>
@@ -325,7 +331,7 @@ export function CaptureStage({ controller }: { controller: ReelCreatorController
                   ))}
                 </View>
               </ScrollView>
-              <Text className="mt-2 text-xs2" style={{ color: 'rgba(255,255,255,0.72)' }}>
+              <Text className="font-sans mt-2 text-xs2" style={{ color: 'rgba(255,255,255,0.72)' }}>
                 Records up to {controller.selectedDuration}s
               </Text>
             </View>

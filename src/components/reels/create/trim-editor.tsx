@@ -8,7 +8,7 @@ import Animated, { FadeIn, useAnimatedStyle, useSharedValue } from 'react-native
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { scheduleOnRN } from 'react-native-worklets'
 
-import { colors } from '../../../constants/theme'
+import { colors, typography } from '../../../constants/theme'
 import { getCreatorPreviewContentFit, getTrimmedThumbnailFrame } from '../../../lib/reel-creator'
 import {
   MIN_TRIM_DURATION_MS,
@@ -351,12 +351,14 @@ export function TrimEditor({
           onPress={onCancel}
           style={({ pressed }) => [styles.headerAction, { opacity: pressed ? 0.72 : 1 }]}
         >
-          <Text style={{ color: 'rgba(46,36,30,0.72)', fontWeight: '700' }}>Cancel</Text>
+          <Text style={{ color: 'rgba(46,36,30,0.72)', fontFamily: typography.fonts.bodyBold }}>
+            Cancel
+          </Text>
         </Pressable>
 
         <View className="items-center">
           <Text
-            className="text-xs2 uppercase tracking-[1.2px]"
+            className="font-sans text-xs2 uppercase tracking-[1.2px]"
             style={{ color: 'rgba(46,36,30,0.52)' }}
           >
             Editor
@@ -377,8 +379,8 @@ export function TrimEditor({
           ]}
         >
           <Text
-            className="rounded-full bg-reel-accent px-4 py-2.5"
-            style={{ color: colors.text.inverse, fontWeight: '700' }}
+            className="font-sans rounded-full bg-reel-accent px-4 py-2.5"
+            style={{ color: colors.text.inverse, fontFamily: typography.fonts.bodyBold }}
           >
             Done
           </Text>
@@ -419,7 +421,13 @@ export function TrimEditor({
 
           <View className="absolute inset-x-0 bottom-0 flex-row items-center justify-between px-3 pb-3">
             <View className="rounded-full bg-white/92 px-3 py-2">
-              <Text style={{ color: colors.reel.ink, fontSize: 12, fontWeight: '700' }}>
+              <Text
+                style={{
+                  color: colors.reel.ink,
+                  fontSize: 12,
+                  fontFamily: typography.fonts.bodyBold,
+                }}
+              >
                 {formatTrimDurationLabel(selectedDurationMs)} selected
               </Text>
             </View>
@@ -450,12 +458,18 @@ export function TrimEditor({
             <Text className="font-heading text-lg" style={{ color: colors.reel.ink }}>
               Choose the moment
             </Text>
-            <Text className="mt-0.5 text-xs2" style={{ color: colors.reel.inkSecondary }}>
+            <Text className="font-sans mt-0.5 text-xs2" style={{ color: colors.reel.inkSecondary }}>
               Drag the handles to keep one continuous clip
             </Text>
           </View>
           <View className="rounded-full bg-brand-soft px-3 py-2">
-            <Text style={{ color: colors.brand.tertiary, fontSize: 12, fontWeight: '700' }}>
+            <Text
+              style={{
+                color: colors.brand.tertiary,
+                fontSize: 12,
+                fontFamily: typography.fonts.bodyBold,
+              }}
+            >
               {formatTrimDurationLabel(selectedDurationMs)}
             </Text>
           </View>
@@ -516,13 +530,31 @@ export function TrimEditor({
         </View>
 
         <View className="mt-2 flex-row items-center justify-between">
-          <Text style={{ color: colors.brand.tertiary, fontSize: 12, fontWeight: '700' }}>
+          <Text
+            style={{
+              color: colors.brand.tertiary,
+              fontSize: 12,
+              fontFamily: typography.fonts.bodyBold,
+            }}
+          >
             {formatTrimTime(workingRange.startMs)}
           </Text>
-          <Text style={{ color: colors.reel.inkSecondary, fontSize: 12, fontWeight: '700' }}>
+          <Text
+            style={{
+              color: colors.reel.inkSecondary,
+              fontSize: 12,
+              fontFamily: typography.fonts.bodyBold,
+            }}
+          >
             {formatTrimDurationLabel(selectedDurationMs)} selected
           </Text>
-          <Text style={{ color: colors.brand.tertiary, fontSize: 12, fontWeight: '700' }}>
+          <Text
+            style={{
+              color: colors.brand.tertiary,
+              fontSize: 12,
+              fontFamily: typography.fonts.bodyBold,
+            }}
+          >
             {formatTrimTime(workingRange.endMs)}
           </Text>
         </View>
@@ -536,7 +568,10 @@ export function TrimEditor({
           style={({ pressed }) => [styles.resetButton, { opacity: pressed ? 0.78 : 1 }]}
         >
           <MaterialIcons name="refresh" size={18} color={colors.reel.ink} />
-          <Text className="ml-2" style={{ color: colors.reel.ink, fontWeight: '700' }}>
+          <Text
+            className="font-sans ml-2"
+            style={{ color: colors.reel.ink, fontFamily: typography.fonts.bodyBold }}
+          >
             Reset
           </Text>
         </Pressable>

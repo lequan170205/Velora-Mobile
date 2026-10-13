@@ -267,7 +267,7 @@ export function ReelShareSheet({ visible, reel, onClose }: ReelShareSheetProps) 
         <View className="mt-1 flex-row items-start justify-between">
           <View className="flex-1 pr-4">
             <Text className="font-heading text-xl text-text-primary">Share reel</Text>
-            <Text className="mt-1 text-base2 text-text-secondary" numberOfLines={1}>
+            <Text className="font-sans mt-1 text-base2 text-text-secondary" numberOfLines={1}>
               {shareTitle}
             </Text>
           </View>
@@ -310,13 +310,13 @@ export function ReelShareSheet({ visible, reel, onClose }: ReelShareSheetProps) 
         </View>
 
         <View className="mt-6">
-          <Text className="mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">
+          <Text className="font-sans mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">
             Conversations
           </Text>
 
           {!canShare ? (
             <View className="rounded-[24px] bg-surface-muted px-4 py-4">
-              <Text className="text-sm2 text-text-secondary">
+              <Text className="font-sans text-sm2 text-text-secondary">
                 This reel can be shared after processing finishes.
               </Text>
             </View>
@@ -326,7 +326,7 @@ export function ReelShareSheet({ visible, reel, onClose }: ReelShareSheetProps) 
             </View>
           ) : targets.length === 0 ? (
             <View className="rounded-[24px] bg-surface-muted px-4 py-4">
-              <Text className="text-sm2 text-text-secondary">
+              <Text className="font-sans text-sm2 text-text-secondary">
                 Start a direct chat to share reels in messages.
               </Text>
             </View>
@@ -362,7 +362,10 @@ export function ReelShareSheet({ visible, reel, onClose }: ReelShareSheetProps) 
                       <Text className="font-medium text-md text-text-primary" numberOfLines={1}>
                         {target.label}
                       </Text>
-                      <Text className="mt-0.5 text-sm2 text-text-secondary" numberOfLines={1}>
+                      <Text
+                        className="font-sans mt-0.5 text-sm2 text-text-secondary"
+                        numberOfLines={1}
+                      >
                         Send as a reel message
                       </Text>
                     </View>

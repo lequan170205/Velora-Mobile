@@ -51,7 +51,7 @@ import { useAuthStore } from '@/stores/authStore'
 
 import { reelsApi } from '../../api/reels.api'
 import { DEFAULT_REELS_LIMIT } from '../../constants/reels'
-import { colors } from '../../constants/theme'
+import { colors, typography } from '../../constants/theme'
 import { useFriends } from '../../hooks/useFriends'
 import { useFriendsReelsFeed, useRecommendedReelsFeed, useReelContext } from '../../hooks/useReels'
 import { flattenRecommendedReelPages } from '../../lib/recommendationFeed'
@@ -2125,20 +2125,54 @@ export function ReelsViewer({
                 paddingVertical: 8,
               }}
             >
-              <Text style={{ color: colors.text.inverse, fontSize: 11, fontWeight: '600' }}>
+              <Text
+                style={{
+                  color: colors.text.inverse,
+                  fontSize: 11,
+                  fontFamily: typography.fonts.bodySemibold,
+                }}
+              >
                 {item.recommendation.candidateSource} · rank {item.recommendation.rank}
               </Text>
-              <Text style={{ color: '#D1D5DB', fontSize: 10, marginTop: 2 }}>
+              <Text
+                style={{
+                  fontFamily: typography.fonts.body,
+                  color: '#D1D5DB',
+                  fontSize: 10,
+                  marginTop: 2,
+                }}
+              >
                 sources: {item.recommendation.candidateSources?.join(', ') ?? '—'}
               </Text>
-              <Text style={{ color: '#D1D5DB', fontSize: 10, marginTop: 2 }}>
+              <Text
+                style={{
+                  fontFamily: typography.fonts.body,
+                  color: '#D1D5DB',
+                  fontSize: 10,
+                  marginTop: 2,
+                }}
+              >
                 v{recommendedAlgorithmVersion ?? item.recommendation.algorithmVersion}
               </Text>
-              <Text style={{ color: '#D1D5DB', fontSize: 10, marginTop: 2 }}>
+              <Text
+                style={{
+                  fontFamily: typography.fonts.body,
+                  color: '#D1D5DB',
+                  fontSize: 10,
+                  marginTop: 2,
+                }}
+              >
                 session:{' '}
                 {(recommendedFeedSessionId ?? item.recommendation.feedSessionId).slice(0, 8)}
               </Text>
-              <Text style={{ color: '#D1D5DB', fontSize: 10, marginTop: 2 }}>
+              <Text
+                style={{
+                  fontFamily: typography.fonts.body,
+                  color: '#D1D5DB',
+                  fontSize: 10,
+                  marginTop: 2,
+                }}
+              >
                 recommendation: {item.recommendation.recommendationId.slice(0, 8)}
               </Text>
             </View>
@@ -2199,7 +2233,7 @@ export function ReelsViewer({
 
           <Text className="mt-4 text-center font-heading text-xl text-white">Feed unavailable</Text>
 
-          <Text className="mt-2 max-w-[280px] text-center text-base2 leading-6 text-white/70">
+          <Text className="font-sans mt-2 max-w-[280px] text-center text-base2 leading-6 text-white/70">
             {errorMessage}
           </Text>
 
@@ -2357,7 +2391,7 @@ export function ReelsViewer({
               <Text className="mt-4 text-center font-heading text-xl text-white">
                 Loading reels
               </Text>
-              <Text className="mt-2 max-w-[280px] text-center text-base2 leading-6 text-white/70">
+              <Text className="font-sans mt-2 max-w-[280px] text-center text-base2 leading-6 text-white/70">
                 Finding something good to watch.
               </Text>
             </View>
@@ -2400,7 +2434,7 @@ export function ReelsViewer({
                   <Text className="mt-4 text-center font-heading text-xl text-white">
                     Feed unavailable
                   </Text>
-                  <Text className="mt-2 max-w-[280px] text-center text-base2 leading-6 text-white/70">
+                  <Text className="font-sans mt-2 max-w-[280px] text-center text-base2 leading-6 text-white/70">
                     {errorMessage}
                   </Text>
                   <TouchableOpacity
@@ -2442,7 +2476,7 @@ export function ReelsViewer({
                     </Text>
 
                     <Text
-                      className="max-w-[280px] text-center text-base2 leading-6 text-white/70"
+                      className="font-sans max-w-[280px] text-center text-base2 leading-6 text-white/70"
                       style={{
                         includeFontPadding: false,
                         lineHeight: emptyStateDescriptionLineHeight,

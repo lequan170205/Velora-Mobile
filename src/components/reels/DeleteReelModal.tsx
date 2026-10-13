@@ -40,7 +40,10 @@ export function DeleteReelModal({
             >
               Delete this reel?
             </Text>
-            <Text className="mt-2 text-center text-sm2" style={{ color: colors.reel.inkSecondary }}>
+            <Text
+              className="font-sans mt-2 text-center text-sm2"
+              style={{ color: colors.reel.inkSecondary }}
+            >
               This action cannot be undone. The reel will be permanently removed.
             </Text>
           </View>

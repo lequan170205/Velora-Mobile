@@ -37,7 +37,7 @@ import type {
 } from '@/types/reel.types'
 import type { BottomSheetModal } from '@gorhom/bottom-sheet'
 
-import { colors } from '../../../src/constants/theme'
+import { colors, typography } from '../../../src/constants/theme'
 
 const buildCaptionValue = (description?: string, tags: string[] = []) => {
   const tagLine = tags
@@ -253,7 +253,10 @@ export default function EditReelDetailsScreen() {
           <Text className="mt-4 font-heading text-xl" style={{ color: colors.reel.ink }}>
             Reel unavailable
           </Text>
-          <Text className="mt-2 text-center text-base2" style={{ color: colors.reel.inkSecondary }}>
+          <Text
+            className="font-sans mt-2 text-center text-base2"
+            style={{ color: colors.reel.inkSecondary }}
+          >
             {errorMessage}
           </Text>
           <TouchableOpacity
@@ -263,7 +266,9 @@ export default function EditReelDetailsScreen() {
               void refetch()
             }}
           >
-            <Text style={{ color: colors.text.inverse, fontWeight: '700' }}>Try again</Text>
+            <Text style={{ color: colors.text.inverse, fontFamily: typography.fonts.bodyBold }}>
+              Try again
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -290,7 +295,7 @@ export default function EditReelDetailsScreen() {
 
           <View className="absolute left-16 right-24 items-center">
             <Text
-              className="text-xs2 uppercase tracking-[1.2px]"
+              className="font-sans text-xs2 uppercase tracking-[1.2px]"
               style={{ color: colors.reel.inkSecondary }}
             >
               Edit
@@ -310,7 +315,7 @@ export default function EditReelDetailsScreen() {
               void handleSave()
             }}
           >
-            <Text style={{ color: colors.text.inverse, fontWeight: '700' }}>
+            <Text style={{ color: colors.text.inverse, fontFamily: typography.fonts.bodyBold }}>
               {isBusy ? 'Saving' : 'Save'}
             </Text>
           </TouchableOpacity>
@@ -339,11 +344,14 @@ export default function EditReelDetailsScreen() {
               </View>
 
               <View className="ml-3 flex-1">
-                <Text style={{ color: colors.reel.ink, fontWeight: '700' }} numberOfLines={1}>
+                <Text
+                  style={{ color: colors.reel.ink, fontFamily: typography.fonts.bodyBold }}
+                  numberOfLines={1}
+                >
                   {reel.status === 'COMPLETED' ? 'Ready reel' : reel.status}
                 </Text>
                 <Text
-                  className="mt-1 text-xs2 leading-4"
+                  className="font-sans mt-1 text-xs2 leading-4"
                   style={{ color: colors.reel.inkSecondary }}
                   numberOfLines={2}
                 >
@@ -358,13 +366,25 @@ export default function EditReelDetailsScreen() {
               <Text className="font-heading text-lg" style={{ color: colors.reel.ink }}>
                 Details
               </Text>
-              <Text style={{ color: 'rgba(46,36,30,0.48)', fontSize: 12 }}>
+              <Text
+                style={{
+                  fontFamily: typography.fonts.body,
+                  color: 'rgba(46,36,30,0.48)',
+                  fontSize: 12,
+                }}
+              >
                 {caption.length}/{MAX_CAPTION_LENGTH}
               </Text>
             </View>
 
             <View className="mt-3 rounded-[22px] bg-reel-canvas px-4 py-3">
-              <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '700' }}>
+              <Text
+                style={{
+                  color: colors.reel.inkStrong,
+                  fontSize: 12,
+                  fontFamily: typography.fonts.bodyBold,
+                }}
+              >
                 Title
               </Text>
               <TextInput
@@ -380,7 +400,13 @@ export default function EditReelDetailsScreen() {
             </View>
 
             <View className="mt-3 min-h-[180px] rounded-[22px] bg-reel-canvas px-4 py-3">
-              <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '700' }}>
+              <Text
+                style={{
+                  color: colors.reel.inkStrong,
+                  fontSize: 12,
+                  fontFamily: typography.fonts.bodyBold,
+                }}
+              >
                 Caption
               </Text>
               <TextInput
@@ -418,10 +444,16 @@ export default function EditReelDetailsScreen() {
                 />
               </View>
               <View className="ml-3 flex-1">
-                <Text style={{ color: colors.reel.ink, fontWeight: '700' }} numberOfLines={1}>
+                <Text
+                  style={{ color: colors.reel.ink, fontFamily: typography.fonts.bodyBold }}
+                  numberOfLines={1}
+                >
                   {reel.series?.title ?? 'No series'}
                 </Text>
-                <Text className="mt-0.5 text-xs2" style={{ color: colors.reel.inkSecondary }}>
+                <Text
+                  className="font-sans mt-0.5 text-xs2"
+                  style={{ color: colors.reel.inkSecondary }}
+                >
                   {reel.series
                     ? `Episode ${reel.series.episodeNumber} · Tap to move or remove`
                     : 'Add this reel to an episode collection'}
@@ -444,12 +476,15 @@ export default function EditReelDetailsScreen() {
                 <MaterialIcons name="lock-outline" size={18} color={colors.brand.tertiary} />
                 <View className="ml-3 flex-1">
                   <Text
-                    className="capitalize"
-                    style={{ color: colors.reel.ink, fontWeight: '700' }}
+                    className="font-sans capitalize"
+                    style={{ color: colors.reel.ink, fontFamily: typography.fonts.bodyBold }}
                   >
                     {visibility}
                   </Text>
-                  <Text className="mt-0.5 text-xs2" style={{ color: colors.reel.inkSecondary }}>
+                  <Text
+                    className="font-sans mt-0.5 text-xs2"
+                    style={{ color: colors.reel.inkSecondary }}
+                  >
                     Episodes in a series share the same audience.
                   </Text>
                 </View>
@@ -467,11 +502,11 @@ export default function EditReelDetailsScreen() {
                     onPress={() => setVisibility(option)}
                   >
                     <Text
-                      className="text-center capitalize"
+                      className="font-sans text-center capitalize"
                       style={{
                         color: visibility === option ? colors.text.inverse : colors.reel.ink,
                         fontSize: 12,
-                        fontWeight: '700',
+                        fontFamily: typography.fonts.bodyBold,
                       }}
                     >
                       {option}

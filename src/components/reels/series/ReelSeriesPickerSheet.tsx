@@ -146,7 +146,7 @@ export function ReelSeriesPickerSheet({
             <Text className="font-heading text-xl text-text-primary">
               {mode === 'create' ? 'New series' : title}
             </Text>
-            <Text className="mt-1 text-base2 leading-5 text-text-secondary">
+            <Text className="font-sans mt-1 text-base2 leading-5 text-text-secondary">
               {mode === 'create'
                 ? 'Give this collection a clear name. You can edit it later.'
                 : subtitle}
@@ -286,7 +286,7 @@ export function ReelSeriesPickerSheet({
               </View>
               <View className="ml-3 flex-1">
                 <Text className="font-medium text-md text-text-primary">Create new series</Text>
-                <Text className="mt-0.5 text-sm2 text-text-secondary">
+                <Text className="font-sans mt-0.5 text-sm2 text-text-secondary">
                   Start a fresh episode collection
                 </Text>
               </View>
@@ -311,7 +311,7 @@ export function ReelSeriesPickerSheet({
                 </View>
                 <View className="ml-3 flex-1">
                   <Text className="font-medium text-md text-text-primary">No series</Text>
-                  <Text className="mt-0.5 text-sm2 text-text-secondary">
+                  <Text className="font-sans mt-0.5 text-sm2 text-text-secondary">
                     Keep this reel standalone
                   </Text>
                 </View>
@@ -328,7 +328,9 @@ export function ReelSeriesPickerSheet({
             {isPending ? (
               <View className="items-center py-8">
                 <ActivityIndicator color={colors.brand.primary} />
-                <Text className="mt-3 text-sm2 text-text-secondary">Loading your series…</Text>
+                <Text className="font-sans mt-3 text-sm2 text-text-secondary">
+                  Loading your series…
+                </Text>
               </View>
             ) : isError ? (
               <Pressable
@@ -346,7 +348,7 @@ export function ReelSeriesPickerSheet({
               <View className="items-center rounded-[22px] bg-surface-muted px-5 py-7">
                 <MaterialIcons name="video-library" size={28} color={colors.text.tertiary} />
                 <Text className="mt-3 font-medium text-base2 text-text-primary">No series yet</Text>
-                <Text className="mt-1 text-center text-sm2 text-text-secondary">
+                <Text className="font-sans mt-1 text-center text-sm2 text-text-secondary">
                   Create one when you want your reels to play as episodes.
                 </Text>
               </View>
@@ -390,7 +392,7 @@ export function ReelSeriesPickerSheet({
                         <Text className="font-medium text-md text-text-primary" numberOfLines={1}>
                           {item.title}
                         </Text>
-                        <Text className="mt-1 text-sm2 text-text-secondary">
+                        <Text className="font-sans mt-1 text-sm2 text-text-secondary">
                           {item.episodeCount} {item.episodeCount === 1 ? 'episode' : 'episodes'} ·{' '}
                           {visibilityLabel(item.visibility)}
                         </Text>

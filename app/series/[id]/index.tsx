@@ -390,7 +390,7 @@ export default function ReelSeriesScreen() {
         <Text className="mt-4 text-center font-heading text-xl text-white">
           {isNotFound ? 'Series not found' : 'Series unavailable'}
         </Text>
-        <Text className="mt-2 max-w-[300px] text-center text-base2 leading-6 text-white/70">
+        <Text className="font-sans mt-2 max-w-[300px] text-center text-base2 leading-6 text-white/70">
           {isNotFound
             ? 'This series is unavailable or you no longer have access to it.'
             : 'Velora could not load this series right now.'}
@@ -435,7 +435,7 @@ export default function ReelSeriesScreen() {
         </TouchableOpacity>
         <MaterialIcons name="video-library" size={40} color={colors.brand.secondary} />
         <Text className="mt-4 text-center font-heading text-xl text-white">{series.title}</Text>
-        <Text className="mt-2 text-center text-base2 text-white/70">
+        <Text className="font-sans mt-2 text-center text-base2 text-white/70">
           This series has no episodes yet.
         </Text>
         {isOwner ? (
@@ -548,7 +548,7 @@ export default function ReelSeriesScreen() {
               >
                 {series.title}
               </Text>
-              <Text className="text-xs2 text-text-secondary text-center mt-0.5">
+              <Text className="font-sans text-xs2 text-text-secondary text-center mt-0.5">
                 {series.episodeCount} {series.episodeCount === 1 ? 'episode' : 'episodes'}
               </Text>
             </View>
@@ -568,7 +568,7 @@ export default function ReelSeriesScreen() {
 
           {series.description?.trim() ? (
             <View className="bg-surface-muted/60 px-5 py-2.5">
-              <Text className="text-xs2 leading-4 text-text-secondary" numberOfLines={2}>
+              <Text className="font-sans text-xs2 leading-4 text-text-secondary" numberOfLines={2}>
                 {series.description.trim()}
               </Text>
             </View>
@@ -642,7 +642,10 @@ export default function ReelSeriesScreen() {
                         <Text className="ml-0.5 text-xs2 font-bold text-brand">Playing</Text>
                       </View>
                     ) : (
-                      <Text className="mt-1 text-xs2 text-text-tertiary" style={styles.episodeMeta}>
+                      <Text
+                        className="font-sans mt-1 text-xs2 text-text-tertiary"
+                        style={styles.episodeMeta}
+                      >
                         {formatViews(reel.viewCount)} views
                       </Text>
                     )}

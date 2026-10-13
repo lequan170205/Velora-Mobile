@@ -4,7 +4,7 @@ import { ScrollView, Text, TouchableOpacity, View, useWindowDimensions } from 'r
 import Animated, { FadeIn } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
-import { colors } from '../../../constants/theme'
+import { colors, typography } from '../../../constants/theme'
 import { getCreatorPreviewContentFit } from '../../../lib/reel-creator'
 import { getTrimDurationMs, formatTrimDurationLabel } from '../../../lib/reel-trim-geometry'
 import { formatDurationLabel } from '../../../lib/reels'
@@ -154,7 +154,7 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
 
         <View className="absolute left-16 right-24 items-center">
           <Text
-            className="text-xs2 uppercase tracking-[1.2px]"
+            className="font-sans text-xs2 uppercase tracking-[1.2px]"
             style={{ color: colors.reel.inkSecondary }}
           >
             Preview
@@ -173,7 +173,9 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
           activeOpacity={0.84}
           onPress={controller.goToPublishStage}
         >
-          <Text style={{ color: colors.text.inverse, fontWeight: '700' }}>Next</Text>
+          <Text style={{ color: colors.text.inverse, fontFamily: typography.fonts.bodyBold }}>
+            Next
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -231,7 +233,13 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
 
           <View className="absolute inset-x-0 bottom-0 px-3 pb-3">
             <View className="flex-row items-center justify-between rounded-full bg-white/92 px-3 py-2">
-              <Text style={{ color: colors.reel.ink, fontSize: 12, fontWeight: '700' }}>
+              <Text
+                style={{
+                  color: colors.reel.ink,
+                  fontSize: 12,
+                  fontFamily: typography.fonts.bodyBold,
+                }}
+              >
                 {positionLabel} / {durationLabel}
               </Text>
               <View className="flex-row gap-2">
@@ -275,7 +283,7 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
               Timeline
             </Text>
             <Text
-              className="mt-0.5 text-xs2"
+              className="font-sans mt-0.5 text-xs2"
               style={{ color: colors.reel.inkSecondary }}
               numberOfLines={1}
             >
@@ -286,13 +294,19 @@ export function EditorStage({ controller }: { controller: ReelCreatorController 
           <View className="flex-row items-center gap-2">
             {controller.editState.trim ? (
               <View className="rounded-full bg-brand-soft px-2.5 py-2">
-                <Text style={{ color: colors.brand.tertiary, fontSize: 11, fontWeight: '700' }}>
+                <Text
+                  style={{
+                    color: colors.brand.tertiary,
+                    fontSize: 11,
+                    fontFamily: typography.fonts.bodyBold,
+                  }}
+                >
                   Trimmed • {formatTrimDurationLabel(displayedDurationMs)}
                 </Text>
               </View>
             ) : null}
             <View className="rounded-full bg-brand-soft px-3 py-2">
-              <Text style={{ color: colors.brand.tertiary, fontWeight: '700' }}>
+              <Text style={{ color: colors.brand.tertiary, fontFamily: typography.fonts.bodyBold }}>
                 {controller.selectedAssetType
                   ? controller.selectedAssetType.replace('video/', '').toUpperCase()
                   : 'VIDEO'}

@@ -137,7 +137,9 @@ export function ToolRailButton({
       >
         <MaterialIcons name={icon} size={22} color={colors.text.inverse} />
       </BlurView>
-      <Text className={`mt-2 text-xs2 ${active ? 'text-white' : 'text-white/64'}`}>{label}</Text>
+      <Text className={`font-sans mt-2 text-xs2 ${active ? 'text-white' : 'text-white/64'}`}>
+        {label}
+      </Text>
     </TouchableOpacity>
   )
 }
@@ -159,7 +161,9 @@ export function SectionCard({
     >
       <View className="px-5 py-5">
         <Text className="font-heading text-lg text-white">{title}</Text>
-        {subtitle ? <Text className="mt-1 text-sm2 text-white/58">{subtitle}</Text> : null}
+        {subtitle ? (
+          <Text className="font-sans mt-1 text-sm2 text-white/58">{subtitle}</Text>
+        ) : null}
         <View className="mt-4">{children}</View>
       </View>
     </BlurView>
@@ -188,10 +192,10 @@ export function MetadataRow({
         <View className="h-10 w-10 items-center justify-center rounded-full bg-white/10">
           <MaterialIcons name={icon} size={20} color={colors.text.inverse} />
         </View>
-        <Text className="ml-3 text-base2 text-white">{title}</Text>
+        <Text className="font-sans ml-3 text-base2 text-white">{title}</Text>
       </View>
       <View className="max-w-[54%] flex-row items-center">
-        <Text className="text-right text-sm2 text-white/64" numberOfLines={1}>
+        <Text className="font-sans text-right text-sm2 text-white/64" numberOfLines={1}>
           {value}
         </Text>
         {onPress ? (
@@ -222,8 +226,8 @@ export function ToggleRow({
           <MaterialIcons name={icon} size={20} color={colors.text.inverse} />
         </View>
         <View className="ml-3 flex-1">
-          <Text className="text-base2 text-white">{title}</Text>
-          <Text className="mt-1 text-sm2 leading-5 text-white/56">{subtitle}</Text>
+          <Text className="font-sans text-base2 text-white">{title}</Text>
+          <Text className="font-sans mt-1 text-sm2 leading-5 text-white/56">{subtitle}</Text>
         </View>
       </View>
       <Switch

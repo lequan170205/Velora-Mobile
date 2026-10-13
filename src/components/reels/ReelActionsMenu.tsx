@@ -24,7 +24,7 @@ export function ReelActionsMenu({ visible, onEdit, onDelete, onClose }: ReelActi
           <View className="mt-3 flex-row items-start justify-between">
             <View className="flex-1 pr-4">
               <Text className="font-heading text-xl text-text-primary">Reel options</Text>
-              <Text className="mt-1 text-base2 text-text-secondary">
+              <Text className="font-sans mt-1 text-base2 text-text-secondary">
                 Focus actions for this reel
               </Text>
             </View>
@@ -41,7 +41,9 @@ export function ReelActionsMenu({ visible, onEdit, onDelete, onClose }: ReelActi
           </View>
 
           <View className="mt-5">
-            <Text className="mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">Manage</Text>
+            <Text className="font-sans mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">
+              Manage
+            </Text>
             <View className="gap-3">
               <Pressable
                 accessibilityLabel="Edit reel details"
@@ -55,7 +57,7 @@ export function ReelActionsMenu({ visible, onEdit, onDelete, onClose }: ReelActi
                 </View>
                 <View className="ml-3 flex-1">
                   <Text className="font-medium text-md text-text-primary">Edit details</Text>
-                  <Text className="mt-1 text-sm2 text-text-secondary">
+                  <Text className="font-sans mt-1 text-sm2 text-text-secondary">
                     Title, caption, hashtags, visibility
                   </Text>
                 </View>
@@ -74,7 +76,7 @@ export function ReelActionsMenu({ visible, onEdit, onDelete, onClose }: ReelActi
                 </View>
                 <View className="ml-3 flex-1">
                   <Text className="font-medium text-md text-status-error">Delete reel</Text>
-                  <Text className="mt-1 text-sm2 text-text-secondary">
+                  <Text className="font-sans mt-1 text-sm2 text-text-secondary">
                     Permanently remove this post
                   </Text>
                 </View>

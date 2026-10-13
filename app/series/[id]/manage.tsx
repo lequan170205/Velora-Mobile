@@ -35,7 +35,7 @@ import { useAuthStore } from '@/stores/authStore'
 import type { Reel, ReelVisibility } from '@/types/reel.types'
 import type { BottomSheetModal } from '@gorhom/bottom-sheet'
 
-import { colors } from '../../../src/constants/theme'
+import { colors, typography } from '../../../src/constants/theme'
 
 import type { RenderItemParams } from 'react-native-draggable-flatlist'
 
@@ -327,14 +327,19 @@ export default function ManageReelSeriesScreen() {
           <Text className="mt-4 font-heading text-xl" style={{ color: colors.reel.ink }}>
             Series unavailable
           </Text>
-          <Text className="mt-2 text-center text-base2" style={{ color: colors.reel.inkSecondary }}>
+          <Text
+            className="font-sans mt-2 text-center text-base2"
+            style={{ color: colors.reel.inkSecondary }}
+          >
             {errorMessage(error, 'Velora could not load this series.')}
           </Text>
           <TouchableOpacity
             className="mt-6 min-h-11 justify-center rounded-full bg-reel-accent px-5"
             onPress={() => void refetch()}
           >
-            <Text style={{ color: colors.text.inverse, fontWeight: '700' }}>Try again</Text>
+            <Text style={{ color: colors.text.inverse, fontFamily: typography.fonts.bodyBold }}>
+              Try again
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -350,14 +355,19 @@ export default function ManageReelSeriesScreen() {
           <Text className="mt-4 font-heading text-xl" style={{ color: colors.reel.ink }}>
             Owner controls only
           </Text>
-          <Text className="mt-2 text-center text-base2" style={{ color: colors.reel.inkSecondary }}>
+          <Text
+            className="font-sans mt-2 text-center text-base2"
+            style={{ color: colors.reel.inkSecondary }}
+          >
             Only the series owner can edit episodes or audience settings.
           </Text>
           <TouchableOpacity
             className="mt-6 min-h-11 justify-center px-5"
             onPress={() => router.back()}
           >
-            <Text style={{ color: colors.brand.tertiary, fontWeight: '700' }}>Go back</Text>
+            <Text style={{ color: colors.brand.tertiary, fontFamily: typography.fonts.bodyBold }}>
+              Go back
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -380,7 +390,7 @@ export default function ManageReelSeriesScreen() {
           </View>
           <View className="absolute left-16 right-16 items-center">
             <Text
-              className="text-xs2 uppercase tracking-[1.2px]"
+              className="font-sans text-xs2 uppercase tracking-[1.2px]"
               style={{ color: colors.reel.inkSecondary }}
             >
               Series
@@ -457,7 +467,10 @@ export default function ManageReelSeriesScreen() {
                   <Text className="font-heading text-lg" style={{ color: colors.reel.ink }}>
                     Episodes
                   </Text>
-                  <Text className="mt-1 text-xs2" style={{ color: colors.reel.inkSecondary }}>
+                  <Text
+                    className="font-sans mt-1 text-xs2"
+                    style={{ color: colors.reel.inkSecondary }}
+                  >
                     Drag an episode to reorder, then save once.
                   </Text>
                 </View>
@@ -483,11 +496,14 @@ export default function ManageReelSeriesScreen() {
               {orderedReels.length === 0 ? (
                 <View className="mt-4 items-center rounded-[22px] bg-reel-canvas px-5 py-7">
                   <MaterialIcons name="video-library" size={28} color="rgba(46,36,30,0.36)" />
-                  <Text className="mt-3" style={{ color: colors.reel.ink, fontWeight: '700' }}>
+                  <Text
+                    className="font-sans mt-3"
+                    style={{ color: colors.reel.ink, fontFamily: typography.fonts.bodyBold }}
+                  >
                     No episodes yet
                   </Text>
                   <Text
-                    className="mt-1 text-center text-xs2"
+                    className="font-sans mt-1 text-center text-xs2"
                     style={{ color: colors.reel.inkSecondary }}
                   >
                     Add a reel from its edit screen or choose from your published reels below.
@@ -538,7 +554,9 @@ export default function ManageReelSeriesScreen() {
                   disabled={!orderChanged || isBusy}
                   onPress={() => void handleSaveOrder()}
                 >
-                  <Text style={{ color: colors.text.inverse, fontWeight: '700' }}>
+                  <Text
+                    style={{ color: colors.text.inverse, fontFamily: typography.fonts.bodyBold }}
+                  >
                     {reorderSeries.isPending ? 'Saving order…' : 'Save episode order'}
                   </Text>
                 </TouchableOpacity>
@@ -551,7 +569,13 @@ export default function ManageReelSeriesScreen() {
                   Details
                 </Text>
                 <View className="mt-3 rounded-[22px] bg-reel-canvas px-4 py-3">
-                  <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '700' }}>
+                  <Text
+                    style={{
+                      color: colors.reel.inkStrong,
+                      fontSize: 12,
+                      fontFamily: typography.fonts.bodyBold,
+                    }}
+                  >
                     Title
                   </Text>
                   <TextInput
@@ -565,7 +589,13 @@ export default function ManageReelSeriesScreen() {
                   />
                 </View>
                 <View className="mt-3 rounded-[22px] bg-reel-canvas px-4 py-3">
-                  <Text style={{ color: colors.reel.inkStrong, fontSize: 12, fontWeight: '700' }}>
+                  <Text
+                    style={{
+                      color: colors.reel.inkStrong,
+                      fontSize: 12,
+                      fontFamily: typography.fonts.bodyBold,
+                    }}
+                  >
                     Description · optional
                   </Text>
                   <TextInput
@@ -606,11 +636,11 @@ export default function ManageReelSeriesScreen() {
                           color={selected ? colors.text.inverse : colors.reel.ink}
                         />
                         <Text
-                          className="ml-1.5"
+                          className="font-sans ml-1.5"
                           style={{
                             color: selected ? colors.text.inverse : colors.reel.ink,
                             fontSize: 11.5,
-                            fontWeight: '700',
+                            fontFamily: typography.fonts.bodyBold,
                           }}
                           numberOfLines={1}
                         >
@@ -621,7 +651,7 @@ export default function ManageReelSeriesScreen() {
                   })}
                 </View>
                 <Text
-                  className="mt-2 text-xs2 leading-4"
+                  className="font-sans mt-2 text-xs2 leading-4"
                   style={{ color: colors.reel.inkSecondary }}
                 >
                   Changing the audience updates every episode in this series.
@@ -632,7 +662,9 @@ export default function ManageReelSeriesScreen() {
                   disabled={!metadataChanged || isBusy}
                   onPress={() => void handleSaveDetails()}
                 >
-                  <Text style={{ color: colors.text.inverse, fontWeight: '700' }}>
+                  <Text
+                    style={{ color: colors.text.inverse, fontFamily: typography.fonts.bodyBold }}
+                  >
                     {updateSeries.isPending ? 'Saving…' : 'Save details'}
                   </Text>
                 </TouchableOpacity>
@@ -651,14 +683,14 @@ export default function ManageReelSeriesScreen() {
                 >
                   <MaterialIcons name="delete-outline" size={19} color={colors.brand.tertiary} />
                   <Text
-                    className="ml-2"
-                    style={{ color: colors.brand.tertiary, fontWeight: '700' }}
+                    className="font-sans ml-2"
+                    style={{ color: colors.brand.tertiary, fontFamily: typography.fonts.bodyBold }}
                   >
                     Delete series
                   </Text>
                 </TouchableOpacity>
                 <Text
-                  className="mt-2 text-center text-xs2"
+                  className="font-sans mt-2 text-center text-xs2"
                   style={{ color: 'rgba(46,36,30,0.54)' }}
                 >
                   Reels stay published; only the Series is removed.
@@ -702,7 +734,7 @@ const styles = (StyleSheet?.create ?? (<T extends Record<string, unknown>>(s: T)
   },
   episodeTitle: {
     color: colors.reel.ink,
-    fontWeight: '700',
+    fontFamily: typography.fonts.bodyBold,
   },
   episodeTitleContainer: {
     flex: 1,
