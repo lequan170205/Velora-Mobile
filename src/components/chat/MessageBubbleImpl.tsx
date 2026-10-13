@@ -507,11 +507,13 @@ function renderMessageReceiptContent({
             )
           })}
           {hiddenReceiptCount > 0 ? (
-            <Text className="ml-1 text-[10px] text-text-secondary">+{hiddenReceiptCount}</Text>
+            <Text className="font-sans ml-1 text-[10px] text-text-secondary">
+              +{hiddenReceiptCount}
+            </Text>
           ) : null}
         </View>
       ) : primaryStatusLabel ? (
-        <Text className="text-xs2 text-text-secondary">{primaryStatusLabel}</Text>
+        <Text className="font-sans text-xs2 text-text-secondary">{primaryStatusLabel}</Text>
       ) : null}
     </View>
   ) : null
@@ -531,7 +533,7 @@ function renderReactionBadges(
       accessibilityLabel={`${emoji} reaction, ${count} ${count === 1 ? 'person' : 'people'}`}
     >
       <Text className="text-xs">{emoji}</Text>
-      <Text className={cn('text-xs ml-0.5 text-text-muted')}>{count}</Text>
+      <Text className={cn('font-sans text-xs ml-0.5 text-text-muted')}>{count}</Text>
     </Pressable>
   ))
 }
@@ -1340,7 +1342,7 @@ const MessageBubbleComponent = function MessageBubble({
                         >
                           {replyPreviewMeta.type === 'text' ? (
                             <Text
-                              className="text-base leading-[22px] text-text-secondary"
+                              className="font-sans text-base leading-[22px] text-text-secondary"
                               numberOfLines={3}
                             >
                               {replyPreviewMeta.contentLabel}
@@ -1413,6 +1415,7 @@ const MessageBubbleComponent = function MessageBubble({
                                 </Text>
                                 <Text
                                   style={{
+                                    fontFamily: typography.fonts.body,
                                     fontSize: typography.sizes.sm,
                                     color: colors.text.secondary,
                                     lineHeight: 17,
@@ -1512,7 +1515,7 @@ const MessageBubbleComponent = function MessageBubble({
                                     style={{ marginRight: 6 }}
                                   />
                                   <Text
-                                    className="flex-1 text-base2 leading-[20px] text-text-secondary"
+                                    className="font-sans flex-1 text-base2 leading-[20px] text-text-secondary"
                                     numberOfLines={2}
                                   >
                                     {replyPreviewMeta.contentLabel}
@@ -1525,7 +1528,7 @@ const MessageBubbleComponent = function MessageBubble({
                               (replyPreviewMeta.type === 'image' ||
                                 replyPreviewMeta.type === 'video') ? (
                                 <Text
-                                  className="px-1 pt-2 text-sm2 leading-[18px] text-text-secondary"
+                                  className="font-sans px-1 pt-2 text-sm2 leading-[18px] text-text-secondary"
                                   numberOfLines={1}
                                 >
                                   {replyPreviewMeta.contentLabel}
@@ -1707,7 +1710,7 @@ const MessageBubbleComponent = function MessageBubble({
           style={[timestampColumnStyle, { position: 'absolute', right: 0, top: 0, bottom: 0 }]}
           className="items-end justify-center"
         >
-          <Text className="text-xs2 text-text-secondary" numberOfLines={1}>
+          <Text className="font-sans text-xs2 text-text-secondary" numberOfLines={1}>
             {timeLabel}
           </Text>
         </Animated.View>

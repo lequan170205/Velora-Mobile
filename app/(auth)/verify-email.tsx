@@ -142,7 +142,7 @@ export default function VerifyEmailScreen() {
     >
       <View>
         <OtpCodeInput value={token} onChangeText={setToken} hasError={Boolean(error)} />
-        <Text className="mt-3 text-base2 leading-5 text-text-secondary">
+        <Text className="font-sans mt-3 text-base2 leading-5 text-text-secondary">
           Paste the code to activate your account and finish setup.
         </Text>
       </View>

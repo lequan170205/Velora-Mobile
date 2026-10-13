@@ -62,7 +62,7 @@ test('receipt content preserves status priority, avatar order, fallback, overflo
       assert.equal(tree.props.className, 'flex-row justify-end items-center gap-1 px-1')
       if (!readReceiptParticipants.length) {
         assert.equal(tree.props.children.type, 'Text')
-        assert.deepEqual(tree.props.children.props, { className: 'text-xs2 text-text-secondary', children: primaryStatusLabel })
+        assert.deepEqual(tree.props.children.props, { className: 'font-sans text-xs2 text-text-secondary', children: primaryStatusLabel })
         continue
       }
       const avatars = tree.props.children
@@ -87,7 +87,7 @@ test('receipt content preserves status priority, avatar order, fallback, overflo
       })
       if (hiddenReceiptCount > 0) {
         assert.equal(overflow.type, 'Text')
-        assert.deepEqual(overflow.props, { className: 'ml-1 text-[10px] text-text-secondary', children: ['+', hiddenReceiptCount] })
+        assert.deepEqual(overflow.props, { className: 'font-sans ml-1 text-[10px] text-text-secondary', children: ['+', hiddenReceiptCount] })
       } else {
         assert.equal(overflow, null)
       }

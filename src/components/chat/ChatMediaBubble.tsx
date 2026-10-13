@@ -295,7 +295,11 @@ export function ChatMediaBubble({
       }}
     >
       <Text
-        style={{ color: colors.text.inverse, fontSize: typography.sizes.xs, fontWeight: '600' }}
+        style={{
+          color: colors.text.inverse,
+          fontSize: typography.sizes.xs,
+          fontFamily: typography.fonts.bodySemibold,
+        }}
       >
         {durationLabel}
       </Text>
@@ -339,7 +343,14 @@ export function ChatMediaBubble({
               justifyContent: 'space-between',
             }}
           >
-            <Text style={{ color: colors.text.inverse, flex: 1, fontSize: 12, fontWeight: '600' }}>
+            <Text
+              style={{
+                color: colors.text.inverse,
+                flex: 1,
+                fontSize: 12,
+                fontFamily: typography.fonts.bodySemibold,
+              }}
+            >
               {isFailed
                 ? message.media?.failureReason || uploadJob?.failureReason || 'Upload failed'
                 : isCancelRequested
@@ -363,7 +374,13 @@ export function ChatMediaBubble({
                   paddingVertical: 8,
                 }}
               >
-                <Text style={{ color: colors.text.inverse, fontSize: 12, fontWeight: '700' }}>
+                <Text
+                  style={{
+                    color: colors.text.inverse,
+                    fontSize: 12,
+                    fontFamily: typography.fonts.bodyBold,
+                  }}
+                >
                   Retry
                 </Text>
               </TouchableOpacity>
@@ -384,7 +401,13 @@ export function ChatMediaBubble({
                   paddingVertical: 8,
                 }}
               >
-                <Text style={{ color: colors.text.inverse, fontSize: 12, fontWeight: '700' }}>
+                <Text
+                  style={{
+                    color: colors.text.inverse,
+                    fontSize: 12,
+                    fontFamily: typography.fonts.bodyBold,
+                  }}
+                >
                   Cancel
                 </Text>
               </TouchableOpacity>

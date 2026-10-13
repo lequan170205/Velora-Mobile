@@ -193,7 +193,9 @@ export function ReactionDetailsSheet({
               paddingBottom: bottomPadding,
             }}
           >
-            <Text className="mb-3 text-sm text-text-muted">Couldn&apos;t load reactions.</Text>
+            <Text className="font-sans mb-3 text-sm text-text-muted">
+              Couldn&apos;t load reactions.
+            </Text>
             <TouchableOpacity
               onPress={() => void refetch()}
               className="rounded-full bg-surface-input px-4 py-2"
@@ -210,7 +212,7 @@ export function ReactionDetailsSheet({
               paddingBottom: bottomPadding,
             }}
           >
-            <Text className="text-sm text-text-muted">No reactions yet.</Text>
+            <Text className="font-sans text-sm text-text-muted">No reactions yet.</Text>
           </View>
         ) : (
           <BottomSheetScrollView

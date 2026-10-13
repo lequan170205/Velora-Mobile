@@ -573,7 +573,9 @@ const MessageInputComponent = function MessageInput(
                 marginRight: 10,
               }}
             >
-              <Text style={{ fontSize: 12, fontWeight: '700', color: BRAND }}>{replyInitial}</Text>
+              <Text style={{ fontSize: 12, fontFamily: typography.fonts.bodyBold, color: BRAND }}>
+                {replyInitial}
+              </Text>
             </View>
           )}
 
@@ -581,7 +583,7 @@ const MessageInputComponent = function MessageInput(
             <Text
               style={{
                 fontSize: 12,
-                fontWeight: '700',
+                fontFamily: typography.fonts.bodyBold,
                 color: isReplyReel ? TEXT_PRIMARY : BRAND,
                 marginBottom: 2,
               }}
@@ -590,7 +592,12 @@ const MessageInputComponent = function MessageInput(
               {replySenderLabel}
             </Text>
             <Text
-              style={{ fontSize: typography.sizes.sm, color: TEXT_SECONDARY, lineHeight: 17 }}
+              style={{
+                fontFamily: typography.fonts.body,
+                fontSize: typography.sizes.sm,
+                color: TEXT_SECONDARY,
+                lineHeight: 17,
+              }}
               numberOfLines={1}
             >
               {replyPreviewText}
@@ -668,7 +675,7 @@ const MessageInputComponent = function MessageInput(
                 left: 10,
                 bottom: 1,
                 fontSize: typography.sizes.xs,
-                fontWeight: '500',
+                fontFamily: typography.fonts.bodyMedium,
                 color: counterColor,
               }}
             >
@@ -707,6 +714,7 @@ const styles = StyleSheet.create({
   },
   textInput: {
     color: TEXT_PRIMARY,
+    fontFamily: typography.fonts.body,
     fontSize: typography.sizes.md,
     lineHeight: 21,
     maxHeight: 108,

@@ -3,7 +3,7 @@ import { Image } from 'expo-image'
 import React, { useEffect, useRef, useState, type ReactNode } from 'react'
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native'
 
-import { colors } from '../../constants/theme'
+import { colors, typography } from '../../constants/theme'
 import { isRemoteMediaUri } from '../../lib/chatMedia'
 
 type ChatMediaKind = 'image' | 'video'
@@ -112,8 +112,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   placeholderLabel: {
+    fontFamily: typography.fonts.bodySemibold,
     fontSize: 12,
-    fontWeight: '600',
     marginTop: 8,
     textAlign: 'center',
   },

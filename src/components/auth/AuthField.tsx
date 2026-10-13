@@ -97,7 +97,7 @@ export const AuthField = React.forwardRef<NativeTextInput, AuthFieldProps>(funct
           {error}
         </Text>
       ) : hint ? (
-        <Text className="mt-2 text-base2 leading-5 text-text-secondary">{hint}</Text>
+        <Text className="font-sans mt-2 text-base2 leading-5 text-text-secondary">{hint}</Text>
       ) : null}
     </View>
   )

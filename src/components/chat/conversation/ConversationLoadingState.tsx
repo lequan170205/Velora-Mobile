@@ -74,7 +74,7 @@ export const ConversationTypingIndicator = ({ label }: { label: string }) => {
       className="mb-3 ml-4 mt-1 self-start"
     >
       <View className="flex-row items-end">
-        <Text className="mr-1 text-xs2 text-text-muted">{label}</Text>
+        <Text className="font-sans mr-1 text-xs2 text-text-muted">{label}</Text>
         <View className="flex-row items-end pb-[2px]">
           <Dot delay={0} />
           <Dot delay={150} />
@@ -98,7 +98,9 @@ export const ConversationEmptyState = () => {
         <MaterialIcons name="chat-bubble-outline" size={22} color={colors.brand.primary} />
       </View>
       <Text className="mt-3 font-heading text-base text-text-primary">No messages yet</Text>
-      <Text className="mt-1 text-center text-sm2 text-text-secondary">Be the first to say hi.</Text>
+      <Text className="font-sans mt-1 text-center text-sm2 text-text-secondary">
+        Be the first to say hi.
+      </Text>
     </Animated.View>
   )
 }

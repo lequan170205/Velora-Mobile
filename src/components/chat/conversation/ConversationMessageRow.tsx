@@ -72,7 +72,7 @@ export const ConversationMessageRow = memo(
       <View>
         {layout.showDateSeparator ? (
           <View className="my-4 items-center">
-            <Text className="rounded-full bg-bg-secondary px-3 py-1 text-xs2 text-text-secondary">
+            <Text className="font-sans rounded-full bg-bg-secondary px-3 py-1 text-xs2 text-text-secondary">
               {layout.separatorLabel}
             </Text>
           </View>

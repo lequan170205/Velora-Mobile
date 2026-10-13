@@ -1404,8 +1404,8 @@ const styles = StyleSheet.create({
     width: 32,
   },
   actionLabel: {
+    fontFamily: typography.fonts.bodyMedium,
     fontSize: typography.sizes.base,
-    fontWeight: '500',
   },
   actionRow: {
     alignItems: 'center',
@@ -1424,6 +1424,7 @@ const styles = StyleSheet.create({
   },
   contextAttachmentReplyText: {
     flex: 1,
+    fontFamily: typography.fonts.body,
     fontSize: 14,
     lineHeight: 21,
     minWidth: 0,
@@ -1465,8 +1466,8 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   contextReactionCount: {
+    fontFamily: typography.fonts.bodySemibold,
     fontSize: typography.sizes.xs,
-    fontWeight: '600',
   },
   contextReactionEmoji: {
     fontSize: 12,
@@ -1484,6 +1485,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   contextReplyContent: {
+    fontFamily: typography.fonts.body,
     fontSize: typography.sizes.base,
     lineHeight: 24,
   },
@@ -1495,8 +1497,8 @@ const styles = StyleSheet.create({
   },
   contextReplyHeaderText: {
     flexShrink: 1,
+    fontFamily: typography.fonts.bodyMedium,
     fontSize: 12,
-    fontWeight: '500',
     marginLeft: 6,
   },
   contextReplyIcon: {
@@ -1520,6 +1522,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   contextVisualReplyCaption: {
+    fontFamily: typography.fonts.body,
     fontSize: typography.sizes.sm,
     lineHeight: 18,
     marginHorizontal: 4,
@@ -1641,8 +1644,8 @@ const styles = StyleSheet.create({
   },
   reelAvatarInitial: {
     color: colors.text.inverse,
+    fontFamily: typography.fonts.bodySemibold,
     fontSize: 10,
-    fontWeight: '600',
   },
   reelCreatorBar: {
     alignItems: 'center',
@@ -1658,8 +1661,8 @@ const styles = StyleSheet.create({
   reelCreatorText: {
     color: colors.text.inverse,
     flex: 1,
+    fontFamily: typography.fonts.bodySemibold,
     fontSize: 12,
-    fontWeight: '600',
     marginLeft: 8,
   },
   reelPlayIcon: {

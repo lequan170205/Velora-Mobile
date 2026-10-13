@@ -3,7 +3,7 @@ import React, { memo } from 'react'
 import { Image, Pressable, Text, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 
-import { colors } from '../../constants/theme'
+import { colors, typography } from '../../constants/theme'
 import { useReelDetail } from '../../hooks/useReels'
 
 import type { Message } from '../../types/conversation.types'
@@ -157,7 +157,7 @@ export const ChatReelCard = memo(function ChatReelCard({
                     style={{
                       color: colors.text.inverse,
                       fontSize: isCompact ? 9 : 10,
-                      fontWeight: '600',
+                      fontFamily: typography.fonts.bodySemibold,
                     }}
                   >
                     {reelCreatorInitial}

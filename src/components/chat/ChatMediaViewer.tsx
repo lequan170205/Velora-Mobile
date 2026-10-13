@@ -1092,8 +1092,8 @@ const styles = StyleSheet.create({
   },
   durationBadgeText: {
     color: colors.text.inverse,
+    fontFamily: typography.fonts.bodyMedium,
     fontSize: typography.sizes.xs,
-    fontWeight: '500',
   },
   hero: {
     backgroundColor: '#101012',
@@ -1123,8 +1123,8 @@ const styles = StyleSheet.create({
   },
   senderAvatarText: {
     color: colors.brand.primary,
+    fontFamily: typography.fonts.bodySemibold,
     fontSize: 12,
-    fontWeight: '600',
   },
   senderMeta: {
     flex: 1,
@@ -1132,13 +1132,14 @@ const styles = StyleSheet.create({
   },
   senderMetaContext: {
     color: 'rgba(255,255,255,0.5)',
+    fontFamily: typography.fonts.body,
     fontSize: typography.sizes.xs,
     marginTop: 1,
   },
   senderMetaName: {
     color: colors.text.inverse,
+    fontFamily: typography.fonts.bodyMedium,
     fontSize: typography.sizes.sm,
-    fontWeight: '500',
   },
   topBar: {
     alignItems: 'center',
@@ -1170,12 +1171,13 @@ const styles = StyleSheet.create({
   },
   topBarSubtitle: {
     color: 'rgba(255,255,255,0.55)',
+    fontFamily: typography.fonts.body,
     fontSize: typography.sizes.xs,
     marginTop: 1,
   },
   topBarTitle: {
     color: colors.text.inverse,
+    fontFamily: typography.fonts.bodySemibold,
     fontSize: typography.sizes.base,
-    fontWeight: '600',
   },
 })

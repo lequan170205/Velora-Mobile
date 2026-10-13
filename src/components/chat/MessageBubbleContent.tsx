@@ -61,7 +61,7 @@ const previewDurationBadgeStyle = {
 const previewDurationTextStyle = {
   color: colors.text.inverse,
   fontSize: typography.sizes.xs,
-  fontWeight: '600',
+  fontFamily: typography.fonts.bodySemibold,
 } as const
 
 export function MessageBubbleContent({

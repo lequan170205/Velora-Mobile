@@ -150,7 +150,7 @@ export default function ResetPasswordScreen() {
           <Text className="mt-4 font-heading text-xl leading-[26px] text-text-primary">
             You&apos;re all set
           </Text>
-          <Text className="mt-2 text-base2 leading-6 text-text-secondary">
+          <Text className="font-sans mt-2 text-base2 leading-6 text-text-secondary">
             Your password has been updated successfully for{' '}
             <Text className="font-semibold text-text-primary">{email}</Text>.
           </Text>

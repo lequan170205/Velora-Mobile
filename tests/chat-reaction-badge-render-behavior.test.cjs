@@ -62,7 +62,7 @@ test('reaction badges preserve keys/order, labels, hit area and the callback for
         assert.equal(label.type, 'Text')
         assert.deepEqual(label.props, { className: 'text-xs', children: emoji })
         assert.equal(counter.type, 'Text')
-        assert.deepEqual(counter.props, { className: 'text-xs ml-0.5 text-text-muted', children: count })
+        assert.deepEqual(counter.props, { className: 'font-sans text-xs ml-0.5 text-text-muted', children: count })
         badge.props.onPress({ ignoredEvent: true })
       })
     }
