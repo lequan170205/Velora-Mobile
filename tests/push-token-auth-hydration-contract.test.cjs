@@ -16,7 +16,7 @@ test('authenticated session hydration resumes push-token registration before exp
   const meIndex = source.indexOf('const data = await authApi.me()', restoreIndex)
   const resumeIndex = source.indexOf('await resumePushTokenRegistration()', meIndex)
   const authenticatedSetIndex = source.indexOf(
-    'set({ user: data, isAuthenticated: true, isLoading: false, authHydrationError: null })',
+    'settle({ user: data, isAuthenticated: true, isLoading: false, authHydrationError: null })',
     meIndex,
   )
 

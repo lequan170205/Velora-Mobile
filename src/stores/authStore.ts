@@ -73,6 +73,14 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
 
     const hydrationVersion = ++authHydrationVersion
+    // Release the shared promise before the final state write. A caller that
+    // reacts to that write (e.g. a remounted root layout) must start a new
+    // hydration: joining this settled one would set isLoading back to true
+    // with nothing left to clear it.
+    const settle: typeof set = (partial) => {
+      authHydrationPromise = null
+      set(partial)
+    }
     const hydrationPromise = (async () => {
       try {
         if (shouldShowLoading) {
@@ -83,7 +91,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         if (hydrationVersion !== authHydrationVersion) return
 
         if (!hasSession) {
-          set({ user: null, isAuthenticated: false, isLoading: false, authHydrationError: null })
+          settle({ user: null, isAuthenticated: false, isLoading: false, authHydrationError: null })
           return
         }
 
@@ -93,14 +101,14 @@ export const useAuthStore = create<AuthState>((set) => ({
         await resumePushTokenRegistration()
         if (hydrationVersion !== authHydrationVersion) return
 
-        set({ user: data, isAuthenticated: true, isLoading: false, authHydrationError: null })
+        settle({ user: data, isAuthenticated: true, isLoading: false, authHydrationError: null })
       } catch (error) {
         if (hydrationVersion !== authHydrationVersion) return
 
         const hydrationError = getAuthHydrationError(error)
 
         if (hydrationError === 'unauthorized') {
-          set({
+          settle({
             user: null,
             isAuthenticated: false,
             isLoading: false,
@@ -109,7 +117,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           return
         }
 
-        set((state) => ({
+        settle((state) => ({
           user: state.user,
           isAuthenticated: state.isAuthenticated,
           isLoading: false,

@@ -83,12 +83,19 @@ const loadApiClient = ({
   }
 }
 
-const loadAuthStore = ({ restoreSession = async () => true, me, resumePushTokenRegistration }) => {
+const loadAuthStore = ({
+  restoreSession = async () => true,
+  me,
+  resumePushTokenRegistration,
+  onSet = () => undefined,
+}) => {
   let state
   const create = (initializer) => {
     const set = (partial) => {
       const nextState = typeof partial === 'function' ? partial(state) : partial
       state = { ...state, ...nextState }
+      // Zustand notifies subscribers synchronously inside set().
+      onSet(state)
     }
 
     state = initializer(set)
@@ -303,6 +310,34 @@ test('concurrent session hydration shares one identity request and push-token re
   meResolvers[1](session)
   await Promise.all([silentHydration, retryHydration])
   assert.equal(resumePushTokenCalls, 2)
+})
+
+test('a hydration requested as the previous one settles starts fresh instead of re-arming loading', async () => {
+  // A remounted root layout calls hydrateAuth() in the same turn the first
+  // hydration writes its final state. Joining that settled promise used to set
+  // isLoading back to true with nothing left to clear it, leaving the app on
+  // "Checking your sign-in..." forever.
+  let restoreSessionCalls = 0
+  let rehydration = null
+  const authStore = loadAuthStore({
+    restoreSession: async () => {
+      restoreSessionCalls += 1
+      return false
+    },
+    onSet: (state) => {
+      if (!state.isLoading && !rehydration) {
+        rehydration = authStore.getState().hydrateAuth()
+      }
+    },
+  })
+
+  await authStore.getState().hydrateAuth()
+  assert.ok(rehydration, 'the settle-time hydration request must have been made')
+  await rehydration
+
+  assert.equal(restoreSessionCalls, 2)
+  assert.equal(authStore.getState().isAuthenticated, false)
+  assert.equal(authStore.getState().isLoading, false)
 })
 
 test('logout invalidates an in-flight hydration before it can restore auth state', async () => {
