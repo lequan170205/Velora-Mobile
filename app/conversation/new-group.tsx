@@ -159,7 +159,7 @@ export default function NewGroupScreen() {
             <MaterialIcons name="groups" size={25} color={colors.brand.primary} />
           </View>
           <View className="ml-3 flex-1">
-            <AppText className="mb-1 text-xs uppercase tracking-[1.2px] text-text-muted">
+            <AppText className="font-sans mb-1 text-xs uppercase tracking-[1.2px] text-text-muted">
               Group name
             </AppText>
             <AppTextInput
@@ -175,8 +175,12 @@ export default function NewGroupScreen() {
         </View>
 
         <View className="mt-5 flex-row items-center justify-between">
-          <AppText className="text-xs uppercase tracking-[1.2px] text-text-muted">Members</AppText>
-          <AppText className="text-xs2 text-text-muted">{selectedIds.size} selected</AppText>
+          <AppText className="font-sans text-xs uppercase tracking-[1.2px] text-text-muted">
+            Members
+          </AppText>
+          <AppText className="font-sans text-xs2 text-text-muted">
+            {selectedIds.size} selected
+          </AppText>
         </View>
         <View className="mt-3">
           <AppSearchBar
@@ -196,7 +200,7 @@ export default function NewGroupScreen() {
         </View>
       ) : isError ? (
         <View className="flex-1 items-center justify-center px-6">
-          <AppText className="text-center text-base2 text-text-secondary">
+          <AppText className="font-sans text-center text-base2 text-text-secondary">
             We couldn&apos;t load your friends.
           </AppText>
           <AppPressable
@@ -230,7 +234,7 @@ export default function NewGroupScreen() {
                     {friendName}
                   </AppText>
                   {item.user.username ? (
-                    <AppText className="mt-0.5 text-xs2 text-text-muted">
+                    <AppText className="font-sans mt-0.5 text-xs2 text-text-muted">
                       @{item.user.username}
                     </AppText>
                   ) : null}
@@ -251,7 +255,7 @@ export default function NewGroupScreen() {
           }}
           ListEmptyComponent={
             <View className="items-center px-6 pt-10">
-              <AppText className="text-center text-base2 text-text-secondary">
+              <AppText className="font-sans text-center text-base2 text-text-secondary">
                 {searchQuery.trim()
                   ? 'No friends match your search.'
                   : 'Add friends before creating a group.'}

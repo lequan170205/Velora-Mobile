@@ -383,7 +383,7 @@ export default function GroupInfoScreen() {
           <AppText className="font-semibold text-text-primary">Conversation info</AppText>
         </View>
         <View className="flex-1 items-center justify-center px-6">
-          <AppText className="text-center text-text-secondary">
+          <AppText className="font-sans text-center text-text-secondary">
             This conversation is not a group.
           </AppText>
         </View>
@@ -601,7 +601,7 @@ export default function GroupInfoScreen() {
                   </SafeTouchableOpacity>
                 ) : null}
               </View>
-              <AppText className="mt-1 text-sm2 text-text-muted">
+              <AppText className="font-sans mt-1 text-sm2 text-text-muted">
                 {memberCount} member{memberCount === 1 ? '' : 's'}
               </AppText>
             </View>
@@ -611,7 +611,7 @@ export default function GroupInfoScreen() {
         <View className="border-t border-border-light">
           <View className="flex-row items-center justify-between px-5 pb-2 pt-5">
             <AppText className="text-sm2 font-semibold text-text-primary">Members</AppText>
-            <AppText className="text-xs2 text-text-muted">{memberCount}</AppText>
+            <AppText className="font-sans text-xs2 text-text-muted">{memberCount}</AppText>
           </View>
 
           {canAddMembers ? (
@@ -637,7 +637,7 @@ export default function GroupInfoScreen() {
           {showAddMembers && canAddMembers ? (
             <View className="border-y border-border-light bg-surface-card px-5 py-2">
               {addCandidates.length === 0 ? (
-                <AppText className="py-4 text-sm2 text-text-secondary">
+                <AppText className="font-sans py-4 text-sm2 text-text-secondary">
                   No friends available to add.
                 </AppText>
               ) : (
@@ -651,7 +651,10 @@ export default function GroupInfoScreen() {
                           {name}
                         </AppText>
                         {item.user.username ? (
-                          <AppText className="mt-0.5 text-xs2 text-text-muted" numberOfLines={1}>
+                          <AppText
+                            className="font-sans mt-0.5 text-xs2 text-text-muted"
+                            numberOfLines={1}
+                          >
                             @{item.user.username}
                           </AppText>
                         ) : null}
@@ -704,7 +707,10 @@ export default function GroupInfoScreen() {
                         </View>
                       ) : null}
                     </View>
-                    <AppText className="mt-0.5 min-w-0 text-xs2 text-text-muted" numberOfLines={1}>
+                    <AppText
+                      className="font-sans mt-0.5 min-w-0 text-xs2 text-text-muted"
+                      numberOfLines={1}
+                    >
                       {member.user.email}
                     </AppText>
                   </View>
@@ -743,11 +749,11 @@ export default function GroupInfoScreen() {
             <View className="ml-3 flex-1">
               <AppText className="font-semibold text-status-error-text">Leave group</AppText>
               {isOwner ? (
-                <AppText className="mt-0.5 text-xs2 text-text-muted">
+                <AppText className="font-sans mt-0.5 text-xs2 text-text-muted">
                   Transfer ownership before leaving.
                 </AppText>
               ) : memberCount <= 2 ? (
-                <AppText className="mt-0.5 text-xs2 text-text-muted">
+                <AppText className="font-sans mt-0.5 text-xs2 text-text-muted">
                   At least two members must remain.
                 </AppText>
               ) : null}
@@ -779,7 +785,7 @@ export default function GroupInfoScreen() {
                 <AppText className="text-base2 font-semibold text-text-primary" numberOfLines={1}>
                   {selectedMemberName}
                 </AppText>
-                <AppText className="mt-0.5 text-xs2 text-text-muted">
+                <AppText className="font-sans mt-0.5 text-xs2 text-text-muted">
                   {roleLabel(selectedMember.role)}
                 </AppText>
               </View>

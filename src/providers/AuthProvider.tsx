@@ -28,7 +28,7 @@ function AuthLoadingScreen({ showProgress }: { showProgress: boolean }) {
           accessibilityState={{ busy: true }}
         >
           <ActivityIndicator color={colors.brand.primary} size="large" />
-          <Text className="mt-4 text-center text-base2 text-text-secondary">
+          <Text className="font-sans mt-4 text-center text-base2 text-text-secondary">
             Checking your sign-in...
           </Text>
         </View>
@@ -43,7 +43,7 @@ function AuthNetworkErrorScreen({ onRetry }: { onRetry: () => void }) {
       <Text className="text-center text-lg font-semibold text-text-primary">
         We couldn&apos;t connect
       </Text>
-      <Text className="mt-2 text-center text-base2 text-text-secondary">
+      <Text className="font-sans mt-2 text-center text-base2 text-text-secondary">
         Check your connection and try again.
       </Text>
       <TouchableOpacity

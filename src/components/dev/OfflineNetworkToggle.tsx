@@ -56,7 +56,7 @@ export function OfflineNetworkToggle() {
         >
           {isForceOffline ? 'Simulating Offline' : 'Network Active'}
         </Text>
-        <Text className="mt-1 text-sm2 text-text-secondary">{statusLabel}</Text>
+        <Text className="font-sans mt-1 text-sm2 text-text-secondary">{statusLabel}</Text>
       </View>
 
       <MaterialIcons

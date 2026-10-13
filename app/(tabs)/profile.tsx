@@ -118,7 +118,7 @@ function EmptyReelsState({
       <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
         {isPrivate ? 'No private reels' : 'No reels yet'}
       </AppText>
-      <AppText className="mt-1.5 text-center text-base2 leading-5 text-text-secondary">
+      <AppText className="font-sans mt-1.5 text-center text-base2 leading-5 text-text-secondary">
         {isPrivate
           ? 'Reels you publish with private visibility will only be visible to you.'
           : 'Capture a moment, add your style, and share your first reel with the Velora community.'}
@@ -145,7 +145,7 @@ function EmptySeriesState({ onCreate }: { onCreate: () => void }) {
       <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
         No series yet
       </AppText>
-      <AppText className="mt-1.5 text-center text-base2 leading-5 text-text-secondary">
+      <AppText className="font-sans mt-1.5 text-center text-base2 leading-5 text-text-secondary">
         Group related reels into episodes to create your first series.
       </AppText>
       <AppPressable
@@ -259,7 +259,10 @@ function SeriesHighlight({
         </AppText>
         <View className="mt-1 flex-row items-center">
           <MaterialIcons name="video-library" size={14} color={colors.brand.tertiary} />
-          <AppText className="ml-1 text-[12px] leading-4 text-text-secondary" numberOfLines={1}>
+          <AppText
+            className="font-sans ml-1 text-[12px] leading-4 text-text-secondary"
+            numberOfLines={1}
+          >
             {episodeCount === 0
               ? 'No videos yet'
               : `${episodeCount} ${episodeCount === 1 ? 'video' : 'videos'}`}
@@ -593,7 +596,9 @@ export default function ProfileScreen() {
                   <AppText className="text-xs2 font-semibold uppercase tracking-[1.4px] text-text-muted">
                     Friends
                   </AppText>
-                  <AppText className="ml-2 text-xs2 text-text-muted">{friendsValue}</AppText>
+                  <AppText className="font-sans ml-2 text-xs2 text-text-muted">
+                    {friendsValue}
+                  </AppText>
                 </AppPressable>
                 <AppPressable
                   className="py-1"
@@ -632,7 +637,9 @@ export default function ProfileScreen() {
                               +{extraFriendsCount}
                             </AppText>
                           </View>
-                          <AppText className="mt-2 text-sm2 text-text-secondary">More</AppText>
+                          <AppText className="font-sans mt-2 text-sm2 text-text-secondary">
+                            More
+                          </AppText>
                         </View>
                       ) : null}
                     </>
@@ -643,7 +650,7 @@ export default function ProfileScreen() {
                   <AppText className="text-center text-sm2 font-semibold text-text-primary">
                     No friends yet
                   </AppText>
-                  <AppText className="mt-1 text-center text-sm2 text-text-secondary">
+                  <AppText className="font-sans mt-1 text-center text-sm2 text-text-secondary">
                     Friends you add will appear here.
                   </AppText>
                 </View>

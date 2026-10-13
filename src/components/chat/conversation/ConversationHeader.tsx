@@ -271,7 +271,7 @@ export const ConversationHeader = ({
               {activeGroupCall.action === 'rejoin' ? 'Rejoin' : 'Join'}
             </AppText>
           ) : null}
-          <AppText className="text-xs2 text-text-primary">
+          <AppText className="font-sans text-xs2 text-text-primary">
             {Math.floor(activeGroupCall.elapsedSeconds / 60)}:
             {String(activeGroupCall.elapsedSeconds % 60).padStart(2, '0')}
           </AppText>
@@ -289,7 +289,7 @@ export const ConversationHeader = ({
       {!isConnected ? (
         <View className="mt-2.5 flex-row items-center gap-2.5 rounded-[14px] border border-brand-soft bg-surface-accent px-3.5 py-2.5">
           <MaterialIcons name="cloud-off" size={17} color={colors.brand.primary} />
-          <AppText className="flex-1 text-sm2 leading-[18px] text-text-primary">
+          <AppText className="font-sans flex-1 text-sm2 leading-[18px] text-text-primary">
             {queuedMessageCount > 0
               ? `Reconnecting: ${queuedMessageCount} message${queuedMessageCount > 1 ? 's are' : ' is'} waiting to send.`
               : 'Reconnecting: new messages will send automatically.'}

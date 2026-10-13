@@ -93,7 +93,7 @@ export function ProfileActionsMenu({
           <View className="mt-1 flex-row items-start justify-between">
             <View className="flex-1 pr-4">
               <Text className="font-heading text-xl text-text-primary">Profile options</Text>
-              <Text className="mt-1 text-base2 text-text-secondary">{username}</Text>
+              <Text className="font-sans mt-1 text-base2 text-text-secondary">{username}</Text>
             </View>
 
             <Pressable
@@ -108,7 +108,7 @@ export function ProfileActionsMenu({
           </View>
 
           <View className="mt-5">
-            <Text className="mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">
+            <Text className="font-sans mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">
               ACCOUNT
             </Text>
             <Pressable
@@ -124,7 +124,7 @@ export function ProfileActionsMenu({
               </View>
               <View className="ml-3 flex-1">
                 <Text className="font-medium text-md text-status-error">Block {username}</Text>
-                <Text className="mt-1 text-sm2 text-text-secondary">
+                <Text className="font-sans mt-1 text-sm2 text-text-secondary">
                   Stop this account from interacting with you
                 </Text>
               </View>

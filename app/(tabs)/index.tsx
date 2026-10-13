@@ -362,7 +362,7 @@ export default function ConversationsScreen() {
           <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
             We couldn&apos;t load your conversations
           </AppText>
-          <AppText className="mt-1.5 text-center text-base2 text-text-secondary">
+          <AppText className="font-sans mt-1.5 text-center text-base2 text-text-secondary">
             Check your connection and try again.
           </AppText>
           <AppPressable
@@ -465,7 +465,7 @@ export default function ConversationsScreen() {
               className="flex-row items-center justify-between px-5 pb-1.5 pt-5"
             >
               <AppText className="font-heading text-lg text-text-primary">Recent</AppText>
-              <AppText className="text-sm2 text-text-muted">
+              <AppText className="font-sans text-sm2 text-text-muted">
                 {filteredConversations.length}{' '}
                 {filteredConversations.length === 1 ? 'chat' : 'chats'}
               </AppText>
@@ -484,7 +484,7 @@ export default function ConversationsScreen() {
             <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
               {deferredSearchQuery.trim() ? 'No conversations found' : 'Your inbox is ready'}
             </AppText>
-            <AppText className="mt-1.5 text-center text-base2 leading-5 text-text-secondary">
+            <AppText className="font-sans mt-1.5 text-center text-base2 leading-5 text-text-secondary">
               {deferredSearchQuery.trim()
                 ? 'Try another name or clear your search.'
                 : 'Start a group and bring your people together.'}

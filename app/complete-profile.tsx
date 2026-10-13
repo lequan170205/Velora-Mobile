@@ -280,7 +280,7 @@ export default function CompleteProfileScreen() {
                     }
                   />
                 )}
-                <Text className={statusColorClass}>{statusText}</Text>
+                <Text className={cn('font-sans', statusColorClass)}>{statusText}</Text>
               </View>
             </View>
 

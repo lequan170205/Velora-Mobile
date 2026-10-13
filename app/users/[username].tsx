@@ -147,7 +147,7 @@ function EmptyReelsState() {
       <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
         No public reels yet
       </AppText>
-      <AppText className="mt-1.5 text-center text-base2 leading-5 text-text-secondary">
+      <AppText className="font-sans mt-1.5 text-center text-base2 leading-5 text-text-secondary">
         Public reels from this profile will appear here.
       </AppText>
     </View>
@@ -467,7 +467,7 @@ export default function PublicProfileScreen() {
   if (!profile) {
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-bg-primary">
-        <Text className="text-sm2 text-text-muted">User not found</Text>
+        <Text className="font-sans text-sm2 text-text-muted">User not found</Text>
       </SafeAreaView>
     )
   }
@@ -607,7 +607,7 @@ export default function PublicProfileScreen() {
                 {actionErrorMessage ? (
                   <View className="mt-3 flex-row rounded-[22px] border border-[#FFD9D5] bg-[#FFF5F3] px-4 py-3">
                     <MaterialIcons name="error-outline" size={18} color="#E5483B" />
-                    <Text className="ml-2 flex-1 text-sm2 leading-5 text-[#B2453C]">
+                    <Text className="font-sans ml-2 flex-1 text-sm2 leading-5 text-[#B2453C]">
                       {actionErrorMessage}
                     </Text>
                   </View>
@@ -620,7 +620,7 @@ export default function PublicProfileScreen() {
                 <AppText className="text-xs2 font-semibold uppercase tracking-[1.4px] text-text-muted">
                   Friends
                 </AppText>
-                <AppText className="text-sm2 text-text-muted">{friendsValue}</AppText>
+                <AppText className="font-sans text-sm2 text-text-muted">{friendsValue}</AppText>
               </View>
 
               <ScrollView
@@ -649,7 +649,9 @@ export default function PublicProfileScreen() {
                             +{extraFriendsCount}
                           </AppText>
                         </View>
-                        <AppText className="mt-2 text-sm2 text-text-secondary">More</AppText>
+                        <AppText className="font-sans mt-2 text-sm2 text-text-secondary">
+                          More
+                        </AppText>
                       </View>
                     ) : null}
                   </>
@@ -658,7 +660,7 @@ export default function PublicProfileScreen() {
                     <AppText className="text-sm2 font-medium text-text-primary">
                       No friends yet
                     </AppText>
-                    <AppText className="mt-0.5 text-sm2 text-text-secondary">
+                    <AppText className="font-sans mt-0.5 text-sm2 text-text-secondary">
                       This profile has no friends to show yet.
                     </AppText>
                   </View>
@@ -670,7 +672,7 @@ export default function PublicProfileScreen() {
               <AppText className="text-xs2 font-semibold uppercase tracking-[1.4px] text-text-muted">
                 Public reels
               </AppText>
-              <AppText className="text-sm2 text-text-muted">
+              <AppText className="font-sans text-sm2 text-text-muted">
                 {publicReels.length} {publicReels.length === 1 ? 'reel' : 'reels'}
               </AppText>
             </View>
@@ -718,7 +720,7 @@ export default function PublicProfileScreen() {
             <View className="mt-1 flex-row items-start justify-between">
               <View className="flex-1 pr-4">
                 <Text className="font-heading text-xl text-text-primary">Remove friend?</Text>
-                <Text className="mt-2 text-base2 leading-6 text-text-secondary">
+                <Text className="font-sans mt-2 text-base2 leading-6 text-text-secondary">
                   {profile.fullName} will be removed from your friends list. You can add{' '}
                   {getHandleLabel(profile.username)} again later.
                 </Text>

@@ -136,7 +136,7 @@ function EmptyState({ section, onFindPeople }: { section: Section; onFindPeople:
       <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
         {content[0]}
       </AppText>
-      <AppText className="mt-1.5 text-center text-base2 leading-5 text-text-secondary">
+      <AppText className="font-sans mt-1.5 text-center text-base2 leading-5 text-text-secondary">
         {content[1]}
       </AppText>
       {section === 'friends' ? (
@@ -274,7 +274,10 @@ export function FriendActionsSheet({
                   <AppText className="font-heading text-xl text-text-primary" numberOfLines={1}>
                     {confirmationTitle}
                   </AppText>
-                  <AppText className="mt-1 text-base2 text-text-secondary" numberOfLines={1}>
+                  <AppText
+                    className="font-sans mt-1 text-base2 text-text-secondary"
+                    numberOfLines={1}
+                  >
                     @{user.username}
                   </AppText>
                 </View>
@@ -293,7 +296,7 @@ export function FriendActionsSheet({
 
             {confirmation ? (
               <>
-                <AppText className="mt-5 text-base2 leading-6 text-text-secondary">
+                <AppText className="font-sans mt-5 text-base2 leading-6 text-text-secondary">
                   {confirmation === 'remove'
                     ? `${user.fullName} will be removed from your friends list. You can add @${user.username} again later.`
                     : `${user.fullName} will be blocked. You will no longer see content from this account.`}
@@ -351,7 +354,7 @@ export function FriendActionsSheet({
                     <AppText className="font-semibold text-md text-text-primary">
                       View profile
                     </AppText>
-                    <AppText className="mt-1 text-sm2 text-text-secondary">
+                    <AppText className="font-sans mt-1 text-sm2 text-text-secondary">
                       See posts and profile details
                     </AppText>
                   </View>
@@ -373,7 +376,7 @@ export function FriendActionsSheet({
                     <AppText className="font-semibold text-md text-status-error">
                       Remove friend
                     </AppText>
-                    <AppText className="mt-1 text-sm2 text-text-secondary">
+                    <AppText className="font-sans mt-1 text-sm2 text-text-secondary">
                       Stop showing this account as a friend
                     </AppText>
                   </View>
@@ -395,7 +398,7 @@ export function FriendActionsSheet({
                     <AppText className="font-semibold text-md text-status-error">
                       Block account
                     </AppText>
-                    <AppText className="mt-1 text-sm2 text-text-secondary">
+                    <AppText className="font-sans mt-1 text-sm2 text-text-secondary">
                       Stop this account from interacting with you
                     </AppText>
                   </View>
@@ -581,11 +584,14 @@ export default function FriendsScreen() {
                 <AppText className="font-medium text-md text-text-primary" numberOfLines={1}>
                   {user.fullName}
                 </AppText>
-                <AppText className="mt-0.5 text-sm2 text-text-secondary" numberOfLines={1}>
+                <AppText
+                  className="font-sans mt-0.5 text-sm2 text-text-secondary"
+                  numberOfLines={1}
+                >
                   @{user.username}
                 </AppText>
                 {item.kind === 'request' ? (
-                  <AppText className="mt-1 text-xs2 text-text-muted">
+                  <AppText className="font-sans mt-1 text-xs2 text-text-muted">
                     {getRelativeDate(item.value.requestedAt)}
                   </AppText>
                 ) : null}
@@ -713,7 +719,10 @@ export default function FriendsScreen() {
                 {label}
               </AppText>
               {count !== null && count > 0 ? (
-                <AppText className="ml-1.5 text-xs2" style={{ color: colors.text.tertiary }}>
+                <AppText
+                  className="font-sans ml-1.5 text-xs2"
+                  style={{ color: colors.text.tertiary }}
+                >
                   {count}
                 </AppText>
               ) : null}
@@ -724,7 +733,7 @@ export default function FriendsScreen() {
 
       <View className="flex-row items-center justify-between px-5 pb-1.5 pt-5">
         <AppText className="font-heading text-lg text-text-primary">{sectionTitle}</AppText>
-        <AppText className="text-sm2 text-text-muted">{sectionCountLabel}</AppText>
+        <AppText className="font-sans text-sm2 text-text-muted">{sectionCountLabel}</AppText>
       </View>
 
       {isLoading ? (
@@ -737,7 +746,7 @@ export default function FriendsScreen() {
           <AppText className="mt-4 text-center font-heading text-lg text-text-primary">
             Could not load friends
           </AppText>
-          <AppText className="mt-1.5 text-center text-base2 leading-5 text-text-secondary">
+          <AppText className="font-sans mt-1.5 text-center text-base2 leading-5 text-text-secondary">
             Check your connection and try again.
           </AppText>
           <AppPressable

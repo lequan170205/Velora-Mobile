@@ -34,7 +34,9 @@ type SettingsAction = 'clear-cache' | 'clear-local-database' | 'clear-saved-reel
 function SettingsSection({ children, title }: { children: React.ReactNode; title: string }) {
   return (
     <View className="mt-7">
-      <Text className="mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">{title}</Text>
+      <Text className="font-sans mb-3 text-xs2 uppercase tracking-[1.1px] text-text-muted">
+        {title}
+      </Text>
       <View className="gap-3">{children}</View>
     </View>
   )
@@ -83,7 +85,7 @@ function SettingsActionRow({
       </View>
       <View className="ml-3 flex-1 pr-3">
         <Text className={labelClassName}>{label}</Text>
-        <Text className="mt-1 text-sm2 text-text-secondary">{description}</Text>
+        <Text className="font-sans mt-1 text-sm2 text-text-secondary">{description}</Text>
       </View>
       {isLoading ? (
         <ActivityIndicator
@@ -120,7 +122,7 @@ function SettingsToggleRow({
       </View>
       <View className="ml-3 flex-1 pr-4">
         <Text className="font-medium text-md text-text-primary">{label}</Text>
-        <Text className="mt-1 text-sm2 text-text-secondary">{description}</Text>
+        <Text className="font-sans mt-1 text-sm2 text-text-secondary">{description}</Text>
       </View>
       <Switch
         accessibilityLabel={label}
@@ -356,7 +358,7 @@ export default function SettingsScreen() {
           style={{ top: insets.top + 8 }}
         >
           <View className="rounded-full px-4 py-2" style={{ backgroundColor: colors.text.primary }}>
-            <Text className="text-sm2 text-white">{feedbackMessage}</Text>
+            <Text className="font-sans text-sm2 text-white">{feedbackMessage}</Text>
           </View>
         </View>
       ) : null}
@@ -372,7 +374,9 @@ export default function SettingsScreen() {
           <MaterialIcons name="arrow-back" size={22} color={colors.text.primary} />
         </Pressable>
         <View className="flex-1">
-          <Text className="text-xs2 uppercase tracking-[1.2px] text-text-muted">Profile</Text>
+          <Text className="font-sans text-xs2 uppercase tracking-[1.2px] text-text-muted">
+            Profile
+          </Text>
           <Text className="mt-1 font-heading text-[28px] text-text-primary">Settings</Text>
         </View>
       </View>

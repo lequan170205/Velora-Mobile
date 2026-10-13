@@ -521,7 +521,10 @@ export default function ActiveCallScreen() {
                   {person.name}
                 </AppText>
                 {person.subtitle ? (
-                  <AppText className="mt-0.5 text-sm" style={{ color: colors.call.textSecondary }}>
+                  <AppText
+                    className="font-sans mt-0.5 text-sm"
+                    style={{ color: colors.call.textSecondary }}
+                  >
                     {person.subtitle}
                   </AppText>
                 ) : null}
@@ -534,7 +537,10 @@ export default function ActiveCallScreen() {
                       accessibilityElementsHidden
                       importantForAccessibility="no"
                     />
-                    <AppText className="ml-1 text-sm" style={{ color: colors.call.textSecondary }}>
+                    <AppText
+                      className="font-sans ml-1 text-sm"
+                      style={{ color: colors.call.textSecondary }}
+                    >
                       {person.micStatus}
                     </AppText>
                   </View>
@@ -583,14 +589,14 @@ export default function ActiveCallScreen() {
                     <PeerAvatar avatarUrl={member.user.picture ?? null} name={name} size={56} />
                     <View className="ml-4 min-w-0 flex-1">
                       <AppText
-                        className="text-lg"
+                        className="font-sans text-lg"
                         style={{ color: colors.call.textSecondary }}
                         numberOfLines={1}
                       >
                         {name}
                       </AppText>
                       <AppText
-                        className="mt-1 text-sm"
+                        className="font-sans mt-1 text-sm"
                         style={{ color: colors.call.textSecondary }}
                         accessibilityLiveRegion="polite"
                       >
@@ -599,7 +605,7 @@ export default function ActiveCallScreen() {
                       {inviteFeedback[member.userId] &&
                       inviteFeedback[member.userId] !== 'Sending…' ? (
                         <AppText
-                          className="mt-1 text-sm"
+                          className="font-sans mt-1 text-sm"
                           style={{ color: colors.call.textSecondary }}
                         >
                           {inviteFeedback[member.userId]}
@@ -616,7 +622,7 @@ export default function ActiveCallScreen() {
                       accessibilityState={{ disabled, busy: sending }}
                       style={{ opacity: disabled ? 0.45 : 1, backgroundColor: colors.call.control }}
                     >
-                      <AppText style={{ color: colors.call.textPrimary }}>
+                      <AppText className="font-sans" style={{ color: colors.call.textPrimary }}>
                         {sending ? 'Sending…' : invite ? 'Invite again' : 'Invite'}
                       </AppText>
                     </AppPressable>
@@ -684,7 +690,10 @@ export default function ActiveCallScreen() {
               <AppText className="text-md font-semibold" style={{ color: colors.call.textPrimary }}>
                 Switch to voice call
               </AppText>
-              <AppText className="mt-0.5 text-sm" style={{ color: colors.call.textSecondary }}>
+              <AppText
+                className="font-sans mt-0.5 text-sm"
+                style={{ color: colors.call.textSecondary }}
+              >
                 Turn off video for this call
               </AppText>
             </View>
@@ -712,7 +721,10 @@ export default function ActiveCallScreen() {
               <AppText className="text-md font-semibold" style={{ color: colors.call.textPrimary }}>
                 Speaker
               </AppText>
-              <AppText className="mt-0.5 text-sm" style={{ color: colors.call.textSecondary }}>
+              <AppText
+                className="font-sans mt-0.5 text-sm"
+                style={{ color: colors.call.textSecondary }}
+              >
                 {speakerEnabled ? 'On' : 'Off'}
               </AppText>
             </View>
@@ -967,12 +979,15 @@ export default function ActiveCallScreen() {
             {statusLabel}
           </AppText>
           {isGroupCall && phase === 'active' ? (
-            <AppText className="mt-2 text-center text-sm" style={{ color: colors.call.textMuted }}>
+            <AppText
+              className="font-sans mt-2 text-center text-sm"
+              style={{ color: colors.call.textMuted }}
+            >
               {groupPeopleIds.length} {groupPeopleIds.length === 1 ? 'person' : 'people'} in call
             </AppText>
           ) : null}
           {phase === 'reconnecting' && reconnectSecondsLeft !== null ? (
-            <AppText className="mt-2 text-sm" style={{ color: colors.call.textMuted }}>
+            <AppText className="font-sans mt-2 text-sm" style={{ color: colors.call.textMuted }}>
               {reconnectSecondsLeft}s remaining
             </AppText>
           ) : null}
@@ -986,7 +1001,7 @@ export default function ActiveCallScreen() {
           {activeControls}
           {isGroupCall ? (
             <AppText
-              className="mt-2 text-center text-sm"
+              className="font-sans mt-2 text-center text-sm"
               style={{ color: colors.call.textSecondary }}
             >
               Leave call

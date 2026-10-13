@@ -384,7 +384,9 @@ export default function AccountScreen() {
               </Pressable>
 
               <View className="ml-4 flex-1">
-                <Text className="text-xs2 uppercase tracking-[1.2px] text-text-muted">Account</Text>
+                <Text className="font-sans text-xs2 uppercase tracking-[1.2px] text-text-muted">
+                  Account
+                </Text>
                 <Text className="mt-1 font-heading text-xl text-text-primary">Edit profile</Text>
               </View>
             </View>
@@ -426,7 +428,7 @@ export default function AccountScreen() {
                     {previewName}
                   </Text>
                   <View className="mt-2 self-start rounded-full border border-border-light bg-white px-3 py-1.5">
-                    <Text className="text-xs2 uppercase tracking-[1.1px] text-text-secondary">
+                    <Text className="font-sans text-xs2 uppercase tracking-[1.1px] text-text-secondary">
                       @{previewHandle}
                     </Text>
                   </View>
@@ -436,7 +438,7 @@ export default function AccountScreen() {
               <View className="mt-5 gap-4">
                 <View>
                   <View className={inputClassName(focusedInput === 'fullName')}>
-                    <Text className="mb-1.5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
+                    <Text className="font-sans mb-1.5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
                       Full name
                     </Text>
                     <TextInput
@@ -462,7 +464,7 @@ export default function AccountScreen() {
                   </View>
                   <Text
                     className={cn(
-                      'mt-2 px-1 text-sm2',
+                      'font-sans mt-2 px-1 text-sm2',
                       resolvedFullNameError ? 'text-status-error' : 'text-text-secondary',
                     )}
                   >
@@ -472,7 +474,7 @@ export default function AccountScreen() {
 
                 <View>
                   <View className={inputClassName(focusedInput === 'username')}>
-                    <Text className="mb-1.5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
+                    <Text className="font-sans mb-1.5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
                       Username
                     </Text>
                     <View className="flex-row items-center">
@@ -501,7 +503,9 @@ export default function AccountScreen() {
                       />
                     </View>
                   </View>
-                  <Text className={cn('mt-2 px-1 text-sm2', statusColorClass)}>{statusText}</Text>
+                  <Text className={cn('font-sans mt-2 px-1 text-sm2', statusColorClass)}>
+                    {statusText}
+                  </Text>
                 </View>
               </View>
             </LinearGradient>

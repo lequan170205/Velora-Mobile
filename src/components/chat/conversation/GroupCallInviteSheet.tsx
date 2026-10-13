@@ -86,14 +86,16 @@ export function GroupCallInviteSheet({
         <AppText className="text-base2 font-semibold text-text-primary">
           Call selected members
         </AppText>
-        <AppText className="mt-1 text-xs2 text-text-muted">
+        <AppText className="font-sans mt-1 text-xs2 text-text-muted">
           Only selected members will receive an invitation.
         </AppText>
         {isPending ? (
           <ActivityIndicator className="my-8" color={colors.brand.primary} />
         ) : isError ? (
           <AppPressable className="min-h-12 justify-center" onPress={() => void refetch()}>
-            <AppText className="text-brand">Could not load members. Tap to retry.</AppText>
+            <AppText className="font-sans text-brand">
+              Could not load members. Tap to retry.
+            </AppText>
           </AppPressable>
         ) : (
           <BottomSheetScrollView style={{ maxHeight: 380 }} className="mt-3">
@@ -115,7 +117,10 @@ export function GroupCallInviteSheet({
                   accessibilityState={{ checked: selected }}
                 >
                   <ChatAvatar name={name} picture={member.user.picture} size={40} />
-                  <AppText className="ml-3 flex-1 text-sm2 text-text-primary" numberOfLines={1}>
+                  <AppText
+                    className="font-sans ml-3 flex-1 text-sm2 text-text-primary"
+                    numberOfLines={1}
+                  >
                     {name}
                   </AppText>
                   <MaterialIcons
@@ -129,7 +134,7 @@ export function GroupCallInviteSheet({
             })}
             {eligibleMembers.length === 0 ? (
               <View className="py-6">
-                <AppText className="text-center text-sm2 text-text-muted">
+                <AppText className="font-sans text-center text-sm2 text-text-muted">
                   No other active members to call.
                 </AppText>
               </View>

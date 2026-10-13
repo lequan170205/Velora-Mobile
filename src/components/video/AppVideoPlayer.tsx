@@ -13,7 +13,7 @@ import { Gesture, GestureDetector, Pressable } from 'react-native-gesture-handle
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 
-import { colors } from '../../constants/theme'
+import { colors, typography } from '../../constants/theme'
 import { ReelVideo } from '../reels/ReelVideo'
 
 import { VideoProgressBar } from './VideoProgressBar'
@@ -668,6 +668,7 @@ const styles = StyleSheet.create({
   },
   errorSubtitle: {
     color: 'rgba(255,255,255,0.72)',
+    fontFamily: typography.fonts.body,
     fontSize: 14,
     lineHeight: 20,
     marginTop: 8,
@@ -675,8 +676,8 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     color: colors.text.inverse,
+    fontFamily: typography.fonts.bodySemibold,
     fontSize: 17,
-    fontWeight: '600',
     marginTop: 12,
     textAlign: 'center',
   },
@@ -710,8 +711,8 @@ const styles = StyleSheet.create({
   },
   retryLabel: {
     color: colors.text.inverse,
+    fontFamily: typography.fonts.bodySemibold,
     fontSize: 14,
-    fontWeight: '600',
   },
   rowSpacer: {
     flex: 1,
@@ -732,8 +733,8 @@ const styles = StyleSheet.create({
   },
   timeLabel: {
     color: colors.text.inverse,
+    fontFamily: typography.fonts.bodyMedium,
     fontSize: 13,
-    fontWeight: '500',
   },
   videoLayer: {
     ...StyleSheet.absoluteFillObject,

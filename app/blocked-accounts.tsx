@@ -44,7 +44,7 @@ function EmptyState() {
         <MaterialIcons name="block" size={26} color={colors.brand.tertiary} />
       </View>
       <Text className="mt-4 font-heading text-lg text-text-primary">No blocked accounts</Text>
-      <Text className="mt-2 text-center text-sm2 text-text-secondary">
+      <Text className="font-sans mt-2 text-center text-sm2 text-text-secondary">
         Accounts you block will appear here.
       </Text>
     </View>
@@ -95,7 +95,7 @@ export default function BlockedAccountsScreen() {
                   {item.user.fullName}
                 </Text>
                 {username ? (
-                  <Text className="mt-0.5 text-sm2 text-text-secondary" numberOfLines={1}>
+                  <Text className="font-sans mt-0.5 text-sm2 text-text-secondary" numberOfLines={1}>
                     @{username}
                   </Text>
                 ) : null}
@@ -140,7 +140,9 @@ export default function BlockedAccountsScreen() {
           <MaterialIcons name="arrow-back" size={22} color={colors.text.primary} />
         </Pressable>
         <View className="flex-1">
-          <Text className="text-xs2 uppercase tracking-[1.2px] text-text-muted">Privacy</Text>
+          <Text className="font-sans text-xs2 uppercase tracking-[1.2px] text-text-muted">
+            Privacy
+          </Text>
           <Text className="mt-1 font-heading text-[28px] text-text-primary">Blocked accounts</Text>
         </View>
       </View>

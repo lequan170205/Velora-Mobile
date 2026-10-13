@@ -215,7 +215,10 @@ function SearchMessageState({
       </AppText>
 
       {description ? (
-        <AppText className="mt-1.5 text-center text-base2 leading-5 text-text-secondary" selectable>
+        <AppText
+          className="font-sans mt-1.5 text-center text-base2 leading-5 text-text-secondary"
+          selectable
+        >
           {description}
         </AppText>
       ) : null}
@@ -280,7 +283,7 @@ function EmptyQueryState({
           <AppText className="font-heading text-lg text-text-primary" selectable>
             Explore
           </AppText>
-          <AppText className="mt-1 text-base2 leading-5 text-text-secondary" selectable>
+          <AppText className="font-sans mt-1 text-base2 leading-5 text-text-secondary" selectable>
             Search reels, contacts, or topics
           </AppText>
         </View>
@@ -302,7 +305,7 @@ function EmptyQueryState({
             <SuggestionChipSkeleton width={104} />
           </>
         ) : chips.length === 0 ? (
-          <AppText className="text-sm2 text-text-secondary" selectable>
+          <AppText className="font-sans text-sm2 text-text-secondary" selectable>
             Try a name, a topic, or a reel title to get started.
           </AppText>
         ) : null}
@@ -352,13 +355,13 @@ function ContactRow({
         </AppText>
 
         {user.username ? (
-          <AppText className="mt-0.5 text-sm2 text-text-secondary" numberOfLines={1}>
+          <AppText className="font-sans mt-0.5 text-sm2 text-text-secondary" numberOfLines={1}>
             {getHandleLabel(user.username)}
           </AppText>
         ) : null}
 
         {mutualFriendLabel ? (
-          <AppText className="mt-1 text-xs2 text-text-muted" numberOfLines={1}>
+          <AppText className="font-sans mt-1 text-xs2 text-text-muted" numberOfLines={1}>
             {mutualFriendLabel}
           </AppText>
         ) : null}
@@ -374,10 +377,10 @@ function ContactRow({
               accessibilityHint="Review incoming friend requests"
               onPress={onFriendRequestsPress}
             >
-              <AppText className="text-right text-xs2 text-brand">{statusLabel}</AppText>
+              <AppText className="font-sans text-right text-xs2 text-brand">{statusLabel}</AppText>
             </AppPressable>
           ) : (
-            <AppText className="text-right text-xs2 text-text-muted" selectable>
+            <AppText className="font-sans text-right text-xs2 text-text-muted" selectable>
               {statusLabel}
             </AppText>
           )
@@ -792,7 +795,7 @@ function SearchResultsPanel({
       {isFetching ? (
         <View className="flex-row items-center justify-center gap-2 px-4 pb-2 pt-4">
           <ActivityIndicator color={colors.brand.tertiary} size="small" />
-          <AppText className="text-sm2 text-text-muted">Updating results…</AppText>
+          <AppText className="font-sans text-sm2 text-text-muted">Updating results…</AppText>
         </View>
       ) : null}
     </View>
