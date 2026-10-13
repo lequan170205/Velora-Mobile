@@ -340,7 +340,8 @@ test('session runtime owns the transition, seen frontier and query lifecycle onl
   )
 })
 
-test('typing emits and cleanup preserve the two-second debounce', () => {
+test('typing emits go through the heartbeat emitter and stop on send and unmount', () => {
+  const emitterBlock = findBlock('const typingEmitter = useMemo', 'useEffect(')
   const typingBlock = findBlock(
     'const handleTyping = useCallback',
     'const handleReply = useCallback',
@@ -349,25 +350,21 @@ test('typing emits and cleanup preserve the two-second debounce', () => {
     'const handleSendText = useCallback',
     'const handleSendSuggestedQuery',
   )
-  const cleanupBlock = findBlock(
-    'if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)',
-    'const handleSendMedia = useCallback',
-  )
+  const cleanupBlock = findBlock('typingEmitter.dispose()', 'const handleSendMedia = useCallback')
 
+  assert.match(emitterBlock, /emitStart: \(\) => socket\?\.emit\('typing_start', conversationId\)/)
+  assert.match(emitterBlock, /emitStop: \(\) => socket\?\.emit\('typing_stop', conversationId\)/)
   assertOrdered(
     typingBlock,
-    [
-      'if (!text.trim())',
-      "socket.emit('typing_stop'",
-      "socket.emit('typing_start'",
-      'typingTimeoutRef.current = setTimeout',
-      "socket.emit('typing_stop'",
-      '}, 2000)',
-    ],
-    'typing debounce',
+    ['if (!socket?.connected) return', 'typingEmitter.onInput(text)'],
+    'typing input',
   )
-  assert.match(sendBlock, /socket\?\.emit\('typing_stop'/)
-  assert.match(cleanupBlock, /socket\.emit\('typing_stop'/)
+  assert.match(sendBlock, /typingEmitter\.stop\(\)/)
+  assertOrdered(
+    cleanupBlock,
+    ['typingEmitter.dispose()', "if (socket?.connected) socket.emit('typing_stop'"],
+    'typing cleanup',
+  )
 })
 
 test('composer publishes committed timeline actions without changing cleanup order', () => {
@@ -495,10 +492,7 @@ test('conversation change and unmount cleanup retain every owned resource action
     'resetConversationKeyboard()\n    timestampRevealOffset.value = 0',
     "if (timelineMode !== 'latest')",
   )
-  const unmountBlock = findBlock(
-    'if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)',
-    'const handleSendMedia = useCallback',
-  )
+  const unmountBlock = findBlock('typingEmitter.dispose()', 'const handleSendMedia = useCallback')
   const timelineUnmountBlock = findBlock(
     'if (replyHighlightTimeoutRef.current) clearTimeout(replyHighlightTimeoutRef.current)',
     'const serverMessages = useMemo',
@@ -537,7 +531,7 @@ test('conversation change and unmount cleanup retain every owned resource action
   }
   assertOrdered(
     unmountBlock,
-    ['clearTimeout(typingTimeoutRef.current)', "socket.emit('typing_stop'"],
+    ['typingEmitter.dispose()', "socket.emit('typing_stop'"],
     'composer unmount cleanup',
   )
   assertOrdered(

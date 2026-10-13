@@ -1,6 +1,7 @@
 import * as Haptics from 'expo-haptics'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 
+import { createTypingEmitter } from '../../lib/typingPresence'
 import { useChatStore } from '../../stores/chatStore'
 import { useChatMediaUploads } from '../useChatMediaUploads'
 import { useRecallMessage } from '../useMessageActions'
@@ -52,14 +53,21 @@ export const useConversationComposerRuntime = ({
   const { mutate: sendMessage } = useSendMessage(conversationId)
   const { enqueueMediaAssets } = useChatMediaUploads(conversationId)
   const { mutate: recallMessage } = useRecallMessage(conversationId)
-  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const typingEmitter = useMemo(
+    () =>
+      createTypingEmitter({
+        emitStart: () => socket?.emit('typing_start', conversationId),
+        emitStop: () => socket?.emit('typing_stop', conversationId),
+      }),
+    [conversationId, socket],
+  )
 
   useEffect(() => {
     return () => {
-      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+      typingEmitter.dispose()
       if (socket?.connected) socket.emit('typing_stop', conversationId)
     }
-  }, [conversationId, socket])
+  }, [conversationId, socket, typingEmitter])
 
   const handleSendMedia = useCallback(
     async (assets: ImagePickerAsset[]) => {
@@ -86,28 +94,9 @@ export const useConversationComposerRuntime = ({
   const handleTyping = useCallback(
     (text: string) => {
       if (!socket?.connected) return
-
-      if (!text.trim()) {
-        if (typingTimeoutRef.current) {
-          clearTimeout(typingTimeoutRef.current)
-          typingTimeoutRef.current = null
-        }
-        socket.emit('typing_stop', conversationId)
-        return
-      }
-
-      socket.emit('typing_start', conversationId)
-
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current)
-      }
-
-      typingTimeoutRef.current = setTimeout(() => {
-        socket.emit('typing_stop', conversationId)
-        typingTimeoutRef.current = null
-      }, 2000)
+      typingEmitter.onInput(text)
     },
-    [socket, conversationId],
+    [socket, typingEmitter],
   )
 
   const handleReply = useCallback(
@@ -140,13 +129,9 @@ export const useConversationComposerRuntime = ({
         ...(replyTo ? { replyToMessage: replyTo } : {}),
       })
 
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current)
-        typingTimeoutRef.current = null
-      }
-      socket?.emit('typing_stop', conversationId)
+      typingEmitter.stop()
     },
-    [conversationId, sendMessage, socket, timelineActionsRef],
+    [sendMessage, timelineActionsRef, typingEmitter],
   )
 
   const handleSendSuggestedQuery = useCallback(

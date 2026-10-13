@@ -4,15 +4,14 @@
     "join_conversation": 1,
     "mark_seen": 1,
     "typing_start": 1,
-    "typing_stop": 4
+    "typing_stop": 2
   },
   "timeoutsMs": {
     "100": 1,
     "280": 1,
     "320": 1,
     "450": 1,
-    "500": 1,
-    "2000": 1
+    "500": 1
   },
   "storeMutations": {
     "clearConversationInlinePlayback": 2,

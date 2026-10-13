@@ -8,6 +8,7 @@ import {
   removeOptimisticSortAnchorsWithTextLease,
   settleTextOptimisticSortAnchors,
 } from '../lib/optimisticSortAnchorLifecycle'
+import { createTypingExpiry } from '../lib/typingPresence'
 
 import type { Message } from '../types/conversation.types'
 
@@ -145,6 +146,11 @@ const isMessageAtOrBeforeReadFrontier = ({
   const messageId = message.id || message._id || message.clientMessageId || ''
   return messageId.localeCompare(frontierMessageId) <= 0
 }
+
+// Drops an indicator whose typing_stop never arrived (see typingPresence).
+const typingExpiry = createTypingExpiry((conversationId, userId) =>
+  useChatStore.getState().setTyping(conversationId, userId, false),
+)
 
 export const useChatStore = create<ChatState>()(
   persist(
@@ -416,12 +422,20 @@ export const useChatStore = create<ChatState>()(
           }
         }),
 
-      setTyping: (conversationId, userId, isTyping) =>
+      setTyping: (conversationId, userId, isTyping) => {
+        if (isTyping) {
+          typingExpiry.refresh(conversationId, userId)
+        } else {
+          typingExpiry.cancel(conversationId, userId)
+        }
+
         set((state) => {
           const typers = state.typingUsers[conversationId] || []
-          const newTypers = isTyping
-            ? Array.from(new Set([...typers, userId]))
-            : typers.filter((id) => id !== userId)
+          // Heartbeats repeat typing_start; skip no-op updates so they do not
+          // re-render every subscriber.
+          if (typers.includes(userId) === isTyping) return state
+
+          const newTypers = isTyping ? [...typers, userId] : typers.filter((id) => id !== userId)
 
           return {
             typingUsers: {
@@ -429,7 +443,8 @@ export const useChatStore = create<ChatState>()(
               [conversationId]: newTypers,
             },
           }
-        }),
+        })
+      },
 
       setUserOnline: (userId, online, lastSeenAt) =>
         set((state) => {
@@ -579,7 +594,9 @@ export const useChatStore = create<ChatState>()(
         return get().revokedConversationIds.has(conversationId)
       },
 
-      clearConversationState: (conversationId) =>
+      clearConversationState: (conversationId) => {
+        typingExpiry.cancelConversation(conversationId)
+
         set((state) => {
           const optimisticMessages = { ...state.optimisticMessages }
           const optimisticSortAnchors = { ...state.optimisticSortAnchors }
@@ -605,7 +622,8 @@ export const useChatStore = create<ChatState>()(
             replyToMessage:
               state.replyToMessage?.conversationId === conversationId ? null : state.replyToMessage,
           }
-        }),
+        })
+      },
 
       clearCache: async () => {
         set(() => ({
