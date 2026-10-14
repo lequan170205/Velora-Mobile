@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { randomUUID as createPublishIntentId } from 'expo-crypto'
 import * as Haptics from 'expo-haptics'
 import * as ImagePicker from 'expo-image-picker'
 import { useRouter } from 'expo-router'
@@ -8,14 +9,20 @@ import { Alert } from 'react-native'
 import { reelsApi } from '../api/reels.api'
 import {
   DEFAULT_REEL_EDIT_STATE,
+  getReelCreatorDraftKey,
   MAX_CAPTION_LENGTH,
-  REEL_CREATOR_DRAFT_KEY,
   bannedHashtags,
   durationOptions,
   hashtagSuggestions,
   mentionSuggestions,
 } from '../constants/reel-creator'
 import { allowedVideoTypes } from '../constants/reels'
+import {
+  commitLocalReelPlayback,
+  discardPreparedLocalReelSource,
+  prepareLocalReelSource,
+  getLocalReelPlaybackAuthGeneration,
+} from '../lib/localReelPlayback'
 import {
   buildReelEditPayload,
   buildDerivedTitle,
@@ -29,21 +36,26 @@ import {
 } from '../lib/reel-creator'
 import { sanitizeReelEditState } from '../lib/reel-crop-geometry'
 import { sanitizeTrim } from '../lib/reel-trim-geometry'
-import { extractHashtags, resolveAllowedVideoType, stripHashtagsFromCaption } from '../lib/reels'
-
 import {
-  useAddReelToSeries,
-  useCreateReel,
-  useCreateReelSeries,
-  useDeleteReelSeries,
-} from './useReels'
+  cancelReelPublishOperation,
+  createReelPublishOperation,
+  getPendingReelPublishOperation,
+  removeReelPublishOperation,
+  saveReelPublishOperation,
+} from '../lib/reelPublishPersistence'
+import { extractHashtags, resolveAllowedVideoType, stripHashtagsFromCaption } from '../lib/reels'
+import { useAuthStore } from '../stores/authStore'
+
+import { useAddReelToSeries, useCreateReel, useCreateReelSeries } from './useReels'
 
 import type { ReelVideoProgress } from '../components/reels/ReelVideo'
+import type { ReelPublishCompletedStep } from '../lib/reelPublishPersistence'
 import type {
   CreateStage,
   DraftState,
   ImportState,
   ReelEditState,
+  ReelPublishSource,
   ReelSeriesDraftSelection,
   StoredAsset,
   TimelineFrame,
@@ -54,7 +66,10 @@ const DEFAULT_DURATION = durationOptions[1]
 
 export function useReelCreator() {
   const router = useRouter()
+  const viewerId = useAuthStore((state) => state.user?.id ?? null)
   const hydrateCompletedRef = useRef(false)
+  const publishLockRef = useRef<Promise<void> | null>(null)
+  const autoResumedPublishIntentRef = useRef<string | null>(null)
   const [stage, setStage] = useState<CreateStage>('capture')
   const [selectedAsset, setSelectedAsset] = useState<StoredAsset | null>(null)
   const [thumbnailUri, setThumbnailUri] = useState<string | null>(null)
@@ -78,11 +93,15 @@ export function useReelCreator() {
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null)
   const [draftSaveStatus, setDraftSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [didRestoreDraft, setDidRestoreDraft] = useState(false)
+  const [isPublishing, setIsPublishing] = useState(false)
+  const [pendingPublishOperation, setPendingPublishOperation] =
+    useState<Awaited<ReturnType<typeof getPendingReelPublishOperation>>>(null)
+  const [publishStorageError, setPublishStorageError] = useState<Error | null>(null)
+  const [publishHydrationComplete, setPublishHydrationComplete] = useState(false)
   const { mutateAsync: createReelAsync, isPending: isCreatingReel, step } = useCreateReel()
   const { mutateAsync: createReelSeriesAsync, isPending: isCreatingSeries } = useCreateReelSeries()
   const { mutateAsync: addReelToSeriesAsync, isPending: isAddingToSeries } = useAddReelToSeries()
-  const { mutateAsync: deleteReelSeriesAsync, isPending: isCleaningSeries } = useDeleteReelSeries()
-  const isPending = isCreatingReel || isCreatingSeries || isAddingToSeries || isCleaningSeries
+  const isPending = isPublishing || isCreatingReel || isCreatingSeries || isAddingToSeries
 
   const selectedAssetType = useMemo(
     () =>
@@ -103,9 +122,7 @@ export function useReelCreator() {
       ? 'Creating series...'
       : isAddingToSeries
         ? 'Adding episode...'
-        : isCleaningSeries
-          ? 'Finishing...'
-          : 'Publish reel'
+        : 'Publish reel'
   const orientationMessage = useMemo(() => getOrientationMessage(selectedAsset), [selectedAsset])
   const observedSourceDurationMs = useMemo(
     () => getVideoDurationMs(selectedAsset, videoDurationSeconds),
@@ -180,20 +197,30 @@ export function useReelCreator() {
     setDraftSavedAt(null)
     setDraftSaveStatus('idle')
     setDidRestoreDraft(false)
+    setPendingPublishOperation(null)
   }, [])
 
-  const saveDraftSnapshot = useCallback(async (nextDraft: DraftState | null) => {
-    if (!nextDraft) {
-      await AsyncStorage.removeItem(REEL_CREATOR_DRAFT_KEY)
-      setAvailableDraft(null)
-      setDraftSavedAt(null)
-      return
-    }
+  const saveDraftSnapshot = useCallback(
+    async (nextDraft: DraftState | null) => {
+      if (!viewerId) {
+        return
+      }
 
-    await AsyncStorage.setItem(REEL_CREATOR_DRAFT_KEY, JSON.stringify(nextDraft))
-    setAvailableDraft(nextDraft)
-    setDraftSavedAt(nextDraft.savedAt)
-  }, [])
+      const draftStorageKey = getReelCreatorDraftKey(viewerId)
+
+      if (!nextDraft) {
+        await AsyncStorage.removeItem(draftStorageKey)
+        setAvailableDraft(null)
+        setDraftSavedAt(null)
+        return
+      }
+
+      await AsyncStorage.setItem(draftStorageKey, JSON.stringify(nextDraft))
+      setAvailableDraft(nextDraft)
+      setDraftSavedAt(nextDraft.savedAt)
+    },
+    [viewerId],
+  )
 
   const buildDraftSnapshot = useCallback(
     (savedAt: number): DraftState | null =>
@@ -422,213 +449,483 @@ export function useReelCreator() {
   }, [applySelectedAsset, availableDraft])
 
   const handleDiscardDraft = useCallback(() => {
-    const message = selectedAsset
-      ? 'This removes the attached video and clears the saved draft.'
-      : 'This clears the saved draft from this device.'
+    const message = pendingPublishOperation
+      ? 'This stops local retries for the pending publish. Any remote Reel already created is kept.'
+      : selectedAsset
+        ? 'This removes the attached video and clears the saved draft.'
+        : 'This clears the saved draft from this device.'
 
     Alert.alert('Discard draft?', message, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Discard',
         style: 'destructive',
-        onPress: () => {
+        onPress: async () => {
+          try {
+            if (pendingPublishOperation && viewerId) {
+              await cancelReelPublishOperation(viewerId, pendingPublishOperation.publishIntentId)
+              await discardPreparedLocalReelSource(
+                viewerId,
+                pendingPublishOperation.publishIntentId,
+              )
+            }
+          } catch {
+            Alert.alert(
+              'Publish recovery needed',
+              'The saved publish could not be cancelled safely. Please retry.',
+            )
+            return
+          }
           resetCreatorState()
           void saveDraftSnapshot(null)
         },
       },
     ])
-  }, [resetCreatorState, saveDraftSnapshot, selectedAsset])
+  }, [pendingPublishOperation, resetCreatorState, saveDraftSnapshot, selectedAsset, viewerId])
 
   const handlePublish = useCallback(async () => {
-    if (!selectedAsset) {
-      Alert.alert('Select a video', 'Record or import a vertical video before publishing.')
-      setStage('capture')
+    if (publishLockRef.current) {
       return
     }
 
-    if (!selectedAssetType) {
-      Alert.alert(
-        'Unsupported video',
-        `Please use one of these formats: ${allowedVideoTypes.join(', ')}`,
-      )
-      return
+    let releaseLock!: () => void
+    const lock = new Promise<void>((resolve) => {
+      releaseLock = resolve
+    })
+    publishLockRef.current = lock
+    setIsPublishing(true)
+    const authGeneration = getLocalReelPlaybackAuthGeneration()
+    const assertPublisher = () => {
+      const auth = useAuthStore.getState()
+      if (
+        !auth.isAuthenticated ||
+        auth.user?.id !== viewerId ||
+        getLocalReelPlaybackAuthGeneration() !== authGeneration
+      ) {
+        throw new Error('Your account changed during publishing. Sign in to resume this publish.')
+      }
     }
 
-    const finalTitle = title.trim() || buildDerivedTitle(caption)
+    try {
+      if (!viewerId) {
+        Alert.alert('Sign in required', 'Sign in before publishing a reel.')
+        return
+      }
 
-    if (!finalTitle) {
-      Alert.alert('Title required', 'Add a title or caption before publishing this reel.')
-      return
-    }
+      if (!publishHydrationComplete) {
+        Alert.alert('Restoring publish', 'Velora is checking for a saved publish before retrying.')
+        return
+      }
 
-    if (caption.length > MAX_CAPTION_LENGTH) {
-      Alert.alert('Caption too long', `Keep your caption under ${MAX_CAPTION_LENGTH} characters.`)
-      return
-    }
-
-    const blockedTags = extractedTags.filter((tag) => bannedHashtags.includes(tag))
-
-    if (blockedTags.length > 0) {
-      Alert.alert(
-        'Banned hashtags',
-        `Remove these hashtags before publishing: ${blockedTags.join(', ')}`,
-      )
-      return
-    }
-
-    let effectiveVisibility = visibility
-    let resolvedExistingSeries:
-      | {
-          id: string
-          title: string
-          visibility: ReelVisibility
-        }
-      | undefined
-
-    if (seriesSelection?.kind === 'existing') {
-      try {
-        const currentSeries = await reelsApi.getSeries(seriesSelection.id)
-        resolvedExistingSeries = {
-          id: currentSeries.id,
-          title: currentSeries.title,
-          visibility: currentSeries.visibility,
-        }
-        effectiveVisibility = currentSeries.visibility
-        setSeriesSelectionState({ kind: 'existing', ...resolvedExistingSeries })
-        setVisibility(currentSeries.visibility)
-      } catch {
+      if (publishStorageError) {
         Alert.alert(
-          'Series unavailable',
-          'This series changed or is no longer available. Choose another series before publishing.',
+          'Publish recovery needed',
+          publishStorageError.message ||
+            'Velora could not safely read the saved publish. Keep this app data and contact support before retrying.',
         )
         return
       }
-    } else if (seriesSelection?.kind === 'new') {
-      effectiveVisibility = seriesSelection.visibility
-    }
 
-    const edit = buildReelEditPayload(editState)
-    const clientObservedDurationMs = getClientObservedDurationMs(
-      editState.trim,
-      observedSourceDurationMs,
-    )
-
-    const payload = {
-      fileUri: selectedAsset.uri,
-      fileType: selectedAssetType,
-      title: finalTitle,
-      description: sanitizedDescription,
-      tags: extractedTags,
-      visibility: effectiveVisibility,
-      clientObservedDurationMs,
-      edit,
-      ...(previewThumbnailUri ? { localThumbnailUri: previewThumbnailUri } : {}),
-    }
-
-    let lastError: Error | null = null
-    let createdReel: Reel | null = null
-
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        if (attempt === 1) {
-          pulseHaptic()
-        }
-
-        createdReel = await createReelAsync(payload)
-        break
-      } catch (error) {
-        lastError = error as Error & { response?: { data?: { message?: string } } }
-        if ((error as { reelCreated?: boolean }).reelCreated) {
-          break
-        }
+      if (pendingPublishOperation?.requiresCancellation) {
+        Alert.alert('Publish expired', 'Discard the saved publish before starting a new publish.', [
+          { text: 'Keep', style: 'cancel' },
+          { text: 'Discard saved publish', onPress: handleDiscardDraft },
+        ])
+        return
       }
-    }
 
-    if (!createdReel) {
-      Alert.alert(
-        'Publish failed',
-        (lastError as (Error & { response?: { data?: { message?: string } } }) | null)?.response
-          ?.data?.message ||
-          lastError?.message ||
-          'Velora could not upload this reel.',
+      if (!selectedAsset) {
+        Alert.alert('Select a video', 'Record or import a vertical video before publishing.')
+        setStage('capture')
+        return
+      }
+
+      if (!selectedAssetType) {
+        Alert.alert(
+          'Unsupported video',
+          `Please use one of these formats: ${allowedVideoTypes.join(', ')}`,
+        )
+        return
+      }
+
+      const finalTitle = title.trim() || buildDerivedTitle(caption)
+
+      if (!finalTitle) {
+        Alert.alert('Title required', 'Add a title or caption before publishing this reel.')
+        return
+      }
+
+      if (caption.length > MAX_CAPTION_LENGTH) {
+        Alert.alert('Caption too long', `Keep your caption under ${MAX_CAPTION_LENGTH} characters.`)
+        return
+      }
+
+      const blockedTags = extractedTags.filter((tag) => bannedHashtags.includes(tag))
+
+      if (blockedTags.length > 0) {
+        Alert.alert(
+          'Banned hashtags',
+          `Remove these hashtags before publishing: ${blockedTags.join(', ')}`,
+        )
+        return
+      }
+
+      let effectiveVisibility = visibility
+      let resolvedExistingSeries:
+        | {
+            id: string
+            title: string
+            visibility: ReelVisibility
+          }
+        | undefined
+      let publishPayload = pendingPublishOperation?.payload
+      const publishSeriesSelection = pendingPublishOperation?.seriesSelection ?? seriesSelection
+
+      if (!pendingPublishOperation && seriesSelection?.kind === 'existing') {
+        try {
+          const currentSeries = await reelsApi.getSeries(seriesSelection.id)
+          resolvedExistingSeries = {
+            id: currentSeries.id,
+            title: currentSeries.title,
+            visibility: currentSeries.visibility,
+          }
+          effectiveVisibility = currentSeries.visibility
+          setSeriesSelectionState({ kind: 'existing', ...resolvedExistingSeries })
+          setVisibility(currentSeries.visibility)
+        } catch {
+          Alert.alert(
+            'Series unavailable',
+            'This series changed or is no longer available. Choose another series before publishing.',
+          )
+          return
+        }
+      } else if (!pendingPublishOperation && seriesSelection?.kind === 'new') {
+        effectiveVisibility = seriesSelection.visibility
+      }
+
+      const edit = buildReelEditPayload(editState)
+      const clientObservedDurationMs = getClientObservedDurationMs(
+        editState.trim,
+        observedSourceDurationMs,
       )
-      return
-    }
 
-    let attachedSeriesId: string | null = null
-    let attachmentError: unknown = null
-    let createdSeriesId: string | null = null
-
-    if (seriesSelection) {
-      try {
-        if (seriesSelection.kind === 'new') {
-          const createdSeries = await createReelSeriesAsync({
-            title: seriesSelection.title,
-            ...(seriesSelection.description ? { description: seriesSelection.description } : {}),
-            visibility: effectiveVisibility,
-          })
-          createdSeriesId = createdSeries.id
-          attachedSeriesId = createdSeries.id
-        } else {
-          attachedSeriesId = resolvedExistingSeries?.id ?? seriesSelection.id
+      if (!publishPayload) {
+        publishPayload = {
+          title: finalTitle,
+          description: sanitizedDescription,
+          tags: extractedTags,
+          visibility: effectiveVisibility,
+          clientObservedDurationMs,
+          edit,
         }
-
-        await addReelToSeriesAsync({
-          seriesId: attachedSeriesId,
-          data: { reelIds: [createdReel.id] },
-        })
-      } catch (error) {
-        attachmentError = error
-        if (createdSeriesId) {
-          await deleteReelSeriesAsync(createdSeriesId).catch(() => undefined)
-        }
-        attachedSeriesId = null
       }
-    }
 
-    await saveDraftSnapshot(null)
-    resetCreatorState()
+      let operation = pendingPublishOperation
+      if (!operation) {
+        const publishIntentId = createPublishIntentId()
+        const source: ReelPublishSource = {
+          ...selectedAsset,
+          ...(previewThumbnailUri ? { localThumbnailUri: previewThumbnailUri } : {}),
+        }
+        const preparedSource = await prepareLocalReelSource({
+          ownerId: viewerId,
+          publishIntentId,
+          source,
+        })
+        const persistedSource: ReelPublishSource = {
+          ...source,
+          uri: preparedSource.localUri,
+          ...(preparedSource.localThumbnailUri
+            ? { localThumbnailUri: preparedSource.localThumbnailUri }
+            : {}),
+        }
+        operation = createReelPublishOperation({
+          deviceId: preparedSource.deviceId,
+          payload: publishPayload,
+          publishIntentId,
+          ...(publishSeriesSelection ? { seriesSelection: publishSeriesSelection } : {}),
+          source: persistedSource,
+          userId: viewerId,
+        })
+        operation = {
+          ...operation,
+          completedSteps: ['source_prepared'],
+        }
+        await saveReelPublishOperation(operation)
+        setPendingPublishOperation(operation)
+      }
 
-    if (attachedSeriesId) {
-      router.replace({
-        pathname: '/series/[id]' as never,
-        params: { id: attachedSeriesId, reelId: createdReel.id },
-      })
-      return
-    }
+      autoResumedPublishIntentRef.current = operation.publishIntentId
+      let latestOperation = operation
+      let didNavigateToPreview = false
+      const onCheckpoint = async (checkpoint: {
+        completedStep: ReelPublishCompletedStep
+        mediaKey?: string
+        uploadUrl?: string
+        uploadUrlExpiresAt?: number
+        uploadedAt?: number
+        reelId?: string
+        canonicalReel?: Reel
+        visibilityApplied?: boolean
+        resetMediaUpload?: boolean
+      }) => {
+        assertPublisher()
+        const completedSteps = checkpoint.resetMediaUpload
+          ? latestOperation.completedSteps.filter((step) => step !== 'media_uploaded')
+          : latestOperation.completedSteps
+        let nextOperation = {
+          ...latestOperation,
+          ...(checkpoint.mediaKey ? { mediaKey: checkpoint.mediaKey } : {}),
+          ...(checkpoint.uploadUrl ? { uploadUrl: checkpoint.uploadUrl } : {}),
+          ...(checkpoint.uploadUrlExpiresAt
+            ? { uploadUrlExpiresAt: checkpoint.uploadUrlExpiresAt }
+            : {}),
+          ...(checkpoint.uploadedAt ? { uploadedAt: checkpoint.uploadedAt } : {}),
+          ...(checkpoint.reelId ? { reelId: checkpoint.reelId } : {}),
+          ...(checkpoint.canonicalReel ? { canonicalReel: checkpoint.canonicalReel } : {}),
+          ...(checkpoint.visibilityApplied !== undefined
+            ? { visibilityApplied: checkpoint.visibilityApplied }
+            : {}),
+          completedSteps: checkpoint.resetMediaUpload
+            ? completedSteps
+            : completedSteps.includes(checkpoint.completedStep)
+              ? completedSteps
+              : [...completedSteps, checkpoint.completedStep],
+        }
 
-    router.replace({
-      pathname: '/reels/[id]',
-      params: { id: createdReel.id, source: 'profile', returnTo: 'profile' },
-    })
+        if (checkpoint.resetMediaUpload) {
+          delete nextOperation.uploadedAt
+        }
 
-    if (attachmentError) {
-      const message =
-        (attachmentError as Error & { response?: { data?: { message?: string } } })?.response?.data
-          ?.message ||
-        (attachmentError as Error)?.message ||
-        'The reel is published, but Velora could not add it to the series.'
-      Alert.alert('Reel published', message)
+        if (checkpoint.reelId && !nextOperation.localPlaybackUri) {
+          try {
+            const localRecord = await commitLocalReelPlayback({
+              ...(nextOperation.payload.edit ? { edit: nextOperation.payload.edit } : {}),
+              ...(nextOperation.source.localThumbnailUri
+                ? { localThumbnailUri: nextOperation.source.localThumbnailUri }
+                : {}),
+              localUri: nextOperation.source.uri,
+              ownerId: viewerId,
+              publishIntentId: nextOperation.publishIntentId,
+              reelId: checkpoint.reelId,
+              ...(typeof nextOperation.source.height === 'number'
+                ? { sourceHeight: nextOperation.source.height }
+                : {}),
+              ...(typeof nextOperation.source.width === 'number'
+                ? { sourceWidth: nextOperation.source.width }
+                : {}),
+            })
+            nextOperation = {
+              ...nextOperation,
+              localPlaybackUri: localRecord.localUri,
+              ...(localRecord.localThumbnailUri
+                ? { localThumbnailUri: localRecord.localThumbnailUri }
+                : {}),
+              source: {
+                ...nextOperation.source,
+                uri: localRecord.localUri,
+                ...(localRecord.localThumbnailUri
+                  ? { localThumbnailUri: localRecord.localThumbnailUri }
+                  : {}),
+              },
+              completedSteps: nextOperation.completedSteps.includes('local_playback_committed')
+                ? nextOperation.completedSteps
+                : [...nextOperation.completedSteps, 'local_playback_committed'],
+            }
+          } catch {
+            // A missing local copy must not turn a canonical remote Reel into an unknown create.
+          }
+        }
+
+        latestOperation = nextOperation
+        await saveReelPublishOperation(nextOperation)
+        if (
+          checkpoint.completedStep === 'reel_created' &&
+          checkpoint.reelId &&
+          !didNavigateToPreview
+        ) {
+          assertPublisher()
+          didNavigateToPreview = true
+          router.replace({
+            pathname: '/reels/[id]',
+            params: { id: checkpoint.reelId, source: 'profile', returnTo: 'profile' },
+          })
+        }
+        setPendingPublishOperation(nextOperation)
+      }
+
+      const publishEdit = publishPayload.edit ?? edit
+      const payload = {
+        alreadyUploaded: latestOperation.completedSteps.includes('media_uploaded'),
+        clientObservedDurationMs:
+          publishPayload.clientObservedDurationMs ?? clientObservedDurationMs,
+        description: publishPayload.description ?? '',
+        edit: publishEdit,
+        ...(latestOperation.reelId && latestOperation.canonicalReel
+          ? { existingReel: latestOperation.canonicalReel }
+          : {}),
+        fileType:
+          resolveAllowedVideoType(
+            latestOperation.source.mimeType,
+            latestOperation.source.fileName ?? latestOperation.source.uri,
+          ) ?? selectedAssetType,
+        fileUri: latestOperation.source.uri,
+        ...(latestOperation.localThumbnailUri
+          ? { localThumbnailUri: latestOperation.localThumbnailUri }
+          : {}),
+        ...(latestOperation.mediaKey ? { mediaKey: latestOperation.mediaKey } : {}),
+        onCheckpoint,
+        publishIntentId: latestOperation.publishIntentId,
+        tags: publishPayload.tags ?? [],
+        title: publishPayload.title ?? finalTitle,
+        ...(latestOperation.uploadUrl ? { uploadUrl: latestOperation.uploadUrl } : {}),
+        ...(typeof latestOperation.uploadUrlExpiresAt === 'number'
+          ? { uploadUrlExpiresAt: latestOperation.uploadUrlExpiresAt }
+          : {}),
+        visibility: publishPayload.visibility ?? effectiveVisibility,
+        ...(latestOperation.visibilityApplied !== undefined
+          ? { visibilityApplied: latestOperation.visibilityApplied }
+          : {}),
+      }
+      let createdReel: Reel
+      let publishRecoveryError: Error | null = null
+      try {
+        createdReel = await createReelAsync(payload)
+      } catch (error) {
+        const typedError = error as Error & {
+          reelCreated?: boolean
+          response?: { status?: number; data?: { message?: string } }
+        }
+        if (typedError.reelCreated && latestOperation.canonicalReel) {
+          createdReel = latestOperation.canonicalReel
+          publishRecoveryError = typedError
+        } else {
+          if (typedError.response?.status === 410) {
+            assertPublisher()
+            latestOperation = { ...latestOperation, requiresCancellation: true }
+            await saveReelPublishOperation(latestOperation)
+            setPendingPublishOperation(latestOperation)
+          }
+          Alert.alert(
+            typedError.response?.status === 410 ? 'Publish expired' : 'Publish failed',
+            typedError.response?.data?.message ||
+              typedError.message ||
+              'Velora could not publish this reel.',
+          )
+          return
+        }
+      }
+
+      let attachedSeriesId: string | null = null
+      assertPublisher()
+      let attachmentError: unknown = publishRecoveryError
+
+      if (!publishRecoveryError && publishSeriesSelection && !latestOperation.seriesAttached) {
+        try {
+          if (publishSeriesSelection.kind === 'new') {
+            if (latestOperation.createdSeriesId) {
+              attachedSeriesId = latestOperation.createdSeriesId
+            } else {
+              const createdSeries = await createReelSeriesAsync({
+                title: publishSeriesSelection.title,
+                ...(publishSeriesSelection.description
+                  ? { description: publishSeriesSelection.description }
+                  : {}),
+                visibility: publishPayload.visibility ?? effectiveVisibility,
+              })
+              attachedSeriesId = createdSeries.id
+              latestOperation = { ...latestOperation, createdSeriesId: createdSeries.id }
+              await saveReelPublishOperation(latestOperation)
+            }
+          } else {
+            attachedSeriesId = resolvedExistingSeries?.id ?? publishSeriesSelection.id
+          }
+
+          await addReelToSeriesAsync({
+            seriesId: attachedSeriesId,
+            data: { reelIds: [createdReel.id] },
+          })
+          latestOperation = {
+            ...latestOperation,
+            seriesAttached: true,
+            completedSteps: latestOperation.completedSteps.includes('series_attached')
+              ? latestOperation.completedSteps
+              : [...latestOperation.completedSteps, 'series_attached'],
+          }
+          await saveReelPublishOperation(latestOperation)
+        } catch (error) {
+          attachmentError = error
+          attachedSeriesId = null
+        }
+      }
+
+      assertPublisher()
+      if (!attachmentError) {
+        await saveReelPublishOperation({ ...latestOperation, state: 'completed' })
+        await removeReelPublishOperation(viewerId, latestOperation.publishIntentId)
+        setPendingPublishOperation(null)
+      }
+
+      await saveDraftSnapshot(null)
+      assertPublisher()
+      resetCreatorState()
+
+      if (attachedSeriesId && !didNavigateToPreview) {
+        router.replace({
+          pathname: '/series/[id]' as never,
+          params: { id: attachedSeriesId, reelId: createdReel.id },
+        })
+        return
+      }
+
+      if (!didNavigateToPreview)
+        router.replace({
+          pathname: '/reels/[id]',
+          params: { id: createdReel.id, source: 'profile', returnTo: 'profile' },
+        })
+
+      if (publishRecoveryError) {
+        Alert.alert(
+          'Reel published',
+          'The reel is ready to watch. Resume the saved publish to retry the visibility update.',
+        )
+      } else if (attachmentError) {
+        const message =
+          (attachmentError as Error & { response?: { data?: { message?: string } } })?.response
+            ?.data?.message ||
+          (attachmentError as Error)?.message ||
+          'The reel is published, but Velora could not add it to the series.'
+        Alert.alert('Reel published', message)
+      }
+    } finally {
+      setIsPublishing(false)
+      releaseLock()
+      if (publishLockRef.current === lock) {
+        publishLockRef.current = null
+      }
     }
   }, [
     addReelToSeriesAsync,
     caption,
     createReelAsync,
     createReelSeriesAsync,
-    deleteReelSeriesAsync,
     editState,
     extractedTags,
+    handleDiscardDraft,
     observedSourceDurationMs,
-    pulseHaptic,
+    publishHydrationComplete,
+    publishStorageError,
+    pendingPublishOperation,
+    previewThumbnailUri,
     resetCreatorState,
     router,
     sanitizedDescription,
     saveDraftSnapshot,
     selectedAsset,
     selectedAssetType,
-    previewThumbnailUri,
     seriesSelection,
     title,
+    viewerId,
     visibility,
   ])
 
@@ -662,8 +959,15 @@ export function useReelCreator() {
     let cancelled = false
 
     const hydrateDraft = async () => {
+      if (!viewerId) {
+        hydrateCompletedRef.current = true
+        return
+      }
+
+      const draftStorageKey = getReelCreatorDraftKey(viewerId)
+
       try {
-        const rawValue = await AsyncStorage.getItem(REEL_CREATOR_DRAFT_KEY)
+        const rawValue = await AsyncStorage.getItem(draftStorageKey)
 
         if (!rawValue || cancelled) {
           return
@@ -672,7 +976,7 @@ export function useReelCreator() {
         const draft = JSON.parse(rawValue) as Partial<DraftState>
 
         if (!draft.asset) {
-          await AsyncStorage.removeItem(REEL_CREATOR_DRAFT_KEY)
+          await AsyncStorage.removeItem(draftStorageKey)
           return
         }
 
@@ -694,7 +998,7 @@ export function useReelCreator() {
         })
         setDraftSavedAt(draft.savedAt ?? Date.now())
       } catch {
-        await AsyncStorage.removeItem(REEL_CREATOR_DRAFT_KEY)
+        await AsyncStorage.removeItem(draftStorageKey)
       } finally {
         hydrateCompletedRef.current = true
       }
@@ -705,7 +1009,91 @@ export function useReelCreator() {
     return () => {
       cancelled = true
     }
-  }, [applySelectedAsset])
+  }, [applySelectedAsset, viewerId])
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!viewerId) {
+      setPendingPublishOperation(null)
+      setPublishStorageError(null)
+      setPublishHydrationComplete(true)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    setPublishHydrationComplete(false)
+    setPublishStorageError(null)
+
+    const hydratePendingPublish = async () => {
+      try {
+        const operation = await getPendingReelPublishOperation(viewerId)
+        if (cancelled || !operation) {
+          if (!cancelled) {
+            setPendingPublishOperation(null)
+          }
+          return
+        }
+
+        setPendingPublishOperation(operation)
+        setTitle(operation.payload.title ?? '')
+        setCaption(operation.payload.description ?? '')
+        setVisibility(operation.payload.visibility ?? 'public')
+        setSeriesSelectionState(operation.seriesSelection ?? null)
+
+        if (!selectedAsset) {
+          await applySelectedAsset(operation.source, {
+            label: 'Restoring pending publish',
+            stageAfterImport: 'publish',
+            showOverlay: false,
+            captureMessage: operation.requiresCancellation
+              ? 'This publish expired. Discard it before starting a new publish.'
+              : 'Pending publish restored. Velora will resume it safely.',
+            editState: operation.payload.edit
+              ? sanitizeReelEditState(
+                  operation.payload.edit,
+                  operation.source.width ?? undefined,
+                  operation.source.height ?? undefined,
+                  operation.source.duration ?? undefined,
+                )
+              : DEFAULT_REEL_EDIT_STATE,
+          })
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setPendingPublishOperation(null)
+          setPublishStorageError(error as Error)
+        }
+      } finally {
+        if (!cancelled) {
+          setPublishHydrationComplete(true)
+        }
+      }
+    }
+
+    void hydratePendingPublish()
+
+    return () => {
+      cancelled = true
+    }
+  }, [applySelectedAsset, selectedAsset, viewerId])
+
+  useEffect(() => {
+    const operation = pendingPublishOperation
+    if (
+      !operation ||
+      operation.requiresCancellation ||
+      !selectedAsset ||
+      isPublishing ||
+      autoResumedPublishIntentRef.current === operation.publishIntentId
+    ) {
+      return
+    }
+
+    autoResumedPublishIntentRef.current = operation.publishIntentId
+    void handlePublish()
+  }, [handlePublish, isPublishing, pendingPublishOperation, selectedAsset])
 
   useEffect(() => {
     if (!hydrateCompletedRef.current || (availableDraft && !selectedAsset)) {
@@ -810,6 +1198,7 @@ export function useReelCreator() {
     importState,
     editState,
     isPending,
+    isPublishing,
     isPreviewMuted,
     orientationMessage,
     publishProgressLabel,
@@ -830,6 +1219,7 @@ export function useReelCreator() {
     togglePreviewMuted,
     pulseHaptic,
     availableDraft,
+    pendingPublishOperation,
     videoDurationSeconds,
     videoPlaybackPosition,
     visibility,

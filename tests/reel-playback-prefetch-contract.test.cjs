@@ -27,7 +27,7 @@ test('useOfflineReelVideoSource uses synchronous cache and defaults to preferrin
   assert.match(offlineHook, /getSyncCachedTemporaryReelVideo/)
   assert.match(
     offlineHook,
-    /const shouldUseOfflineVideo =\s*Boolean\(offlineRecord\) && \(!isOnline \|\| options\.preferOffline !== false\)/,
+    /const shouldUseOfflineVideo =\s*isRemotePlaybackReady &&\s*Boolean\(offlineRecord\) &&\s*\(!isOnline \|\| options\.preferOffline !== false\)/,
   )
   assert.match(
     offlineHook,

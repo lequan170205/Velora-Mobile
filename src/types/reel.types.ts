@@ -263,6 +263,7 @@ export type ReelEditPayload =
 
 export interface CreateReelPayload {
   mediaKey: string
+  publishIntentId: string
   title?: string
   description?: string
   tags?: string[]
@@ -327,6 +328,8 @@ export interface ReelShareLinkResponse {
 
 export interface ReelUploadUrlRequest {
   fileType: AllowedVideoType
+  purpose: 'reel'
+  publishIntentId: string
 }
 
 export interface ReelUploadUrlResponse {

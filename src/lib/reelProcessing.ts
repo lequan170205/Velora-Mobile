@@ -14,6 +14,16 @@ export type NormalizedReelProcessingState = {
   isSemanticReady: boolean
 }
 
+export type ReelPlaybackAvailability =
+  | 'local_available'
+  | 'queued'
+  | 'processing'
+  | 'remote_ready'
+  | 'indexing'
+  | 'completed'
+  | 'index_failed'
+  | 'media_failed'
+
 type ReelProcessingStateInput = Pick<Reel, 'status' | 'streamUrl'> & {
   mediaStatus?: ReelMediaStatus | undefined
   indexStatus?: ReelIndexStatus | undefined
@@ -42,6 +52,16 @@ const isMediaStatus = (value: unknown): value is ReelMediaStatus =>
 
 const isIndexStatus = (value: unknown): value is ReelIndexStatus =>
   typeof value === 'string' && INDEX_STATUSES.includes(value as ReelIndexStatus)
+
+export const isHlsReelUrl = (uri?: string | null) => Boolean(uri && /\.m3u8($|[?#])/i.test(uri))
+
+const remoteHlsUrl = (reel: {
+  hlsMasterUrl?: string | undefined
+  streamUrl?: string | undefined
+}) =>
+  [reel.hlsMasterUrl, reel.streamUrl].find(
+    (uri) => uri && /^https?:\/\//i.test(uri) && isHlsReelUrl(uri),
+  )
 
 export const normalizeTranscriptSegments = (rawSegments: unknown): ReelTranscriptSegment[] => {
   let segments: unknown = rawSegments
@@ -143,15 +163,14 @@ export const normalizeReelProcessingState = (
     mediaStatus,
     indexStatus,
     isPlayable:
-      mediaStatus === 'COMPLETED' &&
-      Boolean(reel.hlsMasterUrl || reel.hlsMasterKey || reel.streamUrl),
+      mediaStatus === 'COMPLETED' && Boolean(remoteHlsUrl(reel) || isHlsReelUrl(reel.hlsMasterKey)),
     isSemanticReady: indexStatus === 'COMPLETED',
   }
 }
 
 export const normalizeReelApiResponse = <T extends Reel>(reel: T): T => {
   const processing = normalizeReelProcessingState(reel)
-  const hlsMasterUrl = reel.hlsMasterUrl || reel.streamUrl
+  const hlsMasterUrl = processing.mediaStatus === 'COMPLETED' ? remoteHlsUrl(reel) : undefined
   const transcriptSegments = reel.transcriptSegments
     ? normalizeTranscriptSegments(reel.transcriptSegments)
     : undefined
@@ -161,7 +180,8 @@ export const normalizeReelApiResponse = <T extends Reel>(reel: T): T => {
     status: toLegacyProcessingStatus(processing.mediaStatus),
     mediaStatus: processing.mediaStatus,
     indexStatus: processing.indexStatus,
-    ...(hlsMasterUrl ? { hlsMasterUrl, streamUrl: hlsMasterUrl } : {}),
+    hlsMasterUrl,
+    streamUrl: hlsMasterUrl ?? '',
     ...(transcriptSegments && transcriptSegments.length > 0 ? { transcriptSegments } : {}),
   } as T
 }
@@ -177,18 +197,15 @@ export const normalizeReelProcessingStatusResponse = (
     hlsMasterUrl: status.hlsMasterUrl,
     streamUrl: status.streamUrl ?? '',
   })
+  const hlsMasterUrl = normalized.mediaStatus === 'COMPLETED' ? remoteHlsUrl(status) : undefined
 
   return {
     ...status,
     status: toLegacyProcessingStatus(normalized.mediaStatus),
     mediaStatus: normalized.mediaStatus,
     indexStatus: normalized.indexStatus,
-    ...(status.hlsMasterUrl || status.streamUrl
-      ? {
-          hlsMasterUrl: status.hlsMasterUrl ?? status.streamUrl,
-          streamUrl: status.hlsMasterUrl ?? status.streamUrl,
-        }
-      : {}),
+    hlsMasterUrl: hlsMasterUrl ?? '',
+    streamUrl: hlsMasterUrl ?? '',
   }
 }
 
@@ -241,6 +258,41 @@ export const mergeReelProcessingStatus = <T extends Reel>(
 }
 
 export const isReelPlayable = (reel: Reel) => normalizeReelProcessingState(reel).isPlayable
+export const isRemoteReelPlaybackReady = (reel: Reel) => {
+  const normalized = normalizeReelProcessingState(reel)
+  return normalized.mediaStatus === 'COMPLETED' && Boolean(remoteHlsUrl(reel))
+}
+export const getReelPlaybackAvailability = (
+  reel: Reel,
+  localAvailable = false,
+): ReelPlaybackAvailability => {
+  if (localAvailable) {
+    return 'local_available'
+  }
+
+  const normalized = normalizeReelProcessingState(reel)
+  if (normalized.mediaStatus === 'FAILED') {
+    return 'media_failed'
+  }
+
+  if (normalized.mediaStatus === 'PENDING') {
+    return 'queued'
+  }
+
+  if (normalized.mediaStatus === 'PROBING' || normalized.mediaStatus === 'PROCESSING') {
+    return 'processing'
+  }
+
+  if (normalized.indexStatus === 'PENDING' || normalized.indexStatus === 'PROCESSING') {
+    return 'indexing'
+  }
+
+  if (normalized.indexStatus === 'FAILED' || normalized.indexStatus === 'DEGRADED') {
+    return 'index_failed'
+  }
+
+  return normalized.mediaStatus === 'COMPLETED' ? 'completed' : 'remote_ready'
+}
 export const isReelMediaProcessing = (reel: Reel) => {
   const { mediaStatus } = normalizeReelProcessingState(reel)
   return mediaStatus === 'PENDING' || mediaStatus === 'PROBING' || mediaStatus === 'PROCESSING'

@@ -5,7 +5,7 @@ import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useRouter } from 'expo-router'
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
   cancelAnimation,
@@ -30,6 +30,10 @@ import {
   useReprocessReel,
 } from '../../hooks/useReels'
 import { CHAT_SHARED_REEL_FALLBACK_ID_PREFIX } from '../../lib/chatReels'
+import {
+  pinAuthorizedLocalReelPlayback,
+  unpinAuthorizedLocalReelPlayback,
+} from '../../lib/localReelPlayback'
 import { getInitials } from '../../lib/profile'
 import {
   isCurrentReelPlayerCallback,
@@ -40,8 +44,14 @@ import {
   isReelPlayable,
   mergeReelProcessingStatus,
 } from '../../lib/reelProcessing'
+import {
+  createPlaybackCandidateAttempts,
+  tryPlaybackCandidate,
+} from '../../lib/reelPublishRecovery'
 import { useAuthStore } from '../../stores/authStore'
 
+import { CommittedCropPreview } from './create/crop-preview'
+import { TrimmedReelVideo } from './create/trimmed-reel-video'
 import { DeleteReelModal } from './DeleteReelModal'
 import { ReelActionsMenu } from './ReelActionsMenu'
 import { ReelLoadingRail } from './ReelLoadingRail'
@@ -321,7 +331,11 @@ const getStablePlaybackContentFit = (reel: Reel): ReelPlaybackContentFit | null 
   return null
 }
 
-const getPlaybackState = (reel: Reel, streamUrl?: string | null) => {
+const getPlaybackState = (reel: Reel, streamUrl?: string | null, isLocalPlayback = false) => {
+  if (isLocalPlayback && streamUrl) {
+    return { isPlayable: true, label: null }
+  }
+
   if (Boolean(streamUrl) && isReelPlayable({ ...reel, streamUrl: streamUrl ?? reel.streamUrl })) {
     return { isPlayable: true, label: null }
   }
@@ -378,11 +392,14 @@ const ReelFeedItemComponent = function ReelFeedItem({
 }: ReelFeedItemProps) {
   const router = useRouter()
   const { user } = useAuthStore()
+  const { width: windowWidth } = useWindowDimensions()
   const queryClient = useQueryClient()
   const playbackOptionsSheetRef = useRef<BottomSheetModal>(null)
   const isPlaybackOptionsPresentedRef = useRef(false)
   const videoRef = useRef<ReelVideoHandle | null>(null)
   const playerIdentityRef = useRef({ playerGeneration: 0, reelId: reel.id, sourceKey: '' })
+  const playbackIdentityRef = useRef('')
+  const fallbackAttemptsRef = useRef(createPlaybackCandidateAttempts())
   const lastBufferedPositionRef = useRef(0)
   const lastPlaybackPositionRef = useRef(0)
   const isActiveRef = useRef(isActive)
@@ -532,19 +549,57 @@ const ReelFeedItemComponent = function ReelFeedItem({
       : {}),
   })
   const [isUsingRemotePlaybackFallback, setIsUsingRemotePlaybackFallback] = useState(false)
+  const [isUsingLocalPlaybackFallback, setIsUsingLocalPlaybackFallback] = useState(false)
   const activePlaybackUriRef = useRef<string | null>(null)
+
+  const playbackIdentity = `${offlineVideoSource.authSessionKey}:${displayReel.id}`
+  if (playbackIdentityRef.current !== playbackIdentity) {
+    playbackIdentityRef.current = playbackIdentity
+    activePlaybackUriRef.current = null
+    fallbackAttemptsRef.current = createPlaybackCandidateAttempts()
+    playerIdentityRef.current = {
+      playerGeneration: playerIdentityRef.current.playerGeneration + 1,
+      reelId: displayReel.id,
+      sourceKey: '',
+    }
+  }
+
+  useEffect(() => {
+    setIsUsingRemotePlaybackFallback(false)
+    setIsUsingLocalPlaybackFallback(false)
+    setHasPlaybackError(false)
+  }, [playbackIdentity])
 
   if (
     !activePlaybackUriRef.current ||
-    (!offlineVideoSource.isOnline && offlineVideoSource.isOfflineVideoActive)
+    (!offlineVideoSource.isOnline &&
+      (offlineVideoSource.isOfflineVideoActive || offlineVideoSource.isLocalVideoActive))
   ) {
-    activePlaybackUriRef.current = offlineVideoSource.uri
+    activePlaybackUriRef.current =
+      offlineVideoSource.isLocalVideoActive && offlineVideoSource.localVideoUri
+        ? offlineVideoSource.localVideoUri
+        : offlineVideoSource.uri
   }
+
+  useEffect(() => {
+    if (
+      offlineVideoSource.isOnline &&
+      offlineVideoSource.isRemotePlaybackReady &&
+      offlineVideoSource.localVideoUri &&
+      activePlaybackUriRef.current === offlineVideoSource.localVideoUri
+    ) {
+      activePlaybackUriRef.current = displayReel.streamUrl
+      setIsUsingLocalPlaybackFallback(false)
+      setHasPlaybackError(false)
+    }
+  }, [displayReel.streamUrl, offlineVideoSource])
 
   const resolvedVideoUri = isUsingRemotePlaybackFallback
     ? displayReel.streamUrl
-    : activePlaybackUriRef.current || offlineVideoSource.uri
-  const videoSourceKey = `${displayReel.id}:${resolvedVideoUri}`
+    : isUsingLocalPlaybackFallback && offlineVideoSource.localVideoUri
+      ? offlineVideoSource.localVideoUri
+      : activePlaybackUriRef.current || offlineVideoSource.uri
+  const videoSourceKey = `${playbackIdentity}:${resolvedVideoUri}`
 
   if (playerIdentityRef.current.sourceKey !== videoSourceKey) {
     playerIdentityRef.current = {
@@ -577,8 +632,13 @@ const ReelFeedItemComponent = function ReelFeedItem({
     [timelinePreviewRatio],
   )
   const playbackState = useMemo(
-    () => getPlaybackState(displayReel, resolvedVideoUri),
-    [displayReel, resolvedVideoUri],
+    () =>
+      getPlaybackState(
+        displayReel,
+        resolvedVideoUri,
+        resolvedVideoUri === offlineVideoSource.localVideoUri,
+      ),
+    [displayReel, offlineVideoSource.localVideoUri, resolvedVideoUri],
   )
   const descriptionText = displayReel.description?.trim() || description?.trim()
   const titleText = displayReel.title?.trim()
@@ -639,7 +699,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const processingProgress = normalizeProgress(
     displayReel.progress ?? displayReel.processingProgress,
   )
-  const isFailed = isReelMediaFailed(displayReel)
+  const isFailed = isReelMediaFailed(displayReel) && !offlineVideoSource.isLocalVideoReady
   const shouldAnimateUploadRail =
     typeof processingProgress === 'number' && !isFailed && !hasPlaybackError
   const canManageReel = user?.id === displayReel.userId
@@ -662,6 +722,34 @@ const ReelFeedItemComponent = function ReelFeedItem({
           ? 16 / 9
           : 1
   const shouldShowVideoLayer = isActive || isReady || playbackPosition > 0
+  const localPlaybackEdit = displayReel.edit ?? offlineVideoSource.localEdit
+  const isLocalPlaybackSource = resolvedVideoUri === offlineVideoSource.localVideoUri
+  useEffect(() => {
+    if (!shouldRenderVideo || !isLocalPlaybackSource || !user?.id) return
+    const ownerId = user.id
+    pinAuthorizedLocalReelPlayback(ownerId, displayReel.id)
+    return () => unpinAuthorizedLocalReelPlayback(ownerId, displayReel.id)
+  }, [shouldRenderVideo, isLocalPlaybackSource, user?.id, displayReel.id])
+  const localSourceWidth =
+    displayReel.sourceEffectiveWidth ??
+    displayReel.sourceWidth ??
+    offlineVideoSource.localSourceWidth ??
+    1080
+  const localSourceHeight =
+    displayReel.sourceEffectiveHeight ??
+    displayReel.sourceHeight ??
+    offlineVideoSource.localSourceHeight ??
+    1920
+  const localCrop =
+    isLocalPlaybackSource && localPlaybackEdit?.framing === 'crop' ? localPlaybackEdit.crop : null
+  const localPlaybackGeometry = localCrop
+    ? {
+        sourceWidth: localSourceWidth,
+        sourceHeight: localSourceHeight,
+        viewportWidth: windowWidth,
+        viewportHeight: height,
+      }
+    : null
 
   const triggerScrubStartHaptic = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined)
@@ -1131,6 +1219,78 @@ const ReelFeedItemComponent = function ReelFeedItem({
     [displayReel.id, onPlayerChange],
   )
 
+  const handleVideoReady = () => {
+    if (!isCurrentReelPlayerCallback(displayReel.id, playerGeneration, playerIdentityRef.current)) {
+      return
+    }
+
+    setIsReady(true)
+  }
+
+  const handleVideoError = () => {
+    if (!isCurrentReelPlayerCallback(displayReel.id, playerGeneration, playerIdentityRef.current)) {
+      return
+    }
+
+    const currentCandidate = isLocalPlaybackSource
+      ? 'local'
+      : offlineVideoSource.isOfflineVideoActive
+        ? 'offline'
+        : 'remote'
+    if (!tryPlaybackCandidate(fallbackAttemptsRef.current, currentCandidate)) {
+      setHasPlaybackError(true)
+      return
+    }
+
+    if (
+      isLocalPlaybackSource &&
+      offlineVideoSource.isRemotePlaybackReady &&
+      offlineVideoSource.isOnline &&
+      tryPlaybackCandidate(fallbackAttemptsRef.current, 'remote')
+    ) {
+      setIsUsingLocalPlaybackFallback(false)
+      setIsUsingRemotePlaybackFallback(true)
+      setHasPlaybackError(false)
+      return
+    }
+
+    if (
+      !isLocalPlaybackSource &&
+      offlineVideoSource.isLocalVideoReady &&
+      tryPlaybackCandidate(fallbackAttemptsRef.current, 'local')
+    ) {
+      setIsUsingRemotePlaybackFallback(false)
+      setIsUsingLocalPlaybackFallback(true)
+      setHasPlaybackError(false)
+      return
+    }
+
+    setHasPlaybackError(true)
+  }
+
+  const handleVideoProgress = (progress: ReelVideoProgress) => {
+    if (isCurrentReelPlayerCallback(displayReel.id, playerGeneration, playerIdentityRef.current)) {
+      const trim = isLocalPlaybackSource ? localPlaybackEdit?.trim : null
+      if (!trim) {
+        handleProgress(progress)
+        return
+      }
+
+      const startSeconds = trim.startMs / 1000
+      const endSeconds = trim.endMs / 1000
+      const outputDuration = Math.max(0, endSeconds - startSeconds)
+      handleProgress({
+        ...progress,
+        bufferedPosition:
+          typeof progress.bufferedPosition === 'number'
+            ? Math.max(0, Math.min(outputDuration, progress.bufferedPosition - startSeconds))
+            : progress.bufferedPosition,
+        currentTime: Math.max(0, Math.min(outputDuration, progress.currentTime - startSeconds)),
+        duration: outputDuration || progress.duration,
+      })
+    }
+  }
+
   return (
     <View className="flex-1 overflow-hidden bg-reel-canvas-dark" style={{ height }}>
       <View className="flex-1 overflow-hidden bg-reel-canvas-dark">
@@ -1166,71 +1326,64 @@ const ReelFeedItemComponent = function ReelFeedItem({
             )}
 
             {shouldRenderVideo ? (
-              <ReelVideo
-                ref={setVideoRef}
-                uri={resolvedVideoUri}
-                {...(posterUri ? { posterUri } : {})}
-                shouldPlay={isActive && !isPausedByUser && !hasPlaybackError}
-                playbackRate={playbackSpeed}
-                loop
-                muted={isMuted || !isActive}
-                contentFit={playbackContentFit}
-                disableOrientationAwareContentFit={stablePlaybackContentFit !== null}
-                resetOnPause={false}
-                externallyManagedPlayback
-                onReady={() => {
-                  if (
-                    !isCurrentReelPlayerCallback(
-                      displayReel.id,
-                      playerGeneration,
-                      playerIdentityRef.current,
-                    )
-                  ) {
-                    return
-                  }
-
-                  setIsReady(true)
-                }}
-                onError={() => {
-                  if (
-                    !isCurrentReelPlayerCallback(
-                      displayReel.id,
-                      playerGeneration,
-                      playerIdentityRef.current,
-                    )
-                  ) {
-                    return
-                  }
-
-                  if (
-                    offlineVideoSource.isOfflineVideoActive &&
-                    offlineVideoSource.isOnline &&
-                    !isUsingRemotePlaybackFallback
-                  ) {
-                    setIsUsingRemotePlaybackFallback(true)
-                    setHasPlaybackError(false)
-                    return
-                  }
-
-                  setHasPlaybackError(true)
-                }}
-                {...(isActive
-                  ? {
-                      onProgress: (progress: ReelVideoProgress) => {
-                        if (
-                          isCurrentReelPlayerCallback(
-                            displayReel.id,
-                            playerGeneration,
-                            playerIdentityRef.current,
-                          )
-                        ) {
-                          handleProgress(progress)
-                        }
-                      },
-                    }
-                  : {})}
-                style={[styles.videoOverlay, { opacity: shouldShowVideoLayer ? 1 : 0 }]}
-              />
+              localCrop && localPlaybackGeometry ? (
+                <View style={[styles.fill, { opacity: shouldShowVideoLayer ? 1 : 0 }]}>
+                  <CommittedCropPreview
+                    crop={localCrop}
+                    geometry={localPlaybackGeometry}
+                    {...(posterUri ? { posterUri } : {})}
+                    playbackRange={localPlaybackEdit?.trim}
+                    seekRelativeToTrim={Boolean(localPlaybackEdit?.trim)}
+                    shouldPlay={isActive && !isPausedByUser && !hasPlaybackError}
+                    muted={isMuted || !isActive}
+                    playbackRate={playbackSpeed}
+                    uri={resolvedVideoUri}
+                    videoRef={setVideoRef}
+                    externallyManagedPlayback
+                    onReady={handleVideoReady}
+                    onError={handleVideoError}
+                    {...(isActive ? { onProgress: handleVideoProgress } : {})}
+                  />
+                </View>
+              ) : isLocalPlaybackSource ? (
+                <TrimmedReelVideo
+                  ref={setVideoRef}
+                  uri={resolvedVideoUri}
+                  {...(posterUri ? { posterUri } : {})}
+                  shouldPlay={isActive && !isPausedByUser && !hasPlaybackError}
+                  playbackRate={playbackSpeed}
+                  loop
+                  muted={isMuted || !isActive}
+                  contentFit={playbackContentFit}
+                  disableOrientationAwareContentFit={stablePlaybackContentFit !== null}
+                  playbackRange={localPlaybackEdit?.trim}
+                  seekRelativeToTrim={Boolean(localPlaybackEdit?.trim)}
+                  resetOnPause={false}
+                  externallyManagedPlayback
+                  onReady={handleVideoReady}
+                  onError={handleVideoError}
+                  {...(isActive ? { onProgress: handleVideoProgress } : {})}
+                  style={[styles.videoOverlay, { opacity: shouldShowVideoLayer ? 1 : 0 }]}
+                />
+              ) : (
+                <ReelVideo
+                  ref={setVideoRef}
+                  uri={resolvedVideoUri}
+                  {...(posterUri ? { posterUri } : {})}
+                  shouldPlay={isActive && !isPausedByUser && !hasPlaybackError}
+                  playbackRate={playbackSpeed}
+                  loop
+                  muted={isMuted || !isActive}
+                  contentFit={playbackContentFit}
+                  disableOrientationAwareContentFit={stablePlaybackContentFit !== null}
+                  resetOnPause={false}
+                  externallyManagedPlayback
+                  onReady={handleVideoReady}
+                  onError={handleVideoError}
+                  {...(isActive ? { onProgress: handleVideoProgress } : {})}
+                  style={[styles.videoOverlay, { opacity: shouldShowVideoLayer ? 1 : 0 }]}
+                />
+              )
             ) : null}
           </View>
         </View>
@@ -1366,7 +1519,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
         {(!playbackState.isPlayable && !offlineVideoSource.isOfflineVideoUnavailable) ||
         hasPlaybackError ? (
           <View
-            pointerEvents={isFailed ? 'auto' : 'none'}
+            pointerEvents={isFailed || hasPlaybackError ? 'auto' : 'none'}
             className="absolute inset-0 items-center justify-center px-8"
           >
             <View className="w-full max-w-[300px] items-center rounded-[28px] bg-black/58 px-6 py-6">
@@ -1385,6 +1538,20 @@ const ReelFeedItemComponent = function ReelFeedItem({
                   <Text className="font-sans mt-2 text-center text-sm2 leading-5 text-white/70">
                     This reel could not be played.
                   </Text>
+                  <TouchableOpacity
+                    accessibilityLabel="Retry reel playback"
+                    accessibilityRole="button"
+                    className="mt-4 h-11 items-center justify-center rounded-full bg-brand px-5"
+                    activeOpacity={0.84}
+                    onPress={() => {
+                      fallbackAttemptsRef.current = createPlaybackCandidateAttempts()
+                      setIsUsingRemotePlaybackFallback(false)
+                      setIsUsingLocalPlaybackFallback(false)
+                      setHasPlaybackError(false)
+                    }}
+                  >
+                    <Text className="text-center font-medium text-white">Try again</Text>
+                  </TouchableOpacity>
                 </>
               ) : isFailed ? (
                 <>

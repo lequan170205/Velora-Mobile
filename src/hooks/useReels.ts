@@ -27,6 +27,10 @@ import {
   upsertConversationSummaryInCache,
   upsertMessageIntoConversationCache,
 } from '../lib/chatMessageCache'
+import {
+  getLocalReelPlaybackAuthGeneration,
+  releaseAuthorizedLocalReelPlayback,
+} from '../lib/localReelPlayback'
 import { RecommendedReelsSession } from '../lib/recommendedReels'
 import {
   isReelIndexing,
@@ -34,9 +38,15 @@ import {
   mergeReelProcessingStatus,
   normalizeReelProcessingStatusResponse,
 } from '../lib/reelProcessing'
+import {
+  buildReelUploadRequest,
+  isUploadAlreadyPresentStatus,
+  shouldReuploadAfterCreateSourceMiss,
+} from '../lib/reelPublishRecovery'
 import { useAuthStore } from '../stores/authStore'
 
 import type { CacheableFeedParams } from '../database/reels/reelCacheMappers'
+import type { ReelPublishCompletedStep } from '../lib/reelPublishPersistence'
 import type { Conversation, Message } from '../types/conversation.types'
 import type {
   AddReelToSeriesPayload,
@@ -127,6 +137,7 @@ const LegacyFileSystem = require('expo-file-system/legacy') as LegacyFileSystemM
 interface CreateReelVariables {
   fileUri: string
   fileType: AllowedVideoType
+  publishIntentId: string
   title: string
   description: string
   tags: string[]
@@ -134,6 +145,23 @@ interface CreateReelVariables {
   clientObservedDurationMs: number
   edit: NonNullable<CreateReelPayload['edit']>
   localThumbnailUri?: string
+  mediaKey?: string
+  uploadUrl?: string
+  uploadUrlExpiresAt?: number
+  alreadyUploaded?: boolean
+  existingReel?: Reel
+  visibilityApplied?: boolean
+  onCheckpoint?: (checkpoint: {
+    completedStep: ReelPublishCompletedStep
+    mediaKey?: string
+    uploadUrl?: string
+    uploadUrlExpiresAt?: number
+    uploadedAt?: number
+    reelId?: string
+    canonicalReel?: Reel
+    visibilityApplied?: boolean
+    resetMediaUpload?: boolean
+  }) => Promise<void> | void
 }
 
 type CreateReelStep = 'idle' | 'uploading' | 'creating'
@@ -1267,6 +1295,7 @@ export function useCreateReel() {
 
   const mutation = useMutation({
     mutationFn: async ({
+      alreadyUploaded = false,
       fileUri,
       fileType,
       title,
@@ -1275,34 +1304,157 @@ export function useCreateReel() {
       visibility,
       clientObservedDurationMs,
       edit,
+      existingReel,
       localThumbnailUri,
+      mediaKey: existingMediaKey,
+      onCheckpoint,
+      publishIntentId,
+      uploadUrl: existingUploadUrl,
+      uploadUrlExpiresAt: existingUploadUrlExpiresAt,
+      visibilityApplied = false,
     }: CreateReelVariables) => {
-      setStep('uploading')
-      const { uploadUrl, key } = await mediaApi.getReelUploadUrl({ fileType })
+      let key = existingMediaKey
+      let uploadUrl = existingUploadUrl
+      let uploadUrlExpiresAt = existingUploadUrlExpiresAt
+      let mediaWasUploaded = alreadyUploaded
+      const authGeneration = getLocalReelPlaybackAuthGeneration()
+      const assertPublisher = () => {
+        const auth = useAuthStore.getState()
+        if (
+          !auth.isAuthenticated ||
+          auth.user?.id !== viewerId ||
+          getLocalReelPlaybackAuthGeneration() !== authGeneration
+        ) {
+          throw new Error('Your account changed during publishing. Sign in to resume this publish.')
+        }
+      }
+      assertPublisher()
 
-      const uploadResponse = await LegacyFileSystem.uploadAsync(uploadUrl, fileUri, {
-        httpMethod: 'PUT',
-        uploadType: LegacyFileSystem.FileSystemUploadType.BINARY_CONTENT,
-        headers: { 'Content-Type': fileType },
-      })
+      const uploadSource = async () => {
+        assertPublisher()
+        setStep('uploading')
+        const uploadUrlIsValid =
+          Boolean(uploadUrl) &&
+          (typeof uploadUrlExpiresAt !== 'number' || uploadUrlExpiresAt > Date.now() + 5000)
 
-      if (uploadResponse.status < 200 || uploadResponse.status >= 300) {
-        throw new Error('Video upload failed')
+        if (!uploadUrlIsValid) {
+          const upload = await mediaApi.getReelUploadUrl(
+            buildReelUploadRequest({ fileType, publishIntentId }),
+          )
+          assertPublisher()
+
+          if (key && upload.key !== key) {
+            throw new Error('The upload renewal returned a different media key.')
+          }
+
+          key = upload.key
+          uploadUrl = upload.uploadUrl
+          uploadUrlExpiresAt = Date.now() + Math.max(1, upload.expiresIn) * 1000
+          await onCheckpoint?.({
+            completedStep: 'upload_url_persisted',
+            mediaKey: key,
+            uploadUrl,
+            uploadUrlExpiresAt,
+          })
+        }
+
+        if (!key || !uploadUrl) {
+          throw new Error('The reel upload session is incomplete.')
+        }
+
+        const uploadResponse = await LegacyFileSystem.uploadAsync(uploadUrl, fileUri, {
+          httpMethod: 'PUT',
+          uploadType: LegacyFileSystem.FileSystemUploadType.BINARY_CONTENT,
+          headers: {
+            'Content-Type': fileType,
+            'If-None-Match': '*',
+          },
+        })
+        assertPublisher()
+
+        if (
+          (uploadResponse.status < 200 || uploadResponse.status >= 300) &&
+          !isUploadAlreadyPresentStatus(uploadResponse.status)
+        ) {
+          throw new Error('Video upload failed')
+        }
+
+        mediaWasUploaded = true
+        await onCheckpoint?.({
+          completedStep: 'media_uploaded',
+          mediaKey: key,
+          uploadedAt: Date.now(),
+        })
       }
 
+      if (!mediaWasUploaded) {
+        await uploadSource()
+      }
+
+      if (!key) {
+        throw new Error('The uploaded reel did not return a media key.')
+      }
+      const mediaKey = key
+
+      const createCanonicalReel = () =>
+        existingReel ??
+        reelsApi.create({
+          mediaKey,
+          publishIntentId,
+          title,
+          description,
+          tags,
+          visibility,
+          clientObservedDurationMs,
+          edit,
+        })
+
       setStep('creating')
-      const createdReel = await reelsApi.create({
+      assertPublisher()
+      let createdReel: Reel
+      try {
+        createdReel = await createCanonicalReel()
+      } catch (error) {
+        if (
+          !shouldReuploadAfterCreateSourceMiss({
+            alreadyUploaded: mediaWasUploaded,
+            canonicalReelFound: false,
+            error,
+          })
+        ) {
+          throw error
+        }
+
+        await onCheckpoint?.({
+          completedStep: 'media_uploaded',
+          mediaKey: key,
+          resetMediaUpload: true,
+        })
+        mediaWasUploaded = false
+        uploadUrl = undefined
+        uploadUrlExpiresAt = undefined
+        await uploadSource()
+        setStep('creating')
+        createdReel = await createCanonicalReel()
+      }
+
+      assertPublisher()
+      if (createdReel.userId !== viewerId)
+        throw new Error('The created Reel does not belong to this account.')
+      queryClient.setQueryData(queryKeys.reels.detail(viewerId, createdReel.id), createdReel)
+      await onCheckpoint?.({
+        completedStep: 'reel_created',
         mediaKey: key,
-        title,
-        description,
-        tags,
-        visibility,
-        clientObservedDurationMs,
-        edit,
+        reelId: createdReel.id,
+        canonicalReel: createdReel,
       })
+      assertPublisher()
+      queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(viewerId), (current) =>
+        mergePendingCreatedReels(current, createdReel),
+      )
 
       const visibleReel =
-        createdReel.visibility === visibility
+        visibilityApplied || createdReel.visibility === visibility
           ? createdReel
           : await reelsApi.update(createdReel.id, { visibility }).catch((error) => {
               const visibilityError = new Error('Reel was created, but visibility was not updated.')
@@ -1311,6 +1463,14 @@ export function useCreateReel() {
               ;(visibilityError as Error & { reelCreated?: boolean; cause?: unknown }).cause = error
               throw visibilityError
             })
+
+      assertPublisher()
+      await onCheckpoint?.({
+        completedStep: 'visibility_applied',
+        reelId: visibleReel.id,
+        canonicalReel: visibleReel,
+        visibilityApplied: true,
+      })
 
       return {
         ...visibleReel,
@@ -1481,6 +1641,7 @@ export function useDeleteReel() {
   return useMutation({
     mutationFn: (id: string) => reelsApi.delete(id),
     onSuccess: (_, id) => {
+      void releaseAuthorizedLocalReelPlayback(viewerId, id)
       queryClient.removeQueries({ queryKey: queryKeys.reels.detail(viewerId, id) })
       queryClient.setQueryData<Reel[]>(queryKeys.reels.pendingCreated(viewerId), (current) =>
         current?.filter((item) => item.id !== id),

@@ -1,8 +1,13 @@
 import { useRootNavigationState, useRouter, useSegments } from 'expo-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Image, Text, TouchableOpacity, View } from 'react-native'
 
 import { colors } from '../constants/theme'
+import {
+  beginLocalReelPlaybackAuthBoundary,
+  cleanupExpiredLocalReelPlayback,
+  revokeLocalReelPlaybackForOwner,
+} from '../lib/localReelPlayback'
 import { reelEventQueue } from '../services/reelEventQueue'
 import { useAuthStore } from '../stores/authStore'
 
@@ -77,6 +82,7 @@ export function AuthProvider({
   const rootNavigationState = useRootNavigationState()
   const isAuthPending = isLoading || !rootNavigationState?.key
   const [hasAuthLoadingDelayElapsed, setHasAuthLoadingDelayElapsed] = useState(false)
+  const previousAuthUserIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!isAuthPending) {
@@ -100,6 +106,37 @@ export function AuthProvider({
         void reelEventQueue.flush()
       }
     })
+  }, [isAuthenticated, user?.id])
+
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) return
+    const ownerId = user.id
+    const timer = setInterval(
+      () => {
+        void cleanupExpiredLocalReelPlayback(ownerId)
+      },
+      60 * 60 * 1000,
+    )
+    return () => clearInterval(timer)
+  }, [isAuthenticated, user?.id])
+
+  useLayoutEffect(() => {
+    const currentUserId = isAuthenticated ? (user?.id ?? null) : null
+    const previousUserId = previousAuthUserIdRef.current
+
+    if (previousUserId !== currentUserId) {
+      beginLocalReelPlaybackAuthBoundary(currentUserId)
+    }
+
+    if (previousUserId && previousUserId !== currentUserId) {
+      void revokeLocalReelPlaybackForOwner(previousUserId)
+    }
+
+    if (currentUserId) {
+      void cleanupExpiredLocalReelPlayback(currentUserId)
+    }
+
+    previousAuthUserIdRef.current = currentUserId
   }, [isAuthenticated, user?.id])
 
   useEffect(() => {

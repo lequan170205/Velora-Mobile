@@ -5,6 +5,8 @@ import {
   upsertReelVideoCacheRecord,
 } from '../database/reels/reelOfflineStore'
 
+import { isHlsReelUrl as isReelHlsUrl } from './reelProcessing'
+
 import type { ReelVideoCacheRecordModel } from '../database/models/ReelVideoCacheRecordModel'
 import type { ReelVideoCacheRecordInput } from '../database/reels/reelOfflineStore'
 import type { Reel } from '../types/reel.types'
@@ -85,7 +87,7 @@ interface TemporaryReelVideoCacheCleanupOptions {
 
 const TEMP_REEL_VIDEO_CACHE_DIR = `${FileSystem.cacheDirectory ?? ''}velora-temp-reel-video-cache/`
 
-export const isHlsReelUrl = (uri?: string | null) => Boolean(uri && /\.m3u8($|[?#])/i.test(uri))
+export const isHlsReelUrl = isReelHlsUrl
 
 const MAX_TEMP_VIDEO_CACHE_BYTES = 500 * 1024 * 1024
 const MAX_TEMP_VIDEO_CACHE_AGE_MS = 1000 * 60 * 60 * 24 * 7

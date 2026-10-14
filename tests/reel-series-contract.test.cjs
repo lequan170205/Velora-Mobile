@@ -379,7 +379,8 @@ test('publish flow uploads once before Series creation or attachment and keeps a
     publishFlow.indexOf('createReelAsync(payload)') < publishFlow.indexOf('addReelToSeriesAsync'),
   )
   assert.match(publishFlow, /effectiveVisibility = currentSeries\.visibility/)
-  assert.match(publishFlow, /deleteReelSeriesAsync\(createdSeriesId\)/)
+  assert.match(publishFlow, /if \(latestOperation\.createdSeriesId\)/)
+  assert.doesNotMatch(publishFlow, /deleteReelSeriesAsync|delete operationWithoutSeries\.createdSeriesId/)
   assert.match(publishFlow, /Alert\.alert\('Reel published'/)
   assert.match(publishStage, /ReelSeriesPickerSheet/)
   assert.match(publishStage, /Episodes in a series share the same audience/)

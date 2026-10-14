@@ -55,6 +55,10 @@ export type StoredAsset = Pick<
   'uri' | 'fileName' | 'mimeType' | 'duration' | 'width' | 'height'
 >
 
+export type ReelPublishSource = StoredAsset & {
+  localThumbnailUri?: string
+}
+
 export type DraftState = {
   stage: CreateStage
   asset: StoredAsset | null

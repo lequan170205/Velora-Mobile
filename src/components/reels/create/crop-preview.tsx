@@ -23,11 +23,17 @@ type CropPreviewProps = {
   videoRef?: React.Ref<ReelVideoHandle> | undefined
   scale: SharedValue<number>
   shouldPlay: boolean
+  externallyManagedPlayback?: boolean
+  resetOnPause?: boolean
+  seekRelativeToTrim?: boolean
   translateX: SharedValue<number>
   translateY: SharedValue<number>
   uri: string
   muted?: boolean
+  playbackRate?: number
   onProgress?: (progress: ReelVideoProgress) => void
+  onReady?: () => void
+  onError?: () => void
 }
 
 export function CropPreview({
@@ -39,11 +45,17 @@ export function CropPreview({
   videoRef,
   scale,
   shouldPlay,
+  externallyManagedPlayback,
+  resetOnPause,
+  seekRelativeToTrim,
   translateX,
   translateY,
   uri,
   muted = false,
+  playbackRate,
   onProgress,
+  onReady,
+  onError,
 }: CropPreviewProps) {
   const coverScale = getCoverScale(
     geometry.sourceWidth,
@@ -79,8 +91,14 @@ export function CropPreview({
           shouldPlay={shouldPlay}
           loop
           muted={muted}
+          {...(playbackRate !== undefined ? { playbackRate } : {})}
           contentFit="contain"
           playbackRange={playbackRange}
+          {...(externallyManagedPlayback !== undefined ? { externallyManagedPlayback } : {})}
+          {...(resetOnPause !== undefined ? { resetOnPause } : {})}
+          {...(seekRelativeToTrim !== undefined ? { seekRelativeToTrim } : {})}
+          {...(onReady ? { onReady } : {})}
+          {...(onError ? { onError } : {})}
           ref={videoRef}
           style={{ width: '100%', height: '100%', backgroundColor: colors.reel.ink }}
           {...(onProgress ? { onProgress } : {})}
@@ -120,9 +138,15 @@ export function CropPreview({
             shouldPlay={shouldPlay}
             loop
             muted={muted}
+            {...(playbackRate !== undefined ? { playbackRate } : {})}
             contentFit="cover"
             disableOrientationAwareContentFit
             playbackRange={playbackRange}
+            {...(externallyManagedPlayback !== undefined ? { externallyManagedPlayback } : {})}
+            {...(resetOnPause !== undefined ? { resetOnPause } : {})}
+            {...(seekRelativeToTrim !== undefined ? { seekRelativeToTrim } : {})}
+            {...(onReady ? { onReady } : {})}
+            {...(onError ? { onError } : {})}
             ref={videoRef}
             style={{ width: '100%', height: '100%', backgroundColor: colors.reel.ink }}
             {...(onProgress ? { onProgress } : {})}
@@ -139,22 +163,34 @@ export function CommittedCropPreview({
   crop,
   geometry,
   muted,
+  playbackRate,
   playbackRange,
   posterUri,
   shouldPlay,
   uri,
   videoRef,
   onProgress,
+  externallyManagedPlayback,
+  resetOnPause,
+  seekRelativeToTrim,
+  onReady,
+  onError,
 }: {
   crop: ReelCrop
   geometry: CropGeometry
   muted?: boolean
+  playbackRate?: number
   playbackRange?: ReelTrim | null | undefined
   posterUri?: string | null
   shouldPlay: boolean
   uri: string
   videoRef?: React.Ref<ReelVideoHandle> | undefined
   onProgress?: (progress: ReelVideoProgress) => void
+  externallyManagedPlayback?: boolean
+  resetOnPause?: boolean
+  seekRelativeToTrim?: boolean
+  onReady?: () => void
+  onError?: () => void
 }) {
   const transform = useMemo(() => getCropTransformFromRect(crop, geometry), [crop, geometry])
   const scale = useSharedValue(transform.scale)
@@ -178,11 +214,17 @@ export function CommittedCropPreview({
       videoRef={videoRef}
       scale={scale}
       shouldPlay={shouldPlay}
+      {...(externallyManagedPlayback !== undefined ? { externallyManagedPlayback } : {})}
+      {...(resetOnPause !== undefined ? { resetOnPause } : {})}
+      {...(seekRelativeToTrim !== undefined ? { seekRelativeToTrim } : {})}
       translateX={translateX}
       translateY={translateY}
       uri={uri}
       muted={muted ?? false}
+      {...(playbackRate !== undefined ? { playbackRate } : {})}
       {...(onProgress ? { onProgress } : {})}
+      {...(onReady ? { onReady } : {})}
+      {...(onError ? { onError } : {})}
     />
   )
 }

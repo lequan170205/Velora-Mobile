@@ -8,6 +8,7 @@ import type {
 } from '../types/reel-creator'
 
 export const REEL_CREATOR_DRAFT_KEY = 'velora.reels.create-draft'
+export const getReelCreatorDraftKey = (userId: string) => `${REEL_CREATOR_DRAFT_KEY}:${userId}`
 export const MAX_CAPTION_LENGTH = 2200
 export const MIN_TRIM_GAP_RATIO = 0.08
 export const DEFAULT_REEL_EDIT_STATE: ReelEditState = {
