@@ -1,6 +1,6 @@
 ---
 name: reel-offline-state
-description: Preserve Velora Mobile offline reel feed metadata, cached playback state, recommendation metadata, user-scoped event queues, pruning, and retry behavior.
+description: Preserve Velora Mobile offline Reel feeds, validated HLS caching, owner/device local previews, auth-scoped retention, event queues, and retries.
 ---
 
 # Reel Offline State
@@ -18,8 +18,19 @@ Use this skill for reel feed persistence, offline reel/video caches, cache pruni
 - HTTP 401 blocks flushing while preserving queued events for auth recovery. Invalid client 4xx batches may be dropped; transient/network/server failures use bounded backoff and retain events.
 - Preserve recommendation/session metadata such as `feedSessionId`, algorithm version, and generated time when it is present in a cached recommended feed page.
 
+## Playback source and owner lifecycle
+
+- Public readiness still requires completed server media and validated HLS. Do not broaden global `isReelPlayable()` to pending Reels. Reject original MP4 or device-local URLs as remote HLS, including old cached feed/status responses.
+- Local originals are a separate fallback bound to the canonical Reel, authenticated owner, uploading device and auth generation. Check the current Reel identity before using retained React state; a previous Reel/account record must not appear for one render while an async resolver catches up.
+- Prefer validated remote HLS when ready/online, preserve the existing offline-HLS policy, and retain an authorized local candidate if remote playback fails. Try each source candidate at most once per playback identity; player errors must not mutate backend media failure state.
+- Use `localReelPlayback.ts` for managed-file retention (currently 14 days), atomic staging and safe cleanup. Pin the actual local source used by the player, including error fallback. Neither a COMPLETED response nor remote first frame immediately deletes the local preview.
+- Establish the owner boundary in AuthProvider before child passive source effects; logout/account changes revoke old-owner associations and fence in-flight callbacks. Retain startup/hourly expiry and owner/device/file-existence checks.
+- Keep media/evidence/index statuses distinct in TanStack status polling. Completed media remains playable while indexing is pending/processing/failed; local availability does not falsely declare remote media ready.
+
 ## Verify changes
 
 Inspect `src/lib/reelOfflineCache.ts`, `src/database/reels/`, `src/services/reelEventQueue.ts`, reel video cache helpers, and the reel feed hooks together when changing persistence boundaries.
+
+For owner preview/HLS handoff, also inspect `src/lib/localReelPlayback.ts`, `src/lib/reelProcessing.ts`, `src/hooks/useOfflineReelVideoSource.ts`, `src/components/reels/ReelFeedItem.tsx` and `src/providers/AuthProvider.tsx`; run the publish-recovery and playback-prefetch contracts.
 
 Run the reel recommendation/offline-related contract tests affected by the change, plus type-check/lint when TypeScript implementation changes are part of the task.
