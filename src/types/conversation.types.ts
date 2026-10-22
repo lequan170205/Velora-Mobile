@@ -149,12 +149,35 @@ export interface GroupSystemActivity {
   nextValue?: string | null
 }
 
+export type CallLogOutcome = 'COMPLETED' | 'MISSED' | 'DECLINED' | 'FAILED'
+export type CallLogParticipantResult = 'ANSWERED' | 'MISSED' | 'DECLINED' | 'CANCELLED' | 'FAILED'
+
+export interface CallLogParticipant {
+  userId: string
+  role: 'CALLER' | 'CALLEE'
+  result: CallLogParticipantResult
+}
+
+/** A finished call, written by the server as a centred chat row. */
+export interface CallLog {
+  callId: string
+  callType: 'VOICE' | 'VIDEO'
+  isGroupCall: boolean
+  initiatorId: string
+  outcome: CallLogOutcome
+  terminalReason?: string
+  durationSec?: number
+  participants: CallLogParticipant[]
+}
+
 export interface MessageMetadata {
-  kind?: 'velora_ai_response' | 'velora_ai_reel_recommendations' | 'group_system_activity'
+  kind?:
+    'velora_ai_response' | 'velora_ai_reel_recommendations' | 'group_system_activity' | 'call_log'
   citations?: AiRagCitation[]
   recommendedReels?: ReelFeedListItem[]
   suggestedQueries?: string[]
   groupActivity?: GroupSystemActivity
+  callLog?: CallLog
 }
 
 export interface Message {

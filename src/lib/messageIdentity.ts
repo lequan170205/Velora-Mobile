@@ -237,13 +237,18 @@ export const mergeMessageMetadata = (
     incoming && Object.prototype.hasOwnProperty.call(incoming, 'groupActivity')
       ? incoming.groupActivity
       : existing?.groupActivity
+  const callLog =
+    incoming && Object.prototype.hasOwnProperty.call(incoming, 'callLog')
+      ? incoming.callLog
+      : existing?.callLog
 
   if (
     !kind &&
     citations === undefined &&
     recommendedReels === undefined &&
     suggestedQueries === undefined &&
-    groupActivity === undefined
+    groupActivity === undefined &&
+    callLog === undefined
   ) {
     return undefined
   }
@@ -254,6 +259,7 @@ export const mergeMessageMetadata = (
     ...(recommendedReels !== undefined ? { recommendedReels } : {}),
     ...(suggestedQueries !== undefined ? { suggestedQueries } : {}),
     ...(groupActivity !== undefined ? { groupActivity } : {}),
+    ...(callLog !== undefined ? { callLog } : {}),
   }
 }
 

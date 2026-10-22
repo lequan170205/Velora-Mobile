@@ -445,6 +445,13 @@ export default function ChatScreen() {
     [layoutById, primaryStatusByIdentityKey, readReceiptsByIdentityKey],
   )
 
+  const handleCallBack = useCallback(
+    (callType: 'VOICE' | 'VIDEO') => {
+      void startOutgoingCall(callType)
+    },
+    [startOutgoingCall],
+  )
+
   const renderItem = useCallback(
     ({ item }: ListRenderItemInfo<Message>) => {
       if (!item) return null
@@ -489,6 +496,8 @@ export default function ChatScreen() {
           onSendSuggestedQuery={handleSendSuggestedQuery}
           onOpenContextMenu={handleOpenContextMenu}
           onOpenMedia={handleOpenMedia}
+          currentUserId={user?.id ?? null}
+          onCallBack={handleCallBack}
         />
       )
     },
@@ -496,6 +505,7 @@ export default function ChatScreen() {
       activeContextMenuMessageId,
       conversationId,
       currentConversation,
+      handleCallBack,
       handleReply,
       handleSendSuggestedQuery,
       handleScrollToMessage,

@@ -346,11 +346,14 @@ export const useChatStore = create<ChatState>()(
 
       confirmMessage: (tempId, currentMessage) =>
         set((state) => {
-          // Server-authored group activities can share senderId with the user
-          // who triggered the action. They are never acknowledgements for a
-          // local optimistic message, even if SocketProvider's legacy fallback
-          // sees exactly one temp message in the conversation.
-          if (currentMessage.metadata?.kind === 'group_system_activity') {
+          // Server-authored group activities and call logs can share senderId
+          // with the user who triggered them. They are never acknowledgements
+          // for a local optimistic message, even if SocketProvider's legacy
+          // fallback sees exactly one temp message in the conversation.
+          if (
+            currentMessage.metadata?.kind === 'group_system_activity' ||
+            currentMessage.metadata?.kind === 'call_log'
+          ) {
             return state
           }
 

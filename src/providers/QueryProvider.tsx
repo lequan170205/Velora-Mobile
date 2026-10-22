@@ -32,6 +32,7 @@ export const clearAccountScopedQueryCaches = (client: QueryClient, viewerId: str
   client.removeQueries({ queryKey: ['users', 'discover'] })
   client.removeQueries({ queryKey: ['users', 'recommended'] })
   client.removeQueries({ queryKey: queryKeys.reels.all })
+  client.removeQueries({ queryKey: queryKeys.calls.all })
 }
 
 const syncQueryFocusWithAppState = (status: AppStateStatus) => {

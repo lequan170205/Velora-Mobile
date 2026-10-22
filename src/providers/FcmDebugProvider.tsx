@@ -56,6 +56,10 @@ const devWarn = (message: string, payload?: unknown) => {
   globalThis.console?.warn(message, payload)
 }
 
+// Visible pushes whose tap opens their conversation. A missed call opens the
+// chat, where the call row offers "Call back".
+const CONVERSATION_NOTIFICATION_TYPES = new Set(['NEW_MESSAGE', 'MISSED_CALL'])
+
 type NotificationConversationTarget = {
   conversationId: string
   dedupeKey: string | null
@@ -90,7 +94,7 @@ const getNotificationConversationTarget = (
 ): NotificationConversationTarget | null => {
   const data = remoteMessage?.data
 
-  if (getRemoteMessageDataString(data, 'type') !== 'NEW_MESSAGE') {
+  if (!CONVERSATION_NOTIFICATION_TYPES.has(getRemoteMessageDataString(data, 'type'))) {
     return null
   }
 
@@ -103,6 +107,7 @@ const getNotificationConversationTarget = (
   const dedupeKey =
     getRemoteMessageDataString(data, 'notificationJobId') ||
     getRemoteMessageDataString(data, 'messageId') ||
+    getRemoteMessageDataString(data, 'callId') ||
     remoteMessage?.messageId?.trim() ||
     null
 

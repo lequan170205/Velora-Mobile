@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons'
 import { BlurView } from 'expo-blur'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Platform, Pressable, StyleSheet, View } from 'react-native'
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useTheme } from 'react-native-paper'
 import Animated, {
   Easing,
@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs'
 
 import { colors } from '../../constants/theme'
+import { useMissedCallCount } from '../../hooks/useCallHistory'
 
 import { RoundedPlayTileIcon } from './RoundedPlayTileIcon'
 
@@ -24,10 +25,13 @@ import type { MD3Theme } from 'react-native-paper'
 
 const BAR_H = 60
 
-export const REELS_TAB_INDEX = 2
+// Must match the Tabs.Screen order in app/(tabs)/_layout.tsx.
+export const REELS_TAB_INDEX = 3
 const REELS_INDEX = REELS_TAB_INDEX
 export const MESSAGES_TAB_INDEX = 0
-export const PROFILE_TAB_INDEX = 4
+export const PROFILE_TAB_INDEX = 5
+const CALLS_TAB_NAME = 'calls'
+const MAX_BADGE_COUNT = 9
 
 const THEME_FADE = {
   duration: 180,
@@ -59,6 +63,13 @@ const TABS: TabMeta[] = [
     activeIcon: 'chatbubble-ellipses',
     label: 'Chats',
     size: 25,
+  },
+  {
+    name: CALLS_TAB_NAME,
+    icon: 'call-outline',
+    activeIcon: 'call',
+    label: 'Calls',
+    size: 23,
   },
   {
     name: 'search',
@@ -126,6 +137,7 @@ type TabItemProps = {
   active: boolean
   activeColor: string
   inactiveColor: string
+  badgeCount: number
   onSelect: (nextIndex: number) => void
 }
 
@@ -135,6 +147,7 @@ const TabItem = React.memo(function TabItem({
   active,
   activeColor,
   inactiveColor,
+  badgeCount,
   onSelect,
 }: TabItemProps) {
   const scale = useSharedValue(1)
@@ -162,7 +175,7 @@ const TabItem = React.memo(function TabItem({
 
   return (
     <Pressable
-      accessibilityLabel={tab.label}
+      accessibilityLabel={badgeCount > 0 ? `${tab.label}, ${badgeCount} new` : tab.label}
       accessibilityRole="tab"
       accessibilityState={{ selected: active }}
       onPressIn={() => onSelect(index)}
@@ -183,6 +196,13 @@ const TabItem = React.memo(function TabItem({
             size={tab.size}
           />
         )}
+        {badgeCount > 0 ? (
+          <View pointerEvents="none" style={styles.badge}>
+            <Text allowFontScaling={false} style={styles.badgeText}>
+              {badgeCount > MAX_BADGE_COUNT ? `${MAX_BADGE_COUNT}+` : badgeCount}
+            </Text>
+          </View>
+        ) : null}
       </Animated.View>
     </Pressable>
   )
@@ -205,6 +225,7 @@ export const CustomTabBarSurface = React.memo(function CustomTabBarSurface({
   const bottomInset = getTabBarBottomInset(insets.bottom)
 
   const tokens = useMemo(() => getCustomTabBarTokens(paperTheme), [paperTheme])
+  const missedCallCount = useMissedCallCount().data ?? 0
   const lightOverlay = tokens.light.overlay
   const darkOverlay = tokens.dark.overlay
 
@@ -276,6 +297,7 @@ export const CustomTabBarSurface = React.memo(function CustomTabBarSurface({
             activeColor={activeColor}
             inactiveColor={inactiveColor}
             index={index}
+            badgeCount={tab.name === CALLS_TAB_NAME ? missedCallCount : 0}
             onSelect={handleSelect}
             tab={tab}
           />
@@ -317,6 +339,24 @@ export default React.memo(CustomTabBar)
 // The bar overlays screen content so the frosted background can blur
 // whatever scrolls behind it; the navigator reserves no space for it.
 const styles = StyleSheet.create({
+  badge: {
+    alignItems: 'center',
+    backgroundColor: colors.status.error,
+    borderRadius: 9,
+    height: 18,
+    justifyContent: 'center',
+    minWidth: 18,
+    paddingHorizontal: 4,
+    position: 'absolute',
+    right: -10,
+    top: -6,
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+    lineHeight: 13,
+  },
   layer: {
     ...StyleSheet.absoluteFillObject,
   },

@@ -1,5 +1,7 @@
 import type {
   AiRagCitation,
+  CallLog,
+  CallLogParticipant,
   GroupSystemActivity,
   GroupSystemActivityType,
   MessageMetadata,
@@ -14,6 +16,15 @@ import type {
 const AI_RESPONSE_METADATA_KIND = 'velora_ai_response'
 const AI_RECOMMENDATION_METADATA_KIND = 'velora_ai_reel_recommendations'
 const GROUP_SYSTEM_ACTIVITY_METADATA_KIND = 'group_system_activity'
+const CALL_LOG_METADATA_KIND = 'call_log'
+const CALL_LOG_OUTCOMES = new Set(['COMPLETED', 'MISSED', 'DECLINED', 'FAILED'])
+const CALL_LOG_PARTICIPANT_RESULTS = new Set([
+  'ANSWERED',
+  'MISSED',
+  'DECLINED',
+  'CANCELLED',
+  'FAILED',
+])
 const AI_RAG_EVIDENCE_TYPES = new Set(['TRANSCRIPT', 'VISUAL', 'METADATA'])
 const REEL_STATUS_VALUES = new Set(['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'])
 const REEL_VISIBILITY_VALUES = new Set(['public', 'friends', 'private'])
@@ -111,6 +122,67 @@ const normalizeGroupSystemActivity = (value: unknown): GroupSystemActivity | nul
     ...(targetName ? { targetName } : {}),
     ...(previousValue !== undefined ? { previousValue } : {}),
     ...(nextValue !== undefined ? { nextValue } : {}),
+  }
+}
+
+const normalizeCallLogParticipant = (value: unknown): CallLogParticipant | null => {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const userId = getTrimmedString(value.userId ?? value.user_id)
+  const role = getTrimmedString(value.role)
+  const result = getTrimmedString(value.result)
+
+  if (
+    !userId ||
+    (role !== 'CALLER' && role !== 'CALLEE') ||
+    !result ||
+    !CALL_LOG_PARTICIPANT_RESULTS.has(result)
+  ) {
+    return null
+  }
+
+  return { userId, role, result: result as CallLogParticipant['result'] }
+}
+
+const normalizeCallLog = (value: unknown): CallLog | null => {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const callId = getTrimmedString(value.callId ?? value.call_id)
+  const callType = getTrimmedString(value.callType ?? value.call_type)
+  const initiatorId = getTrimmedString(value.initiatorId ?? value.initiator_id)
+  const outcome = getTrimmedString(value.outcome)
+
+  if (
+    !callId ||
+    (callType !== 'VOICE' && callType !== 'VIDEO') ||
+    !initiatorId ||
+    !outcome ||
+    !CALL_LOG_OUTCOMES.has(outcome)
+  ) {
+    return null
+  }
+
+  const terminalReason = getTrimmedString(value.terminalReason ?? value.terminal_reason)
+  const durationSec = getNonNegativeNumber(value.durationSec ?? value.duration_sec)
+  const participants = Array.isArray(value.participants)
+    ? value.participants
+        .map((participant) => normalizeCallLogParticipant(participant))
+        .filter((participant): participant is CallLogParticipant => Boolean(participant))
+    : []
+
+  return {
+    callId,
+    callType,
+    isGroupCall: value.isGroupCall === true || value.is_group_call === true,
+    initiatorId,
+    outcome: outcome as CallLog['outcome'],
+    ...(terminalReason ? { terminalReason } : {}),
+    ...(durationSec !== null ? { durationSec: Math.round(durationSec) } : {}),
+    participants,
   }
 }
 
@@ -304,6 +376,17 @@ export const normalizeMessageMetadata = (value: unknown): MessageMetadata | unde
     return {
       kind: GROUP_SYSTEM_ACTIVITY_METADATA_KIND,
       ...(groupActivity ? { groupActivity } : {}),
+    }
+  }
+
+  if (rawKind === CALL_LOG_METADATA_KIND) {
+    // Keep the kind even without a valid payload so the row stays a centred
+    // system row and never falls back to a normal bubble.
+    const callLog = normalizeCallLog(rawValue.callLog ?? rawValue.call_log)
+
+    return {
+      kind: CALL_LOG_METADATA_KIND,
+      ...(callLog ? { callLog } : {}),
     }
   }
 

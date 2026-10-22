@@ -20,6 +20,7 @@ import {
   markMessageRecalled,
   upsertRemoteMessage,
 } from '../database/messageSync'
+import { invalidateCallHistoryQueries } from '../hooks/useCallHistory'
 import {
   patchConversationAnchoredMessagesInCache,
   patchConversationMessageCollectionsInCache,
@@ -1385,6 +1386,12 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       const message = hydrateReplyContextFromLocalState(
         mergeMessageWithOptimisticReplyPreview(normalizeIncomingMessage(incomingMessage)),
       )
+      if (message.metadata?.kind === 'call_log') {
+        // A finished call: refresh the Calls tab and the missed-call badge. The
+        // socket joins every conversation room, so this also arrives for chats
+        // that are not open.
+        void invalidateCallHistoryQueries(queryClient)
+      }
       const currentUser = useAuthStore.getState().user
       const conversationId = message.conversationId
       const isOwnMessage = currentUser?.id === message.senderId

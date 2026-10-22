@@ -73,4 +73,10 @@ export const queryKeys = {
     usernameAvailability: (username: string) =>
       ['users', 'username-availability', username] as const,
   },
+  calls: {
+    all: ['calls'] as const,
+    viewer: (viewerId: string) => ['calls', viewerId] as const,
+    history: (viewerId: string) => ['calls', viewerId, 'history'] as const,
+    missedCount: (viewerId: string) => ['calls', viewerId, 'missed-count'] as const,
+  },
 }

@@ -16,6 +16,7 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: 'Inbox' }} />
+      <Tabs.Screen name="calls" options={{ title: 'Calls' }} />
       <Tabs.Screen name="search" options={{ title: 'Search' }} />
       <Tabs.Screen name="reels" options={{ title: 'Reels', freezeOnBlur: false }} />
       <Tabs.Screen name="friends" options={{ title: 'Friends' }} />

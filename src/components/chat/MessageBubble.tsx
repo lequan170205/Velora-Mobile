@@ -5,6 +5,7 @@ import type { BottomSheetModal } from '@gorhom/bottom-sheet'
 
 import { getMessageBubbleRecyclingKey } from '../../lib/messageBubbleRecycling'
 
+import { CallLogRow } from './CallLogRow'
 import {
   MessageBubble as MemoizedMessageBubble,
   type MessageBubbleContextMenuPayload,
@@ -14,7 +15,11 @@ import { ReactionDetailsSheet } from './ReactionDetailsSheet'
 export { VALID_EMOJIS } from './MessageBubbleImpl'
 export type { MessageBubbleContextMenuPayload }
 
-type MessageBubbleProps = React.ComponentProps<typeof MemoizedMessageBubble>
+type MessageBubbleProps = React.ComponentProps<typeof MemoizedMessageBubble> & {
+  /** Viewer id, used to word call rows from their side. */
+  currentUserId?: string | null
+  onCallBack?: (callType: 'VOICE' | 'VIDEO') => void
+}
 
 const MAX_VISIBLE_REACTION_EMOJIS = 3
 
@@ -116,7 +121,7 @@ const getReactionDisplayMessage = (message: MessageBubbleProps['message']) => {
   }
 }
 
-export function MessageBubble(props: MessageBubbleProps) {
+export function MessageBubble({ currentUserId, onCallBack, ...props }: MessageBubbleProps) {
   const { message, onOpenContextMenu, onReactionPress } = props
   const reactionDetailsSheetRef = useRef<BottomSheetModal>(null)
   const [isReactionDetailsOpen, setIsReactionDetailsOpen] = useState(false)
@@ -151,6 +156,17 @@ export function MessageBubble(props: MessageBubbleProps) {
   const handleReactionDetailsDismiss = useCallback(() => {
     setIsReactionDetailsOpen(false)
   }, [])
+
+  if (message.metadata?.kind === 'call_log') {
+    return (
+      <CallLogRow
+        message={message}
+        currentUserId={currentUserId ?? null}
+        {...(props.timeLabel ? { timeLabel: props.timeLabel } : {})}
+        {...(onCallBack ? { onCallBack } : {})}
+      />
+    )
+  }
 
   if (message.metadata?.kind === 'group_system_activity') {
     return (

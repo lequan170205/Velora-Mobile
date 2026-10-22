@@ -30,6 +30,8 @@ type ConversationMessageRowProps = {
   onSendSuggestedQuery: (query: string) => void
   onOpenContextMenu: (payload: MessageBubbleContextMenuPayload) => void
   onOpenMedia: (payload: ChatMediaViewerOpenPayload) => void
+  currentUserId: string | null
+  onCallBack?: (callType: 'VOICE' | 'VIDEO') => void
 }
 
 export const ConversationMessageRow = memo(
@@ -52,6 +54,8 @@ export const ConversationMessageRow = memo(
     onSendSuggestedQuery,
     onOpenContextMenu,
     onOpenMedia,
+    currentUserId,
+    onCallBack,
   }: ConversationMessageRowProps) {
     const highlightToken = useMessageListUiStore(
       useCallback(
@@ -100,6 +104,8 @@ export const ConversationMessageRow = memo(
           onOpenContextMenu={onOpenContextMenu}
           onOpenMedia={onOpenMedia}
           conversationId={conversationId}
+          currentUserId={currentUserId}
+          {...(onCallBack ? { onCallBack } : {})}
         />
       </View>
     )
@@ -122,5 +128,7 @@ export const ConversationMessageRow = memo(
     prevProps.onReply === nextProps.onReply &&
     prevProps.onSendSuggestedQuery === nextProps.onSendSuggestedQuery &&
     prevProps.onOpenContextMenu === nextProps.onOpenContextMenu &&
-    prevProps.onOpenMedia === nextProps.onOpenMedia,
+    prevProps.onOpenMedia === nextProps.onOpenMedia &&
+    prevProps.currentUserId === nextProps.currentUserId &&
+    prevProps.onCallBack === nextProps.onCallBack,
 )
