@@ -138,6 +138,22 @@ export default function ActiveCallScreen() {
     () => (isGroupCall ? [...new Set(groupParticipantIds)] : []),
     [groupParticipantIds, isGroupCall],
   )
+  // Members seen in this call on this device. One who is no longer in it has
+  // left; without this, someone who started or joined without an invitation
+  // would read "Not invited".
+  const [seenInCall, setSeenInCall] = useState<{ callId: string | null; userIds: string[] }>({
+    callId: null,
+    userIds: [],
+  })
+  useEffect(() => {
+    setSeenInCall((previous) => {
+      const known = previous.callId === callId ? previous.userIds : []
+      const added = groupPeopleIds.filter((userId) => !known.includes(userId))
+      return previous.callId === callId && added.length === 0
+        ? previous
+        : { callId, userIds: [...known, ...added] }
+    })
+  }, [callId, groupPeopleIds])
   const chromeProgress = useSharedValue(1)
   const isLandscape = width > height
   const systemTopInset =
@@ -580,9 +596,12 @@ export default function ActiveCallScreen() {
                     Date.parse(invite.sentAt) + 10_000 > nowMs),
                 )
                 const disabled = phase !== 'active' || sending || coolingDown
+                const uninvitedLabel = seenInCall.userIds.includes(member.userId)
+                  ? statusLabels.left
+                  : 'Not invited'
                 const status =
                   inviteFeedback[member.userId] === 'Sending…' || !invite
-                    ? inviteFeedback[member.userId] || 'Not invited'
+                    ? inviteFeedback[member.userId] || uninvitedLabel
                     : statusLabels[invite.status]
                 return (
                   <View key={member.userId} className="flex-row items-center py-3">
