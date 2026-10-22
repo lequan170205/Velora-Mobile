@@ -117,6 +117,8 @@ export default function ChatScreen() {
   const canRejoin = Boolean(serverCall?.joined && localWinnerQuery.data && callPhase === 'idle')
   const isLocalCall =
     serverCall?.callId === currentCallId && (callPhase === 'active' || callPhase === 'reconnecting')
+  // This device's own invitation to the call is still ringing: Join answers it.
+  const isRingingHere = serverCall?.callId === currentCallId && callPhase === 'incoming_ringing'
   const bannerAction: 'join' | 'rejoin' | 'return' | 'wait' = serverCall?.joined
     ? isLocalCall
       ? 'return'
@@ -131,7 +133,10 @@ export default function ChatScreen() {
           serverCall.elapsedSeconds +
           Math.max(0, Math.floor((bannerNowMs - activeGroupCallQuery.dataUpdatedAt) / 1000)),
         action: bannerAction,
-        canOpen: isLocalCall || canRejoin || (!serverCall.joined && callPhase === 'idle'),
+        canOpen:
+          isLocalCall ||
+          canRejoin ||
+          (!serverCall.joined && (callPhase === 'idle' || isRingingHere)),
       }
     : null
   const isBannerVisible = Boolean(activeGroupCall)
@@ -154,7 +159,9 @@ export default function ChatScreen() {
         return
       }
       if (!active.joined) {
-        if (useCallStore.getState().phase !== 'idle') return
+        const local = useCallStore.getState()
+        const ringingHere = local.phase === 'incoming_ringing' && local.callId === active.callId
+        if (local.phase !== 'idle' && !ringingHere) return
         await joinGroupCall({ callId: active.callId, conversationId, groupName: displayName })
         return
       }

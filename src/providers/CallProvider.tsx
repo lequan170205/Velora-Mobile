@@ -2709,8 +2709,23 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     [startCall],
   )
   const joinGroupCall = useCallback(
-    (input: { callId: string; conversationId: string; groupName: string }) =>
-      startCall(
+    async (input: { callId: string; conversationId: string; groupName: string }) => {
+      const ringing = useCallStore.getState()
+      if (
+        ringing.phase === 'incoming_ringing' &&
+        ringing.isGroupCall &&
+        ringing.callId === input.callId
+      ) {
+        // Joining from the chat while this invitation still rings: stop the
+        // local ringing without declining; the late join supersedes the
+        // invitation on the server and stops it on the user's other devices.
+        void veloraSystemCalls.dismissIncomingCall(
+          input.callId,
+          ringing.groupInvitationId ?? input.callId,
+        )
+        await teardownOnce('group_invitation_joined_from_chat')
+      }
+      await startCall(
         {
           conversationId: input.conversationId,
           peerName: input.groupName,
@@ -2718,8 +2733,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           joinCallId: input.callId,
         },
         'VOICE',
-      ),
-    [startCall],
+      )
+    },
+    [startCall, teardownOnce],
   )
   const startVideoCall = useCallback(
     (input: StartCallInput) => startCall(input, 'VIDEO'),
