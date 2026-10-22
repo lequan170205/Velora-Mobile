@@ -67,3 +67,18 @@ test('joining a ringing invitation stops local ringing without declining it', ()
     'the local teardown is recorded as an ended ringing, not a decline or failure',
   )
 })
+
+test('a failed open of the active group call logs which step failed', () => {
+  const openHandler = sliceBetween(
+    chatScreen,
+    'const handleOpenActiveGroupCall = useCallback(async () => {',
+    'finally {',
+  )
+  for (const step of ['load_active_call', 'join', 'load_call_state', 'rejoin']) {
+    assert.match(openHandler, new RegExp(`step = '${step}'|let step = '${step}'`))
+  }
+  assert.match(
+    openHandler,
+    /'\[Call\] open_active_group_call_failed',\s*JSON\.stringify\(\{ step, errorCode: safeCallErrorCode\(error\) \}\)/,
+  )
+})

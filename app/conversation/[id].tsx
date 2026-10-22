@@ -34,6 +34,7 @@ import { useConversationPresence } from '../../src/hooks/conversation/useConvers
 import { useConversationReceiptModel } from '../../src/hooks/conversation/useConversationReceiptModel'
 import { useConversationSessionRuntime } from '../../src/hooks/conversation/useConversationSessionRuntime'
 import { useConversationTimelineController } from '../../src/hooks/conversation/useConversationTimelineController'
+import { safeCallErrorCode } from '../../src/lib/call/callDebug'
 import { groupWinnerAction } from '../../src/lib/call/groupWinnerAction'
 import {
   backfillReplyPreviewFromResolvedTarget,
@@ -151,6 +152,8 @@ export default function ChatScreen() {
     if (!serverCall || openingCallRef.current) return
     openingCallRef.current = true
     setOpeningActiveCall(true)
+    // Which step failed tells a lost request from a join error.
+    let step = 'load_active_call'
     try {
       const active = await getActiveGroupCall(conversationId)
       if (!active || active.callId !== serverCall.callId) {
@@ -162,9 +165,11 @@ export default function ChatScreen() {
         const local = useCallStore.getState()
         const ringingHere = local.phase === 'incoming_ringing' && local.callId === active.callId
         if (local.phase !== 'idle' && !ringingHere) return
+        step = 'join'
         await joinGroupCall({ callId: active.callId, conversationId, groupName: displayName })
         return
       }
+      step = 'load_call_state'
       const latest = await getCallState(active.callId)
       const local = useCallStore.getState()
       if (
@@ -183,12 +188,17 @@ export default function ChatScreen() {
         user?.id &&
         (await groupWinnerAction.load(user.id, active.callId))
       ) {
+        step = 'rejoin'
         await joinGroupCall({ callId: active.callId, conversationId, groupName: displayName })
       } else {
         await activeGroupCallQuery.refetch()
         Alert.alert('Call unavailable', 'This group call has ended or is no longer on this device.')
       }
-    } catch {
+    } catch (error) {
+      console.warn(
+        '[Call] open_active_group_call_failed',
+        JSON.stringify({ step, errorCode: safeCallErrorCode(error) }),
+      )
       Alert.alert('Call unavailable', 'Could not verify the group call. Please try again.')
     } finally {
       openingCallRef.current = false
