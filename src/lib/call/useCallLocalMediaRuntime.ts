@@ -719,7 +719,10 @@ export const useCallLocalMediaRuntime = ({
         }
         return false
       }
-      const actionId = state.direction === 'incoming' ? getGroupAnswerActionId(callId) : undefined
+      // Every guest proves its join with the action that joined: an answered
+      // invitation or a late join from the chat banner (direction 'outgoing').
+      // Only the host has none.
+      const actionId = getGroupAnswerActionId(callId)
       if (state.direction === 'incoming' && !actionId) {
         groupMicDesiredRef.current.enabled = false
         useCallStore.getState().patch({ muted: true, groupMicSyncError: true })

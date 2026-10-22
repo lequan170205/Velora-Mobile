@@ -105,6 +105,7 @@ const createRuntime = ({
   cameraAckResponder = null,
   groupMicResponder = null,
   deferredProducerClosure = null,
+  groupAnswerActionId = 'winning-action',
 } = {}) => {
   const state = {
     phase: 'active',
@@ -246,7 +247,7 @@ const createRuntime = ({
     remoteStreamRef: { current: null },
     videoProducerRef,
     audioProducerRef: { current: null },
-    getGroupAnswerActionId: () => 'winning-action',
+    getGroupAnswerActionId: () => groupAnswerActionId ?? undefined,
     localVideoStateRef: {
       current: {
         desiredEnabled: false,
@@ -344,6 +345,52 @@ test('rapid group mic taps converge to the last requested state', async () => {
   )
   assert.equal(track.enabled, true)
   assert.equal(harness.state.muted, false)
+})
+
+test('a late joiner proves its join when changing the group mic', async () => {
+  // Joining from the chat banner sets direction 'outgoing', but the member is
+  // still a guest whose mic changes the server checks against its join action.
+  const harness = createRuntime({ groupAnswerActionId: 'late-join-proof' })
+  harness.state.isGroupCall = true
+  harness.state.direction = 'outgoing'
+  const track = new FakeTrack('audio')
+  const stream = new FakeMediaStream()
+  stream.addTrack(track)
+  harness.refs.localStreamRef.current = stream
+  harness.refs.audioProducerRef.current = { id: 'audio-local' }
+
+  harness.runtime.toggleMute()
+  harness.runtime.toggleMute()
+  await Promise.resolve()
+  await Promise.resolve()
+
+  assert.deepEqual(
+    harness.groupMicCommands.map(({ enabled, actionId }) => ({ enabled, actionId })),
+    [
+      { enabled: false, actionId: 'late-join-proof' },
+      { enabled: true, actionId: 'late-join-proof' },
+    ],
+  )
+  assert.equal(track.enabled, true)
+  assert.equal(harness.state.muted, false)
+  assert.notEqual(harness.state.groupMicSyncError, true)
+})
+
+test('the group host changes its mic without a join action', async () => {
+  const harness = createRuntime({ groupAnswerActionId: null })
+  harness.state.isGroupCall = true
+  harness.state.direction = 'outgoing'
+  const track = new FakeTrack('audio')
+  const stream = new FakeMediaStream()
+  stream.addTrack(track)
+  harness.refs.localStreamRef.current = stream
+  harness.refs.audioProducerRef.current = { id: 'audio-local' }
+
+  assert.equal(await harness.runtime.synchronizeLocalGroupMicState(false), true)
+
+  assert.equal(harness.groupMicCommands.length, 1)
+  assert.equal('actionId' in harness.groupMicCommands[0], false)
+  assert.equal(harness.state.muted, true)
 })
 
 test('automatic and user video activation share one capture and one producer', async () => {
