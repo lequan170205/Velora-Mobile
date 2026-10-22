@@ -780,7 +780,6 @@ export function useSendMessage(conversationId: string) {
           content,
           media,
           type,
-          signalType: 0,
           ...(resolvedReplyToId ? { replyToId: resolvedReplyToId } : {}),
         })
       }
@@ -810,14 +809,12 @@ export function useSendMessage(conversationId: string) {
         conversationId: string
         content: string
         type: string
-        signalType: number
         clientMessageId: string
         replyToId?: string
       } = {
         conversationId,
         content,
         type,
-        signalType: 0,
         clientMessageId: resolvedClientMessageId,
       }
 

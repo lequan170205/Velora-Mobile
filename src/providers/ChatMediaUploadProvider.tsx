@@ -691,7 +691,6 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
         content: job.content,
         media: preparedMedia,
         type: job.type,
-        signalType: 0,
         ...(job.replyToId ? { replyToId: job.replyToId } : {}),
       })
       const mergedReplyPreview = mergeReplyPreview(savedMessage.replyPreview, job.replyPreview)

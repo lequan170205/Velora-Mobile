@@ -272,7 +272,6 @@ const buildOfflineMessagePayload = (message: QueuedOfflineMessage) => ({
   conversationId: message.conversationId,
   content: message.content,
   type: 'text',
-  signalType: 0,
   clientMessageId: message.id,
   ...(message.replyToId ? { replyToId: message.replyToId } : {}),
 })

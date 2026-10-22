@@ -189,7 +189,6 @@ export const conversationApi = {
       content: string
       media?: Message['media']
       type: Message['type']
-      signalType?: number
       replyToId?: string
     },
   ) => {
