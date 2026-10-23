@@ -121,6 +121,33 @@ export default function ActiveCallScreen() {
     inviteInFlightRef.current.clear()
     setInviteFeedback({})
   }, [callId])
+  // Feedback describes the last invite request. While that invitation rings it
+  // still applies; once it moves on (declined, missed, left), the status line
+  // says so and an old "Invite sent" beside it would contradict it.
+  const inviteStatusKeysRef = useRef<Record<string, string>>({})
+  useEffect(() => {
+    const previous = inviteStatusKeysRef.current
+    const next: Record<string, string> = {}
+    const changed: string[] = []
+    for (const [userId, invite] of Object.entries(groupInvitations)) {
+      next[userId] = `${invite.invitationId}:${invite.status}`
+      if (
+        previous[userId] !== undefined &&
+        previous[userId] !== next[userId] &&
+        invite.status !== 'ringing'
+      )
+        changed.push(userId)
+    }
+    inviteStatusKeysRef.current = next
+    if (changed.length === 0) return
+    setInviteFeedback((current) => {
+      const updated = { ...current }
+      for (const userId of changed) {
+        if (updated[userId] !== 'Sending…') delete updated[userId]
+      }
+      return updated
+    })
+  }, [groupInvitations])
   const [controlsVisible, setControlsVisible] = useState(false)
   const participantsSheetRef = useRef<BottomSheet>(null)
   const controlsSheetRef = useRef<BottomSheet>(null)
@@ -194,6 +221,18 @@ export default function ActiveCallScreen() {
     ),
     [],
   )
+  // BottomSheetBackdrop starts touchable and relies on an animated reaction to
+  // become touch-through. On Android that never landed for a closed sheet, so
+  // its invisible full-screen backdrop swallowed every tap on the call screen.
+  // Mount each backdrop only while its own sheet is open.
+  const renderParticipantsBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (participantsVisible ? renderSheetBackdrop(props) : null),
+    [participantsVisible, renderSheetBackdrop],
+  )
+  const renderControlsBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (controlsVisible ? renderSheetBackdrop(props) : null),
+    [controlsVisible, renderSheetBackdrop],
+  )
 
   const handleControlsSheetDismiss = useCallback(() => {
     setControlsVisible(false)
@@ -254,12 +293,15 @@ export default function ActiveCallScreen() {
 
   useKeepAwake()
 
+  // The reconnect countdown and the invite cooldowns in the people sheet both
+  // read this clock; a stale one kept "Invite again" disabled for good.
   useEffect(() => {
-    if (phase !== 'reconnecting' || !reconnectDeadlineMs) return
+    const isReconnecting = phase === 'reconnecting' && Boolean(reconnectDeadlineMs)
+    if (!isReconnecting && !participantsVisible) return
     setNowMs(Date.now())
     const intervalId = setInterval(() => setNowMs(Date.now()), 1000)
     return () => clearInterval(intervalId)
-  }, [phase, reconnectDeadlineMs])
+  }, [participantsVisible, phase, reconnectDeadlineMs])
 
   const isValidPhase = useMemo(
     () =>
@@ -480,7 +522,7 @@ export default function ActiveCallScreen() {
       enableDynamicSizing={false}
       enablePanDownToClose
       animateOnMount={false}
-      backdropComponent={renderSheetBackdrop}
+      backdropComponent={renderParticipantsBackdrop}
       containerStyle={{ zIndex: 100 }}
       backgroundStyle={{ backgroundColor: colors.call.surface }}
       handleIndicatorStyle={{ backgroundColor: colors.call.sheetHandle, width: 40 }}
@@ -662,7 +704,7 @@ export default function ActiveCallScreen() {
       enableDynamicSizing
       enablePanDownToClose
       animateOnMount={false}
-      backdropComponent={renderSheetBackdrop}
+      backdropComponent={renderControlsBackdrop}
       containerStyle={{ zIndex: 100 }}
       backgroundStyle={{ backgroundColor: colors.call.surface }}
       handleIndicatorStyle={{ backgroundColor: colors.call.sheetHandle, width: 40 }}
