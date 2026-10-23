@@ -275,9 +275,12 @@ object VeloraCallNotifications {
             .digest(actionId.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it.toInt() and 0xff) })
     val currentCall = VeloraSystemCallStore.getCurrentCall(context)
+    // JS may clear the `resume` an accepted answer leaves behind before it marks
+    // the call active; that accepted answer is still this device winning.
     val isUnansweredIncomingOnAnotherDevice =
       localWinningAnswerActionId == null && currentCall?.callId == callId &&
-        currentCall.phase == "ringing" && currentCall.expiresAtMs != null
+        currentCall.phase == "ringing" && currentCall.expiresAtMs != null &&
+        !matchesWinner(VeloraSystemCallStore.acceptedAnswerActionId(context, callId))
     val isExplicitlyAnsweredElsewhere =
       status == "active" &&
         hasWinnerProof &&

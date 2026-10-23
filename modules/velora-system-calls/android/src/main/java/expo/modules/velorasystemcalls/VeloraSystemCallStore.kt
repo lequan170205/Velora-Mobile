@@ -312,6 +312,19 @@ object VeloraSystemCallStore {
   }
 
   /**
+   * The native answer this device completed as accepted for a call. It stays
+   * in the completed journal after JS clears the follow-up `resume`, so it
+   * still proves this device won before JS marks the call active.
+   */
+  @Synchronized
+  fun acceptedAnswerActionId(context: Context, callId: String): String? {
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    return completedPendingActions(prefs).lastOrNull {
+      it["callId"] == callId && it["action"] == "answer" && it["outcome"] == "accepted"
+    }?.get("actionId") as? String
+  }
+
+  /**
    * Returns the still-pending native answer record for a call. This lets the
    * platform watchdog preserve the original action deadline across duplicate
    * notification taps instead of extending it each time.

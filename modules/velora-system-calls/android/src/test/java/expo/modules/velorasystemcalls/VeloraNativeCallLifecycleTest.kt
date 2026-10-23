@@ -466,6 +466,50 @@ class VeloraNativeCallLifecycleTest {
   }
 
   @Test
+  fun `active update keeps an accepted answer whose resume JS already cleared`() {
+    val callId = "call-accepted-resume-cleared"
+    assertTrue(VeloraSystemCallStore.beginRingingCall(context, callId, System.currentTimeMillis() + 60_000L))
+    VeloraSystemCallStore.storePendingAction(context, "answer", mapOf("callId" to callId))
+    val answerActionId = VeloraSystemCallStore.pendingAnswerAction(context, callId)
+      ?.get("actionId") as? String
+    assertNotNull(answerActionId)
+    assertTrue(VeloraSystemCallStore.completePendingAnswer(context, answerActionId!!, true, null))
+    // The app-resume replay clears the redundant resume while media setup is
+    // still running, before JS marks the native call active.
+    val resumeActionId = VeloraSystemCallStore.getPendingAction(context)?.get("actionId") as? String
+    assertNotNull(resumeActionId)
+    VeloraSystemCallStore.clearPendingAction(context, resumeActionId)
+
+    VeloraCallNotifications.handleCallStateUpdate(
+      context,
+      callStateUpdate(callId, "active", answerActionHash = answerHash(answerActionId)),
+    )
+
+    assertTrue(VeloraSystemCallStore.isActiveCall(context, callId))
+    assertNull(VeloraSystemCallStore.getPendingAction(context))
+
+    val otherCallId = "call-accepted-resume-cleared-other-winner"
+    VeloraCallNotifications.endCall(context, callId)
+    assertTrue(VeloraSystemCallStore.beginRingingCall(context, otherCallId, System.currentTimeMillis() + 60_000L))
+    VeloraSystemCallStore.storePendingAction(context, "answer", mapOf("callId" to otherCallId))
+    val otherAnswerActionId = VeloraSystemCallStore.pendingAnswerAction(context, otherCallId)
+      ?.get("actionId") as? String
+    assertTrue(VeloraSystemCallStore.completePendingAnswer(context, otherAnswerActionId!!, true, null))
+    VeloraSystemCallStore.clearPendingAction(
+      context,
+      VeloraSystemCallStore.getPendingAction(context)?.get("actionId") as? String,
+    )
+
+    VeloraCallNotifications.handleCallStateUpdate(
+      context,
+      callStateUpdate(otherCallId, "active", answerActionHash = answerHash("other-device")),
+    )
+
+    assertNull(VeloraSystemCallStore.getCurrentCall(context))
+    assertEquals("answered_elsewhere", VeloraSystemCallStore.getPendingAction(context)?.get("reason"))
+  }
+
+  @Test
   fun `active update ends an unanswered incoming call on the other device`() {
     val callId = "call-passive-device"
     assertTrue(VeloraSystemCallStore.beginRingingCall(context, callId, System.currentTimeMillis() + 60_000L))
