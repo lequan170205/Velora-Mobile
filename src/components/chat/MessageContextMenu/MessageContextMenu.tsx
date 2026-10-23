@@ -103,7 +103,6 @@ interface MessageContextMenuProps {
   anchor: BubbleAnchor | null
   onClose: () => void
   onReply?: (() => void) | undefined
-  onForward?: (() => void) | undefined
   onRecall?: (() => void) | undefined
   onSave?: (() => void) | undefined
   conversationId?: string | undefined
@@ -282,7 +281,6 @@ function MessageContextMenuInner({
   anchor,
   onClose,
   onReply,
-  onForward,
   onRecall,
   onSave,
   conversationId,
@@ -376,11 +374,6 @@ function MessageContextMenuInner({
     close()
   }
 
-  const handleForward = () => {
-    onForward?.()
-    close()
-  }
-
   const handleRecall = () => {
     onRecall?.()
     close()
@@ -411,7 +404,6 @@ function MessageContextMenuInner({
 
   const actionHandlers: Record<ActionItem['id'], () => void> = {
     copy: handleCopy,
-    forward: handleForward,
     recall: handleRecall,
     reply: handleReply,
     save: handleSave,
@@ -420,7 +412,6 @@ function MessageContextMenuInner({
   const filteredActions: ActionItem[] = getAvailableMessageActions({
     isOwn,
     message,
-    onForward,
     onRecall,
     onReply,
     onSave,

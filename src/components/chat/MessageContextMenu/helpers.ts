@@ -14,7 +14,6 @@ type ReactionEntry = Pick<Reaction, 'emoji' | 'userId'>
 interface AvailableActionsParams {
   isOwn: boolean
   message: Message
-  onForward?: (() => void) | undefined
   onRecall?: (() => void) | undefined
   onReply?: (() => void) | undefined
   onSave?: (() => void) | undefined
@@ -64,7 +63,6 @@ export function getCurrentUserReaction(message: Message, userId?: string) {
 export function getAvailableMessageActions({
   isOwn,
   message,
-  onForward,
   onRecall,
   onReply,
   onSave,
@@ -84,7 +82,6 @@ export function getAvailableMessageActions({
     if (action.id === 'reply') return !isRecalled && Boolean(onReply)
     if (action.id === 'copy') return message.type === 'text' && !isRecalled
     if (action.id === 'save') return canSaveMedia && !isRecalled && Boolean(onSave)
-    if (action.id === 'forward') return !isRecalled && Boolean(onForward)
     if (action.id === 'recall') {
       return Boolean(onRecall) && isOwn && !isRecalled && !isExpired && !isRestrictedType
     }

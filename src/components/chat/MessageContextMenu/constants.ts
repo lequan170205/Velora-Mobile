@@ -4,7 +4,7 @@ import { colors } from '../../../constants/theme'
 
 import type { MD3Theme } from 'react-native-paper'
 
-export type MessageContextActionId = 'reply' | 'copy' | 'save' | 'forward' | 'recall'
+export type MessageContextActionId = 'reply' | 'copy' | 'save' | 'recall'
 
 export interface MessageContextActionConfig {
   id: MessageContextActionId
@@ -55,12 +55,6 @@ export const MESSAGE_CONTEXT_ACTIONS: readonly MessageContextActionConfig[] = [
     id: 'save',
     icon: 'file-download',
     label: 'Save to device',
-    destructive: false,
-  },
-  {
-    id: 'forward',
-    icon: 'forward',
-    label: 'Forward',
     destructive: false,
   },
   {
