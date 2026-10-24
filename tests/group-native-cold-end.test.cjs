@@ -113,20 +113,25 @@ const coldEndHarness = (
   callStateOverride = {},
   uiState = { phase: 'idle', callId: null },
   journal = [],
+  acceptingCallId = null,
 ) => {
   const events = []
+  const recovery = []
   const pending = { action, actionId: 'end-1', callId: 'call-1', accountId: 'guest-a' }
   const socket = { connected: true, emit: (name, payload) => events.push([name, payload]) }
   const { useNativeCallActions } = load('src/lib/call/useNativeCallActions.ts', {
     react: { useCallback: (fn) => fn },
     '../../api/call.api': {
-      getCallState: async () => ({
-        callId: 'call-1',
-        status: 'active',
-        isGroupCall: true,
-        initiatorId: 'host-a',
-        ...callStateOverride,
-      }),
+      getCallState: async () => {
+        recovery.push('getCallState')
+        return {
+          callId: 'call-1',
+          status: 'active',
+          isGroupCall: true,
+          initiatorId: 'host-a',
+          ...callStateOverride,
+        }
+      },
     },
     '../../stores/authStore': {
       useAuthStore: { getState: () => ({ user: { id: 'guest-a' }, isAuthenticated: true }) },
@@ -169,22 +174,67 @@ const coldEndHarness = (
     currentUserId: 'guest-a',
     processingNativeActionIdsRef: { current: new Set() },
     completedNativeActionIdsRef: { current: completed },
-    acceptingIncomingCallIdRef: { current: null },
+    acceptingIncomingCallIdRef: { current: acceptingCallId },
     outgoingStartInFlightRef: { current: false },
     nativeActionRetryTimeoutRef: { current: null },
     clearNativeActionRetryTimeout: () => {},
     isCurrentCall: () => false,
     teardownOnce: async () => events.push(['teardown']),
-    prepareIncomingCallFromState: () => true,
+    prepareIncomingCallFromState: () => {
+      recovery.push('prepare')
+      return true
+    },
     prepareIncomingCallFromPayload: () => true,
-    resumeAcceptedCall: async () => false,
+    resumeAcceptedCall: async () => {
+      recovery.push('resume')
+      return false
+    },
     acceptIncomingCall: async () => events.push(['accept']),
     endCall: async () => {},
     ensureCallSocketConnected: async () => socket,
     rejectIncomingCall: async () => {},
   })
-  return { events, pending, completed, processNativeCallAction, processPendingNativeCallAction }
+  return {
+    events,
+    recovery,
+    pending,
+    completed,
+    processNativeCallAction,
+    processPendingNativeCallAction,
+  }
 }
+
+test('a resume that arrives while the same answer is still in flight waits for it', async () => {
+  // The server's active push turns the pending answer into a resume before
+  // JS gets the answer's ACK. The call is still ringing locally.
+  const journal = [{ action: 'resume', actionId: 'resume-1', callId: 'call-1' }]
+  const harness = coldEndHarness(
+    'winner',
+    'resume',
+    false,
+    false,
+    {},
+    { phase: 'incoming_ringing', callId: 'call-1' },
+    journal,
+    'call-1',
+  )
+  await harness.processPendingNativeCallAction('auth_ready')
+
+  // No second setup: nothing re-prepares the ringing call or rejoins it.
+  assert.deepEqual(harness.recovery, [])
+  // The resume stays journaled for the answer to complete or a later replay.
+  assert.deepEqual(journal, [{ action: 'resume', actionId: 'resume-1', callId: 'call-1' }])
+  assert.equal(harness.completed.has('resume-1'), false)
+  assert.deepEqual(harness.events, [])
+})
+
+test('a resume with no answer in flight still recovers the accepted call', async () => {
+  const journal = [{ action: 'resume', actionId: 'resume-1', callId: 'call-1' }]
+  const harness = coldEndHarness('winner', 'resume', false, false, {}, undefined, journal)
+  await harness.processPendingNativeCallAction('auth_ready')
+
+  assert.deepEqual(harness.recovery, ['getCallState', 'prepare', 'resume'])
+})
 
 test('cold replay drains old terminal entries before answering a repeat invitation', async () => {
   const journal = [

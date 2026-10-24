@@ -235,6 +235,22 @@ export const useNativeCallActions = ({
             return
           }
 
+          // The server's active-state push can turn the pending native answer
+          // into this resume while JS still waits for the same answer's ACK.
+          // Recovering now would reset the call to ringing and start a second
+          // setup. Leave the resume journaled: a successful answer completes it
+          // natively, and a failed one leaves it for the next replay.
+          if (acceptingIncomingCallIdRef.current === action.callId) {
+            debugCall(
+              '[Call] resume_deferred_answer_in_progress',
+              JSON.stringify({
+                callId: shortCallId(action.callId),
+                actionId: shortCallId(action.actionId),
+              }),
+            )
+            return
+          }
+
           if (hasConflictingCall()) {
             veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
             completeNativeCallAction(action.actionId)
