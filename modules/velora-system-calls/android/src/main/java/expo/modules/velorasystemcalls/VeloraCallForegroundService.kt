@@ -1,7 +1,9 @@
 package expo.modules.velorasystemcalls
 
+import android.Manifest
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -30,17 +32,33 @@ class VeloraCallForegroundService : Service() {
       ),
     )
 
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      startForeground(
-        VeloraCallNotifications.ongoingNotificationId(callId),
-        notification,
-        ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL,
-      )
+    val notificationId = VeloraCallNotifications.ongoingNotificationId(callId)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && hasRecordAudioPermission()) {
+      // Android 11+ silences microphone capture once the app leaves the
+      // foreground unless a microphone-type service is running, so the other
+      // side heard nothing while the user was outside the app.
+      try {
+        startForeground(
+          notificationId,
+          notification,
+          ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL or
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+        )
+      } catch (error: SecurityException) {
+        // Android 14+ refuses the microphone type while the app is not in an
+        // eligible state; keep the call alive as a phone-call service instead.
+        startForeground(notificationId, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL)
+      }
+    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      startForeground(notificationId, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL)
     } else {
-      startForeground(VeloraCallNotifications.ongoingNotificationId(callId), notification)
+      startForeground(notificationId, notification)
     }
     return START_STICKY
   }
+
+  private fun hasRecordAudioPermission(): Boolean =
+    checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
   override fun onBind(intent: Intent?): IBinder? = null
 

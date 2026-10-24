@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Looper
 import org.junit.Assert.assertEquals
@@ -95,6 +96,47 @@ class VeloraNativeCallLifecycleTest {
     assertEquals(
       VeloraCallForegroundService::class.java.name,
       shadowOf(context as Application).getNextStoppedService().component?.className,
+    )
+  }
+
+  @Test
+  fun `call service keeps the microphone running while the app is in the background`() {
+    val callId = "call-background-mic"
+    assertTrue(VeloraSystemCallStore.beginRingingCall(context, callId, null))
+    assertTrue(VeloraSystemCallStore.markCallActive(context, callId))
+    shadowOf(context as Application).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
+
+    val service = Robolectric.buildService(
+      VeloraCallForegroundService::class.java,
+      Intent().putExtra("callId", callId),
+    ).create().startCommand(0, 1).get()
+
+    assertEquals(
+      ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL or
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+      service.foregroundServiceType,
+    )
+    assertEquals(
+      VeloraCallNotifications.ongoingNotificationId(callId),
+      shadowOf(service).lastForegroundNotificationId,
+    )
+  }
+
+  @Test
+  fun `call service without microphone permission still runs as a phone call`() {
+    val callId = "call-no-mic-permission"
+    assertTrue(VeloraSystemCallStore.beginRingingCall(context, callId, null))
+    assertTrue(VeloraSystemCallStore.markCallActive(context, callId))
+    shadowOf(context as Application).denyPermissions(android.Manifest.permission.RECORD_AUDIO)
+
+    val service = Robolectric.buildService(
+      VeloraCallForegroundService::class.java,
+      Intent().putExtra("callId", callId),
+    ).create().startCommand(0, 1).get()
+
+    assertEquals(
+      ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL,
+      service.foregroundServiceType,
     )
   }
 
