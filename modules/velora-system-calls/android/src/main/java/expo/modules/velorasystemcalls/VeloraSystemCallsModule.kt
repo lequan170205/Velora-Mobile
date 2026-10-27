@@ -37,6 +37,10 @@ class VeloraSystemCallsModule : Module() {
       }
     }
 
+    Function("setCallApiBaseUrl") { url: String? ->
+      VeloraSystemCallStore.setCallApiBaseUrl(context, url)
+    }
+
     Function("getVoipToken") {
       null
     }

@@ -46,6 +46,16 @@ export function SystemCallProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated, isLoading, userId])
 
   useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return
+    }
+
+    // A killed app cannot reach the API from the notification Decline button
+    // unless the native side already knows where it is.
+    veloraSystemCalls.setCallApiBaseUrl(process.env.EXPO_PUBLIC_API_URL || null)
+  }, [])
+
+  useEffect(() => {
     if (Platform.OS !== 'ios' || isLoading || !isNetworkResolved || !isOnline) {
       return
     }

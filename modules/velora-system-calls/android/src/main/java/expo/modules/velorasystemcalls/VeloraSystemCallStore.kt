@@ -14,6 +14,7 @@ import java.util.UUID
 object VeloraSystemCallStore {
   private const val PREFS = "velora_system_calls"
   private const val KEY_AUTH_USER_ID = "currentAuthenticatedUserId"
+  private const val KEY_CALL_API_BASE_URL = "callApiBaseUrl"
   // Keep the legacy key only long enough to migrate an action captured by an
   // older build. New writes use a bounded per-action journal.
   private const val KEY_LEGACY_PENDING_ACTION = "pendingAction"
@@ -117,6 +118,22 @@ object VeloraSystemCallStore {
     // it can be dismissed without creating a reject action for the server.
     return if (previousUserId != userId) readCurrentCall(prefs)?.callId else null
   }
+
+  /**
+   * Base URL of the public API, set by JS so a notification action can reach
+   * the server while the app is not running. Only https is accepted: the
+   * decline request carries a bearer token.
+   */
+  fun setCallApiBaseUrl(context: Context, url: String?) {
+    val normalized = url?.trim()?.trimEnd('/')?.takeIf { it.startsWith("https://") }
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+      .edit()
+      .apply { if (normalized == null) remove(KEY_CALL_API_BASE_URL) else putString(KEY_CALL_API_BASE_URL, normalized) }
+      .apply()
+  }
+
+  fun getCallApiBaseUrl(context: Context): String? =
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_CALL_API_BASE_URL, null)
 
   fun shouldAcceptIncomingPayload(context: Context, payload: Map<String, Any?>): Boolean {
     if (payload["type"] != "INCOMING_CALL") {
@@ -349,6 +366,15 @@ object VeloraSystemCallStore {
         it["action"] == "answer" &&
         it["actionId"] == actionId
     }
+  }
+
+  /** The id of the still-pending journal action of this kind for a call. */
+  @Synchronized
+  fun pendingActionId(context: Context, callId: String, action: String): String? {
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    return readPendingActions(prefs).lastOrNull {
+      it["callId"] == callId && it["action"] == action
+    }?.get("actionId") as? String
   }
 
   @Synchronized

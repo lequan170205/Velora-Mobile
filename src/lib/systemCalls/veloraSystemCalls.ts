@@ -126,6 +126,8 @@ export type NativeOutgoingCallPayload = {
 
 type VeloraSystemCallsModule = {
   setAuthenticatedUserId: (userId?: string | null) => void
+  /** Android: lets the notification Decline button reach the API with no app running. */
+  setCallApiBaseUrl?: (url?: string | null) => void
   getVoipRegistrationState: () => VoipRegistrationState
   getVoipToken: () => string | null
   getPendingCallAction: () => NativeCallAction | null
@@ -188,6 +190,10 @@ export const veloraSystemCalls = {
 
   setAuthenticatedUserId(userId?: string | null) {
     nativeModule?.setAuthenticatedUserId?.(userId ?? null)
+  },
+
+  setCallApiBaseUrl(url?: string | null) {
+    nativeModule?.setCallApiBaseUrl?.(url ?? null)
   },
 
   getVoipRegistrationState(): VoipRegistrationState {

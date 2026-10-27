@@ -515,6 +515,11 @@ class VeloraIncomingCallActivity : Activity() {
   private fun complete(action: String) {
     val callId = payload["callId"] as? String ?: return
     VeloraCallNotifications.cancelIncomingCallExpiration(this, callId)
+    if (action == "reject") {
+      VeloraCallDecline.handleReject(this, payload)
+      finish()
+      return
+    }
     VeloraSystemCallStore.storePendingAction(this, action, payload)
     if (action == "answer") {
       val pendingAnswer = VeloraSystemCallStore.pendingAnswerAction(this, callId)
