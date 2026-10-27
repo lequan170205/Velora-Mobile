@@ -1329,6 +1329,36 @@ test('pre-active socket reconnect cannot clear timers or publish telemetry for a
   )
 })
 
+test('swiping the app away on Android leaves the call before the socket closes', () => {
+  // The activity is destroyed but the call service keeps the process alive;
+  // the old cleanup only dropped the socket and left the microphone running.
+  assertOrdered(
+    providerSource,
+    [
+      'const leaveCallFromLifecycleRef = useRef(leaveCallFromLifecycle)',
+      'leaveCallFromLifecycleRef.current = leaveCallFromLifecycle',
+      "if (Platform.OS !== 'android') return",
+      "void leaveCallFromLifecycleRef.current('app_closed')",
+      // React runs unmount cleanups in declaration order, so the leave must be
+      // declared before the effect that disconnects the socket.
+      'socketRef.current?.removeAllListeners()',
+      'socketRef.current?.disconnect()',
+    ],
+    'leave before socket teardown on unmount',
+  )
+
+  const leaveSource = sliceBetween(
+    providerSource,
+    'const leaveCallFromLifecycle = useCallback(',
+    'const armReconnectTimeout = useCallback(',
+  )
+  assertOrdered(
+    leaveSource,
+    ["socket.emit('leave_call'", 'await teardownOnce(`lifecycle_${reason}`)'],
+    'lifecycle leave tells the server, then releases media and native call state',
+  )
+})
+
 test('a failed socket reconnect is retried until the disconnect grace runs out', () => {
   // A single attempt made while the network was still down used to fail at
   // once, and nothing retried before the grace teardown ended the call.

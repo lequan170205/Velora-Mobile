@@ -2879,6 +2879,20 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
   }, [callId, callPhase, leaveCallFromLifecycle])
 
+  // Swiping the app away on Android destroys the activity and unmounts this
+  // provider, while the call service keeps the process (and the microphone)
+  // alive. Treat it as leaving the call. This effect is declared before the
+  // socket cleanup below so its unmount runs while the socket is still open.
+  const leaveCallFromLifecycleRef = useRef(leaveCallFromLifecycle)
+  leaveCallFromLifecycleRef.current = leaveCallFromLifecycle
+  useEffect(
+    () => () => {
+      if (Platform.OS !== 'android') return
+      void leaveCallFromLifecycleRef.current('app_closed')
+    },
+    [],
+  )
+
   useEffect(() => {
     const subscription = veloraSystemCalls.addCallActionListener((action) => {
       void processNativeCallAction(action)
