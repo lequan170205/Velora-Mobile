@@ -15,7 +15,13 @@ export const SOCKET_CONNECT_TIMEOUT_MS = 10_000
 // Keep the control-plane grace longer than the backend's default reconnect
 // window. A short Socket.IO interruption must not tear down CoreAudio or the
 // existing mediasoup transports before the client has had a chance to rejoin.
-export const SOCKET_DISCONNECT_GRACE_MS = 20_000
+// 30 s covers a ~12 s Wi-Fi drop: the phone needs a few more seconds to get
+// a working network back, and one reconnect (token, TLS, auth) takes ~5 s.
+// The server only notices a silent client after its ping timeout, so it still
+// holds the seat for this long.
+export const SOCKET_DISCONNECT_GRACE_MS = 30_000
+// Pause between reconnect attempts inside that grace window.
+export const SOCKET_RECONNECT_RETRY_MS = 1_000
 export const IOS_AUDIO_SESSION_READY_TIMEOUT_MS = 15_000
 export const IOS_AUDIO_SESSION_SNAPSHOT_POLL_MS = 250
 export const TRANSPORT_CREATED_TIMEOUT_MS = 10_000

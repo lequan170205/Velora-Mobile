@@ -18,6 +18,7 @@ import {
   REMOTE_AUDIO_WAIT_FALLBACK_MS,
   RTC_QUALITY_SAMPLE_INTERVAL_MS,
   SOCKET_DISCONNECT_GRACE_MS,
+  SOCKET_RECONNECT_RETRY_MS,
   VIDEO_STATE_MAX_ATTEMPTS,
   VIDEO_STATE_RETRY_DELAY_MAX_MS,
   VIDEO_STATE_RETRY_DELAY_MS,
@@ -328,6 +329,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const reconnectModeRef = useRef<'local' | 'peer' | null>(null)
   const nativeActionRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const socketDisconnectGraceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const socketReconnectRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mediaTransportDisconnectTimeoutsRef = useRef(
     new Map<string, ReturnType<typeof setTimeout>>(),
   )
@@ -351,6 +353,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const clearSocketDisconnectGraceTimeout = useCallback(() => {
     clearTimeoutRef(socketDisconnectGraceTimeoutRef)
+    clearTimeoutRef(socketReconnectRetryTimeoutRef)
   }, [])
 
   const clearMediaTransportDisconnectTimeout = useCallback((transportId: string) => {
@@ -3227,39 +3230,68 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         })
       }, SOCKET_DISCONNECT_GRACE_MS)
 
-      void ensureCallSocketConnected(disconnectedCallId)
-        .then(async (connectedSocket) => {
-          await restorePreActiveCallMembership(connectedSocket, disconnectedCallId)
-          const restoredState = useCallStore.getState()
-          if (restoredState.callId !== disconnectedCallId || !isBusyPhase(restoredState.phase)) {
-            return
-          }
-          clearSocketDisconnectGraceTimeout()
-          telemetrySessionRef.current?.record('socket_reconnect_succeeded', {
-            outcome: 'succeeded',
+      // An attempt made while the network is still down fails at once (the
+      // socket token request cannot reach the server), so keep retrying until
+      // the grace window closes instead of letting one failure end the call.
+      const reconnectDeadlineMs = Date.now() + SOCKET_DISCONNECT_GRACE_MS
+      const attemptReconnect = () => {
+        void ensureCallSocketConnected(disconnectedCallId)
+          .then(async (connectedSocket) => {
+            await restorePreActiveCallMembership(connectedSocket, disconnectedCallId)
+            const restoredState = useCallStore.getState()
+            if (restoredState.callId !== disconnectedCallId || !isBusyPhase(restoredState.phase)) {
+              return
+            }
+            clearSocketDisconnectGraceTimeout()
+            telemetrySessionRef.current?.record('socket_reconnect_succeeded', {
+              outcome: 'succeeded',
+            })
+            debugCall(
+              '[Call] socket_reconnect_succeeded',
+              JSON.stringify({
+                callId: shortCallId(disconnectedCallId),
+                socketGeneration: socketGenerationRef.current,
+              }),
+            )
+            if (
+              controlPlaneRecoveringRef.current ||
+              useCallStore.getState().phase === 'reconnecting'
+            ) {
+              void recoverActiveCall()
+            }
           })
-          debugCall(
-            '[Call] socket_reconnect_succeeded',
-            JSON.stringify({
-              callId: shortCallId(disconnectedCallId),
-              socketGeneration: socketGenerationRef.current,
-            }),
-          )
-          if (
-            controlPlaneRecoveringRef.current ||
-            useCallStore.getState().phase === 'reconnecting'
-          ) {
-            void recoverActiveCall()
-          }
-        })
-        .catch((error) => {
-          if (!isCurrentCall(disconnectedCallId)) return
-          telemetrySessionRef.current?.record('socket_reconnect_failed', {
-            outcome: 'failed',
-            error,
-            errorCode: getAcceptIncomingCallFailureCode(error),
+          .catch((error) => {
+            if (!isCurrentCall(disconnectedCallId)) return
+            telemetrySessionRef.current?.record('socket_reconnect_failed', {
+              outcome: 'failed',
+              error,
+              errorCode: getAcceptIncomingCallFailureCode(error),
+            })
+            if (
+              callSocketAuthenticatedRef.current ||
+              Date.now() + SOCKET_RECONNECT_RETRY_MS >= reconnectDeadlineMs
+            ) {
+              return
+            }
+            clearTimeoutRef(socketReconnectRetryTimeoutRef)
+            socketReconnectRetryTimeoutRef.current = setTimeout(() => {
+              socketReconnectRetryTimeoutRef.current = null
+              if (
+                callSocketAuthenticatedRef.current ||
+                !isCurrentCall(disconnectedCallId) ||
+                !isBusyPhase(useCallStore.getState().phase)
+              ) {
+                return
+              }
+              debugCall(
+                '[Call] socket_reconnect_retry',
+                JSON.stringify({ callId: shortCallId(disconnectedCallId) }),
+              )
+              attemptReconnect()
+            }, SOCKET_RECONNECT_RETRY_MS)
           })
-        })
+      }
+      attemptReconnect()
     }
 
     const handleCallRejected = (payload: CallRejectedPayload) => {

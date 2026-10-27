@@ -1329,6 +1329,45 @@ test('pre-active socket reconnect cannot clear timers or publish telemetry for a
   )
 })
 
+test('a failed socket reconnect is retried until the disconnect grace runs out', () => {
+  // A single attempt made while the network was still down used to fail at
+  // once, and nothing retried before the grace teardown ended the call.
+  const reconnectSource = sliceBetween(
+    providerSource,
+    'const handleDisconnect = (reason: string) =>',
+    'const handleCallRejected = (payload: CallRejectedPayload) =>',
+  )
+
+  assertOrdered(
+    reconnectSource,
+    [
+      'const reconnectDeadlineMs = Date.now() + SOCKET_DISCONNECT_GRACE_MS',
+      'const attemptReconnect = () =>',
+      'void ensureCallSocketConnected(disconnectedCallId)',
+      '.catch((error) =>',
+      'if (!isCurrentCall(disconnectedCallId)) return',
+      'Date.now() + SOCKET_RECONNECT_RETRY_MS >= reconnectDeadlineMs',
+      'socketReconnectRetryTimeoutRef.current = setTimeout(() =>',
+      '!isBusyPhase(useCallStore.getState().phase)',
+      'attemptReconnect()',
+      '}, SOCKET_RECONNECT_RETRY_MS)',
+      'attemptReconnect()',
+    ],
+    'bounded reconnect retry loop',
+  )
+
+  // Success, teardown and unmount all clear the grace timer; they must stop a
+  // pending retry too.
+  assert.match(
+    providerSource,
+    /const clearSocketDisconnectGraceTimeout = useCallback\(\(\) => \{\s*clearTimeoutRef\(socketDisconnectGraceTimeoutRef\)\s*clearTimeoutRef\(socketReconnectRetryTimeoutRef\)/,
+  )
+  assert.match(
+    read('src/lib/call/callConstants.ts'),
+    /export const SOCKET_RECONNECT_RETRY_MS = 1_000/,
+  )
+})
+
 test('socket effect removes only provider-owned handlers and preserves event waiters', () => {
   for (const event of ['incoming_call', 'new_producer', 'call_answered']) {
     assert.doesNotMatch(providerSource, new RegExp(`socket\\.off\\('${event}'\\)`))

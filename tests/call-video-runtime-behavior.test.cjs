@@ -257,7 +257,7 @@ test('camera and consumer retry delays are bounded exponential backoff', () => {
 })
 
 test('short control-plane grace keeps a brief socket pause from tearing down media', () => {
-  assert.equal(callConstants.SOCKET_DISCONNECT_GRACE_MS, 20_000)
+  assert.equal(callConstants.SOCKET_DISCONNECT_GRACE_MS, 30_000)
   assert.equal(callConstants.DEFAULT_RECONNECT_GRACE_MS, 15_000)
 })
 
