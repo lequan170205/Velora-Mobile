@@ -623,7 +623,7 @@ test('FlashList parity keeps inversion and Android manual insert ownership', () 
   assert.match(bundle, /\binverted\b/)
   assert.match(
     bundle,
-    /maintainVisibleContentPosition=\{\{ disabled: Platform\.OS === 'android' \}\}/,
+    /maintainVisibleContentPosition=\{\{\s*disabled: Platform\.OS === 'android' \|\| isNearBottom,?\s*\}\}/,
   )
   assert.match(bundle, /keyboardDismissMode="none"/)
   assert.match(bundle, /removeClippedSubviews=\{false\}/)
