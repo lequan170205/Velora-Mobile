@@ -37,6 +37,7 @@ const initialState: CallUiState = {
   durationSec: 0,
   remoteAudioState: 'idle',
   remoteVideoState: 'idle',
+  remoteRinging: false,
   localStreamUrl: null,
   remoteStreamUrl: null,
   reconnectDeadlineMs: null,

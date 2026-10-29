@@ -407,6 +407,12 @@ export interface CallAnsweredPayload {
   answeredElsewhere?: boolean
 }
 
+/** A recipient's device is ringing; the caller shows "Ringing" and plays a ringback tone. */
+export interface CallRingingPayload {
+  callId: string
+  userId: string
+}
+
 export interface CallRejectedPayload {
   isGroupCall?: boolean
   invitationId?: string
@@ -488,6 +494,7 @@ export interface CallServerEvents {
   group_call_identity_changed: (payload: GroupCallIdentityChangedPayload) => void
   group_mic_state_updated: (payload: GroupMicStateUpdatedPayload) => void
   call_answered: (payload: CallAnsweredPayload) => void
+  call_ringing: (payload: CallRingingPayload) => void
   call_rejected: (payload: CallRejectedPayload) => void
   peer_reconnecting: (payload: PeerReconnectingPayload) => void
   peer_reconnected: (payload: PeerReconnectedPayload) => void
@@ -504,6 +511,7 @@ export interface CallClientEvents {
   accept_incoming_call: (payload: AcceptIncomingCallPayload) => void
   rejoin_call: (payload: RejoinCallPayload) => void
   answer_call: (payload: AnswerCallPayload) => void
+  call_ringing: (payload: { callId: string }) => void
   reject_call: (payload: RejectCallPayload) => void
   leave_call: (payload: LeaveCallPayload) => void
   create_transport: (payload: CreateTransportPayload) => void
@@ -551,6 +559,8 @@ export interface CallUiState {
   durationSec: number
   remoteAudioState: RemoteAudioState
   remoteVideoState: RemoteVideoState
+  /** True once a recipient's device reports it is ringing (caller side only). */
+  remoteRinging: boolean
   localStreamUrl: string | null
   remoteStreamUrl: string | null
   reconnectDeadlineMs: number | null

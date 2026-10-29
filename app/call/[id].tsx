@@ -34,6 +34,7 @@ import { VideoParticipantGrid } from '../../src/components/call/VideoParticipant
 import { queryKeys } from '../../src/constants/queryKeys'
 import { colors } from '../../src/constants/theme'
 import { createCallRequestId } from '../../src/lib/call/callSocket'
+import { useRingbackTone } from '../../src/lib/call/useRingbackTone'
 import { veloraSystemCalls } from '../../src/lib/systemCalls/veloraSystemCalls'
 import { useCall } from '../../src/providers/CallProvider'
 import { useAuthStore } from '../../src/stores/authStore'
@@ -105,6 +106,7 @@ export default function ActiveCallScreen() {
     phase,
     reconnectDeadlineMs,
     remoteAudioState,
+    remoteRinging,
     remoteStreamUrl,
     remoteVideoState,
     speakerEnabled,
@@ -326,17 +328,25 @@ export default function ActiveCallScreen() {
   }, [callId, id, isValidPhase, recordCallScreenVisible])
 
   const statusLabel = useMemo(() => {
-    if (phase === 'outgoing_ringing') return 'Calling…'
+    // "Ringing" only once a recipient's device reports it is ringing; until then the call is still connecting.
+    if (phase === 'outgoing_ringing') return remoteRinging ? 'Ringing…' : 'Connecting…'
     if (phase === 'connecting') return 'Connecting…'
     if (phase === 'reconnecting') return 'Reconnecting…'
     if (phase === 'ending') return 'Ending…'
     if (phase === 'active' && isGroupCall && groupPeopleIds.length < 2)
-      return 'Waiting for others to join…'
+      return remoteRinging ? 'Ringing…' : 'Waiting for others to join…'
     if (phase === 'active' && remoteAudioState === 'waiting')
       return isGroupCall ? 'Connecting group audio…' : 'Waiting for audio…'
     if (phase === 'active') return formatDuration(durationSec)
     return ''
-  }, [durationSec, groupPeopleIds.length, isGroupCall, phase, remoteAudioState])
+  }, [durationSec, groupPeopleIds.length, isGroupCall, phase, remoteAudioState, remoteRinging])
+
+  // The ringback tone plays only while someone's device is ringing and nobody has joined yet.
+  useRingbackTone(
+    remoteRinging &&
+      (phase === 'outgoing_ringing' ||
+        (phase === 'active' && isGroupCall && groupPeopleIds.length < 2)),
+  )
 
   const reconnectSecondsLeft =
     reconnectDeadlineMs && phase === 'reconnecting'

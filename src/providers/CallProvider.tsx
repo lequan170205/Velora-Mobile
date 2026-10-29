@@ -94,6 +94,7 @@ import type { CallStateResponse } from '../api/call.api'
 import type {
   AudioBitrateProfile,
   CallAnsweredPayload,
+  CallRingingPayload,
   CallEndedPayload,
   CallJoinedPayload,
   CallSocketReadyPayload,
@@ -1688,6 +1689,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       })
       void veloraSystemCalls.presentIncomingCall(nativePayload)
       armGroupInvitationTimeout(payload)
+      // Tell the caller this device is ringing ("Ringing" instead of "Calling").
+      socketRef.current?.emit('call_ringing', { callId: payload.callId })
     },
     [armGroupInvitationTimeout, currentUserId, queryClient],
   )
@@ -2544,6 +2547,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         useCallStore.getState().patch({
           phase: 'outgoing_ringing',
           direction: 'outgoing',
+          remoteRinging: false,
           groupHostUserId: joined.session.isGroupCall ? joined.session.initiatorId : null,
           groupInvitationId: lateJoinRequest ? nativeRegistrationId : null,
           callId: joined.callId,
@@ -3166,6 +3170,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         handleTerminalCall(terminalCall, 'socket_ready_replay')
       })
       flushPendingServerEndIntents(socket)
+      // A call that arrived by push is already ringing here; let the caller know now that the socket is up.
+      const ringing = useCallStore.getState()
+      if (ringing.phase === 'incoming_ringing' && ringing.callId) {
+        socket.emit('call_ringing', { callId: ringing.callId })
+      }
     }
 
     const handleConnect = () => {
@@ -3552,6 +3561,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       })
     }
 
+    const handleCallRinging = (payload: CallRingingPayload) => {
+      const state = useCallStore.getState()
+      if (state.direction !== 'outgoing' || state.callId !== payload.callId || state.remoteRinging)
+        return
+      useCallStore.getState().patch({ remoteRinging: true })
+    }
+
     const handleCallAnswered = (payload: CallAnsweredPayload) => {
       const current = useCallStore.getState()
       if (
@@ -3629,6 +3645,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     socket.on('call_type_changed', handleCallTypeChanged)
     socket.on('video_state_changed', handleVideoStateChanged)
     socket.on('call_answered', handleCallAnswered)
+    socket.on('call_ringing', handleCallRinging)
     socket.on('call_rejected', handleCallRejected)
     socket.on('peer_reconnecting', handlePeerReconnecting)
     socket.on('peer_reconnected', handlePeerReconnected)
@@ -3658,6 +3675,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socket.off('call_type_changed', handleCallTypeChanged)
       socket.off('video_state_changed', handleVideoStateChanged)
       socket.off('call_answered', handleCallAnswered)
+      socket.off('call_ringing', handleCallRinging)
     }
   }, [
     consumeRemoteProducer,
