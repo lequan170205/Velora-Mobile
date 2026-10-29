@@ -42,14 +42,12 @@ test('newest-message bottom follow defers exactly one frame on Android and stays
   assert.doesNotMatch(helper, /requestAnimationFrame\(\(\) => \{\s*requestAnimationFrame/)
 })
 
-test('FlashList visible-position retention is off on Android and whenever the chat is at the bottom', () => {
+test('Android disables FlashList automatic visible-position retention so manual chat scrolling owns inserts', () => {
   const source = readSource()
 
-  // At the bottom the list follows new messages; retaining position there let iOS shift the offset on every
-  // insert and a burst of messages blanked the list. It stays on only while reading history.
   assert.match(
     source,
-    /maintainVisibleContentPosition=\{\{\s*disabled: Platform\.OS === 'android' \|\| isNearBottom,?\s*\}\}/,
+    /maintainVisibleContentPosition=\{\{ disabled: Platform\.OS === 'android' \}\}/,
   )
 })
 

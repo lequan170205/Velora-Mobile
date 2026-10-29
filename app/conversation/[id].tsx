@@ -678,12 +678,7 @@ export default function ChatScreen() {
                     }
                     showsVerticalScrollIndicator={false}
                     removeClippedSubviews={false}
-                    // At the bottom the list must follow new messages, not hold position: with this on
-                    // iOS shifted the offset on every insert and a burst of messages blanked the list.
-                    // It only helps while reading history, so enable it once the user scrolls up.
-                    maintainVisibleContentPosition={{
-                      disabled: Platform.OS === 'android' || isNearBottom,
-                    }}
+                    maintainVisibleContentPosition={{ disabled: Platform.OS === 'android' }}
                   />
                   <Animated.View
                     pointerEvents={isScrollButtonActive ? 'box-none' : 'none'}
