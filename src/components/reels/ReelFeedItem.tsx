@@ -5,7 +5,15 @@ import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useRouter } from 'expo-router'
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
+import {
+  AppState,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
+} from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
   cancelAnimation,
@@ -405,6 +413,12 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const isActiveRef = useRef(isActive)
   isActiveRef.current = isActive
   const isPausedByUserRef = useRef(false)
+  const scrubSessionRef = useRef<{
+    gestureId: number
+    playerGeneration: number
+    wasPaused: boolean
+    playbackRatio: number
+  } | null>(null)
   const [isReady, setIsReady] = useState(false)
   const [bufferedPosition, setBufferedPosition] = useState(0)
   const [durationSeconds, setDurationSeconds] = useState(0)
@@ -615,6 +629,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const lastScrubRatio = useSharedValue(0)
   const scrubUpdateSample = useSharedValue(0)
   const scrubReleaseHandled = useSharedValue(0)
+  const scrubGestureId = useSharedValue(0)
   const timelineInteractionProgress = useSharedValue(0)
   const timelinePreviewRatio = useSharedValue(0)
   const uploadRailShimmerProgress = useSharedValue(0)
@@ -952,8 +967,19 @@ const ReelFeedItemComponent = function ReelFeedItem({
     }
   }
 
+  const isCurrentScrub = useCallback(
+    (gestureId: number) =>
+      Platform.OS !== 'ios' ||
+      (scrubSessionRef.current?.gestureId === gestureId &&
+        scrubGestureId.get() === gestureId &&
+        scrubSessionRef.current.playerGeneration === playerIdentityRef.current.playerGeneration &&
+        isActiveRef.current &&
+        AppState.currentState === 'active'),
+    [scrubGestureId],
+  )
+
   const seekToRatio = useCallback(
-    (ratio: number) => {
+    (ratio: number, commitSeek = Platform.OS !== 'ios') => {
       if (durationSeconds <= 0) {
         return
       }
@@ -964,19 +990,41 @@ const ReelFeedItemComponent = function ReelFeedItem({
       pendingSeekTarget.value = nextPosition
       setPendingSeekRatio(safeRatio)
       setScrubPosition(nextPosition)
-      videoRef.current?.seekTo(nextPosition)
+      // iOS exact-frame seeks interrupt one another; commit the decoder seek on release.
+      if (commitSeek) videoRef.current?.seekTo(nextPosition)
     },
     [durationSeconds, lastScrubRatio, pendingSeekTarget],
   )
 
   const beginScrub = useCallback(
-    (touchX: number) => {
+    (touchX: number, gestureId: number) => {
       if (durationSeconds <= 0 || scrubberWidth <= 0) {
         return
       }
 
+      const wasPaused =
+        Platform.OS === 'ios'
+          ? (scrubSessionRef.current?.wasPaused ?? isPausedByUserRef.current)
+          : isPausedByUser
+      if (Platform.OS === 'ios') {
+        if (
+          !isActiveRef.current ||
+          AppState.currentState !== 'active' ||
+          playerGeneration !== playerIdentityRef.current.playerGeneration ||
+          gestureId !== scrubGestureId.get()
+        ) {
+          return
+        }
+        scrubSessionRef.current = {
+          gestureId,
+          playerGeneration,
+          wasPaused,
+          playbackRatio: clamp(lastPlaybackPositionRef.current / durationSeconds, 0, 1),
+        }
+      }
+
       scrubReleaseHandled.value = 0
-      resumeAfterScrub.value = isPausedByUser ? 0 : 1
+      resumeAfterScrub.value = wasPaused ? 0 : 1
       setIsPausedByUser(true)
       setIsScrubbing(true)
       triggerScrubStartHaptic()
@@ -985,7 +1033,9 @@ const ReelFeedItemComponent = function ReelFeedItem({
     [
       durationSeconds,
       isPausedByUser,
+      playerGeneration,
       resumeAfterScrub,
+      scrubGestureId,
       scrubReleaseHandled,
       scrubberWidth,
       seekToRatio,
@@ -995,23 +1045,24 @@ const ReelFeedItemComponent = function ReelFeedItem({
   )
 
   const updateScrub = useCallback(
-    (touchX: number) => {
-      if (durationSeconds <= 0 || scrubberWidth <= 0) {
+    (touchX: number, gestureId: number) => {
+      if (!isCurrentScrub(gestureId) || durationSeconds <= 0 || scrubberWidth <= 0) {
         return
       }
 
       seekToRatio(touchX / scrubberWidth)
     },
-    [durationSeconds, scrubberWidth, seekToRatio],
+    [durationSeconds, isCurrentScrub, scrubberWidth, seekToRatio],
   )
 
   const finishScrub = useCallback(
-    (touchX?: number, velocityX = 0) => {
-      if (scrubReleaseHandled.value === 1) {
+    (touchX: number | undefined, velocityX: number, gestureId: number) => {
+      if (!isCurrentScrub(gestureId) || scrubReleaseHandled.value === 1) {
         return
       }
 
       scrubReleaseHandled.value = 1
+      scrubSessionRef.current = null
 
       if (typeof touchX === 'number' && durationSeconds > 0 && scrubberWidth > 0) {
         const baseRatio = clamp(touchX / scrubberWidth, 0, 1)
@@ -1024,17 +1075,26 @@ const ReelFeedItemComponent = function ReelFeedItem({
           duration: 90,
           easing: TIMELINE_MOTION_EASING,
         })
-        seekToRatio(nextRatio)
+        seekToRatio(nextRatio, true)
+      } else if (Platform.OS === 'ios') {
+        pendingSeekTarget.value = -1
+        setPendingSeekRatio(null)
+        timelinePreviewRatio.value =
+          durationSeconds > 0 ? clamp(lastPlaybackPositionRef.current / durationSeconds, 0, 1) : 0
       }
 
       setIsScrubbing(false)
 
       if (resumeAfterScrub.value === 1) {
         setIsPausedByUser(false)
+        // A fast scrub can batch both pause-state updates into one render.
+        if (Platform.OS === 'ios') videoRef.current?.play()
       }
     },
     [
       durationSeconds,
+      isCurrentScrub,
+      pendingSeekTarget,
       resumeAfterScrub,
       scrubReleaseHandled,
       scrubberWidth,
@@ -1056,8 +1116,9 @@ const ReelFeedItemComponent = function ReelFeedItem({
           const trackTouchX = mapScrubTouchX(event.x, scrubberWidth)
           const ratio = scrubberWidth > 0 ? clamp(trackTouchX / scrubberWidth, 0, 1) : 0
           scrubUpdateSample.value = 0
+          scrubGestureId.set(scrubGestureId.get() + 1)
           timelinePreviewRatio.value = ratio
-          scheduleOnRN(beginScrub, trackTouchX)
+          scheduleOnRN(beginScrub, trackTouchX, scrubGestureId.get())
         })
         .onUpdate((event) => {
           const trackTouchX = mapScrubTouchX(event.x, scrubberWidth)
@@ -1066,17 +1127,26 @@ const ReelFeedItemComponent = function ReelFeedItem({
           // ponytail: sample seeks every sixth event; use a time-based limit if 120Hz traces still show churn.
           scrubUpdateSample.value = (scrubUpdateSample.value + 1) % 6
           if (scrubUpdateSample.value === 0) {
-            scheduleOnRN(updateScrub, trackTouchX)
+            scheduleOnRN(updateScrub, trackTouchX, scrubGestureId.get())
           }
         })
-        .onEnd((event) => {
+        .onEnd((event, success) => {
+          if (Platform.OS === 'ios' && !success) {
+            scheduleOnRN(finishScrub, undefined, 0, scrubGestureId.get())
+            return
+          }
           const trackTouchX = mapScrubTouchX(event.x, scrubberWidth)
           const ratio = scrubberWidth > 0 ? clamp(trackTouchX / scrubberWidth, 0, 1) : 0
           timelinePreviewRatio.value = ratio
-          scheduleOnRN(finishScrub, trackTouchX, event.velocityX)
+          scheduleOnRN(finishScrub, trackTouchX, event.velocityX, scrubGestureId.get())
         })
-        .onFinalize(() => {
-          scheduleOnRN(finishScrub, lastScrubRatio.value * scrubberWidth, 0)
+        .onFinalize((_event, success) => {
+          scheduleOnRN(
+            finishScrub,
+            Platform.OS === 'ios' && !success ? undefined : lastScrubRatio.value * scrubberWidth,
+            0,
+            scrubGestureId.get(),
+          )
         }),
     [
       beginScrub,
@@ -1086,6 +1156,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
       lastScrubRatio,
       playbackState.isPlayable,
       scrubberWidth,
+      scrubGestureId,
       scrubUpdateSample,
       timelinePreviewRatio,
       updateScrub,
@@ -1177,6 +1248,43 @@ const ReelFeedItemComponent = function ReelFeedItem({
       setIsPausedByUser,
     ],
   )
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return undefined
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const session = scrubSessionRef.current
+      if (nextState === 'active' || !session) return
+
+      scrubSessionRef.current = null
+      if (
+        !isActiveRef.current ||
+        session.playerGeneration !== playerIdentityRef.current.playerGeneration
+      ) {
+        return
+      }
+      scrubReleaseHandled.value = 1
+      resumeAfterScrub.value = 0
+      pendingSeekTarget.value = -1
+      setPendingSeekRatio(null)
+      setIsScrubbing(false)
+      timelinePreviewRatio.value = session.playbackRatio
+      setIsPausedByUser(session.wasPaused)
+    })
+
+    return () => {
+      scrubSessionRef.current = null
+      subscription.remove()
+    }
+  }, [
+    isActive,
+    pendingSeekTarget,
+    resumeAfterScrub,
+    scrubReleaseHandled,
+    setIsPausedByUser,
+    timelinePreviewRatio,
+    videoSourceKey,
+  ])
 
   useEffect(() => {
     resetTimelineState({ includeDuration: true, resetReadyState: true })
