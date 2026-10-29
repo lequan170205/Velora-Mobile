@@ -76,8 +76,9 @@ export const AttachmentLauncherSheet = forwardRef<
           allowsMultipleSelection: true,
           selectionLimit: 10,
           orderedSelection: true,
+          // iPhone photos are HEIC, which chat uploads reject; Compatible makes iOS hand over JPEG.
           preferredAssetRepresentationMode:
-            ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current,
+            ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
           quality: 1,
           videoExportPreset: ImagePicker.VideoExportPreset.MediumQuality,
         })
