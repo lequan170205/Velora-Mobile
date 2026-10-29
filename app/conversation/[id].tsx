@@ -258,6 +258,7 @@ export default function ChatScreen() {
     hasLoadedLatestMessagePages,
     isInitialMessagesLoading,
     isNearBottom,
+    isScrollButtonActive,
     latestSeenFrontierMessageId,
     layoutById,
     layoutByIdRef,
@@ -685,7 +686,7 @@ export default function ChatScreen() {
                     }}
                   />
                   <Animated.View
-                    pointerEvents="box-none"
+                    pointerEvents={isScrollButtonActive ? 'box-none' : 'none'}
                     style={[
                       scrollButtonStyle,
                       {

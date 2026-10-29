@@ -100,6 +100,8 @@ export const useConversationTimelineController = ({
   >(new Map())
   const pendingOwnMediaBatchByClientMessageIdRef = useRef<Map<string, string>>(new Map())
   const isScrollButtonVisible = useSharedValue(false)
+  // The button stays mounted while faded out; without this it still swallows taps over the last messages on Android.
+  const [isScrollButtonActive, setIsScrollButtonActive] = useState(false)
   const isNearBottomRef = useRef(true)
   const timestampRevealOffset = useSharedValue(0)
   const [isNearBottom, setIsNearBottom] = useState(true)
@@ -126,6 +128,7 @@ export const useConversationTimelineController = ({
       const shouldShowScrollButton = offsetY > 200
       if (shouldShowScrollButton !== isScrollButtonVisible.value) {
         isScrollButtonVisible.value = shouldShowScrollButton
+        setIsScrollButtonActive(shouldShowScrollButton)
       }
     },
     [isScrollButtonVisible],
@@ -321,6 +324,7 @@ export const useConversationTimelineController = ({
     isNearBottomRef.current = true
     setIsNearBottom(true)
     isScrollButtonVisible.value = false
+    setIsScrollButtonActive(false)
   }, [conversationId, isScrollButtonVisible])
 
   const registerPendingOwnMediaBatchScrollTransaction = useCallback(
@@ -725,6 +729,7 @@ export const useConversationTimelineController = ({
     isNearBottomRef.current = true
     setIsNearBottom(true)
     isScrollButtonVisible.value = false
+    setIsScrollButtonActive(false)
 
     if (timelineMode === 'anchor') {
       pendingOwnSendBottomScrollRef.current = 'animated'
@@ -760,6 +765,7 @@ export const useConversationTimelineController = ({
     hasLoadedLatestMessagePages,
     isInitialMessagesLoading,
     isNearBottom,
+    isScrollButtonActive,
     latestSeenFrontierMessageId,
     layoutById,
     layoutByIdRef,
