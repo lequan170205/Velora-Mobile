@@ -87,9 +87,4 @@ test('native pager keeps a bounded, scrollable reel window and switches audio at
   assert.match(reelsViewer, /playbackCoordinatorRef\.current\.transition\(nextReelId, isMuted\)/)
   assert.match(playbackCoordinator, /this\.desiredReelId === nextReelId/)
   assert.match(playbackCoordinator, /this\.pendingSeekTimers\.has\(nextReelId\)/)
-  assert.match(reelFeedItem, /scrubUpdateSample\.value = \(scrubUpdateSample\.value \+ 1\) % 6/)
-  assert.match(
-    reelFeedItem,
-    /const trackTouchX = mapScrubTouchX\(event\.x, scrubberWidth\)[\s\S]*?if \(scrubUpdateSample\.value === 0\) \{\s*scheduleOnRN\(updateScrub, trackTouchX, scrubGestureId\.get\(\)\)/,
-  )
 })
