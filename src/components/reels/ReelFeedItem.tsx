@@ -7,7 +7,6 @@ import { useRouter } from 'expo-router'
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AppState,
-  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -413,6 +412,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const isActiveRef = useRef(isActive)
   isActiveRef.current = isActive
   const isPausedByUserRef = useRef(false)
+  const lastHandledScrubGestureIdRef = useRef(0)
   const scrubSessionRef = useRef<{
     gestureId: number
     playerGeneration: number
@@ -624,11 +624,8 @@ const ReelFeedItemComponent = function ReelFeedItem({
   }
 
   const playerGeneration = playerIdentityRef.current.playerGeneration
-  const resumeAfterScrub = useSharedValue(0)
   const pendingSeekTarget = useSharedValue(-1)
-  const lastScrubRatio = useSharedValue(0)
   const scrubUpdateSample = useSharedValue(0)
-  const scrubReleaseHandled = useSharedValue(0)
   const scrubGestureId = useSharedValue(0)
   const timelineInteractionProgress = useSharedValue(0)
   const timelinePreviewRatio = useSharedValue(0)
@@ -969,62 +966,53 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
   const isCurrentScrub = useCallback(
     (gestureId: number) =>
-      Platform.OS !== 'ios' ||
-      (scrubSessionRef.current?.gestureId === gestureId &&
-        scrubGestureId.get() === gestureId &&
-        scrubSessionRef.current.playerGeneration === playerIdentityRef.current.playerGeneration &&
-        isActiveRef.current &&
-        AppState.currentState === 'active'),
+      scrubSessionRef.current?.gestureId === gestureId &&
+      scrubGestureId.get() === gestureId &&
+      scrubSessionRef.current.playerGeneration === playerIdentityRef.current.playerGeneration &&
+      isActiveRef.current &&
+      AppState.currentState === 'active',
     [scrubGestureId],
   )
 
   const seekToRatio = useCallback(
-    (ratio: number, commitSeek = Platform.OS !== 'ios') => {
+    (ratio: number, commitSeek = false) => {
       if (durationSeconds <= 0) {
         return
       }
 
       const safeRatio = clamp(ratio, 0, 1)
-      lastScrubRatio.value = safeRatio
       const nextPosition = safeRatio * durationSeconds
       pendingSeekTarget.value = nextPosition
       setPendingSeekRatio(safeRatio)
       setScrubPosition(nextPosition)
-      // iOS exact-frame seeks interrupt one another; commit the decoder seek on release.
+      // Preview during the drag; commit one precise native seek on release.
       if (commitSeek) videoRef.current?.seekTo(nextPosition)
     },
-    [durationSeconds, lastScrubRatio, pendingSeekTarget],
+    [durationSeconds, pendingSeekTarget],
   )
 
   const beginScrub = useCallback(
     (touchX: number, gestureId: number) => {
-      if (durationSeconds <= 0 || scrubberWidth <= 0) {
+      if (
+        durationSeconds <= 0 ||
+        scrubberWidth <= 0 ||
+        !isActiveRef.current ||
+        AppState.currentState !== 'active' ||
+        playerGeneration !== playerIdentityRef.current.playerGeneration ||
+        gestureId <= lastHandledScrubGestureIdRef.current ||
+        gestureId !== scrubGestureId.get()
+      ) {
         return
       }
 
-      const wasPaused =
-        Platform.OS === 'ios'
-          ? (scrubSessionRef.current?.wasPaused ?? isPausedByUserRef.current)
-          : isPausedByUser
-      if (Platform.OS === 'ios') {
-        if (
-          !isActiveRef.current ||
-          AppState.currentState !== 'active' ||
-          playerGeneration !== playerIdentityRef.current.playerGeneration ||
-          gestureId !== scrubGestureId.get()
-        ) {
-          return
-        }
-        scrubSessionRef.current = {
-          gestureId,
-          playerGeneration,
-          wasPaused,
-          playbackRatio: clamp(lastPlaybackPositionRef.current / durationSeconds, 0, 1),
-        }
+      lastHandledScrubGestureIdRef.current = gestureId
+      scrubSessionRef.current = {
+        gestureId,
+        playerGeneration,
+        wasPaused: scrubSessionRef.current?.wasPaused ?? isPausedByUserRef.current,
+        playbackRatio: clamp(lastPlaybackPositionRef.current / durationSeconds, 0, 1),
       }
 
-      scrubReleaseHandled.value = 0
-      resumeAfterScrub.value = wasPaused ? 0 : 1
       setIsPausedByUser(true)
       setIsScrubbing(true)
       triggerScrubStartHaptic()
@@ -1032,11 +1020,8 @@ const ReelFeedItemComponent = function ReelFeedItem({
     },
     [
       durationSeconds,
-      isPausedByUser,
       playerGeneration,
-      resumeAfterScrub,
       scrubGestureId,
-      scrubReleaseHandled,
       scrubberWidth,
       seekToRatio,
       setIsPausedByUser,
@@ -1057,11 +1042,12 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
   const finishScrub = useCallback(
     (touchX: number | undefined, velocityX: number, gestureId: number) => {
-      if (!isCurrentScrub(gestureId) || scrubReleaseHandled.value === 1) {
+      const session = scrubSessionRef.current
+      if (!session || !isCurrentScrub(gestureId)) {
         return
       }
 
-      scrubReleaseHandled.value = 1
+      // Consume on RN synchronously; shared-value writes are deferred to the UI runtime.
       scrubSessionRef.current = null
 
       if (typeof touchX === 'number' && durationSeconds > 0 && scrubberWidth > 0) {
@@ -1076,7 +1062,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
           easing: TIMELINE_MOTION_EASING,
         })
         seekToRatio(nextRatio, true)
-      } else if (Platform.OS === 'ios') {
+      } else {
         pendingSeekTarget.value = -1
         setPendingSeekRatio(null)
         timelinePreviewRatio.value =
@@ -1085,18 +1071,16 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
       setIsScrubbing(false)
 
-      if (resumeAfterScrub.value === 1) {
+      if (!session.wasPaused) {
         setIsPausedByUser(false)
         // A fast scrub can batch both pause-state updates into one render.
-        if (Platform.OS === 'ios') videoRef.current?.play()
+        videoRef.current?.play()
       }
     },
     [
       durationSeconds,
       isCurrentScrub,
       pendingSeekTarget,
-      resumeAfterScrub,
-      scrubReleaseHandled,
       scrubberWidth,
       seekToRatio,
       setIsPausedByUser,
@@ -1124,36 +1108,25 @@ const ReelFeedItemComponent = function ReelFeedItem({
           const trackTouchX = mapScrubTouchX(event.x, scrubberWidth)
           const ratio = scrubberWidth > 0 ? clamp(trackTouchX / scrubberWidth, 0, 1) : 0
           timelinePreviewRatio.value = ratio
-          // ponytail: sample seeks every sixth event; use a time-based limit if 120Hz traces still show churn.
+          // Sample only the React timeline labels; the thumb tracks every UI event.
           scrubUpdateSample.value = (scrubUpdateSample.value + 1) % 6
           if (scrubUpdateSample.value === 0) {
             scheduleOnRN(updateScrub, trackTouchX, scrubGestureId.get())
           }
         })
         .onEnd((event, success) => {
-          if (Platform.OS === 'ios' && !success) {
-            scheduleOnRN(finishScrub, undefined, 0, scrubGestureId.get())
-            return
-          }
+          if (!success) return
           const trackTouchX = mapScrubTouchX(event.x, scrubberWidth)
-          const ratio = scrubberWidth > 0 ? clamp(trackTouchX / scrubberWidth, 0, 1) : 0
-          timelinePreviewRatio.value = ratio
           scheduleOnRN(finishScrub, trackTouchX, event.velocityX, scrubGestureId.get())
         })
         .onFinalize((_event, success) => {
-          scheduleOnRN(
-            finishScrub,
-            Platform.OS === 'ios' && !success ? undefined : lastScrubRatio.value * scrubberWidth,
-            0,
-            scrubGestureId.get(),
-          )
+          if (!success) scheduleOnRN(finishScrub, undefined, 0, scrubGestureId.get())
         }),
     [
       beginScrub,
       durationSeconds,
       finishScrub,
       isActive,
-      lastScrubRatio,
       playbackState.isPlayable,
       scrubberWidth,
       scrubGestureId,
@@ -1216,10 +1189,9 @@ const ReelFeedItemComponent = function ReelFeedItem({
       includeDuration = false,
       resetReadyState = false,
     }: { includeDuration?: boolean; resetReadyState?: boolean } = {}) => {
+      lastHandledScrubGestureIdRef.current = scrubGestureId.get()
+      scrubSessionRef.current = null
       pendingSeekTarget.value = -1
-      lastScrubRatio.value = 0
-      resumeAfterScrub.value = 0
-      scrubReleaseHandled.value = 0
       timelinePreviewRatio.value = 0
       timelineInteractionProgress.value = 0
       lastBufferedPositionRef.current = 0
@@ -1239,10 +1211,8 @@ const ReelFeedItemComponent = function ReelFeedItem({
       setScrubPosition(0)
     },
     [
-      lastScrubRatio,
       pendingSeekTarget,
-      resumeAfterScrub,
-      scrubReleaseHandled,
+      scrubGestureId,
       timelineInteractionProgress,
       timelinePreviewRatio,
       setIsPausedByUser,
@@ -1250,11 +1220,14 @@ const ReelFeedItemComponent = function ReelFeedItem({
   )
 
   useEffect(() => {
-    if (Platform.OS !== 'ios') return undefined
+    isActiveRef.current = isActive
 
     const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') return
+
+      lastHandledScrubGestureIdRef.current = scrubGestureId.get()
       const session = scrubSessionRef.current
-      if (nextState === 'active' || !session) return
+      if (!session) return
 
       scrubSessionRef.current = null
       if (
@@ -1263,8 +1236,6 @@ const ReelFeedItemComponent = function ReelFeedItem({
       ) {
         return
       }
-      scrubReleaseHandled.value = 1
-      resumeAfterScrub.value = 0
       pendingSeekTarget.value = -1
       setPendingSeekRatio(null)
       setIsScrubbing(false)
@@ -1273,14 +1244,15 @@ const ReelFeedItemComponent = function ReelFeedItem({
     })
 
     return () => {
+      isActiveRef.current = false
+      lastHandledScrubGestureIdRef.current = scrubGestureId.get()
       scrubSessionRef.current = null
       subscription.remove()
     }
   }, [
     isActive,
     pendingSeekTarget,
-    resumeAfterScrub,
-    scrubReleaseHandled,
+    scrubGestureId,
     setIsPausedByUser,
     timelinePreviewRatio,
     videoSourceKey,
