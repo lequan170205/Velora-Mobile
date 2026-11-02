@@ -162,6 +162,8 @@ export function MessageBubble({ currentUserId, onCallBack, ...props }: MessageBu
       <CallLogRow
         message={message}
         currentUserId={currentUserId ?? null}
+        primaryStatusLabel={props.primaryStatusLabel}
+        readReceiptParticipants={props.readReceiptParticipants}
         {...(props.timeLabel ? { timeLabel: props.timeLabel } : {})}
         {...(onCallBack ? { onCallBack } : {})}
       />

@@ -467,7 +467,7 @@ export interface MessageBubbleContextMenuPayload {
   gestureState?: MessageContextMenuGestureState
 }
 
-function renderMessageReceiptContent({
+export function renderMessageReceiptContent({
   primaryStatusLabel,
   readReceiptParticipants,
   visibleReceiptParticipants,

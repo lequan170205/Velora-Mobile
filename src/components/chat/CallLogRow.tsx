@@ -6,19 +6,41 @@ import { colors } from '../../constants/theme'
 import { describeCallLogForViewer } from '../../lib/call/callHistoryPresentation'
 import { SafeTouchableOpacity } from '../common/SafeTouchableOpacity'
 
-import type { Message } from '../../types/conversation.types'
+import { renderMessageReceiptContent } from './MessageBubbleImpl'
+
+import type { ChatParticipant, Message } from '../../types/conversation.types'
+
+const MAX_VISIBLE_RECEIPTS = 3
+const NO_RECEIPTS: ChatParticipant[] = []
 
 type CallLogRowProps = {
   message: Message
   currentUserId: string | null
+  /** A call is a message: it carries the same Sent / Seen marker when it is the newest one. */
+  primaryStatusLabel?: string | null
+  readReceiptParticipants?: ChatParticipant[]
   timeLabel?: string
   /** Offered for 1-1 calls only; group calls start from the header. */
   onCallBack?: (callType: 'VOICE' | 'VIDEO') => void
 }
 
 /** A finished call, centred like group system rows and not interactive. */
-export function CallLogRow({ message, currentUserId, timeLabel, onCallBack }: CallLogRowProps) {
+export function CallLogRow({
+  message,
+  currentUserId,
+  primaryStatusLabel = null,
+  readReceiptParticipants = NO_RECEIPTS,
+  timeLabel,
+  onCallBack,
+}: CallLogRowProps) {
   const callLog = message.metadata?.callLog
+  const visibleReceiptParticipants = readReceiptParticipants.slice(0, MAX_VISIBLE_RECEIPTS)
+  const receipts = renderMessageReceiptContent({
+    primaryStatusLabel,
+    readReceiptParticipants,
+    visibleReceiptParticipants,
+    hiddenReceiptCount: readReceiptParticipants.length - visibleReceiptParticipants.length,
+  })
 
   if (!callLog) {
     return (
@@ -28,6 +50,7 @@ export function CallLogRow({ message, currentUserId, timeLabel, onCallBack }: Ca
             {message.content}
           </Text>
         </View>
+        {receipts ? <View className="-mx-4 mt-1 self-stretch">{receipts}</View> : null}
       </View>
     )
   }
@@ -76,6 +99,7 @@ export function CallLogRow({ message, currentUserId, timeLabel, onCallBack }: Ca
           </SafeTouchableOpacity>
         ) : null}
       </View>
+      {receipts ? <View className="-mx-4 mt-1 self-stretch">{receipts}</View> : null}
     </View>
   )
 }
