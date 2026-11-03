@@ -2292,8 +2292,12 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
       assert(callKitEndAction(isActiveCall: false, isIncomingCall: false) == "end")
       assert(callKitEndAction(isActiveCall: true, isIncomingCall: true) == "end")
       assert(callKitEndAction(isActiveCall: true, isIncomingCall: false) == "end")
-      assert(apnsEnvironment(isDebugBuild: true) == "development")
-      assert(apnsEnvironment(isDebugBuild: false) == "production")
+      assert(apnsEnvironment(isDebugBuild: true, provisionedEnvironment: nil) == "development")
+      assert(apnsEnvironment(isDebugBuild: true, provisionedEnvironment: "production") == "development")
+      assert(apnsEnvironment(isDebugBuild: false, provisionedEnvironment: nil) == "production")
+      assert(apnsEnvironment(isDebugBuild: false, provisionedEnvironment: "development") == "development")
+      assert(apnsEnvironment(isDebugBuild: false, provisionedEnvironment: "production") == "production")
+      assert(apnsEnvironment(isDebugBuild: false, provisionedEnvironment: "bogus") == "production")
 
       let activeCallState = validateCallStateUpdatePayload(
         validCallStatePayload.merging(["status": "active"]) { _, latest in latest },
@@ -3491,14 +3495,45 @@ private final class VeloraSystemCallCenter: NSObject, PKPushRegistryDelegate, CX
 
   private func currentApnsEnvironment() -> String? {
     #if DEBUG
-      return apnsEnvironment(isDebugBuild: true)
+      return apnsEnvironment(isDebugBuild: true, provisionedEnvironment: nil)
     #else
-      return apnsEnvironment(isDebugBuild: false)
+      return apnsEnvironment(
+        isDebugBuild: false,
+        provisionedEnvironment: embeddedProvisionApsEnvironment()
+      )
     #endif
   }
 
-  private func apnsEnvironment(isDebugBuild: Bool) -> String {
-    isDebugBuild ? "development" : "production"
+  /// The token's environment follows the signing profile, not the build
+  /// configuration: a Release build installed from Xcode is signed with a
+  /// development profile and gets a sandbox token. Only App Store and
+  /// TestFlight builds have no embedded profile and use production.
+  private func apnsEnvironment(isDebugBuild: Bool, provisionedEnvironment: String?) -> String {
+    if isDebugBuild {
+      return "development"
+    }
+    if let provisionedEnvironment, ["development", "production"].contains(provisionedEnvironment) {
+      return provisionedEnvironment
+    }
+    return "production"
+  }
+
+  private func embeddedProvisionApsEnvironment() -> String? {
+    guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+          let data = try? Data(contentsOf: url),
+          let start = data.range(of: Data("<?xml".utf8)),
+          let end = data.range(of: Data("</plist>".utf8)),
+          start.lowerBound < end.upperBound else {
+      return nil
+    }
+
+    let plistData = data.subdata(in: start.lowerBound..<end.upperBound)
+    guard let plist = try? PropertyListSerialization.propertyList(from: plistData, options: [], format: nil) as? [String: Any],
+          let entitlements = plist["Entitlements"] as? [String: Any] else {
+      return nil
+    }
+
+    return entitlements["aps-environment"] as? String
   }
 
   private func currentAppState() -> String {
