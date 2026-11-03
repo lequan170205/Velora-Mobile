@@ -76,6 +76,7 @@ const SocketContext = createContext<SocketContextType>({
 })
 
 const OFFLINE_MESSAGE_ACK_TIMEOUT_MS = 15000
+const OFFLINE_DISCONNECT_GRACE_MS = 5000
 const BOT_USER_ID = process.env.EXPO_PUBLIC_BOT_USER_ID
 const BOT_FALLBACK_EMAIL = 'bot@system.local'
 const BOT_STREAM_TEMP_ID_PREFIX = 'temp-bot-stream:'
@@ -1957,10 +1958,19 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (!isOnline) {
-      if (!socket.disconnected) {
-        socket.disconnect()
+      if (socket.disconnected) {
+        return
       }
-      return
+
+      // A path update can flap offline and back within a second; only a lasting
+      // loss is worth tearing the socket down.
+      const disconnectTimeoutId = setTimeout(() => {
+        if (!socket.disconnected) {
+          socket.disconnect()
+        }
+      }, OFFLINE_DISCONNECT_GRACE_MS)
+
+      return () => clearTimeout(disconnectTimeoutId)
     }
 
     if (socket.connected || socket.active) {

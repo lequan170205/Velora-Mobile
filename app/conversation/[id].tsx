@@ -34,6 +34,7 @@ import { useConversationPresence } from '../../src/hooks/conversation/useConvers
 import { useConversationReceiptModel } from '../../src/hooks/conversation/useConversationReceiptModel'
 import { useConversationSessionRuntime } from '../../src/hooks/conversation/useConversationSessionRuntime'
 import { useConversationTimelineController } from '../../src/hooks/conversation/useConversationTimelineController'
+import { useSustainedFlag } from '../../src/hooks/useSustainedFlag'
 import { safeCallErrorCode } from '../../src/lib/call/callDebug'
 import { groupWinnerAction } from '../../src/lib/call/groupWinnerAction'
 import {
@@ -56,6 +57,8 @@ import { useChatStore } from '../../src/stores/chatStore'
 import type { Message } from '../../src/types/conversation.types'
 
 const EMPTY_TYPERS: string[] = []
+/** A socket gap shorter than this is not worth a "Reconnecting" banner. */
+const RECONNECTING_BANNER_DELAY_MS = 3000
 
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -435,9 +438,10 @@ export default function ChatScreen() {
     orderedMessages,
     otherParticipant,
   })
+  const isReconnecting = useSustainedFlag(!isConnected, RECONNECTING_BANNER_DELAY_MS)
   const { isOnline, presenceLabel } = useConversationPresence({
     conversationId,
-    isConnected,
+    isConnected: !isReconnecting,
     isGroup,
     otherUserId: otherUserId ?? null,
     requestPresence,
@@ -742,7 +746,7 @@ export default function ChatScreen() {
             {...(avatarUrl ? { avatarUrl } : {})}
             displayName={displayName}
             groupTypingLabel={groupTypingLabel}
-            isConnected={isConnected}
+            isConnected={!isReconnecting}
             isGroup={isGroup}
             isOnline={isOnline}
             participantCount={currentConversation?.participantIds.length ?? 0}
