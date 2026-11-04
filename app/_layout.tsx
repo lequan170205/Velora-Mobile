@@ -9,7 +9,7 @@ import {
 } from '@expo-google-fonts/inter'
 import { SpaceGrotesk_600SemiBold, SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk'
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet'
-import { Stack } from 'expo-router'
+import { Stack, usePathname } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
 import { useEffect, useState } from 'react'
@@ -65,6 +65,10 @@ type RootAppShellProps = {
 }
 
 function RootAppShell({ hasPendingNativeCallIntent }: RootAppShellProps) {
+  const pathname = usePathname()
+  const isReelPlaybackRoute =
+    /^\/series\/[^/]+$/.test(pathname) ||
+    (pathname !== '/reels/create' && /^\/reels\/[^/]+$/.test(pathname))
   const [loaded, error] = useFonts({
     SpaceGrotesk_600SemiBold,
     SpaceGrotesk_700Bold,
@@ -168,7 +172,10 @@ function RootAppShell({ hasPendingNativeCallIntent }: RootAppShellProps) {
                                       freezeOnBlur: true,
                                     }}
                                   >
-                                    <Stack.Screen name="(tabs)" />
+                                    <Stack.Screen
+                                      name="(tabs)"
+                                      options={{ freezeOnBlur: !isReelPlaybackRoute }}
+                                    />
                                     <Stack.Screen name="(auth)" />
                                     <Stack.Screen
                                       name="reels/[id]/index"

@@ -28,6 +28,7 @@ const databaseSchema = read('src/database/schema.ts')
 const databaseMigrations = read('src/database/migrations.ts')
 const episodePicker = read('src/components/reels/series/ReelEpisodePickerSheet.tsx')
 const queryKeysSource = read('src/constants/queryKeys.ts')
+const rootLayout = read('app/_layout.tsx')
 
 const loadReelsApi = () => {
   const compiled = ts.transpileModule(reelsApi, {
@@ -288,6 +289,25 @@ test('series playback loads an episode window anchored on the requested reel', (
   )
   assert.match(reelsViewer, /maybeFetchNextPage\(nextIndex\)/)
   assert.match(seriesScreen, /\/series\/\[id\]\/manage/)
+})
+
+test('root tabs stay responsive under the pushed Series viewer for Reel playback recovery', () => {
+  assert.match(rootLayout, /const pathname = usePathname\(\)/)
+  assert.match(
+    rootLayout,
+    /const isReelPlaybackRoute =\s*\/\^\\\/series\\\/\[\^\/\]\+\$\/\.test\(pathname\)/,
+  )
+  assert.match(
+    rootLayout,
+    /pathname !== '\/reels\/create'.*\/\^\\\/reels\\\/\[\^\/\]\+\$\/\.test\(pathname\)/,
+  )
+  assert.match(
+    rootLayout,
+    /name="\(tabs\)"[\s\S]*options=\{\{ freezeOnBlur: !isReelPlaybackRoute \}\}/,
+  )
+  assert.match(rootLayout, /name="series\/\[id\]\/index"[\s\S]*freezeOnBlur: false/)
+  assert.match(reelsViewer, /useIsFocused\(\)/)
+  assert.match(reelsViewer, /transition\(\s*canPlayActiveReel \? effectiveActiveReelId : null/)
 })
 
 test('episode selection waits for sheet dismissal without blocking future opens', () => {
