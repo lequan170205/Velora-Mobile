@@ -28,6 +28,7 @@ import { scheduleOnRN } from 'react-native-worklets'
 import { useOfflineReelVideoSource } from '@/hooks/useOfflineReelVideoSource'
 import type { BottomSheetModal } from '@gorhom/bottom-sheet'
 
+import { commentCount } from '../../api/reelComments.api'
 import { colors } from '../../constants/theme'
 import {
   useReelDetail,
@@ -36,6 +37,7 @@ import {
   useDeleteReel,
   useReprocessReel,
 } from '../../hooks/useReels'
+import { authTokenSession } from '../../lib/auth/tokenSession'
 import { CHAT_SHARED_REEL_FALLBACK_ID_PREFIX } from '../../lib/chatReels'
 import {
   pinAuthorizedLocalReelPlayback,
@@ -61,6 +63,7 @@ import { CommittedCropPreview } from './create/crop-preview'
 import { TrimmedReelVideo } from './create/trimmed-reel-video'
 import { DeleteReelModal } from './DeleteReelModal'
 import { ReelActionsMenu } from './ReelActionsMenu'
+import { ReelCommentsSheet } from './ReelCommentsSheet'
 import { ReelLoadingRail } from './ReelLoadingRail'
 import { ReelPlaybackOptionsSheet } from './ReelPlaybackOptionsSheet'
 import { ReelShareSheet } from './ReelShareSheet'
@@ -434,12 +437,18 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const [metadataCopyHeight, setMetadataCopyHeight] = useState(0)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showShareSheet, setShowShareSheet] = useState(false)
+  const [showCommentsSheet, setShowCommentsSheet] = useState(false)
+  const [authoritativeCommentCount, setAuthoritativeCommentCount] = useState<number>()
+  useEffect(() => {
+    setAuthoritativeCommentCount(undefined)
+  }, [reel.id, user?.id])
   const { data: processingStatus } = useReelProcessingStatus(reel, {
     enabled: enableStatusPolling,
   })
   const shouldFetchReelDetail =
     !reel.id.startsWith(CHAT_SHARED_REEL_FALLBACK_ID_PREFIX) &&
     ((isActive && liveTranscriptionEnabled && !clearDisplay) ||
+      (isActive && showCommentsSheet) ||
       !reel.author?.username ||
       !reel.author?.avatarUrl ||
       reel.tags.length === 0 ||
@@ -455,6 +464,9 @@ const ReelFeedItemComponent = function ReelFeedItem({
     const nextReel: ReelWithLocalThumbnail = processingStatus
       ? mergeReelProcessingStatus(sourceReel, processingStatus)
       : { ...sourceReel }
+
+    nextReel.commentCount =
+      authoritativeCommentCount ?? commentCount(sourceReel.commentCount, reelDetail?.commentCount)
 
     if (reelDetail?.title?.trim()) {
       nextReel.title = reelDetail.title
@@ -538,7 +550,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
     }
 
     return nextReel
-  }, [processingStatus, reel, reelDetail])
+  }, [authoritativeCommentCount, processingStatus, reel, reelDetail])
 
   useEffect(() => {
     const seriesId = displayReel.series?.id
@@ -1263,7 +1275,12 @@ const ReelFeedItemComponent = function ReelFeedItem({
   }, [resetTimelineState, videoSourceKey])
 
   useEffect(() => {
+    setShowCommentsSheet(false)
+  }, [user?.id])
+
+  useEffect(() => {
     if (!isActive) {
+      setShowCommentsSheet(false)
       if (isPlaybackOptionsPresentedRef.current) {
         playbackOptionsSheetRef.current?.dismiss()
         isPlaybackOptionsPresentedRef.current = false
@@ -1848,6 +1865,20 @@ const ReelFeedItemComponent = function ReelFeedItem({
               </View>
 
               <View className="ml-auto shrink-0 items-center gap-2">
+                {user?.id && !displayReel.id.startsWith(CHAT_SHARED_REEL_FALLBACK_ID_PREFIX) ? (
+                  <TouchableOpacity
+                    accessibilityLabel="Open comments"
+                    accessibilityRole="button"
+                    className="min-h-11 min-w-11 items-center justify-center"
+                    activeOpacity={0.84}
+                    onPress={() => setShowCommentsSheet(true)}
+                  >
+                    <Ionicons name="chatbubble-outline" size={24} color={colors.text.inverse} />
+                    <Text className="text-xs2 font-semibold text-white">
+                      {displayReel.commentCount ?? 0}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
                 <TouchableOpacity
                   accessibilityLabel="Share reel"
                   accessibilityRole="button"
@@ -1903,6 +1934,18 @@ const ReelFeedItemComponent = function ReelFeedItem({
             ) : null}
           </View>
         </View>
+
+        {user?.id ? (
+          <ReelCommentsSheet
+            key={`${user.id}:${authTokenSession.getGeneration()}:${displayReel.id}`}
+            visible={showCommentsSheet && isActive}
+            reelId={displayReel.id}
+            viewerId={user.id}
+            reelOwnerId={displayReel.userId}
+            onCommentCountChange={setAuthoritativeCommentCount}
+            onClose={() => setShowCommentsSheet(false)}
+          />
+        ) : null}
 
         <ReelShareSheet
           visible={showShareSheet}

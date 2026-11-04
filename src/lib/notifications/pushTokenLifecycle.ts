@@ -1,5 +1,6 @@
 import { authApi } from '../../api/auth.api'
 import { deleteValueFor, getValueFor, save } from '../../utils/storage'
+import { authTokenSession } from '../auth/tokenSession'
 import { veloraSystemCalls } from '../systemCalls/veloraSystemCalls'
 
 import { deleteCurrentFcmToken, getCurrentFcmToken, maskNotificationToken } from './fcm'
@@ -252,10 +253,12 @@ export const preparePushTokenForLogoutCleanup = async () => {
 }
 
 export const performLogoutPushTokenCleanup = async () => {
+  const generation = authTokenSession.getGeneration()
   const cleanup = await preparePushTokenForLogoutCleanup()
 
   try {
-    await authApi.logout(toLogoutPayload(cleanup))
+    await authApi.logout(toLogoutPayload(cleanup), generation)
+    if (authTokenSession.getGeneration() !== generation + 1) throw new Error('Auth session changed')
 
     if (hasPushTokens(cleanup)) {
       await clearPendingLogoutPushTokenCleanup()

@@ -59,15 +59,23 @@ export const authApi = {
     return response.data
   },
   login: async (data: Record<string, unknown>) => {
+    const attempt = authTokenSession.beginLoginAttempt()
     const response = await apiClient.post<LoginResponse>('/auth/mobile/login', data)
-    await authTokenSession.installTokenPair(response.data)
+    await authTokenSession.installTokenPair(response.data, attempt)
     return response.data
   },
-  logout: async (data?: { pushToken?: string; pushTokens?: LogoutPushToken[] }) => {
+  logout: async (
+    data?: { pushToken?: string; pushTokens?: LogoutPushToken[] },
+    expectedGeneration = authTokenSession.getGeneration(),
+  ) => {
+    const generation = expectedGeneration
+    if (authTokenSession.getGeneration() !== generation) throw new Error('Auth session changed')
     await beginLogout()
 
     try {
+      if (authTokenSession.getGeneration() !== generation) throw new Error('Auth session changed')
       const refreshToken = await authTokenSession.getRefreshToken()
+      if (authTokenSession.getGeneration() !== generation) throw new Error('Auth session changed')
 
       if (!refreshToken) {
         throw new Error('Cannot logout without a refresh token')
@@ -78,10 +86,19 @@ export const authApi = {
         { ...data, refreshToken },
         {
           timeout: 5000,
+          authSessionGeneration: generation,
         },
       )
 
-      await authTokenSession.clear()
+      if (authTokenSession.getGeneration() !== generation) throw new Error('Auth session changed')
+      try {
+        await authTokenSession.clear(generation)
+      } catch (error) {
+        if (authTokenSession.getGeneration() !== generation + 1) throw error
+        console.warn('[Auth] Remote logout succeeded, but local credentials could not be removed')
+      }
+      if (authTokenSession.getGeneration() !== generation + 1)
+        throw new Error('Auth session changed')
       return response.data
     } finally {
       endLogout()
@@ -103,8 +120,11 @@ export const authApi = {
     return Boolean(restoredSession)
   },
   me: async () => {
+    const generation = authTokenSession.getGeneration()
     const response = await apiClient.get<MeResponse>('/auth/me')
-    return toUserSession(response.data)
+    const user = toUserSession(response.data)
+    if (!authTokenSession.bindIdentity(user.id, generation)) throw new Error('Auth session changed')
+    return user
   },
   getSocketToken: async () => {
     const response = await apiClient.get<SocketTokenResponse>('/auth/socket-token', {
@@ -125,8 +145,9 @@ export const authApi = {
     return response.data
   },
   verifyGoogleToken: async (data: { idToken: string }) => {
+    const attempt = authTokenSession.beginLoginAttempt()
     const response = await apiClient.post<LoginResponse>('/auth/mobile/google/verify', data)
-    await authTokenSession.installTokenPair(response.data)
+    await authTokenSession.installTokenPair(response.data, attempt)
     return response.data
   },
   resendVerificationEmail: async (email: string) => {

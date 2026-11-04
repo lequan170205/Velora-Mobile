@@ -21,6 +21,8 @@ export const queryKeys = {
   },
   reels: {
     all: ['reels'] as const,
+    comments: (viewerId: string, reelId: string) =>
+      ['reels', viewerId, 'comments', reelId] as const,
     viewerFeeds: (viewerId: string) => ['reels', viewerId] as const,
     friends: (viewerId: string) => ['reels', viewerId, 'friends'] as const,
     lists: (viewerId: string) => ['reels', viewerId, 'list'] as const,
@@ -38,6 +40,7 @@ export const queryKeys = {
     seriesList: (viewerId: string, params?: Record<string, unknown>) =>
       ['reels', viewerId, 'series-list', params ?? {}] as const,
     series: (viewerId: string, id: string) => ['reels', viewerId, 'series', id] as const,
+    allSeriesEpisodePages: (viewerId: string) => ['reels', viewerId, 'series-episodes'] as const,
     seriesEpisodePages: (viewerId: string, id: string) =>
       ['reels', viewerId, 'series-episodes', id] as const,
     seriesEpisodes: (viewerId: string, id: string, aroundReelId?: string) =>

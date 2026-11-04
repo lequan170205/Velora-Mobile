@@ -68,6 +68,7 @@ export interface Reel extends Partial<ReelMediaState> {
   status: ReelProcessingState
   visibility: ReelVisibility
   viewCount: number
+  commentCount?: number
   thumbnailKey?: string
   thumbnailUrl?: string
   localThumbnailUri?: string

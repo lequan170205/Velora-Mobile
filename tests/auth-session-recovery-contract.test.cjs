@@ -61,6 +61,15 @@ const loadApiClient = ({
         return {
           authTokenSession: {
             getAccessToken,
+            getGeneration: () => 0,
+            isTransitioning: () => false,
+            getIdentity: () => 'user',
+            canRestore: () => true,
+            waitForWrites: async () => {},
+            rotateTokenPair: async (pair) => {
+              await installTokenPair(pair)
+              return true
+            },
             getRefreshToken,
             getOrCreateRefreshRequestId,
             installTokenPair,

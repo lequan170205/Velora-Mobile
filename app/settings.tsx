@@ -12,6 +12,7 @@ import { queryKeys } from '../src/constants/queryKeys'
 import { colors } from '../src/constants/theme'
 import { resetLocalDatabase } from '../src/database/DatabaseManager'
 import { useReelSavingMode } from '../src/hooks/useReelSavingMode'
+import { authTokenSession } from '../src/lib/auth/tokenSession'
 import {
   removeFriendMutationsForViewer,
   removeFriendshipQueriesForViewer,
@@ -220,6 +221,7 @@ export default function SettingsScreen() {
       pendingActionRef.current = action
       setPendingAction(action)
       let shouldClearAuth = false
+      const logoutGeneration = authTokenSession.getGeneration()
 
       try {
         if (action === 'clear-cache') {
@@ -251,18 +253,21 @@ export default function SettingsScreen() {
         }
 
         shouldClearAuth = true
-
-        await clearCache()
-        await resetLocalDatabase()
-
-        if (user?.id) {
-          await reelEventQueue.clearUser(user.id)
-          removeRecommendationQueriesForUser(queryClient, user.id)
-          removeFriendshipQueriesForViewer(queryClient, user.id)
-          removeBlockedUsersQueriesForViewer(queryClient, user.id)
-          removeFriendMutationsForViewer(queryClient, user.id)
-          queryClient.removeQueries({ queryKey: queryKeys.reels.friends(user.id) })
-        }
+        await authTokenSession.runLogoutCleanup(logoutGeneration, async (isCurrent) => {
+          await clearCache()
+          if (!isCurrent()) return
+          await resetLocalDatabase()
+          if (!isCurrent()) return
+          if (user?.id) {
+            await reelEventQueue.clearUser(user.id)
+            if (!isCurrent()) return
+            removeRecommendationQueriesForUser(queryClient, user.id)
+            removeFriendshipQueriesForViewer(queryClient, user.id)
+            removeBlockedUsersQueriesForViewer(queryClient, user.id)
+            removeFriendMutationsForViewer(queryClient, user.id)
+            queryClient.removeQueries({ queryKey: queryKeys.reels.friends(user.id) })
+          }
+        })
       } catch (error) {
         console.error(`[Settings] Failed to ${action}`, error)
 
@@ -280,9 +285,11 @@ export default function SettingsScreen() {
       } finally {
         pendingActionRef.current = null
 
-        if (action === 'sign-out' && shouldClearAuth) {
-          clearAuth()
-        } else if (isMountedRef.current) {
+        const clearedAuth =
+          action === 'sign-out' &&
+          shouldClearAuth &&
+          authTokenSession.finishLogout(logoutGeneration, clearAuth)
+        if (!clearedAuth && isMountedRef.current) {
           setPendingAction(null)
         }
       }

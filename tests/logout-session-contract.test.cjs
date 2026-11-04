@@ -10,9 +10,16 @@ test('settings keeps local auth until remote logout succeeds', () => {
   const source = read('app/settings.tsx')
 
   assert.match(source, /let shouldClearAuth = false/)
+  assert.match(source, /authTokenSession\.runLogoutCleanup\(logoutGeneration/)
   assert.match(source, /const logoutResult = await performLogoutPushTokenCleanup\(\)/)
-  assert.match(source, /if \(!logoutResult\.ok\) \{\s*setFeedbackMessage\("Couldn't sign out\. Try again\."\)\s*return/)
-  assert.match(source, /if \(action === 'sign-out' && shouldClearAuth\) \{\s*clearAuth\(\)/)
+  assert.match(
+    source,
+    /if \(!logoutResult\.ok\) \{\s*setFeedbackMessage\("Couldn't sign out\. Try again\."\)\s*return/,
+  )
+  assert.match(
+    source,
+    /action === 'sign-out' &&\s*shouldClearAuth &&\s*authTokenSession\.finishLogout\(logoutGeneration, clearAuth\)/,
+  )
   assert.doesNotMatch(source, /if \(action === 'sign-out'\) \{\s*clearAuth\(\)/)
 })
 
@@ -20,7 +27,14 @@ test('profile completion keeps local auth until remote logout succeeds', () => {
   const source = read('app/complete-profile.tsx')
 
   assert.match(source, /let shouldClearAuth = false/)
+  assert.match(source, /authTokenSession\.runLogoutCleanup\(logoutGeneration/)
   assert.match(source, /const logoutResult = await performLogoutPushTokenCleanup\(\)/)
-  assert.match(source, /if \(!logoutResult\.ok\) \{\s*setError\('Unable to sign out\. Check your connection and try again\.'\)\s*return/)
-  assert.match(source, /if \(shouldClearAuth\) \{\s*clearAuth\(\)/)
+  assert.match(
+    source,
+    /if \(!logoutResult\.ok\) \{\s*setError\('Unable to sign out\. Check your connection and try again\.'\)\s*return/,
+  )
+  assert.match(
+    source,
+    /if \(shouldClearAuth\) authTokenSession\.finishLogout\(logoutGeneration, clearAuth\)/,
+  )
 })

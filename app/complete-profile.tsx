@@ -20,6 +20,7 @@ import { ShortFormScreen } from '../src/components/base/ShortFormScreen'
 import { colors } from '../src/constants/theme'
 import { resetLocalDatabase } from '../src/database/DatabaseManager'
 import { useUsernameAvailability } from '../src/hooks/useUsernameAvailability'
+import { authTokenSession } from '../src/lib/auth/tokenSession'
 import { cn } from '../src/lib/cn'
 import { performLogoutPushTokenCleanup } from '../src/lib/notifications/pushTokenLifecycle'
 import { MAX_USERNAME_LENGTH, getUsernameError, normalizeUsername } from '../src/lib/profile'
@@ -158,6 +159,7 @@ export default function CompleteProfileScreen() {
 
   const handleSignOut = async () => {
     let shouldClearAuth = false
+    const logoutGeneration = authTokenSession.getGeneration()
 
     try {
       const logoutResult = await performLogoutPushTokenCleanup()
@@ -168,13 +170,13 @@ export default function CompleteProfileScreen() {
       }
 
       shouldClearAuth = true
-      await resetLocalDatabase()
+      await authTokenSession.runLogoutCleanup(logoutGeneration, async () => {
+        await resetLocalDatabase()
+      })
     } catch {
       setError('Unable to sign out. Check your connection and try again.')
     } finally {
-      if (shouldClearAuth) {
-        clearAuth()
-      }
+      if (shouldClearAuth) authTokenSession.finishLogout(logoutGeneration, clearAuth)
     }
   }
 

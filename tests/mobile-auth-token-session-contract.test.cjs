@@ -47,6 +47,8 @@ test('token session persists only the refresh token before exposing the access t
   }
   const { authTokenSession } = compileModule('src/lib/auth/tokenSession.ts', (specifier) => {
     if (specifier === 'expo-secure-store') return SecureStore
+    if (specifier === '@react-native-async-storage/async-storage')
+      return { getItem: async () => null, setItem: async () => {}, removeItem: async () => {} }
     if (specifier === '../uuid') return { createUuid: () => 'refresh-request-id' }
     return require(specifier)
   })
@@ -57,6 +59,7 @@ test('token session persists only the refresh token before exposing the access t
   })
 
   assert.equal(authTokenSession.getAccessToken(), null)
+  await new Promise((resolve) => setImmediate(resolve))
   assert.equal(secureStoreCalls.length, 1)
   assert.equal(secureStoreCalls[0].value, 'persisted-refresh')
   assert.notEqual(secureStoreCalls[0].value, 'memory-only-access')
@@ -86,9 +89,13 @@ test('token session persists only the refresh token before exposing the access t
 const loadAuthApi = ({ post, refreshToken = 'latest-refresh-token', refreshAccessToken }) => {
   const events = []
   let clearCalls = 0
+  let generation = 0
+  let loginAttempt = 0
   let hasAccessToken = false
   const installedPairs = []
   const authTokenSession = {
+    getGeneration: () => generation,
+    beginLoginAttempt: () => ++loginAttempt,
     getRefreshToken: async () => {
       events.push('read-refresh')
       return refreshToken
@@ -96,7 +103,9 @@ const loadAuthApi = ({ post, refreshToken = 'latest-refresh-token', refreshAcces
     installTokenPair: async (pair) => {
       installedPairs.push(pair)
     },
-    clear: async () => {
+    clear: async (expected) => {
+      assert.equal(expected, generation)
+      generation++
       clearCalls += 1
       events.push('clear')
     },

@@ -150,8 +150,8 @@ function RootAppShell({ hasPendingNativeCallIntent }: RootAppShellProps) {
       <SafeAreaProvider>
         <PaperProvider theme={paperTheme}>
           <KeyboardProvider>
-            <BottomSheetModalProvider>
-              <QueryProvider>
+            <QueryProvider>
+              <BottomSheetModalProvider>
                 <NetworkProvider>
                   <AuthProvider areFontsReady={areFontsReady}>
                     <CallProvider>
@@ -244,8 +244,8 @@ function RootAppShell({ hasPendingNativeCallIntent }: RootAppShellProps) {
                     </CallProvider>
                   </AuthProvider>
                 </NetworkProvider>
-              </QueryProvider>
-            </BottomSheetModalProvider>
+              </BottomSheetModalProvider>
+            </QueryProvider>
           </KeyboardProvider>
         </PaperProvider>
       </SafeAreaProvider>
