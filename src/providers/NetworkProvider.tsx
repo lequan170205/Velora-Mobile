@@ -8,6 +8,9 @@ onlineManager.setOnline(false)
 
 type NetworkContextValue = {
   isOnline: boolean
+  // The device has a network link. Unlike isOnline it ignores the OS "internet reachable" guess,
+  // which can stay false while the network works; use it to decide whether to try a connection.
+  isLinkUp: boolean
   isForceOffline: boolean
   isNetworkResolved: boolean
   networkState: NetworkState | null
@@ -16,6 +19,7 @@ type NetworkContextValue = {
 
 const NetworkContext = createContext<NetworkContextValue>({
   isOnline: false,
+  isLinkUp: false,
   isForceOffline: false,
   isNetworkResolved: false,
   networkState: null,
@@ -64,6 +68,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const isOnline = isNetworkResolved && isNetworkOnline(networkState) && !isForceOffline
+  const isLinkUp = isNetworkResolved && networkState?.isConnected === true && !isForceOffline
 
   useEffect(() => {
     onlineManager.setOnline(isOnline)
@@ -73,11 +78,12 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     () => ({
       isForceOffline,
       isOnline,
+      isLinkUp,
       isNetworkResolved,
       networkState,
       setForceOffline,
     }),
-    [isForceOffline, isNetworkResolved, isOnline, networkState],
+    [isForceOffline, isLinkUp, isNetworkResolved, isOnline, networkState],
   )
 
   return <NetworkContext.Provider value={value}>{children}</NetworkContext.Provider>

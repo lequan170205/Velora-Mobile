@@ -9,7 +9,7 @@ test('the chat socket is only torn down after a lasting offline state', () => {
   const provider = read('src', 'providers', 'SocketProvider.tsx')
   assert.match(provider, /const OFFLINE_DISCONNECT_GRACE_MS = 5000/)
 
-  const effect = provider.slice(provider.indexOf('if (!isOnline) {'))
+  const effect = provider.slice(provider.indexOf('if (!isLinkUp) {'))
   const offlineBranch = effect.slice(0, effect.indexOf('if (socket.connected || socket.active)'))
   assert.match(
     offlineBranch,

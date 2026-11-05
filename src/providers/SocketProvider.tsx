@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { AppState } from 'react-native'
 import { io } from 'socket.io-client'
 
 import type { InfiniteData } from '@tanstack/react-query'
@@ -281,7 +282,9 @@ export const useSocket = () => useContext(SocketContext)
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user, isLoading } = useAuthStore()
-  const { isNetworkResolved, isOnline } = useNetworkStatus()
+  // The socket is gated on the network link, not on isOnline: the OS can report the internet as
+  // unreachable while it works, and the socket's own backoff already handles real outages.
+  const { isNetworkResolved, isLinkUp } = useNetworkStatus()
   const queryClient = useQueryClient()
   const userId = user?.id ?? null
 
@@ -1957,7 +1960,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    if (!isOnline) {
+    if (!isLinkUp) {
       if (socket.disconnected) {
         return
       }
@@ -1978,15 +1981,37 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     }
 
     socket.connect()
-  }, [isAuthenticated, isLoading, isNetworkResolved, isOnline, isConnected, socket, userId])
+  }, [isAuthenticated, isLoading, isNetworkResolved, isLinkUp, isConnected, socket, userId])
 
   useEffect(() => {
-    if (!socket?.connected || !isNetworkResolved || !isOnline || !isConnected) {
+    if (!socket?.connected || !isNetworkResolved || !isLinkUp || !isConnected) {
       return
     }
 
     return flushOfflineQueueWhenReady(socket)
-  }, [flushOfflineQueueWhenReady, isConnected, isNetworkResolved, isOnline, socket])
+  }, [flushOfflineQueueWhenReady, isConnected, isNetworkResolved, isLinkUp, socket])
+
+  const isLinkUpRef = useRef(isLinkUp)
+  isLinkUpRef.current = isLinkUp
+
+  useEffect(() => {
+    if (!socket || isLoading || !isAuthenticated || !userId) {
+      return
+    }
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active' || socket.connected || !isLinkUpRef.current) {
+        return
+      }
+
+      // Coming back to the app: a socket still waiting out a long backoff would keep the
+      // Reconnecting banner up. Closing and reopening it retries now with a fresh backoff.
+      socket.disconnect()
+      socket.connect()
+    })
+
+    return () => subscription.remove()
+  }, [isAuthenticated, isLoading, socket, userId])
 
   return (
     <SocketContext.Provider value={{ socket, isConnected, requestPresence }}>
