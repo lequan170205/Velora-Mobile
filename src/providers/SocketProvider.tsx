@@ -29,6 +29,11 @@ import {
   patchMessagesAcrossConversationCaches,
 } from '../lib/chatMessageCache'
 import {
+  describeBotReplyFailure,
+  normalizeBotReplyFailurePayload,
+  type BotReplyFailure,
+} from '../lib/conversation/botReplyFailurePolicies'
+import {
   getMessageAnchorIdentityKey,
   getMessageIdentityKey,
   isMessageBeyondOptimisticReadFrontier,
@@ -81,6 +86,7 @@ const OFFLINE_DISCONNECT_GRACE_MS = 5000
 const BOT_USER_ID = process.env.EXPO_PUBLIC_BOT_USER_ID
 const BOT_FALLBACK_EMAIL = 'bot@system.local'
 const BOT_STREAM_TEMP_ID_PREFIX = 'temp-bot-stream:'
+const BOT_NOTICE_TEMP_ID_PREFIX = 'temp-bot-notice:'
 const RECALLED_MESSAGE_CONTENT = 'Tin nhắn đã thu hồi'
 
 const redactRecalledMessage = (message: Message, recalledAt: string): Message => {
@@ -155,6 +161,9 @@ const conversationIncludesBot = (conversation?: Conversation | null) => {
 const getBotStreamTempId = (conversationId: string) =>
   `${BOT_STREAM_TEMP_ID_PREFIX}${conversationId}`
 
+const getBotNoticeTempId = (conversationId: string) =>
+  `${BOT_NOTICE_TEMP_ID_PREFIX}${conversationId}`
+
 const normalizeBotTokenPayload = (value: unknown): NormalizedBotTokenPayload | null => {
   if (!value || typeof value !== 'object') {
     return null
@@ -191,7 +200,9 @@ const clearStreamingBotMessages = (conversationId?: string) => {
         }
 
         const nextMessages = messages.filter(
-          (message) => !message.id.startsWith(BOT_STREAM_TEMP_ID_PREFIX),
+          (message) =>
+            !message.id.startsWith(BOT_STREAM_TEMP_ID_PREFIX) &&
+            !message.id.startsWith(BOT_NOTICE_TEMP_ID_PREFIX),
         )
 
         if (nextMessages.length !== messages.length) {
@@ -571,6 +582,51 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    // The backend stored the user's message but produced no AI reply (for example the
+    // per-user AI budget is spent). Show why, in the thread, as a bot message that lives only
+    // in memory like the streaming placeholder. It is dropped when a real reply starts.
+    const removeBotReplyFailureNotice = (conversationId: string) => {
+      useChatStore
+        .getState()
+        .removeOptimisticMessage(conversationId, getBotNoticeTempId(conversationId))
+    }
+
+    const showBotReplyFailureNotice = (failure: BotReplyFailure) => {
+      const store = useChatStore.getState()
+      const { conversationId } = failure
+      const tempId = getBotNoticeTempId(conversationId)
+      const content = describeBotReplyFailure(failure)
+      const { sender, senderId } = resolveStreamingBotSender({ conversationId })
+
+      store.markAsBotConversation(conversationId)
+
+      const exists = (store.optimisticMessages[conversationId] ?? []).some(
+        (message) => message.id === tempId,
+      )
+      if (exists) {
+        store.updateOptimisticMessage(conversationId, tempId, (message) => ({
+          ...message,
+          content,
+          updatedAt: new Date().toISOString(),
+        }))
+        return
+      }
+
+      const timestamp = new Date().toISOString()
+      store.addOptimisticMessage(conversationId, {
+        id: tempId,
+        clientMessageId: tempId,
+        conversationId,
+        senderId,
+        sender,
+        content,
+        type: 'text',
+        status: 'SENT',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      })
+    }
+
     const upsertStreamingBotMessage = (payload: NormalizedBotTokenPayload) => {
       const store = useChatStore.getState()
       const tempId = getBotStreamTempId(payload.conversationId)
@@ -590,6 +646,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }
 
       store.markAsBotConversation(payload.conversationId)
+      removeBotReplyFailureNotice(payload.conversationId)
 
       if (existingStreamMessage) {
         store.updateOptimisticMessage(payload.conversationId, tempId, (message) => ({
@@ -1381,6 +1438,15 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       upsertStreamingBotMessage(normalizedPayload)
     })
 
+    newSocket.on('bot_reply_failed', (payload: unknown) => {
+      const failure = normalizeBotReplyFailurePayload(payload)
+      if (!failure || removedConversationIds.has(failure.conversationId)) {
+        return
+      }
+
+      showBotReplyFailureNotice(failure)
+    })
+
     newSocket.on('new_message', (incomingMessage: Message) => {
       if (removedConversationIds.has(incomingMessage.conversationId)) {
         return
@@ -1408,6 +1474,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           conversationIncludesBot(getCachedConversation(conversationId)))
       ) {
         useChatStore.getState().markAsBotConversation(conversationId)
+        removeBotReplyFailureNotice(conversationId)
         reconcileStreamingBotMessage(message)
       }
 
