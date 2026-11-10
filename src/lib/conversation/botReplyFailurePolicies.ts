@@ -6,10 +6,12 @@
  *   { conversationId, userMessageId, clientMessageId,
  *     error: { code, message, retryAfterSeconds? } }
  *
- * `RATE_LIMITED` means the user's AI budget is spent; `retryAfterSeconds` says when it refills.
+ * `RATE_LIMITED` means the user's AI budget is spent; `AI_BUSY` means the shared model server is saturated.
+ * For both, `retryAfterSeconds` says when a retry is likely to work.
  */
 
-export type BotReplyFailureCode = 'AI_UNAVAILABLE' | 'NO_CONTENT' | 'RATE_LIMITED' | 'UNKNOWN'
+export type BotReplyFailureCode =
+  'AI_UNAVAILABLE' | 'AI_BUSY' | 'NO_CONTENT' | 'RATE_LIMITED' | 'UNKNOWN'
 
 export interface BotReplyFailure {
   conversationId: string
@@ -21,6 +23,7 @@ export interface BotReplyFailure {
 
 const KNOWN_CODES: readonly BotReplyFailureCode[] = [
   'AI_UNAVAILABLE',
+  'AI_BUSY',
   'NO_CONTENT',
   'RATE_LIMITED',
   'UNKNOWN',
@@ -75,6 +78,11 @@ export const describeBotReplyFailure = (failure: BotReplyFailure): string => {
       return failure.retryAfterSeconds
         ? `You're asking Velora AI too quickly. Please try again in ${formatWait(failure.retryAfterSeconds)}.`
         : "You're asking Velora AI too quickly. Please wait a moment and try again."
+    case 'AI_BUSY':
+      // The shared model server is saturated; unlike RATE_LIMITED this is not the user's doing.
+      return failure.retryAfterSeconds
+        ? `Velora AI is busy right now. Please try again in ${formatWait(failure.retryAfterSeconds)}.`
+        : 'Velora AI is busy right now. Please try again in a moment.'
     case 'NO_CONTENT':
       return 'No relevant video content found for this query.'
     case 'AI_UNAVAILABLE':

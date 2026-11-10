@@ -55,6 +55,33 @@ test('retryAfterSeconds is clamped and ignored when it is not a finite number', 
   assert.equal(wait(Infinity), undefined)
 })
 
+test('a busy payload keeps its code and wait', () => {
+  assert.deepEqual(
+    normalizeBotReplyFailurePayload(
+      payload({ code: 'AI_BUSY', message: 'busy', retryAfterSeconds: 14 }),
+    ),
+    {
+      conversationId: 'conversation-1',
+      code: 'AI_BUSY',
+      serverMessage: 'busy',
+      retryAfterSeconds: 14,
+    },
+  )
+})
+
+test('busy wording blames the service, not the user, and uses the wait when given', () => {
+  const busy = (retryAfterSeconds) =>
+    describeBotReplyFailure({
+      conversationId: 'c',
+      code: 'AI_BUSY',
+      serverMessage: 'SERVER-INTERNAL-DETAIL',
+      ...(retryAfterSeconds ? { retryAfterSeconds } : {}),
+    })
+  assert.equal(busy(14), 'Velora AI is busy right now. Please try again in 14 seconds.')
+  assert.equal(busy(), 'Velora AI is busy right now. Please try again in a moment.')
+  assert.doesNotMatch(busy(14), /too quickly|SERVER-INTERNAL-DETAIL/)
+})
+
 test('an unrecognised code is treated as UNKNOWN and an oversized server message is cut', () => {
   const failure = normalizeBotReplyFailurePayload(
     payload({ code: 'SOMETHING_NEW', message: 'x'.repeat(500) }),
