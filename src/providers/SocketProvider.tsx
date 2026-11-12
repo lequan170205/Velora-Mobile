@@ -700,6 +700,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     clearStreamingBotMessages()
 
+    // The server sends chat events only to connected sockets and never replays them, so the
+    // conversation list is read again on the first connect after this socket was down.
+    let wasDown = false
+
     newSocket.on('connect', () => {
       if (serverDisconnectReconnectTimeoutRef.current) {
         clearTimeout(serverDisconnectReconnectTimeoutRef.current)
@@ -727,9 +731,16 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         })
 
       flushOfflineQueueWhenReady(newSocket)
+
+      if (wasDown) {
+        wasDown = false
+        // An open chat catches up on its own messages separately.
+        void queryClient.invalidateQueries({ queryKey: queryKeys.conversations.all, exact: true })
+      }
     })
 
     newSocket.on('disconnect', (reason) => {
+      wasDown = true
       setIsConnected(false)
       lastConnectErrorMessageRef.current = null
       flushingOfflineMessageIdsRef.current.clear()
@@ -764,6 +775,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     })
 
     newSocket.on('connect_error', (error) => {
+      wasDown = true
       setIsConnected(false)
       useChatStore.getState().clearOnlineUsers()
       flushingOfflineMessageIdsRef.current.clear()
