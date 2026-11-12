@@ -327,6 +327,11 @@ export default function ActiveCallScreen() {
     recordCallScreenVisible(id)
   }, [callId, id, isValidPhase, recordCallScreenVisible])
 
+  // A group call stays open after its invitations are declined or missed, so a device
+  // that rang only counts while at least one invitation is still ringing.
+  const groupRinging =
+    remoteRinging && Object.values(groupInvitations).some((invite) => invite.status === 'ringing')
+
   const statusLabel = useMemo(() => {
     // "Ringing" only once a recipient's device reports it is ringing; until then the call is still connecting.
     if (phase === 'outgoing_ringing') return remoteRinging ? 'Ringing…' : 'Connecting…'
@@ -334,18 +339,25 @@ export default function ActiveCallScreen() {
     if (phase === 'reconnecting') return 'Reconnecting…'
     if (phase === 'ending') return 'Ending…'
     if (phase === 'active' && isGroupCall && groupPeopleIds.length < 2)
-      return remoteRinging ? 'Ringing…' : 'Waiting for others to join…'
+      return groupRinging ? 'Ringing…' : 'Waiting for others to join…'
     if (phase === 'active' && remoteAudioState === 'waiting')
       return isGroupCall ? 'Connecting group audio…' : 'Waiting for audio…'
     if (phase === 'active') return formatDuration(durationSec)
     return ''
-  }, [durationSec, groupPeopleIds.length, isGroupCall, phase, remoteAudioState, remoteRinging])
+  }, [
+    durationSec,
+    groupPeopleIds.length,
+    groupRinging,
+    isGroupCall,
+    phase,
+    remoteAudioState,
+    remoteRinging,
+  ])
 
   // The ringback tone plays only while someone's device is ringing and nobody has joined yet.
   useRingbackTone(
-    remoteRinging &&
-      (phase === 'outgoing_ringing' ||
-        (phase === 'active' && isGroupCall && groupPeopleIds.length < 2)),
+    (remoteRinging && phase === 'outgoing_ringing') ||
+      (groupRinging && phase === 'active' && isGroupCall && groupPeopleIds.length < 2),
   )
 
   const reconnectSecondsLeft =

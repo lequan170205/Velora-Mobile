@@ -33,8 +33,16 @@ test('a new outgoing call starts as connecting, and the store resets the flag', 
 test('the call screen says Connecting until the callee rings, then Ringing, and plays the ringback tone only while ringing', () => {
   const screen = read('app', 'call', '[id].tsx')
   assert.match(screen, /phase === 'outgoing_ringing'\) return remoteRinging \? 'Ringing…' : 'Connecting…'/)
-  assert.match(screen, /remoteRinging \? 'Ringing…' : 'Waiting for others to join…'/)
-  assert.match(screen, /useRingbackTone\(\s*remoteRinging &&/)
+  assert.match(screen, /groupRinging \? 'Ringing…' : 'Waiting for others to join…'/)
+  assert.match(screen, /useRingbackTone\(\s*\(remoteRinging && phase === 'outgoing_ringing'\) \|\|\s*\(groupRinging &&/)
+})
+
+test('a group call rings only while one of its invitations is still ringing', () => {
+  const screen = read('app', 'call', '[id].tsx')
+  assert.match(
+    screen,
+    /groupRinging =\s*remoteRinging && Object\.values\(groupInvitations\)\.some\(\(invite\) => invite\.status === 'ringing'\)/,
+  )
 })
 
 test('the ringback hook loops a bundled tone, never touches the audio session and tolerates a missing module', () => {
