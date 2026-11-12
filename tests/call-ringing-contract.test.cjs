@@ -25,14 +25,15 @@ test('only the outgoing side of the current call reacts to call_ringing, and onl
   assert.match(provider, /socket\.off\('call_ringing', handleCallRinging\)/)
 })
 
-test('a new outgoing call starts as connecting, and the store resets the flag', () => {
+test('a new outgoing call starts as not yet ringing, and the store resets the flag', () => {
   assert.match(read('src', 'providers', 'CallProvider.tsx'), /direction: 'outgoing',\s*remoteRinging: false/)
   assert.match(read('src', 'stores', 'callStore.ts'), /remoteRinging: false/)
 })
 
-test('the call screen says Connecting until the callee rings, then Ringing, and plays the ringback tone only while ringing', () => {
+test('the call screen says Calling until a callee device reports ringing, then Ringing, and plays the ringback tone only while ringing', () => {
   const screen = read('app', 'call', '[id].tsx')
-  assert.match(screen, /phase === 'outgoing_ringing'\) return remoteRinging \? 'Ringing…' : 'Connecting…'/)
+  // A device that rings from a push never reports, so the caller must not read "Connecting…" for the whole ring.
+  assert.match(screen, /phase === 'outgoing_ringing'\) return remoteRinging \? 'Ringing…' : 'Calling…'/)
   assert.match(screen, /groupRinging \? 'Ringing…' : 'Waiting for others to join…'/)
   assert.match(screen, /useRingbackTone\(\s*\(remoteRinging && phase === 'outgoing_ringing'\) \|\|\s*\(groupRinging &&/)
 })

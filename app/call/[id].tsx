@@ -333,8 +333,9 @@ export default function ActiveCallScreen() {
     remoteRinging && Object.values(groupInvitations).some((invite) => invite.status === 'ringing')
 
   const statusLabel = useMemo(() => {
-    // "Ringing" only once a recipient's device reports it is ringing; until then the call is still connecting.
-    if (phase === 'outgoing_ringing') return remoteRinging ? 'Ringing…' : 'Connecting…'
+    // "Ringing" only once a recipient's device reports it is ringing. A device that rings from a
+    // push never reports, so until then the label says only what is certain: the call is being placed.
+    if (phase === 'outgoing_ringing') return remoteRinging ? 'Ringing…' : 'Calling…'
     if (phase === 'connecting') return 'Connecting…'
     if (phase === 'reconnecting') return 'Reconnecting…'
     if (phase === 'ending') return 'Ending…'
