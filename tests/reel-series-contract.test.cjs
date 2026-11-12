@@ -341,7 +341,7 @@ test('episode selection waits for sheet dismissal without blocking future opens'
   assert.doesNotMatch(seriesScreen, /Close episodes drawer/)
   assert.match(seriesScreen, /episodeSheetSession/)
   assert.match(seriesScreen, /ACTIVE_EPISODE_LEADING_ROWS/)
-  assert.match(seriesScreen, /data=\{episodes\}/)
+  assert.match(seriesScreen, /data=\{sheetEpisodes\}/)
   assert.doesNotMatch(seriesScreen, /episodes\.slice\(/)
   assert.match(
     seriesScreen,
@@ -349,18 +349,27 @@ test('episode selection waits for sheet dismissal without blocking future opens'
   )
   assert.match(seriesScreen, /EPISODE_PREFETCH_DISTANCE/)
   assert.match(seriesScreen, /EPISODE_NEXT_PREFETCH_THRESHOLD/)
-  assert.match(seriesScreen, /pendingPreviousPageAnchorRef/)
-  assert.match(seriesScreen, /hasHandledPreviousBoundaryThisGestureRef/)
-  assert.match(seriesScreen, /onScrollBeginDrag=/)
-  assert.match(seriesScreen, /ref=\{episodesListRef\}/)
-  assert.match(seriesScreen, /useLayoutEffect/)
-  assert.match(seriesScreen, /scrollToOffset\(/)
+  // Earlier episodes are anchored natively instead of corrected with scrollToOffset.
+  assert.doesNotMatch(seriesScreen, /pendingPreviousPageAnchorRef/)
+  assert.doesNotMatch(seriesScreen, /hasHandledPreviousBoundaryThisGestureRef/)
+  assert.doesNotMatch(seriesScreen, /useLayoutEffect/)
+  assert.doesNotMatch(seriesScreen, /scrollToOffset\(/)
+  assert.match(seriesScreen, /EPISODE_LIST_VISIBLE_CONTENT_POSITION = \{ minIndexForVisible: 0 \}/)
+  assert.match(
+    seriesScreen,
+    /maintainVisibleContentPosition=\{EPISODE_LIST_VISIBLE_CONTENT_POSITION\}/,
+  )
+  // The sheet list shows a snapshot that only refreshes while the list is idle, so rows are
+  // never inserted above a list that is still flinging.
+  assert.match(seriesScreen, /const \[sheetEpisodes, setSheetEpisodes\] = useState\(episodes\)/)
+  assert.match(seriesScreen, /isEpisodeListScrollingRef/)
+  assert.match(seriesScreen, /onScrollBeginDrag=\{markEpisodeListScrolling\}/)
+  assert.match(seriesScreen, /onMomentumScrollBegin=\{markEpisodeListScrolling\}/)
+  assert.match(seriesScreen, /onStartReached=\{requestPreviousEpisodes\}/)
   assert.match(seriesScreen, /onMomentumScrollEnd=/)
   assert.match(seriesScreen, /onScrollEndDrag=/)
   assert.match(seriesScreen, /initialScrollIndex=\{activeEpisodeInitialIndex\}/)
   assert.match(seriesScreen, />Playing<\/Text>/)
-  assert.match(seriesScreen, /scrollToOffset\(/)
-  assert.doesNotMatch(seriesScreen, /maintainVisibleContentPosition=/)
   assert.doesNotMatch(seriesScreen, /onScrollToIndexFailed=/)
   assert.match(
     seriesScreen,
@@ -368,10 +377,11 @@ test('episode selection waits for sheet dismissal without blocking future opens'
   )
   assert.match(seriesScreen, /const isCurrent = reel\.id === displayedPlayingReelId/)
   assert.match(seriesScreen, /EpisodeCardSkeleton/)
-  assert.match(
-    seriesScreen,
-    /ListHeaderComponent=\{isFetchingPreviousPage \? <EpisodeCardSkeleton \/> : null\}/,
-  )
+  // The earlier-episodes loader is an overlay: a list header would change the scroll content
+  // height and shift the list when it disappears.
+  assert.doesNotMatch(seriesScreen, /ListHeaderComponent=/)
+  assert.match(seriesScreen, /styles\.previousEpisodesLoading/)
+  assert.match(seriesScreen, /isFetchingPreviousPage \? \(/)
   assert.match(
     seriesScreen,
     /ListFooterComponent=\{isFetchingNextPage \? <EpisodeCardSkeleton \/> : null\}/,

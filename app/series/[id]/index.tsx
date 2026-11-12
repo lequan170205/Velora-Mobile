@@ -4,13 +4,12 @@ import {
   BottomSheetFlatList,
   BottomSheetModal,
   type BottomSheetBackdropProps,
-  type BottomSheetFlatListMethods,
 } from '@gorhom/bottom-sheet'
 import { isAxiosError } from 'axios'
 import { Image } from 'expo-image'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   StyleSheet,
@@ -38,7 +37,12 @@ const EPISODE_ROW_HEIGHT = 94
 const EPISODE_ITEM_HEIGHT = EPISODE_ROW_HEIGHT + 10
 const EPISODE_PREFETCH_DISTANCE = EPISODE_ITEM_HEIGHT * 3
 const EPISODE_NEXT_PREFETCH_THRESHOLD = 0.75
+const EPISODE_START_PREFETCH_THRESHOLD = 1.5
 const ACTIVE_EPISODE_LEADING_ROWS = 2
+// Keep the row under the user's thumb in place when earlier episodes are prepended.
+const EPISODE_LIST_VISIBLE_CONTENT_POSITION = { minIndexForVisible: 0 }
+// Settle delay after a drag ends without momentum before the list is considered idle.
+const EPISODE_LIST_IDLE_DELAY_MS = 150
 const EPISODE_SHEET_SNAP_POINTS = ['55%', '85%']
 
 const formatViews = (count?: number) => {
@@ -87,17 +91,12 @@ export default function ReelSeriesScreen() {
   const isOwner = Boolean(series && userId === series.ownerId)
   const activeTabIndex = isOwner ? PROFILE_TAB_INDEX : REELS_TAB_INDEX
   const episodesDrawerRef = useRef<BottomSheetModal>(null)
-  const episodesListRef = useRef<BottomSheetFlatListMethods | null>(null)
   const pendingSelectedReelIdRef = useRef<string | null>(null)
   const shouldManageAfterDismissRef = useRef(false)
   const isFetchingPreviousEpisodesRef = useRef(false)
-  const hasHandledPreviousBoundaryThisGestureRef = useRef(false)
-  const pendingPreviousPageAnchorRef = useRef<{
-    offsetY: number
-    episodeCount: number
-    skeletonAdjusted: boolean
-  } | null>(null)
   const pendingPreviousEpisodesRequestRef = useRef(false)
+  const isEpisodeListScrollingRef = useRef(false)
+  const episodeListIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const hasPagerReportedActiveRef = useRef(false)
   const [episodeSheetSession, setEpisodeSheetSession] = useState(0)
   const [episodeSheetIndex, setEpisodeSheetIndex] = useState(0)
@@ -138,57 +137,28 @@ export default function ReelSeriesScreen() {
 
     return episodes[0]?.id
   }, [episodes, playingReelId, selectedEpisodeId])
-  const displayedPlayingEpisodeIndex = Math.max(
+  // Inserting rows above a list that is still flinging fights the fling's own scroll position and
+  // makes the list flash to another episode. The sheet list therefore shows a snapshot of the
+  // episodes that is only refreshed while the list is idle.
+  const [sheetEpisodes, setSheetEpisodes] = useState(episodes)
+  const latestEpisodesRef = useRef(episodes)
+  latestEpisodesRef.current = episodes
+  useEffect(() => {
+    if (!isEpisodeListScrollingRef.current) {
+      setSheetEpisodes(episodes)
+    }
+  }, [episodes])
+
+  const sheetPlayingEpisodeIndex = Math.max(
     0,
-    displayedPlayingReelId ? episodes.findIndex((reel) => reel.id === displayedPlayingReelId) : 0,
+    displayedPlayingReelId
+      ? sheetEpisodes.findIndex((reel) => reel.id === displayedPlayingReelId)
+      : 0,
   )
   const activeEpisodeInitialIndex = Math.max(
     0,
-    displayedPlayingEpisodeIndex - ACTIVE_EPISODE_LEADING_ROWS,
+    sheetPlayingEpisodeIndex - ACTIVE_EPISODE_LEADING_ROWS,
   )
-
-  useLayoutEffect(() => {
-    const anchor = pendingPreviousPageAnchorRef.current
-    if (!anchor) {
-      return
-    }
-
-    if (isFetchingPreviousPage && !anchor.skeletonAdjusted) {
-      anchor.skeletonAdjusted = true
-      requestAnimationFrame(() => {
-        episodesListRef.current?.scrollToOffset({
-          animated: false,
-          offset: anchor.offsetY + EPISODE_ITEM_HEIGHT,
-        })
-      })
-      return
-    }
-
-    if (isFetchingPreviousPage) {
-      return
-    }
-
-    if (episodes.length > anchor.episodeCount) {
-      pendingPreviousPageAnchorRef.current = null
-      requestAnimationFrame(() => {
-        episodesListRef.current?.scrollToOffset({
-          animated: false,
-          offset: anchor.offsetY + (episodes.length - anchor.episodeCount) * EPISODE_ITEM_HEIGHT,
-        })
-      })
-      return
-    }
-
-    pendingPreviousPageAnchorRef.current = null
-    if (anchor.skeletonAdjusted) {
-      requestAnimationFrame(() => {
-        episodesListRef.current?.scrollToOffset({
-          animated: false,
-          offset: anchor.offsetY,
-        })
-      })
-    }
-  }, [episodes.length, isFetchingPreviousPage])
 
   const activeReelIdRef = useRef(activeReelId)
 
@@ -266,6 +236,8 @@ export default function ReelSeriesScreen() {
   }, [router, series])
 
   const handleOpenEpisodes = useCallback(() => {
+    isEpisodeListScrollingRef.current = false
+    setSheetEpisodes(latestEpisodesRef.current)
     setEpisodeSheetSession((current) => current + 1)
     episodesDrawerRef.current?.present()
   }, [])
@@ -306,29 +278,61 @@ export default function ReelSeriesScreen() {
     }
   }, [isFetchingNextPage, requestPreviousEpisodes])
 
+  // Earlier episodes are inserted above the viewport; `maintainVisibleContentPosition` on the list
+  // keeps the visible row fixed natively, so no manual scroll correction is needed here.
   const handleListScrollEnd = useCallback(
     (offsetY: number) => {
-      if (pendingPreviousPageAnchorRef.current) {
-        return
-      }
-
       if (offsetY <= EPISODE_PREFETCH_DISTANCE) {
-        if (hasHandledPreviousBoundaryThisGestureRef.current) {
-          return
-        }
-
-        if (hasPreviousPage) {
-          hasHandledPreviousBoundaryThisGestureRef.current = true
-          pendingPreviousPageAnchorRef.current = {
-            offsetY,
-            episodeCount: episodes.length,
-            skeletonAdjusted: false,
-          }
-        }
         requestPreviousEpisodes()
       }
     },
-    [episodes.length, hasPreviousPage, requestPreviousEpisodes],
+    [requestPreviousEpisodes],
+  )
+
+  const markEpisodeListIdle = useCallback(() => {
+    if (episodeListIdleTimerRef.current) {
+      clearTimeout(episodeListIdleTimerRef.current)
+      episodeListIdleTimerRef.current = null
+    }
+    isEpisodeListScrollingRef.current = false
+    setSheetEpisodes(latestEpisodesRef.current)
+  }, [])
+
+  const markEpisodeListScrolling = useCallback(() => {
+    if (episodeListIdleTimerRef.current) {
+      clearTimeout(episodeListIdleTimerRef.current)
+      episodeListIdleTimerRef.current = null
+    }
+    isEpisodeListScrollingRef.current = true
+  }, [])
+
+  useEffect(
+    () => () => {
+      if (episodeListIdleTimerRef.current) {
+        clearTimeout(episodeListIdleTimerRef.current)
+      }
+    },
+    [],
+  )
+
+  const handleEpisodeListScrollEndDrag = useCallback(
+    (offsetY: number) => {
+      // A fling reports momentum next; otherwise the list is idle shortly after the drag ends.
+      if (episodeListIdleTimerRef.current) {
+        clearTimeout(episodeListIdleTimerRef.current)
+      }
+      episodeListIdleTimerRef.current = setTimeout(markEpisodeListIdle, EPISODE_LIST_IDLE_DELAY_MS)
+      handleListScrollEnd(offsetY)
+    },
+    [handleListScrollEnd, markEpisodeListIdle],
+  )
+
+  const handleEpisodeListMomentumEnd = useCallback(
+    (offsetY: number) => {
+      markEpisodeListIdle()
+      handleListScrollEnd(offsetY)
+    },
+    [handleListScrollEnd, markEpisodeListIdle],
   )
 
   const handleContextPageRequest = useCallback(
@@ -574,103 +578,118 @@ export default function ReelSeriesScreen() {
             </View>
           ) : null}
 
-          <BottomSheetFlatList
-            ref={episodesListRef}
-            key={`${displayedPlayingReelId ?? 'episodes'}:${episodeSheetSession}`}
-            data={episodes}
-            style={styles.episodeList}
-            initialScrollIndex={activeEpisodeInitialIndex}
-            getItemLayout={(_, index) => ({
-              length: EPISODE_ITEM_HEIGHT,
-              offset: 12 + EPISODE_ITEM_HEIGHT * index,
-              index,
-            })}
-            keyExtractor={(reel) => reel.id}
-            initialNumToRender={6}
-            maxToRenderPerBatch={6}
-            windowSize={5}
-            contentContainerStyle={{
-              paddingHorizontal: 16,
-              paddingTop: 12,
-              // Gorhom sizes scrollables to the highest snap point; the collapsed sheet clips 30%.
-              paddingBottom: insets.bottom + 24 + collapsedSheetScrollBuffer,
-            }}
-            showsVerticalScrollIndicator={false}
-            renderItem={({ item: reel, index }) => {
-              const isCurrent = reel.id === displayedPlayingReelId
-              const cover = reel.thumbnailUrl || reel.localThumbnailUri
-              return (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Play episode ${reel.series?.episodeNumber ?? index + 1}`}
-                  style={[styles.episodeRow, isCurrent && styles.currentEpisodeRow]}
-                  onPress={() => handleEpisodeSelect(reel.id)}
-                >
-                  <View style={styles.episodeThumbnail}>
-                    {cover ? (
-                      <Image
-                        source={{ uri: cover }}
-                        contentFit="cover"
-                        style={styles.episodeImage}
-                        transition={150}
-                      />
-                    ) : (
-                      <View style={styles.episodeFallback}>
-                        <MaterialIcons name="movie" size={20} color={colors.text.tertiary} />
+          <View style={styles.episodeListContainer}>
+            <BottomSheetFlatList
+              key={`${displayedPlayingReelId ?? 'episodes'}:${episodeSheetSession}`}
+              data={sheetEpisodes}
+              style={styles.episodeList}
+              initialScrollIndex={activeEpisodeInitialIndex}
+              getItemLayout={(_, index) => ({
+                length: EPISODE_ITEM_HEIGHT,
+                offset: 12 + EPISODE_ITEM_HEIGHT * index,
+                index,
+              })}
+              keyExtractor={(reel) => reel.id}
+              initialNumToRender={6}
+              maxToRenderPerBatch={6}
+              windowSize={5}
+              contentContainerStyle={{
+                paddingHorizontal: 16,
+                paddingTop: 12,
+                // Gorhom sizes scrollables to the highest snap point; the collapsed sheet clips 30%.
+                paddingBottom: insets.bottom + 24 + collapsedSheetScrollBuffer,
+              }}
+              showsVerticalScrollIndicator={false}
+              maintainVisibleContentPosition={EPISODE_LIST_VISIBLE_CONTENT_POSITION}
+              renderItem={({ item: reel, index }) => {
+                const isCurrent = reel.id === displayedPlayingReelId
+                const cover = reel.thumbnailUrl || reel.localThumbnailUri
+                return (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Play episode ${reel.series?.episodeNumber ?? index + 1}`}
+                    style={[styles.episodeRow, isCurrent && styles.currentEpisodeRow]}
+                    onPress={() => handleEpisodeSelect(reel.id)}
+                  >
+                    <View style={styles.episodeThumbnail}>
+                      {cover ? (
+                        <Image
+                          source={{ uri: cover }}
+                          contentFit="cover"
+                          style={styles.episodeImage}
+                          transition={150}
+                        />
+                      ) : (
+                        <View style={styles.episodeFallback}>
+                          <MaterialIcons name="movie" size={20} color={colors.text.tertiary} />
+                        </View>
+                      )}
+                      <View style={styles.episodeBadge}>
+                        <Text className="text-[9px] font-bold text-white">
+                          Ep {reel.series?.episodeNumber ?? index + 1}
+                        </Text>
                       </View>
-                    )}
-                    <View style={styles.episodeBadge}>
-                      <Text className="text-[9px] font-bold text-white">
-                        Ep {reel.series?.episodeNumber ?? index + 1}
-                      </Text>
                     </View>
-                  </View>
 
-                  <View style={styles.episodeText}>
-                    <Text
-                      className="font-heading text-sm2 font-semibold text-text-primary"
-                      style={styles.episodeTitle}
-                      numberOfLines={2}
-                    >
-                      {reel.title?.trim() ||
-                        reel.description?.trim() ||
-                        `Episode ${reel.series?.episodeNumber ?? index + 1}`}
-                    </Text>
-                    {isCurrent ? (
-                      <View style={styles.episodeStatus}>
-                        <MaterialIcons name="play-arrow" size={14} color={colors.brand.primary} />
-                        <Text className="ml-0.5 text-xs2 font-bold text-brand">Playing</Text>
-                      </View>
-                    ) : (
+                    <View style={styles.episodeText}>
                       <Text
-                        className="font-sans mt-1 text-xs2 text-text-tertiary"
-                        style={styles.episodeMeta}
+                        className="font-heading text-sm2 font-semibold text-text-primary"
+                        style={styles.episodeTitle}
+                        numberOfLines={2}
                       >
-                        {formatViews(reel.viewCount)} views
+                        {reel.title?.trim() ||
+                          reel.description?.trim() ||
+                          `Episode ${reel.series?.episodeNumber ?? index + 1}`}
                       </Text>
-                    )}
-                  </View>
-                </Pressable>
-              )
-            }}
-            onEndReached={() => {
-              if (hasNextPage && !isFetchingNextPage && !isFetchingPreviousPage) {
-                void fetchNextPage()
+                      {isCurrent ? (
+                        <View style={styles.episodeStatus}>
+                          <MaterialIcons name="play-arrow" size={14} color={colors.brand.primary} />
+                          <Text className="ml-0.5 text-xs2 font-bold text-brand">Playing</Text>
+                        </View>
+                      ) : (
+                        <Text
+                          className="font-sans mt-1 text-xs2 text-text-tertiary"
+                          style={styles.episodeMeta}
+                        >
+                          {formatViews(reel.viewCount)} views
+                        </Text>
+                      )}
+                    </View>
+                  </Pressable>
+                )
+              }}
+              onEndReached={() => {
+                if (hasNextPage && !isFetchingNextPage && !isFetchingPreviousPage) {
+                  void fetchNextPage()
+                }
+              }}
+              onEndReachedThreshold={EPISODE_NEXT_PREFETCH_THRESHOLD}
+              ListFooterComponent={isFetchingNextPage ? <EpisodeCardSkeleton /> : null}
+              // Start loading earlier episodes before the user reaches the top of the list.
+              onStartReached={requestPreviousEpisodes}
+              onStartReachedThreshold={EPISODE_START_PREFETCH_THRESHOLD}
+              onScrollBeginDrag={markEpisodeListScrolling}
+              onScrollEndDrag={(event) =>
+                handleEpisodeListScrollEndDrag(event.nativeEvent.contentOffset.y)
               }
-            }}
-            onEndReachedThreshold={EPISODE_NEXT_PREFETCH_THRESHOLD}
-            ListHeaderComponent={isFetchingPreviousPage ? <EpisodeCardSkeleton /> : null}
-            ListFooterComponent={isFetchingNextPage ? <EpisodeCardSkeleton /> : null}
-            onScrollBeginDrag={() => {
-              hasHandledPreviousBoundaryThisGestureRef.current = false
-            }}
-            onScrollEndDrag={(event) => {
-              handleListScrollEnd(event.nativeEvent.contentOffset.y)
-            }}
-            onMomentumScrollEnd={(event) => {
-              handleListScrollEnd(event.nativeEvent.contentOffset.y)
-            }}
-          />
+              onMomentumScrollBegin={markEpisodeListScrolling}
+              onMomentumScrollEnd={(event) =>
+                handleEpisodeListMomentumEnd(event.nativeEvent.contentOffset.y)
+              }
+            />
+            {/* Overlay, not a list header: a header changes the scroll content height and shifts the list. */}
+            {isFetchingPreviousPage ? (
+              <View
+                accessibilityLabel="Loading earlier episodes"
+                pointerEvents="none"
+                style={styles.previousEpisodesLoading}
+              >
+                <View style={styles.previousEpisodesLoadingBadge}>
+                  <ActivityIndicator color={colors.brand.primary} size="small" />
+                </View>
+              </View>
+            ) : null}
+          </View>
         </View>
       </BottomSheetModal>
     </View>
@@ -701,6 +720,9 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   episodeList: {
+    flex: 1,
+  },
+  episodeListContainer: {
     flex: 1,
   },
   episodeMeta: {
@@ -763,6 +785,26 @@ const styles = StyleSheet.create({
   handleIndicator: {
     backgroundColor: colors.border.strong,
     width: 56,
+  },
+  previousEpisodesLoading: {
+    alignItems: 'center',
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 8,
+  },
+  previousEpisodesLoadingBadge: {
+    alignItems: 'center',
+    backgroundColor: colors.surface.modal,
+    borderRadius: 18,
+    elevation: 3,
+    height: 36,
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { height: 2, width: 0 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    width: 36,
   },
   sheetBackground: {
     backgroundColor: colors.surface.modal,
