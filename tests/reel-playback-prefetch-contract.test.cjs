@@ -88,3 +88,13 @@ test('native pager keeps a bounded, scrollable reel window and switches audio at
   assert.match(playbackCoordinator, /this\.desiredReelId === nextReelId/)
   assert.match(playbackCoordinator, /this\.pendingSeekTimers\.has\(nextReelId\)/)
 })
+
+test('series playback skips full-HLS background downloads and keeps its episodes pill responsive', () => {
+  assert.match(
+    reelsViewer,
+    /const shouldSaveNearbyReelVideos =\s*isReelSavingModeHydrated && reelSavingModeEnabled && !isSeriesPlayback/,
+  )
+  const pillBlock = reelFeedItem.slice(reelFeedItem.indexOf('episodes list'))
+  assert.match(pillBlock, /ml-3 h-7 w-7 shrink-0/)
+  assert.match(pillBlock, /min-w-0 shrink font-heading/)
+})

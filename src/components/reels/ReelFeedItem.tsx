@@ -1915,21 +1915,30 @@ const ReelFeedItemComponent = function ReelFeedItem({
                 className="-mx-1 mt-4 flex-row items-center justify-between rounded-full border border-white/15 bg-[#1C1816]/92 px-4 py-2.5 shadow-lg"
                 onPress={onOpenSeriesEpisodes}
               >
-                <View className="flex-1 flex-row items-center pr-2">
+                <View className="min-w-0 flex-1 flex-row items-center">
                   <MaterialIcons name="video-library" size={17} color={colors.brand.primary} />
+                  {/* Title truncates first; the episode count and chevron never get squeezed. */}
                   <Text
-                    className="ml-2 font-heading text-xs2 font-bold text-white"
+                    className="ml-2 min-w-0 shrink font-heading text-xs2 font-bold text-white"
                     numberOfLines={1}
                   >
-                    {displayReel.series?.title} · {seriesEpisodeCount ?? 0}{' '}
+                    {displayReel.series?.title}
+                  </Text>
+                  <Text
+                    className="ml-1 shrink-0 font-heading text-xs2 font-bold text-white"
+                    numberOfLines={1}
+                  >
+                    · {seriesEpisodeCount ?? 0}{' '}
                     {(seriesEpisodeCount ?? 0) === 1 ? 'episode' : 'episodes'}
                   </Text>
                 </View>
-                <MaterialIcons
-                  name="keyboard-arrow-up"
-                  size={20}
-                  color="rgba(255, 255, 255, 0.7)"
-                />
+                <View className="ml-3 h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10">
+                  <MaterialIcons
+                    name="keyboard-arrow-up"
+                    size={20}
+                    color="rgba(255, 255, 255, 0.85)"
+                  />
+                </View>
               </TouchableOpacity>
             ) : null}
           </View>

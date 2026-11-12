@@ -756,7 +756,11 @@ export function ReelsViewer({
     () => buildReelVideoPrefetchPlan(reels, activeIndex, reelCachePolicy),
     [activeIndex, reelCachePolicy, reels],
   )
-  const shouldSaveNearbyReelVideos = isReelSavingModeHydrated && reelSavingModeEnabled
+  // Series playback is a sequential binge: downloading every nearby episode's full HLS (.ts
+  // segments) in the background competes with the active player's own segment fetches and the
+  // episode pagination requests, which stalls swiping. Only the light head-start prefetch runs.
+  const shouldSaveNearbyReelVideos =
+    isReelSavingModeHydrated && reelSavingModeEnabled && !isSeriesPlayback
   const offlineVideoCachePriorities = useMemo(
     () =>
       new Map(
