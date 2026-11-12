@@ -35,17 +35,22 @@ import {
   useOwnedReelSeries,
   useReelsFeed,
 } from '../../src/hooks/useReels'
-import { serializeChatReelRouteContext } from '../../src/lib/chatReels'
 import { getDisplayName, getInitials, getProfileHandle } from '../../src/lib/profile'
+import { stashReelRouteContext } from '../../src/lib/reelRouteContextStore'
 import { useAuthStore } from '../../src/stores/authStore'
 
 import type { FriendSummary } from '../../src/types/friend.types'
 import type { Reel, ReelSeriesListItem, ReelVisibility } from '../../src/types/reel.types'
 
 const PROFILE_REELS_LIMIT = 24
+// Rows mounted initially / per batch, and the virtualization window in viewports.
+const PROFILE_GRID_INITIAL_ROWS = 6
+const PROFILE_GRID_WINDOW_SIZE = 7
 type ProfileContentTab = 'public' | 'series' | 'private'
 type ProfileContentRow =
   { type: 'reels'; items: Reel[] } | { type: 'series'; items: ReelSeriesListItem[] }
+const contentRowKeyExtractor = (row: ProfileContentRow) =>
+  `${row.type}-${row.items[0]?.id ?? 'empty'}`
 const RFC_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const isRfcUuid = (value?: string | null) => {
@@ -423,32 +428,77 @@ export default function ProfileScreen() {
   const isRefreshing =
     isFriendsRefetching || (activeContentTab === 'series' ? isSeriesRefetching : isReelsRefetching)
 
-  const renderReelItem = useCallback(
-    ({ item, index }: { item: Reel; index: number }) => {
-      return (
-        <ReelThumbnailTile
-          key={item.id}
-          index={index}
-          onPress={() => {
-            const contextReelsParam = serializeChatReelRouteContext(profileReels)
-            router.push({
-              pathname: '/reels/[id]',
-              params: {
-                id: item.id,
-                source: 'profile',
-                returnTo: 'profile',
-                ...(contextReelsParam ? { contextReels: contextReelsParam } : {}),
-              },
-            })
-          }}
-          reel={item}
-          tileSize={tileSize}
-          tileHeight={tileHeight}
-          disableMargins
-        />
-      )
+  // Read the latest list through a ref so the press/render callbacks stay stable while pages load.
+  const profileReelsRef = useRef(profileReels)
+  profileReelsRef.current = profileReels
+
+  const handleReelPress = useCallback(
+    (reel: Reel) => {
+      const contextReelsParam = stashReelRouteContext(profileReelsRef.current)
+      router.push({
+        pathname: '/reels/[id]',
+        params: {
+          id: reel.id,
+          source: 'profile',
+          returnTo: 'profile',
+          ...(contextReelsParam ? { contextReels: contextReelsParam } : {}),
+        },
+      })
     },
-    [profileReels, router, tileHeight, tileSize],
+    [router],
+  )
+
+  const handleSeriesPress = useCallback(
+    (series: ReelSeriesListItem) => {
+      if (series.firstReelId) {
+        void prefetchReelSeriesEpisodes(
+          queryClient,
+          user?.id ?? 'anonymous',
+          series.id,
+          series.firstReelId,
+        )
+      }
+      router.push({
+        pathname: '/series/[id]' as never,
+        params: {
+          id: series.id,
+          ...(series.firstReelId ? { reelId: series.firstReelId } : {}),
+        },
+      })
+    },
+    [queryClient, router, user?.id],
+  )
+
+  const renderContentRow = useCallback(
+    ({ item: row, index: rowIndex }: { item: ProfileContentRow; index: number }) =>
+      row.type === 'series' ? (
+        <View className="mb-3 flex-row gap-3 px-5">
+          {row.items.map((series) => (
+            <SeriesHighlight
+              key={series.id}
+              series={series}
+              cardWidth={seriesCardWidth}
+              cardHeight={seriesCardHeight}
+              onPress={() => handleSeriesPress(series)}
+            />
+          ))}
+        </View>
+      ) : (
+        <View className="mb-[2px] flex-row gap-[2px]">
+          {row.items.map((reel, index) => (
+            <ReelThumbnailTile
+              key={reel.id}
+              index={rowIndex * 3 + index}
+              onPress={handleReelPress}
+              reel={reel}
+              tileSize={tileSize}
+              tileHeight={tileHeight}
+              disableMargins
+            />
+          ))}
+        </View>
+      ),
+    [handleReelPress, handleSeriesPress, seriesCardHeight, seriesCardWidth, tileHeight, tileSize],
   )
 
   if (!user) {
@@ -463,44 +513,12 @@ export default function ProfileScreen() {
     <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
       <FlatList
         data={contentRows}
-        keyExtractor={(row) => `${row.type}-${row.items[0]?.id ?? 'empty'}`}
-        renderItem={({ item: row, index: rowIndex }) =>
-          row.type === 'series' ? (
-            <View className="mb-3 flex-row gap-3 px-5">
-              {row.items.map((series) => (
-                <SeriesHighlight
-                  key={series.id}
-                  series={series}
-                  cardWidth={seriesCardWidth}
-                  cardHeight={seriesCardHeight}
-                  onPress={() => {
-                    if (series.firstReelId) {
-                      void prefetchReelSeriesEpisodes(
-                        queryClient,
-                        user?.id ?? 'anonymous',
-                        series.id,
-                        series.firstReelId,
-                      )
-                    }
-                    router.push({
-                      pathname: '/series/[id]' as never,
-                      params: {
-                        id: series.id,
-                        ...(series.firstReelId ? { reelId: series.firstReelId } : {}),
-                      },
-                    })
-                  }}
-                />
-              ))}
-            </View>
-          ) : (
-            <View className="mb-[2px] flex-row gap-[2px]">
-              {row.items.map((reel, index) =>
-                renderReelItem({ item: reel, index: rowIndex * 3 + index }),
-              )}
-            </View>
-          )
-        }
+        keyExtractor={contentRowKeyExtractor}
+        renderItem={renderContentRow}
+        initialNumToRender={PROFILE_GRID_INITIAL_ROWS}
+        maxToRenderPerBatch={PROFILE_GRID_INITIAL_ROWS}
+        windowSize={PROFILE_GRID_WINDOW_SIZE}
+        removeClippedSubviews
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: tabBarHeight + 28 }}
         refreshControl={

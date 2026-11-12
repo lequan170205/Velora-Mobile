@@ -25,6 +25,9 @@ import type { ListReelsResponse, Reel, ReelSeriesSummary } from '../types/reel.t
 
 const MAX_CACHED_FEED_PAGES = 24
 const MAX_CACHE_AGE_MS = 1000 * 60 * 60 * 24 * 7
+// Pruning scans every cached page and reel, so don't repeat it for each page of a fast scroll.
+const PRUNE_MIN_INTERVAL_MS = 1000 * 60
+let lastPruneStartedAt = 0
 
 const getPageAgeMs = (cachedAt: number) => Date.now() - cachedAt
 
@@ -91,7 +94,10 @@ export const cacheReelFeedPage = async (
     }),
   )
 
-  await pruneCachedReelOfflineMetadata()
+  if (savedAt - lastPruneStartedAt >= PRUNE_MIN_INTERVAL_MS) {
+    lastPruneStartedAt = savedAt
+    await pruneCachedReelOfflineMetadata()
+  }
 }
 
 export const updateCachedReelIfPresent = async (reel: Reel) => {

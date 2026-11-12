@@ -81,7 +81,7 @@ interface FeedFallbackState {
 }
 
 const PRELOAD_RADIUS = 1
-const SERIES_CACHE_SETTLE_MS = 3000
+const REEL_CACHE_SETTLE_MS = 3000
 // ponytail: cap native pages at four batches; widen if a single fling skips beyond the window.
 const PAGER_WINDOW_RADIUS = DEFAULT_REELS_LIMIT * 2
 const PAGER_WINDOW_SIZE = PAGER_WINDOW_RADIUS * 2 + 1
@@ -757,28 +757,32 @@ export function ReelsViewer({
     () => buildReelVideoPrefetchPlan(reels, activeIndex, reelCachePolicy),
     [activeIndex, reelCachePolicy, reels],
   )
-  // Series playback is a sequential binge: full-HLS (.ts) background downloads started on every
-  // swipe compete with the active player and the episode pagination requests. Keep saving, but
-  // only once the viewer has rested on an episode and no episode page is loading; a swipe
-  // pauses it again (queued jobs are dropped, an in-flight one stops before its next segment).
-  const [isSeriesCacheSettled, setIsSeriesCacheSettled] = useState(false)
+  // Context viewers (profile grid, series, chat) open on one specific reel. Starting a full-HLS
+  // (.ts) background download of the active and neighbouring reels at that moment competes with
+  // the player's own segment fetches (slow first play) and with episode/context pagination. Keep
+  // saving, but only once the viewer has rested on a reel and no page is loading; a swipe pauses
+  // it again (queued jobs are dropped, an in-flight one stops before its next segment).
+  const shouldDeferReelVideoCache = isSeriesPlayback || shouldUseReelContext
+  const [isReelCacheSettled, setIsReelCacheSettled] = useState(false)
   useEffect(() => {
-    setIsSeriesCacheSettled(false)
+    setIsReelCacheSettled(false)
 
-    if (!isSeriesPlayback || isFetchingContextPage) {
+    if (!shouldDeferReelVideoCache || isFetchingContextPage) {
       return undefined
     }
 
     const settleTimer = setTimeout(() => {
-      setIsSeriesCacheSettled(true)
-    }, SERIES_CACHE_SETTLE_MS)
+      setIsReelCacheSettled(true)
+    }, REEL_CACHE_SETTLE_MS)
 
     return () => {
       clearTimeout(settleTimer)
     }
-  }, [activeIndex, isFetchingContextPage, isSeriesPlayback])
+  }, [activeIndex, isFetchingContextPage, shouldDeferReelVideoCache])
   const shouldSaveNearbyReelVideos =
-    isReelSavingModeHydrated && reelSavingModeEnabled && (!isSeriesPlayback || isSeriesCacheSettled)
+    isReelSavingModeHydrated &&
+    reelSavingModeEnabled &&
+    (!shouldDeferReelVideoCache || isReelCacheSettled)
   const offlineVideoCachePriorities = useMemo(
     () =>
       new Map(
@@ -1012,7 +1016,9 @@ export function ReelsViewer({
         ? reelVideoPrefetchPlan.map((reel) => reel.id)
         : []
 
-    cancelQueuedTemporaryReelVideoCacheExcept(allowedReelIds, { includeActive: isSeriesPlayback })
+    cancelQueuedTemporaryReelVideoCacheExcept(allowedReelIds, {
+      includeActive: shouldDeferReelVideoCache,
+    })
 
     if (!isFocused || activeIndex < 0 || reels.length === 0) {
       return
@@ -1050,7 +1056,7 @@ export function ReelsViewer({
     activeIndex,
     isFocused,
     isOnline,
-    isSeriesPlayback,
+    shouldDeferReelVideoCache,
     reelCachePolicy.maxVideoCacheBytes,
     reelCachePolicy.shouldCacheVideo,
     reelVideoPrefetchPlan,

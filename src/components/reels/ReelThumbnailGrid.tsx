@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
-import React from 'react'
+import React, { memo } from 'react'
 import { Pressable, Text, View } from 'react-native'
 
 import { colors } from '../../constants/theme'
@@ -45,7 +45,7 @@ const formatViews = (count?: number) => {
   return String(count)
 }
 
-export function ReelThumbnailTile({
+export const ReelThumbnailTile = memo(function ReelThumbnailTile({
   index,
   onPress,
   reel,
@@ -54,7 +54,7 @@ export function ReelThumbnailTile({
   disableMargins,
 }: {
   index: number
-  onPress: () => void
+  onPress: (reel: Reel) => void
   reel: Reel
   tileSize: number
   tileHeight?: number | undefined
@@ -67,7 +67,7 @@ export function ReelThumbnailTile({
   return (
     <Pressable
       className="overflow-hidden bg-surface-muted"
-      onPress={onPress}
+      onPress={() => onPress(reel)}
       style={{
         width: tileSize,
         height: resolvedHeight,
@@ -77,7 +77,13 @@ export function ReelThumbnailTile({
     >
       {thumbnailUri ? (
         <Image
-          source={{ uri: thumbnailUri }}
+          // Signed thumbnail URLs change on every refetch; a stable key keeps the cached image.
+          source={{
+            uri: thumbnailUri,
+            cacheKey: `reel-thumbnail:${reel.id}:${reel.thumbnailKey ?? 'local'}`,
+          }}
+          recyclingKey={reel.id}
+          cachePolicy="memory-disk"
           style={{ width: '100%', height: '100%' }}
           contentFit="cover"
         />
@@ -106,7 +112,7 @@ export function ReelThumbnailTile({
       ) : null}
     </Pressable>
   )
-}
+})
 
 export function ReelThumbnailGrid({
   className,
@@ -137,7 +143,7 @@ export function ReelThumbnailGrid({
             <ReelThumbnailTile
               key={reel.id}
               index={index}
-              onPress={() => onReelPress(reel)}
+              onPress={onReelPress}
               reel={reel}
               tileSize={tileSize}
               tileHeight={tileHeight}

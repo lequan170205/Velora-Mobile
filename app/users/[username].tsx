@@ -42,9 +42,9 @@ import {
 } from '../../src/hooks/useFriendMutations'
 import { useFriends, useFriendshipStatus } from '../../src/hooks/useFriends'
 import { useReelsFeed } from '../../src/hooks/useReels'
-import { serializeChatReelRouteContext } from '../../src/lib/chatReels'
 import { cn } from '../../src/lib/cn'
 import { getInitials } from '../../src/lib/profile'
+import { stashReelRouteContext } from '../../src/lib/reelRouteContextStore'
 import { useAuthStore } from '../../src/stores/authStore'
 
 import type { FriendSummary } from '../../src/types/friend.types'
@@ -53,6 +53,10 @@ import type { Reel } from '../../src/types/reel.types'
 type ActionVariant = 'primary' | 'secondary' | 'muted' | 'danger'
 type PendingAction = 'message'
 const PROFILE_REELS_LIMIT = 24
+// Rows (3 tiles each) mounted initially / per batch, and the virtualization window in viewports.
+const PROFILE_GRID_INITIAL_ROWS = 6
+const PROFILE_GRID_WINDOW_SIZE = 7
+const reelKeyExtractor = (item: Reel) => item.id
 
 const getErrorMessage = (error: unknown, fallback: string) => {
   const responseMessage = (error as { response?: { data?: { message?: string | string[] } } })
@@ -428,32 +432,39 @@ export default function PublicProfileScreen() {
     void Promise.all([refetchProfile(), refetchStatus(), refetchFriends(), refetchReels()])
   }, [refetchFriends, refetchProfile, refetchReels, refetchStatus])
 
-  const renderReelItem = useCallback(
-    ({ item, index }: { item: Reel; index: number }) => {
-      return (
-        <ReelThumbnailTile
-          index={index}
-          onPress={() => {
-            const contextReelsParam = serializeChatReelRouteContext(publicReels)
-            router.push({
-              pathname: '/reels/[id]',
-              params: {
-                id: item.id,
-                source: 'profile',
-                returnTo: 'user-profile',
-                returnUsername: normalizedUsername,
-                ...(contextReelsParam ? { contextReels: contextReelsParam } : {}),
-              },
-            })
-          }}
-          reel={item}
-          tileSize={tileSize}
-          tileHeight={tileHeight}
-          disableMargins
-        />
-      )
+  // Read the latest list through a ref so the press/render callbacks stay stable while pages load.
+  const publicReelsRef = useRef(publicReels)
+  publicReelsRef.current = publicReels
+
+  const handleReelPress = useCallback(
+    (reel: Reel) => {
+      const contextReelsParam = stashReelRouteContext(publicReelsRef.current)
+      router.push({
+        pathname: '/reels/[id]',
+        params: {
+          id: reel.id,
+          source: 'profile',
+          returnTo: 'user-profile',
+          returnUsername: normalizedUsername,
+          ...(contextReelsParam ? { contextReels: contextReelsParam } : {}),
+        },
+      })
     },
-    [normalizedUsername, publicReels, router, tileHeight, tileSize],
+    [normalizedUsername, router],
+  )
+
+  const renderReelItem = useCallback(
+    ({ item, index }: { item: Reel; index: number }) => (
+      <ReelThumbnailTile
+        index={index}
+        onPress={handleReelPress}
+        reel={item}
+        tileSize={tileSize}
+        tileHeight={tileHeight}
+        disableMargins
+      />
+    ),
+    [handleReelPress, tileHeight, tileSize],
   )
 
   if (isProfileLoading) {
@@ -478,8 +489,12 @@ export default function PublicProfileScreen() {
         data={publicReels}
         numColumns={3}
         columnWrapperStyle={{ gap: 2, marginBottom: 2 }}
-        keyExtractor={(item) => item.id}
+        keyExtractor={reelKeyExtractor}
         renderItem={renderReelItem}
+        initialNumToRender={PROFILE_GRID_INITIAL_ROWS}
+        maxToRenderPerBatch={PROFILE_GRID_INITIAL_ROWS}
+        windowSize={PROFILE_GRID_WINDOW_SIZE}
+        removeClippedSubviews
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 32 }}
         refreshControl={

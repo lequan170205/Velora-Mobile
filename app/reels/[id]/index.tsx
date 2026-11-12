@@ -16,6 +16,7 @@ import {
   isSharedReelMessage,
   parseChatReelRouteContext,
 } from '../../../src/lib/chatReels'
+import { getStashedReelRouteContext } from '../../../src/lib/reelRouteContextStore'
 
 import type { Message } from '../../../src/types/conversation.types'
 import type { Reel, ReelEventSource } from '../../../src/types/reel.types'
@@ -79,7 +80,9 @@ export default function ReelContextScreen() {
           ? 'SHARED'
           : 'DIRECT'
   const routeContextReels = useMemo(
-    () => parseChatReelRouteContext(normalizedContextReels),
+    () =>
+      getStashedReelRouteContext(normalizedContextReels) ??
+      parseChatReelRouteContext(normalizedContextReels),
     [normalizedContextReels],
   )
   const isConversationReturn = normalizedReturnTo === 'conversation'

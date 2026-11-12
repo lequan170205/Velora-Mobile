@@ -89,16 +89,20 @@ test('native pager keeps a bounded, scrollable reel window and switches audio at
   assert.match(playbackCoordinator, /this\.pendingSeekTimers\.has\(nextReelId\)/)
 })
 
-test('series playback defers full-HLS background saving until settled and pauses it on swipe', () => {
-  assert.match(reelsViewer, /const SERIES_CACHE_SETTLE_MS = 3000/)
-  assert.match(reelsViewer, /if \(!isSeriesPlayback \|\| isFetchingContextPage\)/)
+test('context viewers defer full-HLS background saving until settled and pause it on swipe', () => {
+  assert.match(reelsViewer, /const REEL_CACHE_SETTLE_MS = 3000/)
   assert.match(
     reelsViewer,
-    /reelSavingModeEnabled &&\s*\(!isSeriesPlayback \|\| isSeriesCacheSettled\)/,
+    /const shouldDeferReelVideoCache = isSeriesPlayback \|\| shouldUseReelContext/,
+  )
+  assert.match(reelsViewer, /if \(!shouldDeferReelVideoCache \|\| isFetchingContextPage\)/)
+  assert.match(
+    reelsViewer,
+    /reelSavingModeEnabled &&\s*\(!shouldDeferReelVideoCache \|\| isReelCacheSettled\)/,
   )
   assert.match(
     reelsViewer,
-    /cancelQueuedTemporaryReelVideoCacheExcept\(allowedReelIds, \{ includeActive: isSeriesPlayback \}\)/,
+    /cancelQueuedTemporaryReelVideoCacheExcept\(allowedReelIds, \{\s*includeActive: shouldDeferReelVideoCache,?\s*\}\)/,
   )
   assert.match(offlineCache, /options\.includeActive/)
   assert.match(offlineCache, /downloadWithConcurrency\(resources, isCanceled\)/)
@@ -129,4 +133,38 @@ test('chat reel cards fall back to the reel detail thumbnail when the message th
   assert.match(chatReelCard, /!hasUsableMessageThumbnail/)
   assert.match(chatReelCard, /\[messageThumbnailUrl, reelDetail\?\.thumbnailUrl\]/)
   assert.match(chatReelCard, /onError=\{\(\) => \{/)
+})
+
+test('profile grids open the viewer with an in-memory context key instead of a JSON route param', () => {
+  const store = read('src/lib/reelRouteContextStore.ts')
+  const profileScreen = read('app/(tabs)/profile.tsx')
+  const userProfileScreen = read('app/users/[username].tsx')
+  const reelRoute = read('app/reels/[id]/index.tsx')
+
+  assert.match(store, /export const stashReelRouteContext/)
+  assert.match(store, /export const getStashedReelRouteContext/)
+  assert.match(store, /MAX_STASHED_CONTEXTS/)
+  for (const screen of [profileScreen, userProfileScreen]) {
+    assert.match(screen, /stashReelRouteContext\(/)
+    assert.doesNotMatch(screen, /serializeChatReelRouteContext/)
+    assert.match(screen, /removeClippedSubviews/)
+    assert.match(screen, /windowSize=\{PROFILE_GRID_WINDOW_SIZE\}/)
+  }
+  assert.match(reelRoute, /getStashedReelRouteContext\(normalizedContextReels\) \?\?/)
+})
+
+test('reel thumbnail tiles are memoized and keep a stable image cache key', () => {
+  const grid = read('src/components/reels/ReelThumbnailGrid.tsx')
+
+  assert.match(grid, /export const ReelThumbnailTile = memo\(/)
+  assert.match(grid, /onPress=\{\(\) => onPress\(reel\)\}/)
+  assert.match(grid, /cacheKey: `reel-thumbnail:\$\{reel\.id\}:/)
+  assert.match(grid, /recyclingKey=\{reel\.id\}/)
+})
+
+test('reel feed page caching throttles the full-cache prune scan', () => {
+  const reelOfflineCache = read('src/lib/reelOfflineCache.ts')
+
+  assert.match(reelOfflineCache, /PRUNE_MIN_INTERVAL_MS/)
+  assert.match(reelOfflineCache, /savedAt - lastPruneStartedAt >= PRUNE_MIN_INTERVAL_MS/)
 })
