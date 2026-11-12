@@ -50,6 +50,7 @@ import {
 } from '../../lib/reelPlaybackCoordinator'
 import {
   isReelMediaFailed,
+  isReelMediaProcessing,
   isReelPlayable,
   mergeReelProcessingStatus,
 } from '../../lib/reelProcessing'
@@ -445,9 +446,15 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const { data: processingStatus } = useReelProcessingStatus(reel, {
     enabled: enableStatusPolling,
   })
+  // Reels rebuilt from chat/AI-recommendation metadata skip the API normalization and can reach
+  // the viewer without a playable HLS URL even though the reel is finished. Processing and failed
+  // reels are handled by status polling, so only recover the "done but not playable" case here.
+  const needsPlaybackRecovery =
+    !isReelPlayable(reel) && !isReelMediaProcessing(reel) && !isReelMediaFailed(reel)
   const shouldFetchReelDetail =
     !reel.id.startsWith(CHAT_SHARED_REEL_FALLBACK_ID_PREFIX) &&
-    ((isActive && liveTranscriptionEnabled && !clearDisplay) ||
+    ((isActive && needsPlaybackRecovery) ||
+      (isActive && liveTranscriptionEnabled && !clearDisplay) ||
       (isActive && showCommentsSheet) ||
       !reel.author?.username ||
       !reel.author?.avatarUrl ||
@@ -467,6 +474,20 @@ const ReelFeedItemComponent = function ReelFeedItem({
 
     nextReel.commentCount =
       authoritativeCommentCount ?? commentCount(sourceReel.commentCount, reelDetail?.commentCount)
+
+    if (reelDetail && !isReelPlayable(nextReel) && isReelPlayable(reelDetail)) {
+      nextReel.status = reelDetail.status
+      if (reelDetail.mediaStatus) {
+        nextReel.mediaStatus = reelDetail.mediaStatus
+      }
+      nextReel.streamUrl = reelDetail.streamUrl
+      if (reelDetail.hlsMasterUrl) {
+        nextReel.hlsMasterUrl = reelDetail.hlsMasterUrl
+      }
+      if (reelDetail.hlsMasterKey) {
+        nextReel.hlsMasterKey = reelDetail.hlsMasterKey
+      }
+    }
 
     if (reelDetail?.title?.trim()) {
       nextReel.title = reelDetail.title

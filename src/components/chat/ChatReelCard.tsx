@@ -1,5 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons'
-import React, { memo } from 'react'
+import React, { memo, useEffect, useState } from 'react'
 import { Image, Pressable, Text, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 
@@ -59,14 +59,28 @@ export const ChatReelCard = memo(function ChatReelCard({
   const thumbnailHeight = getChatReelCardThumbnailHeight(width, variant)
   const cardHeight = getChatReelCardHeight(width, variant)
   const canonicalReelId = message.media?.reelId?.trim() || null
+  const messageThumbnailUrl = message.media?.thumbnailUrl || null
+  // Thumbnail URLs stored in a message are signed and can expire (or be absent from AI metadata),
+  // so fall back to the reel's current thumbnail from the API when they are missing or fail.
+  const [failedThumbnailUrls, setFailedThumbnailUrls] = useState<string[]>([])
+  useEffect(() => {
+    setFailedThumbnailUrls([])
+  }, [messageThumbnailUrl])
+  const hasUsableMessageThumbnail =
+    Boolean(messageThumbnailUrl) && !failedThumbnailUrls.includes(messageThumbnailUrl ?? '')
   const shouldFetchReelDetail =
     Boolean(canonicalReelId) &&
-    (!message.media?.reelOwnerUsername || !message.media?.reelOwnerAvatarUrl)
+    (!message.media?.reelOwnerUsername ||
+      !message.media?.reelOwnerAvatarUrl ||
+      !hasUsableMessageThumbnail)
   const { data: reelDetail } = useReelDetail(canonicalReelId ?? undefined, {
     enabled: shouldFetchReelDetail,
   })
 
-  const thumbnailUri = message.media?.thumbnailUrl || reelDetail?.thumbnailUrl || null
+  const thumbnailUri =
+    [messageThumbnailUrl, reelDetail?.thumbnailUrl].find(
+      (uri): uri is string => Boolean(uri) && !failedThumbnailUrls.includes(uri ?? ''),
+    ) ?? null
   const reelCreatorUsername = (message.media?.reelOwnerUsername ?? reelDetail?.author?.username)
     ?.trim()
     .replace(/^@+/, '')
@@ -106,6 +120,11 @@ export const ChatReelCard = memo(function ChatReelCard({
         {thumbnailUri ? (
           <Image
             source={{ uri: thumbnailUri }}
+            onError={() => {
+              setFailedThumbnailUrls((current) =>
+                current.includes(thumbnailUri) ? current : [...current, thumbnailUri],
+              )
+            }}
             style={{
               width,
               height: thumbnailHeight,

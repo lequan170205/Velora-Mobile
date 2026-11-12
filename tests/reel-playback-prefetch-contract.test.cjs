@@ -110,3 +110,23 @@ test('series episodes pill keeps the chevron separate and truncates only the tit
   assert.match(pillBlock, /ml-3 h-7 w-7 shrink-0/)
   assert.match(pillBlock, /min-w-0 shrink font-heading/)
 })
+
+test('reels rebuilt from chat metadata recover playback from the authoritative reel detail', () => {
+  assert.match(
+    reelFeedItem,
+    /const needsPlaybackRecovery =\s*!isReelPlayable\(reel\) && !isReelMediaProcessing\(reel\) && !isReelMediaFailed\(reel\)/,
+  )
+  assert.match(reelFeedItem, /\(isActive && needsPlaybackRecovery\)/)
+  assert.match(
+    reelFeedItem,
+    /reelDetail && !isReelPlayable\(nextReel\) && isReelPlayable\(reelDetail\)/,
+  )
+})
+
+test('chat reel cards fall back to the reel detail thumbnail when the message thumbnail is missing or fails', () => {
+  const chatReelCard = read('src/components/chat/ChatReelCard.tsx')
+  assert.match(chatReelCard, /failedThumbnailUrls/)
+  assert.match(chatReelCard, /!hasUsableMessageThumbnail/)
+  assert.match(chatReelCard, /\[messageThumbnailUrl, reelDetail\?\.thumbnailUrl\]/)
+  assert.match(chatReelCard, /onError=\{\(\) => \{/)
+})
