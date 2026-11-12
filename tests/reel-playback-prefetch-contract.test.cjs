@@ -168,3 +168,23 @@ test('reel feed page caching throttles the full-cache prune scan', () => {
   assert.match(reelOfflineCache, /PRUNE_MIN_INTERVAL_MS/)
   assert.match(reelOfflineCache, /savedAt - lastPruneStartedAt >= PRUNE_MIN_INTERVAL_MS/)
 })
+
+test('paged context viewers re-anchor the pager when reels are inserted before the active one', () => {
+  assert.match(reelsViewer, /const armPendingPagerSelection = useCallback/)
+  assert.match(reelsViewer, /PENDING_PAGER_SELECTION_TIMEOUT_MS/)
+  assert.doesNotMatch(reelsViewer, /pendingPagerSelectionReelIdRef\.current = reelsRef/)
+  assert.match(
+    reelsViewer,
+    /anchoredIndex !== knownPagerIndex &&\s*pagerScrollStateRef\.current === 'idle'/,
+  )
+  assert.match(reelsViewer, /pager\.setPageWithoutAnimation\(anchoredIndex\)/)
+})
+
+test('paged context requests expire their guard, cover both edges, and re-check after a page lands', () => {
+  assert.match(reelsViewer, /const CONTEXT_PAGE_REQUEST_COOLDOWN_MS = 1000/)
+  assert.match(reelsViewer, /contextPageRequestStartedAtRef/)
+  assert.doesNotMatch(reelsViewer, /contextPageRequestInFlightRef/)
+  assert.match(reelsViewer, /isNearEnd && hasNextContextPage/)
+  assert.match(reelsViewer, /isNearStart && hasPreviousContextPage/)
+  assert.match(reelsViewer, /needsContextPageRecheckRef\.current = true/)
+})

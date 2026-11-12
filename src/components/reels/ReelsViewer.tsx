@@ -81,6 +81,13 @@ interface FeedFallbackState {
 }
 
 const PRELOAD_RADIUS = 1
+// Request more context pages (episodes) this many reels before the loaded edge, so a fast swipe
+// does not hit the end of the list while the next page is still loading.
+const CONTEXT_PAGE_PREFETCH_LEAD = 7
+// A context page request that never reports `isFetching` (ignored, failed) must not block retries.
+const CONTEXT_PAGE_REQUEST_COOLDOWN_MS = 1000
+// A programmatic page jump normally reports its selection within a few frames; never wait longer.
+const PENDING_PAGER_SELECTION_TIMEOUT_MS = 600
 const REEL_CACHE_SETTLE_MS = 3000
 // ponytail: cap native pages at four batches; widen if a single fling skips beyond the window.
 const PAGER_WINDOW_RADIUS = DEFAULT_REELS_LIMIT * 2
@@ -223,7 +230,10 @@ export function ReelsViewer({
   const currentPageIndexRef = useRef(0)
   const pagerCurrentIndexRef = useRef<number | null>(null)
   const pagerScrollStateRef = useRef<'idle' | 'dragging' | 'settling'>('idle')
-  const contextPageRequestInFlightRef = useRef(false)
+  const contextPageRequestStartedAtRef = useRef(0)
+  const previousContextReelCountRef = useRef(0)
+  const needsContextPageRecheckRef = useRef(false)
+  const pendingPagerSelectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const publicPageRequestInFlightRef = useRef(false)
   const pagerWindowStartRef = useRef(0)
   const pagerWindowInitializedRef = useRef(false)
@@ -331,49 +341,84 @@ export function ReelsViewer({
     }
   }, [viewerId])
 
-  const scrollToReelIndex = useCallback((index: number) => {
-    const reelCount = reelsRef.current.length
-    const nextIndex = Math.max(0, Math.min(Math.max(0, reelCount - 1), index))
-    const pager = pagerRef.current
+  // Marks a programmatic page jump as pending (events for other pages are ignored until the pager
+  // reports it) and self-clears, so a jump that never reports a selection cannot freeze paging.
+  const armPendingPagerSelection = useCallback((reelId: string | null) => {
+    if (pendingPagerSelectionTimerRef.current) {
+      clearTimeout(pendingPagerSelectionTimerRef.current)
+      pendingPagerSelectionTimerRef.current = null
+    }
 
-    if (!pager || reelCount === 0) {
+    pendingPagerSelectionReelIdRef.current = reelId
+
+    if (!reelId) {
       return
     }
 
-    const nextWindowStart = shouldUseLocalContextRef.current
-      ? 0
-      : getPagerWindowStart(nextIndex, reelCount)
-    if (nextWindowStart !== pagerWindowStartRef.current) {
-      pagerWindowInitializedRef.current = true
-      pendingPagerSelectionReelIdRef.current = reelsRef.current[nextIndex]?.id ?? null
-      pagerWindowStartRef.current = nextWindowStart
-      pendingPagerWindowIndexRef.current = nextIndex
-      isPagerWindowRebasingRef.current = true
-      pagerCurrentIndexRef.current = nextIndex
-      setPagerWindowStart(nextWindowStart)
-      return
-    }
-
-    const localIndex = nextIndex - nextWindowStart
-    if (
-      pagerCurrentIndexRef.current === nextIndex &&
-      pagerScrollStateRef.current === 'idle' &&
-      selectedPageIndexRef.current === null
-    ) {
-      return
-    }
-
-    pagerScrollPositionRef.current = null
-    selectedPageIndexRef.current = null
-    if (pageCommitFrameRef.current !== null) {
-      cancelAnimationFrame(pageCommitFrameRef.current)
-      pageCommitFrameRef.current = null
-    }
-
-    pagerCurrentIndexRef.current = nextIndex
-    pendingPagerSelectionReelIdRef.current = reelsRef.current[nextIndex]?.id ?? null
-    pager.setPageWithoutAnimation(localIndex)
+    pendingPagerSelectionTimerRef.current = setTimeout(() => {
+      pendingPagerSelectionTimerRef.current = null
+      if (pendingPagerSelectionReelIdRef.current === reelId) {
+        pendingPagerSelectionReelIdRef.current = null
+        isPagerWindowRebasingRef.current = false
+      }
+    }, PENDING_PAGER_SELECTION_TIMEOUT_MS)
   }, [])
+
+  useEffect(
+    () => () => {
+      if (pendingPagerSelectionTimerRef.current) {
+        clearTimeout(pendingPagerSelectionTimerRef.current)
+      }
+    },
+    [],
+  )
+
+  const scrollToReelIndex = useCallback(
+    (index: number) => {
+      const reelCount = reelsRef.current.length
+      const nextIndex = Math.max(0, Math.min(Math.max(0, reelCount - 1), index))
+      const pager = pagerRef.current
+
+      if (!pager || reelCount === 0) {
+        return
+      }
+
+      const nextWindowStart = shouldUseLocalContextRef.current
+        ? 0
+        : getPagerWindowStart(nextIndex, reelCount)
+      if (nextWindowStart !== pagerWindowStartRef.current) {
+        pagerWindowInitializedRef.current = true
+        armPendingPagerSelection(reelsRef.current[nextIndex]?.id ?? null)
+        pagerWindowStartRef.current = nextWindowStart
+        pendingPagerWindowIndexRef.current = nextIndex
+        isPagerWindowRebasingRef.current = true
+        pagerCurrentIndexRef.current = nextIndex
+        setPagerWindowStart(nextWindowStart)
+        return
+      }
+
+      const localIndex = nextIndex - nextWindowStart
+      if (
+        pagerCurrentIndexRef.current === nextIndex &&
+        pagerScrollStateRef.current === 'idle' &&
+        selectedPageIndexRef.current === null
+      ) {
+        return
+      }
+
+      pagerScrollPositionRef.current = null
+      selectedPageIndexRef.current = null
+      if (pageCommitFrameRef.current !== null) {
+        cancelAnimationFrame(pageCommitFrameRef.current)
+        pageCommitFrameRef.current = null
+      }
+
+      pagerCurrentIndexRef.current = nextIndex
+      armPendingPagerSelection(reelsRef.current[nextIndex]?.id ?? null)
+      pager.setPageWithoutAnimation(localIndex)
+    },
+    [armPendingPagerSelection],
+  )
   const pauseAllReelPlayers = useCallback(() => {
     playbackCoordinatorRef.current.pauseAll()
   }, [])
@@ -646,6 +691,29 @@ export function ReelsViewer({
       pendingPagerWindowIndexRef.current = null
       isPagerWindowRebasingRef.current = false
       if (pagerWindowStart !== 0) setPagerWindowStart(0)
+
+      // Paged context (series episodes) can insert reels before the current one, which shifts
+      // every index while the pager still believes it is on the old page. Re-anchor it to the
+      // active reel; mid-gesture the settled page commit corrects itself from native positions.
+      const activeReelIdForAnchor = activeReelIdRef.current
+      const knownPagerIndex = pagerCurrentIndexRef.current
+      const pager = pagerRef.current
+      if (activeReelIdForAnchor && knownPagerIndex !== null && pager) {
+        const anchoredIndex = reels.findIndex((item) => item.id === activeReelIdForAnchor)
+
+        if (
+          anchoredIndex >= 0 &&
+          anchoredIndex !== knownPagerIndex &&
+          pagerScrollStateRef.current === 'idle'
+        ) {
+          pagerScrollPositionRef.current = { offset: 0, position: anchoredIndex }
+          selectedPageIndexRef.current = null
+          pagerCurrentIndexRef.current = anchoredIndex
+          currentPageIndexRef.current = anchoredIndex
+          armPendingPagerSelection(activeReelIdForAnchor)
+          pager.setPageWithoutAnimation(anchoredIndex)
+        }
+      }
       return
     }
 
@@ -665,8 +733,7 @@ export function ReelsViewer({
 
       if (currentIndex !== null) {
         pendingPagerWindowIndexRef.current = Math.min(reels.length - 1, currentIndex)
-        pendingPagerSelectionReelIdRef.current =
-          reels[pendingPagerWindowIndexRef.current]?.id ?? null
+        armPendingPagerSelection(reels[pendingPagerWindowIndexRef.current]?.id ?? null)
         isPagerWindowRebasingRef.current = true
       }
     }
@@ -683,7 +750,13 @@ export function ReelsViewer({
         isPagerWindowRebasingRef.current = false
       })
     }
-  }, [pagerWindowStart, reels, shouldUseLocalContext, visiblePagerWindowStart])
+  }, [
+    armPendingPagerSelection,
+    pagerWindowStart,
+    reels,
+    shouldUseLocalContext,
+    visiblePagerWindowStart,
+  ])
 
   const effectiveActiveReelId = useMemo(() => {
     if (activeReelId) {
@@ -1523,23 +1596,26 @@ export function ReelsViewer({
   const maybeFetchNextPage = useCallback(
     (index: number) => {
       if (shouldUseLocalContext) {
-        if (
-          !onContextPageRequest ||
-          isFetchingContextPage ||
-          contextPageRequestInFlightRef.current
-        ) {
+        if (!onContextPageRequest || isFetchingContextPage) {
           return
         }
 
-        if (index <= 4 && hasPreviousContextPage) {
-          contextPageRequestInFlightRef.current = true
-          onContextPageRequest('previous')
+        // The guard expires, so a request that was ignored or failed without ever reporting
+        // `isFetching` cannot block paging forever.
+        const now = Date.now()
+        if (now - contextPageRequestStartedAtRef.current < CONTEXT_PAGE_REQUEST_COOLDOWN_MS) {
           return
         }
 
-        if (index >= Math.max(0, reels.length - 5) && hasNextContextPage) {
-          contextPageRequestInFlightRef.current = true
+        const isNearEnd = index >= Math.max(0, reels.length - CONTEXT_PAGE_PREFETCH_LEAD)
+        const isNearStart = index < CONTEXT_PAGE_PREFETCH_LEAD
+
+        if (isNearEnd && hasNextContextPage) {
+          contextPageRequestStartedAtRef.current = now
           onContextPageRequest('next')
+        } else if (isNearStart && hasPreviousContextPage) {
+          contextPageRequestStartedAtRef.current = now
+          onContextPageRequest('previous')
         }
         return
       }
@@ -1592,9 +1668,32 @@ export function ReelsViewer({
 
   useEffect(() => {
     if (!isFetchingContextPage) {
-      contextPageRequestInFlightRef.current = false
+      contextPageRequestStartedAtRef.current = 0
     }
   }, [isFetchingContextPage])
+
+  // After a page lands the viewer can still be near an edge (e.g. both directions have more, or a
+  // short page arrived). Re-check so it keeps loading without needing another swipe.
+  useEffect(() => {
+    const previousCount = previousContextReelCountRef.current
+    previousContextReelCountRef.current = reels.length
+
+    if (shouldUseLocalContext && previousCount > 0 && reels.length !== previousCount) {
+      needsContextPageRecheckRef.current = true
+    }
+
+    if (
+      !shouldUseLocalContext ||
+      !needsContextPageRecheckRef.current ||
+      isFetchingContextPage ||
+      pagerScrollStateRef.current !== 'idle'
+    ) {
+      return
+    }
+
+    needsContextPageRecheckRef.current = false
+    maybeFetchNextPage(pagerCurrentIndexRef.current ?? currentPageIndexRef.current)
+  }, [isFetchingContextPage, maybeFetchNextPage, reels.length, shouldUseLocalContext])
   const maybeRecenterPagerWindow = useCallback(
     (index: number) => {
       if (shouldUseLocalContext) return
@@ -1619,11 +1718,11 @@ export function ReelsViewer({
 
       pagerWindowStartRef.current = nextWindowStart
       pendingPagerWindowIndexRef.current = index
-      pendingPagerSelectionReelIdRef.current = reelsRef.current[index]?.id ?? null
+      armPendingPagerSelection(reelsRef.current[index]?.id ?? null)
       isPagerWindowRebasingRef.current = true
       setPagerWindowStart(nextWindowStart)
     },
-    [shouldUseLocalContext],
+    [armPendingPagerSelection, shouldUseLocalContext],
   )
 
   useEffect(() => {

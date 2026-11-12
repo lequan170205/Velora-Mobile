@@ -282,7 +282,7 @@ test('series playback loads an episode window anchored on the requested reel', (
   assert.match(seriesScreen, /hasPreviousContextPage=\{hasPreviousPage\}/)
   assert.match(seriesScreen, /hasNextContextPage=\{hasNextPage\}/)
   assert.match(seriesScreen, /requestPreviousEpisodes\(\)/)
-  assert.match(reelsViewer, /index <= 4 && hasPreviousContextPage/)
+  assert.match(reelsViewer, /isNearStart && hasPreviousContextPage/)
   assert.match(
     reelsViewer,
     /const nextIndex = scrollPosition\s*\? Math\.round\(scrollPosition\.position \+ scrollPosition\.offset\)\s*: selectedPageIndexRef\.current/,
@@ -400,7 +400,10 @@ test('publish flow uploads once before Series creation or attachment and keeps a
   )
   assert.match(publishFlow, /effectiveVisibility = currentSeries\.visibility/)
   assert.match(publishFlow, /if \(latestOperation\.createdSeriesId\)/)
-  assert.doesNotMatch(publishFlow, /deleteReelSeriesAsync|delete operationWithoutSeries\.createdSeriesId/)
+  assert.doesNotMatch(
+    publishFlow,
+    /deleteReelSeriesAsync|delete operationWithoutSeries\.createdSeriesId/,
+  )
   assert.match(publishFlow, /Alert\.alert\('Reel published'/)
   assert.match(publishStage, /ReelSeriesPickerSheet/)
   assert.match(publishStage, /Episodes in a series share the same audience/)
@@ -510,7 +513,7 @@ test('series playback uses a paged local context without falling through to unre
   )
   assert.match(
     reelsViewer,
-    /pendingPagerSelectionReelIdRef\.current = reelsRef\.current\[nextIndex\]/,
+    /armPendingPagerSelection\(reelsRef\.current\[nextIndex\]\?\.id \?\? null\)/,
   )
   assert.match(
     reelsViewer,
