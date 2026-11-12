@@ -89,11 +89,23 @@ test('native pager keeps a bounded, scrollable reel window and switches audio at
   assert.match(playbackCoordinator, /this\.pendingSeekTimers\.has\(nextReelId\)/)
 })
 
-test('series playback skips full-HLS background downloads and keeps its episodes pill responsive', () => {
+test('series playback defers full-HLS background saving until settled and pauses it on swipe', () => {
+  assert.match(reelsViewer, /const SERIES_CACHE_SETTLE_MS = 3000/)
+  assert.match(reelsViewer, /if \(!isSeriesPlayback \|\| isFetchingContextPage\)/)
   assert.match(
     reelsViewer,
-    /const shouldSaveNearbyReelVideos =\s*isReelSavingModeHydrated && reelSavingModeEnabled && !isSeriesPlayback/,
+    /reelSavingModeEnabled &&\s*\(!isSeriesPlayback \|\| isSeriesCacheSettled\)/,
   )
+  assert.match(
+    reelsViewer,
+    /cancelQueuedTemporaryReelVideoCacheExcept\(allowedReelIds, \{ includeActive: isSeriesPlayback \}\)/,
+  )
+  assert.match(offlineCache, /options\.includeActive/)
+  assert.match(offlineCache, /downloadWithConcurrency\(resources, isCanceled\)/)
+  assert.match(offlineCache, /if \(job\.isCanceled\) \{[\s\S]*notifyStoredCacheStatus/)
+})
+
+test('series episodes pill keeps the chevron separate and truncates only the title', () => {
   const pillBlock = reelFeedItem.slice(reelFeedItem.indexOf('episodes list'))
   assert.match(pillBlock, /ml-3 h-7 w-7 shrink-0/)
   assert.match(pillBlock, /min-w-0 shrink font-heading/)

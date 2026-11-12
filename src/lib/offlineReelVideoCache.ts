@@ -72,6 +72,7 @@ interface DownloadJob {
   sessionVersion: number
   addedAt: number
   status: TemporaryReelVideoCacheStatus
+  isCanceled?: boolean
   promise: Promise<TemporaryReelVideoCacheRecord | null>
   resolve: (record: TemporaryReelVideoCacheRecord | null) => void
 }
@@ -577,11 +578,20 @@ const downloadResource = async (resource: DownloadableResource) => {
   return getFileSize(resource.localUri)
 }
 
-const downloadWithConcurrency = async (resources: DownloadableResource[]) => {
+const DOWNLOAD_CANCELED_MESSAGE = 'Reel video cache download canceled'
+
+const downloadWithConcurrency = async (
+  resources: DownloadableResource[],
+  isCanceled: () => boolean = () => false,
+) => {
   const executing = new Set<Promise<number>>()
   let totalBytes = 0
 
   for (const resource of resources) {
+    if (isCanceled()) {
+      break
+    }
+
     const promise = downloadResource(resource).finally(() => {
       executing.delete(promise)
     })
@@ -601,6 +611,10 @@ const downloadWithConcurrency = async (resources: DownloadableResource[]) => {
 
   const remainingSizes = await Promise.all(executing)
   totalBytes += remainingSizes.reduce((sum, size) => sum + size, 0)
+
+  if (isCanceled()) {
+    throw new Error(DOWNLOAD_CANCELED_MESSAGE)
+  }
 
   return totalBytes
 }
@@ -635,6 +649,7 @@ const downloadReelVideoNow = async (
   reel: TemporaryReelVideoCacheInput,
   options: TemporaryReelVideoCacheCleanupOptions = {},
   sessionVersion: number,
+  isCanceled: () => boolean = () => false,
 ): Promise<TemporaryReelVideoCacheRecord | null> => {
   if (!isHlsReelUrl(reel.streamUrl)) {
     return null
@@ -665,7 +680,7 @@ const downloadReelVideoNow = async (
       tempDir,
     )
 
-    const segmentBytes = await downloadWithConcurrency(resources)
+    const segmentBytes = await downloadWithConcurrency(resources, isCanceled)
 
     const localManifestUri = `${tempDir}offline.m3u8`
     await FileSystem.writeAsStringAsync(localManifestUri, rewrittenPlaylistText)
@@ -748,6 +763,7 @@ const runDownloadJob = async (job: DownloadJob) => {
         ...(typeof job.maxBytes === 'number' ? { maxBytes: job.maxBytes } : {}),
       },
       job.sessionVersion,
+      () => job.isCanceled === true,
     )
 
     if (record) {
@@ -759,7 +775,12 @@ const runDownloadJob = async (job: DownloadJob) => {
     await notifyStoredCacheStatus(job.reel.id)
     job.resolve(record)
   } catch {
-    recordFailedDownloadBackoff(job.reel.id)
+    if (job.isCanceled) {
+      // A superseded download is not a failure: no retry backoff, restore the stored status.
+      await notifyStoredCacheStatus(job.reel.id)
+    } else {
+      recordFailedDownloadBackoff(job.reel.id)
+    }
     job.resolve(null)
   } finally {
     activeDownloadCount = Math.max(0, activeDownloadCount - 1)
@@ -832,6 +853,7 @@ export const cacheTemporaryReelVideo = async (
   const existingJob = downloadJobs.get(reel.id)
 
   if (existingJob) {
+    existingJob.isCanceled = false
     existingJob.priority = Math.min(existingJob.priority, options.priority ?? existingJob.priority)
     const nextMaxBytes = mergeMaxBytes(existingJob.maxBytes, options.maxBytes)
 
@@ -884,12 +906,25 @@ export const enqueueTemporaryReelVideoCache = (
   void cacheTemporaryReelVideo(reel, options).catch(() => null)
 }
 
-export const cancelQueuedTemporaryReelVideoCacheExcept = (allowedReelIds: string[]) => {
+export const cancelQueuedTemporaryReelVideoCacheExcept = (
+  allowedReelIds: string[],
+  options: { includeActive?: boolean } = {},
+) => {
   const allowedReelIdSet = new Set(allowedReelIds)
   const canceledReelIds: string[] = []
 
   downloadJobs.forEach((job, reelId) => {
-    if (job.status !== 'QUEUED' || allowedReelIdSet.has(reelId)) {
+    if (allowedReelIdSet.has(reelId)) {
+      return
+    }
+
+    // An in-flight download stops before its next segment; its own cleanup resolves the job.
+    if (job.status === 'DOWNLOADING' && options.includeActive) {
+      job.isCanceled = true
+      return
+    }
+
+    if (job.status !== 'QUEUED') {
       return
     }
 

@@ -81,6 +81,7 @@ interface FeedFallbackState {
 }
 
 const PRELOAD_RADIUS = 1
+const SERIES_CACHE_SETTLE_MS = 3000
 // ponytail: cap native pages at four batches; widen if a single fling skips beyond the window.
 const PAGER_WINDOW_RADIUS = DEFAULT_REELS_LIMIT * 2
 const PAGER_WINDOW_SIZE = PAGER_WINDOW_RADIUS * 2 + 1
@@ -756,11 +757,28 @@ export function ReelsViewer({
     () => buildReelVideoPrefetchPlan(reels, activeIndex, reelCachePolicy),
     [activeIndex, reelCachePolicy, reels],
   )
-  // Series playback is a sequential binge: downloading every nearby episode's full HLS (.ts
-  // segments) in the background competes with the active player's own segment fetches and the
-  // episode pagination requests, which stalls swiping. Only the light head-start prefetch runs.
+  // Series playback is a sequential binge: full-HLS (.ts) background downloads started on every
+  // swipe compete with the active player and the episode pagination requests. Keep saving, but
+  // only once the viewer has rested on an episode and no episode page is loading; a swipe
+  // pauses it again (queued jobs are dropped, an in-flight one stops before its next segment).
+  const [isSeriesCacheSettled, setIsSeriesCacheSettled] = useState(false)
+  useEffect(() => {
+    setIsSeriesCacheSettled(false)
+
+    if (!isSeriesPlayback || isFetchingContextPage) {
+      return undefined
+    }
+
+    const settleTimer = setTimeout(() => {
+      setIsSeriesCacheSettled(true)
+    }, SERIES_CACHE_SETTLE_MS)
+
+    return () => {
+      clearTimeout(settleTimer)
+    }
+  }, [activeIndex, isFetchingContextPage, isSeriesPlayback])
   const shouldSaveNearbyReelVideos =
-    isReelSavingModeHydrated && reelSavingModeEnabled && !isSeriesPlayback
+    isReelSavingModeHydrated && reelSavingModeEnabled && (!isSeriesPlayback || isSeriesCacheSettled)
   const offlineVideoCachePriorities = useMemo(
     () =>
       new Map(
@@ -994,7 +1012,7 @@ export function ReelsViewer({
         ? reelVideoPrefetchPlan.map((reel) => reel.id)
         : []
 
-    cancelQueuedTemporaryReelVideoCacheExcept(allowedReelIds)
+    cancelQueuedTemporaryReelVideoCacheExcept(allowedReelIds, { includeActive: isSeriesPlayback })
 
     if (!isFocused || activeIndex < 0 || reels.length === 0) {
       return
@@ -1032,6 +1050,7 @@ export function ReelsViewer({
     activeIndex,
     isFocused,
     isOnline,
+    isSeriesPlayback,
     reelCachePolicy.maxVideoCacheBytes,
     reelCachePolicy.shouldCacheVideo,
     reelVideoPrefetchPlan,
