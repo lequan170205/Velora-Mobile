@@ -26,19 +26,21 @@ export function useGlobalSearch(params: GlobalSearchParams) {
   })
 
   const data = query.data
-  const filteredData =
-    data && blockedUsers.isVisibilityReady
-      ? {
-          ...data,
-          users: filterBlockedUsers(data.users, blockedUsers.blockedUserIds),
-          reels: data.reels.filter((reel) => !blockedUsers.blockedUserIds.has(reel.userId)),
-          counts: {
-            users: filterBlockedUsers(data.users, blockedUsers.blockedUserIds).length,
-            reels: data.reels.filter((reel) => !blockedUsers.blockedUserIds.has(reel.userId))
-              .length,
-          },
-        }
-      : undefined
+  const filteredData = (() => {
+    if (!data || !blockedUsers.isVisibilityReady) {
+      return undefined
+    }
+
+    const users = filterBlockedUsers(data.users, blockedUsers.blockedUserIds)
+    const reels = data.reels.filter((reel) => !blockedUsers.blockedUserIds.has(reel.userId))
+
+    return {
+      ...data,
+      users,
+      reels,
+      counts: { users: users.length, reels: reels.length, tags: data.tags.length },
+    }
+  })()
 
   return {
     ...query,

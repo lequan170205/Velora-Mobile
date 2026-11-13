@@ -4,7 +4,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
-  Pressable,
+  FlatList,
+  BackHandler,
+  RefreshControl,
   ScrollView,
   View,
   useWindowDimensions,
@@ -14,12 +16,16 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { AppPressable, AppText } from '../../src/components/base'
 import { ChatAvatar } from '../../src/components/chat/ChatAvatar'
 import { AppSearchBar } from '../../src/components/common/AppSearchBar'
-import { SafeTouchableOpacity } from '../../src/components/common/SafeTouchableOpacity'
 import { getDockedTabBarHeight } from '../../src/components/navigation/CustomTabBar'
 import {
   ReelThumbnailGrid,
   ReelThumbnailGridSkeleton,
+  ReelThumbnailTile,
 } from '../../src/components/reels/ReelThumbnailGrid'
+import { SearchResultTabs } from '../../src/components/search/SearchResultTabs'
+import { SearchTagChips } from '../../src/components/search/SearchTagChips'
+import { SearchTagRow } from '../../src/components/search/SearchTagRow'
+import { VeloraAiButton } from '../../src/components/search/VeloraAiButton'
 import { colors } from '../../src/constants/theme'
 import { useBotChat } from '../../src/hooks/useBotChat'
 import { useConversationNavigation } from '../../src/hooks/useConversationNavigation'
@@ -27,10 +33,13 @@ import { useFriendshipStatus } from '../../src/hooks/useFriends'
 import { useGlobalSearch } from '../../src/hooks/useGlobalSearch'
 import { useRecommendedUsers } from '../../src/hooks/useRecommendedUsers'
 import { useRecommendedReelsFeed } from '../../src/hooks/useReels'
-import { useSearchSuggestions } from '../../src/hooks/useSearchSuggestions'
+import { useSearchTags } from '../../src/hooks/useSearchTags'
+import { useTagReelsFeed } from '../../src/hooks/useTagReelsFeed'
 import { flattenRecommendedReelPages } from '../../src/lib/recommendationFeed'
+import { deriveTagsFromReels } from '../../src/lib/searchTags'
 import { useNetworkStatus } from '../../src/providers/NetworkProvider'
 
+import type { SearchTabKey } from '../../src/components/search/SearchResultTabs'
 import type { FriendshipState } from '../../src/types/friend.types'
 import type { ReelFeedListItem } from '../../src/types/reel.types'
 import type { GlobalSearchType, PublicUserProfile } from '../../src/types/search.types'
@@ -39,19 +48,24 @@ import type { TextInput } from 'react-native'
 
 const SEARCH_DEBOUNCE_MS = 400
 const ALL_CONTACTS_PREVIEW_LIMIT = 5
-const ALL_REELS_PREVIEW_LIMIT = 6
+const ALL_REELS_PREVIEW_LIMIT = 9
+const ALL_TAGS_PREVIEW_LIMIT = 4
+const BROWSE_REELS_LIMIT = 24
+const TRENDING_TAGS_LIMIT = 12
 const SEARCH_LIMITS: Record<GlobalSearchType, number> = {
   all: 18,
   users: 20,
   reels: 24,
+  tags: 20,
 }
-
-type SearchTabKey = 'all' | 'reels' | 'contacts'
 
 const getSearchTabParam = (value?: string | string[]): SearchTabKey | null => {
   const normalizedValue = Array.isArray(value) ? value[0] : value
 
-  return normalizedValue === 'all' || normalizedValue === 'reels' || normalizedValue === 'contacts'
+  return normalizedValue === 'all' ||
+    normalizedValue === 'reels' ||
+    normalizedValue === 'contacts' ||
+    normalizedValue === 'tags'
     ? normalizedValue
     : null
 }
@@ -65,15 +79,11 @@ const getNormalizedUsername = (username?: string | null) =>
   username?.trim().replace(/^@+/, '') || null
 
 const getBackendType = (selectedTab: SearchTabKey): GlobalSearchType => {
-  if (selectedTab === 'all') {
-    return 'all'
+  if (selectedTab === 'contacts') {
+    return 'users'
   }
 
-  if (selectedTab === 'reels') {
-    return 'reels'
-  }
-
-  return 'users'
+  return selectedTab
 }
 
 const getErrorMessage = (error: unknown, fallback: string) => {
@@ -95,73 +105,61 @@ const getErrorMessage = (error: unknown, fallback: string) => {
   return fallback
 }
 
-function SearchHeader({
+function SearchTopBar({
+  inputRef,
   isBotLoading,
+  isSearching,
+  isSearchTyping,
+  onBack,
   onBotChat,
+  onChangeQuery,
+  onFocus,
+  query,
 }: {
+  inputRef: React.RefObject<TextInput | null>
   isBotLoading: boolean
+  isSearching: boolean
+  isSearchTyping: boolean
+  onBack: () => void
   onBotChat: () => void
+  onChangeQuery: (value: string) => void
+  onFocus: () => void
+  query: string
 }) {
   return (
-    <View className="flex-row items-end justify-between px-5 pb-3 pt-2">
-      <View>
-        <AppText className="text-xs2 font-semibold uppercase tracking-[1.8px] text-brand-dark">
-          Velora
-        </AppText>
-        <AppText className="font-display text-[28px] leading-[34px] tracking-[-0.7px] text-text-primary">
-          Search
-        </AppText>
+    <View className="flex-row items-center gap-2 px-4 pb-3 pt-2">
+      {isSearching ? (
+        <AppPressable
+          className="h-11 w-11 items-center justify-center rounded-full"
+          onPress={onBack}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          hitSlop={4}
+        >
+          <MaterialIcons name="arrow-back" size={24} color={colors.text.primary} />
+        </AppPressable>
+      ) : null}
+
+      <View className="min-w-0 flex-1">
+        <AppSearchBar
+          ref={inputRef}
+          value={query}
+          onChangeText={onChangeQuery}
+          onFocus={onFocus}
+          placeholder="Search"
+          placeholderTextColor={colors.text.secondary}
+          iconColor={colors.text.secondary}
+          iconPlacement="left"
+          isLoading={isSearchTyping}
+          loadingColor={colors.brand.primary}
+          onClear={() => onChangeQuery('')}
+          containerClassName="h-12 rounded-full border border-border-default bg-surface-input px-4 py-0"
+          size="compact"
+        />
       </View>
 
-      <SafeTouchableOpacity
-        className="h-12 w-12 items-center justify-center overflow-hidden rounded-[18px] border border-brand-soft bg-surface-accent"
-        onPress={onBotChat}
-        activeOpacity={0.75}
-        accessibilityRole="button"
-        accessibilityLabel="Open Velora AI"
-        accessibilityHint="Start a chat with Velora AI"
-      >
-        {isBotLoading ? (
-          <ActivityIndicator color={colors.brand.tertiary} size="small" />
-        ) : (
-          <MaterialIcons name="auto-awesome" size={21} color={colors.brand.tertiary} />
-        )}
-      </SafeTouchableOpacity>
+      {isSearching ? null : <VeloraAiButton isLoading={isBotLoading} onPress={onBotChat} />}
     </View>
-  )
-}
-
-function SearchTabButton({
-  active,
-  label,
-  onPress,
-}: {
-  active: boolean
-  label: string
-  onPress: () => void
-}) {
-  return (
-    <Pressable
-      className="h-11 flex-1 flex-row items-center justify-center rounded-full px-2"
-      onPress={onPress}
-      collapsable={false}
-      style={({ pressed }) => ({
-        backgroundColor: active ? colors.bg.primary : 'transparent',
-        borderColor: colors.border.light,
-        borderWidth: active ? 1 : 0,
-        opacity: pressed ? 0.76 : 1,
-      })}
-      accessibilityRole="tab"
-      accessibilityState={{ selected: active }}
-      accessibilityLabel={`${label} search results`}
-    >
-      <AppText
-        className="text-sm2 font-semibold"
-        style={{ color: active ? colors.text.primary : colors.text.secondary }}
-      >
-        {label}
-      </AppText>
-    </Pressable>
   )
 }
 
@@ -233,83 +231,6 @@ function SearchMessageState({
           <AppText className="text-base2 font-semibold text-white">{actionLabel}</AppText>
         </AppPressable>
       ) : null}
-    </View>
-  )
-}
-
-function SuggestionChip({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <AppPressable
-      className="mb-2 mr-2 min-h-11 items-center justify-center rounded-full border border-brand-soft bg-bg-primary px-4"
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`Search for ${label}`}
-    >
-      <AppText className="font-medium text-sm2 text-text-primary">{label}</AppText>
-    </AppPressable>
-  )
-}
-
-function SuggestionChipSkeleton({ width }: { width: number }) {
-  return <View className="mb-2 mr-2 h-11 rounded-full bg-bg-primary" style={{ width }} />
-}
-
-function EmptyQueryState({
-  hasResolvedSuggestions,
-  isLoadingSuggestions,
-  onSuggestionPress,
-  showSuggestions,
-  suggestions,
-}: {
-  hasResolvedSuggestions: boolean
-  isLoadingSuggestions: boolean
-  onSuggestionPress: (value: string) => void
-  showSuggestions: boolean
-  suggestions: { label: string; query: string }[]
-}) {
-  if (!showSuggestions) {
-    return null
-  }
-
-  const chips = hasResolvedSuggestions ? suggestions : []
-
-  return (
-    <View className="mx-5 mt-5 rounded-[24px] border border-brand-soft bg-surface-accent px-4 py-5">
-      <View className="flex-row items-start">
-        <View className="h-11 w-11 items-center justify-center rounded-[16px] border border-brand-soft bg-bg-primary">
-          <MaterialIcons name="explore" size={21} color={colors.brand.tertiary} />
-        </View>
-        <View className="ml-3 min-w-0 flex-1">
-          <AppText className="font-heading text-lg text-text-primary" selectable>
-            Explore
-          </AppText>
-          <AppText className="font-sans mt-1 text-base2 leading-5 text-text-secondary" selectable>
-            Search reels, contacts, or topics
-          </AppText>
-        </View>
-      </View>
-
-      <View className="mt-5 flex-row flex-wrap">
-        {chips.map((chip) => (
-          <SuggestionChip
-            key={`${chip.query}:${chip.label}`}
-            label={chip.label}
-            onPress={() => onSuggestionPress(chip.query)}
-          />
-        ))}
-
-        {isLoadingSuggestions ? (
-          <>
-            <SuggestionChipSkeleton width={96} />
-            <SuggestionChipSkeleton width={124} />
-            <SuggestionChipSkeleton width={104} />
-          </>
-        ) : chips.length === 0 ? (
-          <AppText className="font-sans text-sm2 text-text-secondary" selectable>
-            Try a name, a topic, or a reel title to get started.
-          </AppText>
-        ) : null}
-      </View>
     </View>
   )
 }
@@ -514,6 +435,22 @@ function ContactResultsSkeleton({ count = 5 }: { count?: number }) {
   )
 }
 
+function TagRowsSkeleton({ count = 5 }: { count?: number }) {
+  return (
+    <View pointerEvents="none">
+      {Array.from({ length: count }).map((_, index) => (
+        <View key={`tag-skeleton-${index}`} className="flex-row items-center px-5 py-3">
+          <View className="h-12 w-12 rounded-full bg-surface-muted" />
+          <View className="ml-3 flex-1 gap-2.5">
+            <View className="h-3.5 w-2/5 rounded-full bg-surface-muted" />
+            <View className="h-3 w-1/4 rounded-full bg-surface-muted" />
+          </View>
+        </View>
+      ))}
+    </View>
+  )
+}
+
 function SearchResultsSkeleton({
   selectedTab,
   tileSize,
@@ -526,7 +463,7 @@ function SearchResultsSkeleton({
   if (selectedTab === 'contacts') {
     return (
       <View>
-        <SearchSectionHeader title={title ?? 'Contacts'} />
+        <SearchSectionHeader title={title ?? 'Accounts'} />
         <ContactResultsSkeleton />
       </View>
     )
@@ -541,9 +478,18 @@ function SearchResultsSkeleton({
     )
   }
 
+  if (selectedTab === 'tags') {
+    return (
+      <View>
+        <SearchSectionHeader title={title ?? 'Tags'} />
+        <TagRowsSkeleton />
+      </View>
+    )
+  }
+
   return (
     <View>
-      <SearchSectionHeader title="Contacts" />
+      <SearchSectionHeader title="Accounts" />
       <ContactResultsSkeleton count={3} />
       <SearchSectionHeader title="Reels" />
       <ReelThumbnailGridSkeleton tileSize={tileSize} />
@@ -551,50 +497,152 @@ function SearchResultsSkeleton({
   )
 }
 
+function TagResultsList({
+  onTagPress,
+  tags,
+}: {
+  onTagPress: (tag: string) => void
+  tags: { tag: string; reelCount: number }[]
+}) {
+  return (
+    <View>
+      {tags.map((item) => (
+        <SearchTagRow key={item.tag} item={item} onPress={onTagPress} />
+      ))}
+    </View>
+  )
+}
+
+function BrowseReelsFeed({
+  activeTag,
+  bottomPadding,
+  hasError,
+  isFetchingNextPage,
+  isLoading,
+  isRefreshing,
+  onClearTag,
+  onEndReached,
+  onReelPress,
+  onRefresh,
+  onRetry,
+  reels,
+  tileSize,
+}: {
+  activeTag: string | null
+  bottomPadding: number
+  hasError: boolean
+  isFetchingNextPage: boolean
+  isLoading: boolean
+  isRefreshing: boolean
+  onClearTag: () => void
+  onEndReached: () => void
+  onReelPress: (reel: ReelFeedListItem) => void
+  onRefresh: () => void
+  onRetry: () => void
+  reels: ReelFeedListItem[]
+  tileSize: number
+}) {
+  const renderItem = useCallback(
+    ({ item, index }: { item: ReelFeedListItem; index: number }) => (
+      <ReelThumbnailTile index={index} onPress={onReelPress} reel={item} tileSize={tileSize} />
+    ),
+    [onReelPress, tileSize],
+  )
+
+  const emptyState = isLoading ? (
+    <ReelThumbnailGridSkeleton count={12} tileSize={tileSize} />
+  ) : hasError ? (
+    <SearchMessageState
+      actionLabel="Retry"
+      description="Check your connection and try again."
+      icon="cloud-off"
+      onPress={onRetry}
+      title="Couldn’t load reels"
+    />
+  ) : activeTag ? (
+    <SearchMessageState
+      actionLabel="Back to For you"
+      description="Try another tag or come back later."
+      icon="movie-filter"
+      onPress={onClearTag}
+      title={`No reels tagged #${activeTag} yet`}
+    />
+  ) : (
+    <SearchMessageState
+      description="Explore a topic and come back for new picks."
+      icon="movie-filter"
+      title="No recommended reels yet"
+    />
+  )
+
+  return (
+    <FlatList
+      // Remount per tag so each topic starts at the top of its own grid.
+      key={activeTag ?? 'for-you'}
+      data={reels}
+      keyExtractor={(reel) => reel.id}
+      numColumns={3}
+      renderItem={renderItem}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      onEndReached={onEndReached}
+      onEndReachedThreshold={0.6}
+      refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />}
+      contentContainerStyle={{ paddingBottom: bottomPadding }}
+      ListEmptyComponent={emptyState}
+      ListFooterComponent={
+        isFetchingNextPage ? (
+          <View className="items-center py-4">
+            <ActivityIndicator color={colors.brand.tertiary} size="small" />
+          </View>
+        ) : null
+      }
+      initialNumToRender={12}
+      windowSize={7}
+    />
+  )
+}
+
 function SearchResultsPanel({
   backendType,
   debouncedQuery,
-  hasResolvedSuggestions,
-  isLoadingSuggestions,
-  onReelPress,
-  onFriendRequestsPress,
+  isRecommendedReelsLoading,
+  isRecommendedUsersError,
+  isRecommendedUsersLoading,
+  isTrendingTagsLoading,
   onClearQuery,
-  onSuggestionPress,
+  onFriendRequestsPress,
   onRecommendedUsersRetry,
+  onReelPress,
   onSwitchTab,
+  onTagPress,
   onUserPress,
   query,
   recommendedReels,
   recommendedUsers,
   selectedTab,
-  showSuggestions,
-  suggestions,
   tileSize,
-  isRecommendedReelsLoading,
-  isRecommendedUsersError,
-  isRecommendedUsersLoading,
+  trendingTags,
 }: {
   backendType: GlobalSearchType
   debouncedQuery: string
-  hasResolvedSuggestions: boolean
-  isLoadingSuggestions: boolean
   isRecommendedReelsLoading: boolean
   isRecommendedUsersError: boolean
   isRecommendedUsersLoading: boolean
-  onReelPress: (reel: ReelFeedListItem) => void
-  onFriendRequestsPress: () => void
+  isTrendingTagsLoading: boolean
   onClearQuery: () => void
+  onFriendRequestsPress: () => void
   onRecommendedUsersRetry: () => void
-  onSuggestionPress: (value: string) => void
+  onReelPress: (reel: ReelFeedListItem) => void
   onSwitchTab: (tab: SearchTabKey) => void
+  onTagPress: (tag: string) => void
   onUserPress: (user: PublicUserProfile) => void
   query: string
   recommendedReels: ReelFeedListItem[]
   recommendedUsers: RecommendedPublicUserProfile[]
   selectedTab: SearchTabKey
-  showSuggestions: boolean
-  suggestions: { label: string; query: string }[]
   tileSize: number
+  trendingTags: { tag: string; reelCount: number }[]
 }) {
   const normalizedQuery = query.trim()
   const normalizedDebouncedQuery = debouncedQuery.trim()
@@ -620,10 +668,8 @@ function SearchResultsPanel({
       if (recommendedReels.length === 0) {
         return (
           <SearchMessageState
-            actionLabel="Explore suggestions"
             description="Explore a topic and come back for new picks."
             icon="movie-filter"
-            onPress={() => onSwitchTab('all')}
             title="No recommended reels yet"
           />
         )
@@ -647,7 +693,7 @@ function SearchResultsPanel({
           <SearchResultsSkeleton
             selectedTab="contacts"
             tileSize={tileSize}
-            title="Suggested contacts"
+            title="Suggested accounts"
           />
         )
       }
@@ -668,7 +714,7 @@ function SearchResultsPanel({
         return (
           <SearchMessageState
             icon="people-outline"
-            title="No contact suggestions yet"
+            title="No account suggestions yet"
             description="Try searching for someone"
           />
         )
@@ -676,7 +722,7 @@ function SearchResultsPanel({
 
       return (
         <View>
-          <SearchSectionHeader title="Suggested contacts" />
+          <SearchSectionHeader title="Suggested accounts" />
           <ContactResultsList
             mode="recommended"
             onFriendRequestsPress={onFriendRequestsPress}
@@ -687,14 +733,26 @@ function SearchResultsPanel({
       )
     }
 
+    // "For you" and "Tags" share the same first frame: what is trending right now.
+    if (isTrendingTagsLoading && trendingTags.length === 0) {
+      return <SearchResultsSkeleton selectedTab="tags" tileSize={tileSize} title="Trending tags" />
+    }
+
+    if (trendingTags.length === 0) {
+      return (
+        <SearchMessageState
+          icon="tag"
+          title="Search Velora"
+          description="Try an account name, a tag, or a reel title."
+        />
+      )
+    }
+
     return (
-      <EmptyQueryState
-        hasResolvedSuggestions={hasResolvedSuggestions}
-        suggestions={suggestions}
-        isLoadingSuggestions={isLoadingSuggestions}
-        onSuggestionPress={onSuggestionPress}
-        showSuggestions={showSuggestions}
-      />
+      <View>
+        <SearchSectionHeader title="Trending tags" />
+        <TagResultsList onTagPress={onTagPress} tags={trendingTags} />
+      </View>
     )
   }
 
@@ -728,14 +786,15 @@ function SearchResultsPanel({
 
   const contacts = data?.users ?? []
   const reels = data?.reels ?? []
-  const previewContacts = contacts.slice(0, ALL_CONTACTS_PREVIEW_LIMIT)
-  const previewReels = reels.slice(0, ALL_REELS_PREVIEW_LIMIT)
+  const tags = data?.tags ?? []
   const hasResults =
     selectedTab === 'all'
-      ? contacts.length > 0 || reels.length > 0
+      ? contacts.length > 0 || reels.length > 0 || tags.length > 0
       : selectedTab === 'contacts'
         ? contacts.length > 0
-        : reels.length > 0
+        : selectedTab === 'reels'
+          ? reels.length > 0
+          : tags.length > 0
 
   if (!hasResults) {
     return (
@@ -751,7 +810,7 @@ function SearchResultsPanel({
   if (selectedTab === 'contacts') {
     return (
       <View>
-        <SearchSectionHeader title="Contacts" />
+        <SearchSectionHeader title="Accounts" />
         <ContactResultsList
           mode="search"
           onFriendRequestsPress={onFriendRequestsPress}
@@ -771,24 +830,44 @@ function SearchResultsPanel({
     )
   }
 
+  if (selectedTab === 'tags') {
+    return (
+      <View>
+        <SearchSectionHeader title="Tags" />
+        <TagResultsList onTagPress={onTagPress} tags={tags} />
+      </View>
+    )
+  }
+
   return (
     <View>
-      {previewContacts.length > 0 ? (
+      {contacts.length > 0 ? (
         <>
-          <SearchSectionHeader title="Contacts" onSeeAll={() => onSwitchTab('contacts')} />
+          <SearchSectionHeader title="Accounts" onSeeAll={() => onSwitchTab('contacts')} />
           <ContactResultsList
             mode="search"
             onFriendRequestsPress={onFriendRequestsPress}
             onUserPress={onUserPress}
-            users={previewContacts}
+            users={contacts.slice(0, ALL_CONTACTS_PREVIEW_LIMIT)}
           />
         </>
       ) : null}
 
-      {previewReels.length > 0 ? (
+      {reels.length > 0 ? (
         <>
           <SearchSectionHeader title="Reels" onSeeAll={() => onSwitchTab('reels')} />
-          <ReelThumbnailGrid onReelPress={onReelPress} reels={previewReels} tileSize={tileSize} />
+          <ReelThumbnailGrid
+            onReelPress={onReelPress}
+            reels={reels.slice(0, ALL_REELS_PREVIEW_LIMIT)}
+            tileSize={tileSize}
+          />
+        </>
+      ) : null}
+
+      {tags.length > 0 ? (
+        <>
+          <SearchSectionHeader title="Tags" onSeeAll={() => onSwitchTab('tags')} />
+          <TagResultsList onTagPress={onTagPress} tags={tags.slice(0, ALL_TAGS_PREVIEW_LIMIT)} />
         </>
       ) : null}
 
@@ -812,27 +891,27 @@ export default function SearchScreen() {
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [selectedTab, setSelectedTab] = useState<SearchTabKey>(() => routeTab ?? 'all')
+  const [isSearching, setIsSearching] = useState(() => routeTab !== null)
+  const [activeTag, setActiveTag] = useState<string | null>(null)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const { mutateAsync: startBotChat, isPending: isBotLoading } = useBotChat()
   const { runConversationEntry } = useConversationNavigation()
 
   const normalizedQuery = query.trim()
   const backendType = getBackendType(selectedTab)
-  const shouldShowSuggestionChips = selectedTab === 'all'
-  const shouldLoadRecommendedReels = normalizedQuery.length === 0 && selectedTab === 'reels'
-  const shouldLoadRecommendedUsers = normalizedQuery.length === 0 && selectedTab === 'contacts'
-  const { data: searchSuggestionsData, isLoading: isSearchSuggestionsLoading } =
-    useSearchSuggestions(
-      {
-        type: backendType,
-        limit: 8,
-      },
-      { enabled: shouldShowSuggestionChips },
-    )
-  const { data: recommendedReelsData, isLoading: isRecommendedReelsLoading } =
-    useRecommendedReelsFeed({
-      enabled: shouldLoadRecommendedReels,
-      limit: 24,
-    })
+  const browseTag = isSearching ? null : activeTag
+  const shouldLoadRecommendedReels =
+    normalizedQuery.length === 0 && (isSearching ? selectedTab === 'reels' : activeTag === null)
+  const shouldLoadRecommendedUsers =
+    normalizedQuery.length === 0 && isSearching && selectedTab === 'contacts'
+  const { data: trendingTags = [], isLoading: isTrendingTagsLoading } = useSearchTags({
+    limit: TRENDING_TAGS_LIMIT,
+  })
+  const tagFeed = useTagReelsFeed({ tag: browseTag, limit: BROWSE_REELS_LIMIT })
+  const recommendedFeed = useRecommendedReelsFeed({
+    enabled: shouldLoadRecommendedReels,
+    limit: BROWSE_REELS_LIMIT,
+  })
   const {
     data: recommendedUsers = [],
     isError: isRecommendedUsersError,
@@ -843,26 +922,24 @@ export default function SearchScreen() {
     limit: 20,
   })
   const tileSize = useMemo(() => (windowWidth - 4) / 3, [windowWidth])
-  const searchSuggestionChips = useMemo(
-    () =>
-      (searchSuggestionsData?.suggestions ?? []).map((suggestion) => ({
-        label: suggestion.label,
-        query: suggestion.query,
-      })),
-    [searchSuggestionsData?.suggestions],
-  )
   const recommendedReels = useMemo(
-    () => flattenRecommendedReelPages(recommendedReelsData?.pages ?? []),
-    [recommendedReelsData],
+    () => flattenRecommendedReelPages(recommendedFeed.data?.pages ?? []),
+    [recommendedFeed.data],
   )
-  const hasResolvedSearchSuggestions =
-    shouldShowSuggestionChips &&
-    (searchSuggestionsData !== undefined || !isSearchSuggestionsLoading)
+  const chipTags = useMemo(
+    () =>
+      trendingTags.length > 0
+        ? trendingTags
+        : deriveTagsFromReels(recommendedReels, TRENDING_TAGS_LIMIT),
+    [recommendedReels, trendingTags],
+  )
   const isSearchTyping = normalizedQuery.length > 0 && normalizedQuery !== debouncedQuery.trim()
+  const bottomPadding = getDockedTabBarHeight(insets.bottom) + 16
 
   useEffect(() => {
     if (routeTab) {
       setSelectedTab(routeTab)
+      setIsSearching(true)
     }
   }, [routeTab])
 
@@ -882,13 +959,34 @@ export default function SearchScreen() {
     [router],
   )
 
-  const handleSuggestionPress = useCallback(
-    (value: string) => {
-      handleSwitchSearchTab('all')
-      setQuery(value)
-      inputRef.current?.focus()
+  const handleExitSearch = useCallback(() => {
+    setQuery('')
+    setIsSearching(false)
+    setSelectedTab('all')
+    inputRef.current?.blur()
+    // Clear the route param so the next Friends -> Contacts entry is seen as a change.
+    router.setParams({ tab: undefined })
+  }, [router])
+
+  useEffect(() => {
+    if (!isSearching) {
+      return undefined
+    }
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleExitSearch()
+      return true
+    })
+
+    return () => subscription.remove()
+  }, [handleExitSearch, isSearching])
+
+  const handleTagPress = useCallback(
+    (tag: string) => {
+      setActiveTag(tag)
+      handleExitSearch()
     },
-    [handleSwitchSearchTab],
+    [handleExitSearch],
   )
 
   const handleUserPress = useCallback(
@@ -930,77 +1028,109 @@ export default function SearchScreen() {
     router.push('/(tabs)/friends?section=received')
   }, [router])
 
+  const activeFeed = activeTag ? tagFeed : recommendedFeed
+  const handleBrowseEndReached = useCallback(() => {
+    if (activeFeed.hasNextPage && !activeFeed.isFetchingNextPage) {
+      void activeFeed.fetchNextPage()
+    }
+  }, [activeFeed])
+
+  const handleBrowseRefresh = useCallback(async () => {
+    setIsRefreshing(true)
+
+    try {
+      if (activeTag) {
+        await tagFeed.refetch()
+      } else {
+        await recommendedFeed.refreshWithNewSession()
+      }
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [activeTag, recommendedFeed, tagFeed])
+
   return (
     <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{ paddingBottom: getDockedTabBarHeight(insets.bottom) + 16 }}
-      >
-        <SearchHeader isBotLoading={isBotLoading} onBotChat={handleBotChat} />
+      <SearchTopBar
+        inputRef={inputRef}
+        isBotLoading={isBotLoading}
+        isSearching={isSearching}
+        isSearchTyping={isSearchTyping}
+        onBack={handleExitSearch}
+        onBotChat={handleBotChat}
+        onChangeQuery={setQuery}
+        onFocus={() => setIsSearching(true)}
+        query={query}
+      />
 
-        <View className="px-5 pt-1">
-          <AppSearchBar
-            ref={inputRef}
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search reels, contacts, topics"
-            placeholderTextColor={colors.text.tertiary}
-            iconColor={colors.brand.secondary}
-            iconPlacement="left"
-            isLoading={isSearchTyping}
-            loadingColor={colors.brand.primary}
-            onClear={() => setQuery('')}
-            containerClassName="h-[52px] rounded-full px-4 py-0"
-            size="compact"
-          />
-        </View>
+      {isSearching ? (
+        <>
+          <SearchResultTabs selected={selectedTab} onChange={handleSwitchSearchTab} />
 
-        <View className="mx-5 mt-3 flex-row rounded-full bg-surface-muted p-1">
-          <SearchTabButton
-            active={selectedTab === 'all'}
-            label="All"
-            onPress={() => handleSwitchSearchTab('all')}
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            contentContainerStyle={{ paddingBottom: bottomPadding }}
+          >
+            <SearchResultsPanel
+              backendType={backendType}
+              debouncedQuery={debouncedQuery}
+              isRecommendedReelsLoading={recommendedFeed.isLoading}
+              isRecommendedUsersError={isRecommendedUsersError}
+              isRecommendedUsersLoading={isRecommendedUsersLoading}
+              isTrendingTagsLoading={isTrendingTagsLoading}
+              onClearQuery={() => setQuery('')}
+              onFriendRequestsPress={handleFriendRequestsPress}
+              onRecommendedUsersRetry={() => {
+                void refetchRecommendedUsers()
+              }}
+              onReelPress={handleReelPress}
+              onSwitchTab={handleSwitchSearchTab}
+              onTagPress={handleTagPress}
+              onUserPress={handleUserPress}
+              query={query}
+              recommendedReels={recommendedReels}
+              recommendedUsers={recommendedUsers}
+              selectedTab={selectedTab}
+              tileSize={tileSize}
+              trendingTags={trendingTags}
+            />
+          </ScrollView>
+        </>
+      ) : (
+        <>
+          <SearchTagChips
+            activeTag={activeTag}
+            isLoading={isTrendingTagsLoading}
+            onSelectForYou={() => setActiveTag(null)}
+            onSelectTag={setActiveTag}
+            tags={chipTags}
           />
-          <SearchTabButton
-            active={selectedTab === 'reels'}
-            label="Reels"
-            onPress={() => handleSwitchSearchTab('reels')}
-          />
-          <SearchTabButton
-            active={selectedTab === 'contacts'}
-            label="Contacts"
-            onPress={() => handleSwitchSearchTab('contacts')}
-          />
-        </View>
 
-        <SearchResultsPanel
-          backendType={backendType}
-          debouncedQuery={debouncedQuery}
-          hasResolvedSuggestions={hasResolvedSearchSuggestions}
-          isLoadingSuggestions={isSearchSuggestionsLoading}
-          isRecommendedReelsLoading={isRecommendedReelsLoading}
-          isRecommendedUsersError={isRecommendedUsersError}
-          isRecommendedUsersLoading={isRecommendedUsersLoading}
-          onReelPress={handleReelPress}
-          onFriendRequestsPress={handleFriendRequestsPress}
-          onClearQuery={() => setQuery('')}
-          onRecommendedUsersRetry={() => {
-            void refetchRecommendedUsers()
-          }}
-          onSuggestionPress={handleSuggestionPress}
-          onSwitchTab={handleSwitchSearchTab}
-          onUserPress={handleUserPress}
-          query={query}
-          recommendedReels={recommendedReels}
-          recommendedUsers={recommendedUsers}
-          selectedTab={selectedTab}
-          showSuggestions={shouldShowSuggestionChips}
-          suggestions={searchSuggestionChips}
-          tileSize={tileSize}
-        />
-      </ScrollView>
+          <View className="mt-3 flex-1">
+            <BrowseReelsFeed
+              activeTag={activeTag}
+              bottomPadding={bottomPadding}
+              hasError={activeFeed.isError}
+              isFetchingNextPage={activeFeed.isFetchingNextPage}
+              isLoading={activeFeed.isLoading}
+              isRefreshing={isRefreshing}
+              onClearTag={() => setActiveTag(null)}
+              onEndReached={handleBrowseEndReached}
+              onRefresh={() => {
+                void handleBrowseRefresh()
+              }}
+              onReelPress={handleReelPress}
+              onRetry={() => {
+                void activeFeed.refetch()
+              }}
+              reels={activeTag ? tagFeed.reels : recommendedReels}
+              tileSize={tileSize}
+            />
+          </View>
+        </>
+      )}
     </SafeAreaView>
   )
 }

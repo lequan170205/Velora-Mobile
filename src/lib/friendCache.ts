@@ -12,7 +12,7 @@ import type {
   BlockedUserSummary,
 } from '../types/friend.types'
 import type { Reel, ReelContextResponse } from '../types/reel.types'
-import type { GlobalSearchResponse } from '../types/search.types'
+import type { GlobalSearchResponse, TagReelsPage } from '../types/search.types'
 import type { PublicUserProfile, RecommendedPublicUserProfile } from '../types/user.types'
 
 type FriendRequestPages = InfiniteData<
@@ -151,19 +151,36 @@ export const removeUserFromDiscoveryCaches = (queryClient: QueryClient, userId: 
 }
 
 export const removeUserFromGlobalSearchCaches = (queryClient: QueryClient, userId: string) => {
-  queryClient.setQueriesData<GlobalSearchResponse>({ queryKey: queryKeys.search.all }, (data) => {
-    if (!data) return data
+  // Scoped to the global-search entries: other ['search', ...] queries (tags, suggestions) differ in shape.
+  queryClient.setQueriesData<GlobalSearchResponse>(
+    { queryKey: [...queryKeys.search.all, 'global'] },
+    (data) => {
+      if (!data) return data
 
-    return {
-      ...data,
-      users: data.users.filter((user) => user.id !== userId),
-      reels: data.reels.filter((reel) => reel.userId !== userId),
-      counts: {
-        users: data.users.filter((user) => user.id !== userId).length,
-        reels: data.reels.filter((reel) => reel.userId !== userId).length,
+      return {
+        ...data,
+        users: data.users.filter((user) => user.id !== userId),
+        reels: data.reels.filter((reel) => reel.userId !== userId),
+        counts: {
+          ...data.counts,
+          users: data.users.filter((user) => user.id !== userId).length,
+          reels: data.reels.filter((reel) => reel.userId !== userId).length,
+        },
+      }
+    },
+  )
+
+  queryClient.setQueriesData<InfiniteData<TagReelsPage>>(
+    { queryKey: [...queryKeys.search.all, 'tag-reels'] },
+    (data) =>
+      data && {
+        ...data,
+        pages: data.pages.map((page) => ({
+          ...page,
+          items: page.items.filter((reel) => reel.userId !== userId),
+        })),
       },
-    }
-  })
+  )
 }
 
 const removeCreatorFromReelPages = (data: ReelPages | undefined, creatorId: string) => {

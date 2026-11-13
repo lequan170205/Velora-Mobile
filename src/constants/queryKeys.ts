@@ -53,10 +53,13 @@ export const queryKeys = {
   },
   search: {
     all: ['search'] as const,
-    global: (q: string, type: 'all' | 'users' | 'reels', limit?: number) =>
+    global: (q: string, type: 'all' | 'users' | 'reels' | 'tags', limit?: number) =>
       ['search', 'global', { q, type, limit: limit ?? null }] as const,
-    suggestions: (type: 'all' | 'users' | 'reels', limit?: number) =>
+    suggestions: (type: 'all' | 'users' | 'reels' | 'tags', limit?: number) =>
       ['search', 'suggestions', { type, limit: limit ?? null }] as const,
+    tags: (q: string, limit?: number) => ['search', 'tags', { q, limit: limit ?? null }] as const,
+    tagReels: (tag: string, limit?: number) =>
+      ['search', 'tag-reels', { tag, limit: limit ?? null }] as const,
   },
   users: {
     all: ['users'] as const,
