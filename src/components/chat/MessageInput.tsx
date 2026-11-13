@@ -1,11 +1,11 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
+import { Image } from 'expo-image'
 import * as ImagePicker from 'expo-image-picker'
 import React, { memo, useCallback, useImperativeHandle, useRef, useState } from 'react'
 import {
   Alert,
-  Image,
   Keyboard,
   Linking,
   Platform,
@@ -31,6 +31,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { colors, radius, typography } from '../../constants/theme'
+import { useReelDetail } from '../../hooks/useReels'
 import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../lib/chatMedia'
 import {
   getPreferredReelReplyPreviewContent,
@@ -44,6 +45,7 @@ import {
   AttachmentLauncherSheet,
   type AttachmentLauncherSheetHandle,
 } from './AttachmentLauncherSheet'
+import { getReelThumbnailCacheKey } from './ChatReelCard'
 import { ComposerSendButton } from './ComposerSendButton'
 
 import type { Message, ReplyPreviewData } from '../../types/conversation.types'
@@ -441,6 +443,24 @@ const MessageInputComponent = function MessageInput(
       replyTo?.type === 'video' ||
       replyTo?.type === 'reel')
   const isReplyReel = replyPreviewData?.type === 'reel' || replyTo?.type === 'reel'
+  // The message's thumbnail URL is signed and can expire; the reel's own detail (usually already
+  // cached by the chat card) supplies a current one so the preview is not a black tile.
+  const replyReelId = replyTo?.media?.reelId?.trim() || null
+  const [failedReplyThumbnails, setFailedReplyThumbnails] = useState<string[]>([])
+  const { data: replyReelDetail } = useReelDetail(replyReelId ?? undefined, {
+    enabled:
+      isReplyReel &&
+      Boolean(replyReelId) &&
+      (!replyThumbnailUri || failedReplyThumbnails.includes(replyThumbnailUri)),
+  })
+  const replyThumbnail =
+    [
+      { uri: replyThumbnailUri, key: replyTo?.media?.thumbnailKey },
+      { uri: replyReelDetail?.thumbnailUrl, key: replyReelDetail?.thumbnailKey },
+    ].find(
+      (candidate): candidate is { uri: string; key: string | undefined } =>
+        Boolean(candidate.uri) && !failedReplyThumbnails.includes(candidate.uri ?? ''),
+    ) ?? null
   const bottomInset = Math.max(insets.bottom, 8)
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation()
   const ACTIVE_PADDING = 8 // The tight spacing you want when focused
@@ -479,7 +499,7 @@ const MessageInputComponent = function MessageInput(
             transform: [{ translateY: 7 }, { translateX: -8 }],
           })}
           exiting={FadeOut.duration(110)}
-          className="mb-2 flex-row items-center rounded-[16px] border border-warm bg-surface-cream py-2.5"
+          className="mb-2 flex-row items-center rounded-[16px] border border-border-warm bg-surface-cream py-2.5"
           style={{
             paddingLeft: 12,
             paddingRight: 8,
@@ -488,7 +508,7 @@ const MessageInputComponent = function MessageInput(
             overflow: 'hidden',
           }}
         >
-          {replyThumbnailUri ? (
+          {replyThumbnail ? (
             <View
               style={{
                 width: isReplyReel ? 38 : 36,
@@ -500,8 +520,20 @@ const MessageInputComponent = function MessageInput(
               }}
             >
               <Image
-                source={{ uri: replyThumbnailUri }}
-                resizeMode="cover"
+                source={{
+                  uri: replyThumbnail.uri,
+                  cacheKey: isReplyReel
+                    ? getReelThumbnailCacheKey(replyReelId, replyThumbnail.key, replyThumbnail.uri)
+                    : `reply-thumbnail:${replyThumbnail.uri.split('?')[0]}`,
+                }}
+                cachePolicy="memory-disk"
+                contentFit="cover"
+                onError={() => {
+                  const failedUri = replyThumbnail.uri
+                  setFailedReplyThumbnails((current) =>
+                    current.includes(failedUri) ? current : [...current, failedUri],
+                  )
+                }}
                 style={{ width: isReplyReel ? 38 : 36, height: isReplyReel ? 52 : 36 }}
               />
               {isReplyVideo ? (

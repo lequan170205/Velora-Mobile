@@ -1,6 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons'
+import { Image } from 'expo-image'
 import React, { memo, useEffect, useState } from 'react'
-import { Image, Pressable, Text, View } from 'react-native'
+import { Pressable, Text, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 
 import { colors, typography } from '../../constants/theme'
@@ -46,6 +47,21 @@ const RoundedPlayIcon = memo(function RoundedPlayIcon({ size = 56 }: { size?: nu
   )
 })
 
+// Signed media URLs change on every response; the path is what identifies the image.
+export const stripSignedQuery = (uri: string) => uri.split('?')[0] ?? uri
+
+// With a known thumbnailKey this matches the key ReelThumbnailGrid uses, so a thumbnail cached by
+// any reel grid is reused here instead of being downloaded again behind a black tile. Without one
+// the unsigned URL path keys it, so an expired signed URL still resolves from the disk cache.
+export const getReelThumbnailCacheKey = (
+  reelId: string | null,
+  thumbnailKey: string | undefined,
+  uri: string,
+) =>
+  thumbnailKey?.trim()
+    ? `reel-thumbnail:${reelId ?? 'chat'}:${thumbnailKey.trim()}`
+    : `reel-thumbnail-url:${stripSignedQuery(uri)}`
+
 const getInitialFromLabel = (label: string) =>
   label.replace(/^@+/, '').charAt(0).toUpperCase() || '?'
 
@@ -81,6 +97,10 @@ export const ChatReelCard = memo(function ChatReelCard({
     [messageThumbnailUrl, reelDetail?.thumbnailUrl].find(
       (uri): uri is string => Boolean(uri) && !failedThumbnailUrls.includes(uri ?? ''),
     ) ?? null
+  const thumbnailKey =
+    thumbnailUri && thumbnailUri === messageThumbnailUrl
+      ? message.media?.thumbnailKey
+      : reelDetail?.thumbnailKey
   const reelCreatorUsername = (message.media?.reelOwnerUsername ?? reelDetail?.author?.username)
     ?.trim()
     .replace(/^@+/, '')
@@ -119,7 +139,13 @@ export const ChatReelCard = memo(function ChatReelCard({
       >
         {thumbnailUri ? (
           <Image
-            source={{ uri: thumbnailUri }}
+            source={{
+              uri: thumbnailUri,
+              cacheKey: getReelThumbnailCacheKey(canonicalReelId, thumbnailKey, thumbnailUri),
+            }}
+            recyclingKey={canonicalReelId ?? thumbnailUri}
+            cachePolicy="memory-disk"
+            transition={120}
             onError={() => {
               setFailedThumbnailUrls((current) =>
                 current.includes(thumbnailUri) ? current : [...current, thumbnailUri],
@@ -130,7 +156,7 @@ export const ChatReelCard = memo(function ChatReelCard({
               height: thumbnailHeight,
               backgroundColor: colors.media.surface,
             }}
-            resizeMode="cover"
+            contentFit="cover"
           />
         ) : (
           <View
@@ -157,14 +183,18 @@ export const ChatReelCard = memo(function ChatReelCard({
           >
             {reelCreatorAvatarUri ? (
               <Image
-                source={{ uri: reelCreatorAvatarUri }}
+                source={{
+                  uri: reelCreatorAvatarUri,
+                  cacheKey: `reel-owner-avatar:${stripSignedQuery(reelCreatorAvatarUri)}`,
+                }}
+                cachePolicy="memory-disk"
                 style={{
                   width: overlayAvatarSize,
                   height: overlayAvatarSize,
                   borderRadius: overlayAvatarSize / 2,
                   backgroundColor: colors.media.overlayBorder,
                 }}
-                resizeMode="cover"
+                contentFit="cover"
               />
             ) : (
               <View

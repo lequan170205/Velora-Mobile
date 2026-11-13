@@ -627,7 +627,17 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       })
     }
 
+    // Conversations whose latest bot reply has already arrived as a real message. Token events
+    // travel on a separate queue from the final answer, so for a fast (e.g. canned) reply they can
+    // land after it; without this guard they would start a second, never-reconciled bubble with
+    // the same text. A new user message reopens the conversation for streaming.
+    const finishedBotStreams = new Set<string>()
+
     const upsertStreamingBotMessage = (payload: NormalizedBotTokenPayload) => {
+      if (finishedBotStreams.has(payload.conversationId)) {
+        return
+      }
+
       const store = useChatStore.getState()
       const tempId = getBotStreamTempId(payload.conversationId)
       const existingStreamMessage =
@@ -676,6 +686,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     }
 
     const reconcileStreamingBotMessage = (message: Message) => {
+      finishedBotStreams.add(message.conversationId)
       const tempId = getBotStreamTempId(message.conversationId)
       const store = useChatStore.getState()
       const streamMessage =
@@ -1479,6 +1490,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       const isPendingEcho =
         String((message as { status?: string }).status || '').toLowerCase() === 'sending'
 
+      if (isOwnMessage) {
+        finishedBotStreams.delete(conversationId)
+      }
+
       if (
         !isOwnMessage &&
         (message.senderId === BOT_USER_ID ||
@@ -1607,6 +1622,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       if (removedConversationIds.has(incomingMessage.conversationId)) {
         return
       }
+
+      finishedBotStreams.delete(incomingMessage.conversationId)
 
       const store = useChatStore.getState()
       const pendingMsgs = store.optimisticMessages[incomingMessage.conversationId] || []

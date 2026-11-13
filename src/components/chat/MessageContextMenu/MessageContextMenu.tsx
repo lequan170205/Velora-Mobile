@@ -34,9 +34,11 @@ import { scheduleOnRN } from 'react-native-worklets'
 
 import { colors, radius, typography } from '../../../constants/theme'
 import { useAddReaction, useRemoveReaction } from '../../../hooks/useMessageActions'
+import { useReelDetail } from '../../../hooks/useReels'
 import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../../lib/chatMedia'
 import { RECALLED_PREVIEW_TEXT } from '../../../lib/replyPreview'
 import { useAuthStore } from '../../../stores/authStore'
+import { getReelThumbnailCacheKey, stripSignedQuery } from '../ChatReelCard'
 import { MessageBubbleContent } from '../MessageBubbleContent'
 
 import {
@@ -1238,23 +1240,66 @@ function renderBubblePreview({
     )
   }
 
-  const thumbnailUri = message.media?.thumbnailUrl
-  const avatarUri = message.media?.reelOwnerAvatarUrl
+  return <ContextReelPreview message={message} />
+}
+
+// The thread card loads this reel through a cached, key-stable pipeline; the menu preview must too,
+// otherwise the signed message URL (expired or not yet downloaded) leaves a black tile.
+function ContextReelPreview({ message }: { message: Message }) {
+  const reelId = message.media?.reelId?.trim() || null
+  const messageThumbnailUrl = message.media?.thumbnailUrl
+  const [failedThumbnails, setFailedThumbnails] = useState<string[]>([])
+  const { data: reelDetail } = useReelDetail(reelId ?? undefined, {
+    enabled:
+      Boolean(reelId) && (!messageThumbnailUrl || failedThumbnails.includes(messageThumbnailUrl)),
+  })
+  const thumbnail =
+    [
+      { uri: messageThumbnailUrl, key: message.media?.thumbnailKey },
+      { uri: reelDetail?.thumbnailUrl, key: reelDetail?.thumbnailKey },
+    ].find(
+      (candidate): candidate is { uri: string; key: string | undefined } =>
+        Boolean(candidate.uri) && !failedThumbnails.includes(candidate.uri ?? ''),
+    ) ?? null
+  const avatarUri = message.media?.reelOwnerAvatarUrl || reelDetail?.author?.avatarUrl
   const creatorLabel = getReelCreatorLabel(message)
   const hasCreatorIdentity = Boolean(message.media?.reelOwnerUsername || avatarUri)
   const creatorInitial = creatorLabel.replace(/^@+/, '').charAt(0).toUpperCase() || '?'
 
   return (
     <View style={styles.reelPreview}>
-      {thumbnailUri ? (
-        <Image source={{ uri: thumbnailUri }} style={styles.reelPreviewImage} resizeMode="cover" />
+      {thumbnail ? (
+        <ExpoImage
+          source={{
+            uri: thumbnail.uri,
+            cacheKey: getReelThumbnailCacheKey(reelId, thumbnail.key, thumbnail.uri),
+          }}
+          cachePolicy="memory-disk"
+          contentFit="cover"
+          onError={() => {
+            const failedUri = thumbnail.uri
+            setFailedThumbnails((current) =>
+              current.includes(failedUri) ? current : [...current, failedUri],
+            )
+          }}
+          style={styles.reelPreviewImage}
+          transition={0}
+        />
       ) : (
         <View style={styles.reelPreviewFallback} />
       )}
 
       <View pointerEvents="none" style={styles.reelCreatorBar}>
         {avatarUri ? (
-          <Image source={{ uri: avatarUri }} style={styles.reelAvatar} resizeMode="cover" />
+          <ExpoImage
+            source={{
+              uri: avatarUri,
+              cacheKey: `reel-owner-avatar:${stripSignedQuery(avatarUri)}`,
+            }}
+            cachePolicy="memory-disk"
+            contentFit="cover"
+            style={styles.reelAvatar}
+          />
         ) : (
           <View style={styles.reelAvatarFallback}>
             {hasCreatorIdentity ? (
@@ -1275,6 +1320,7 @@ function renderBubblePreview({
     </View>
   )
 }
+
 function getBubbleSurfaceStyle({
   message,
   isOwn,
