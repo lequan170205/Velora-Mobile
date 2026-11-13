@@ -503,7 +503,7 @@ const MessageInputComponent = function MessageInput(
           style={{
             paddingLeft: 12,
             paddingRight: 8,
-            borderLeftWidth: isReplyReel ? 0 : 3,
+            borderLeftWidth: 3,
             borderLeftColor: BRAND,
             overflow: 'hidden',
           }}

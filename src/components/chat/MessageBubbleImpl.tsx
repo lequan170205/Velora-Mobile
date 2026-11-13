@@ -1,6 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'
-import { Image as CachedImage } from 'expo-image'
 import { useRouter } from 'expo-router'
 import * as VideoThumbnails from 'expo-video-thumbnails'
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -46,8 +45,9 @@ import { useAuthStore } from '../../stores/authStore'
 import { ReelVideo } from '../reels/ReelVideo'
 
 import { ChatAvatar } from './ChatAvatar'
-import { ChatReelCard, getChatReelCardHeight, getReelThumbnailCacheKey } from './ChatReelCard'
+import { ChatReelCard, getChatReelCardHeight } from './ChatReelCard'
 import { MessageBubbleContent } from './MessageBubbleContent'
+import { ReplyReelThumbnail } from './ReplyReelThumbnail'
 
 import type { ChatMediaViewerOpenPayload } from './ChatMediaViewer'
 import type {
@@ -1361,18 +1361,16 @@ const MessageBubbleComponent = function MessageBubble({
                                     marginRight: 10,
                                   }}
                                 >
-                                  <CachedImage
-                                    source={{
-                                      uri: resolvedReplyPreviewThumbnailUri,
-                                      cacheKey: getReelThumbnailCacheKey(
-                                        null,
-                                        undefined,
-                                        resolvedReplyPreviewThumbnailUri,
-                                      ),
-                                    }}
-                                    cachePolicy="memory-disk"
-                                    contentFit="cover"
-                                    style={{ width: 38, height: 52 }}
+                                  <ReplyReelThumbnail
+                                    height={52}
+                                    uri={resolvedReplyPreviewThumbnailUri}
+                                    width={38}
+                                    {...(resolvedReplyTarget?.media?.reelId
+                                      ? { reelId: resolvedReplyTarget.media.reelId }
+                                      : {})}
+                                    {...(resolvedReplyTarget?.media?.thumbnailKey
+                                      ? { thumbnailKey: resolvedReplyTarget.media.thumbnailKey }
+                                      : {})}
                                   />
                                   <View
                                     pointerEvents="none"

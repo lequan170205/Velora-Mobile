@@ -23,14 +23,19 @@ test('chat reel cards cache thumbnails and owner avatars on disk under stable ke
   assert.match(card, /cacheKey: `reel-owner-avatar:\$\{stripSignedQuery\(reelCreatorAvatarUri\)\}`/)
 })
 
-test('reel reply previews in chat use the same cached thumbnail pipeline', () => {
+test('reel reply previews in chat use the cached thumbnail pipeline with a detail fallback', () => {
   const bubble = read('src/components/chat/MessageBubbleImpl.tsx')
+  const thumbnail = read('src/components/chat/ReplyReelThumbnail.tsx')
 
-  assert.match(bubble, /import \{ Image as CachedImage \} from 'expo-image'/)
+  assert.match(bubble, /<ReplyReelThumbnail[\s\S]*?uri=\{resolvedReplyPreviewThumbnailUri\}/)
+  assert.match(bubble, /reelId: resolvedReplyTarget\.media\.reelId/)
+  assert.match(thumbnail, /import \{ Image \} from 'expo-image'/)
+  assert.match(thumbnail, /useReelDetail\(normalizedReelId \?\? undefined/)
   assert.match(
-    bubble,
-    /<CachedImage[\s\S]*?getReelThumbnailCacheKey\([\s\S]*?cachePolicy="memory-disk"/,
+    thumbnail,
+    /cacheKey: getReelThumbnailCacheKey\(normalizedReelId, thumbnail\.key, thumbnail\.uri\)/,
   )
+  assert.match(thumbnail, /cachePolicy="memory-disk"/)
 })
 
 test('the composer reply bar shows a cached reel thumbnail instead of a black tile', () => {
@@ -60,6 +65,9 @@ test('the composer reply card uses a real border colour token, not the black def
   const input = read('src/components/chat/MessageInput.tsx')
 
   assert.match(input, /border border-border-warm bg-surface-cream/)
+  // Reel replies carry the same left accent as text replies.
+  assert.match(input, /borderLeftWidth: 3,/)
+  assert.doesNotMatch(input, /borderLeftWidth: isReplyReel/)
   assert.doesNotMatch(input, /border border-warm\b/)
 })
 
