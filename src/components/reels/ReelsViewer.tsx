@@ -826,6 +826,11 @@ export function ReelsViewer({
     () => getReelCachePolicyForNetworkState(networkState, { isOnline }),
     [isOnline, networkState],
   )
+  // Never warm a page the viewer does not render (see PAGE_RENDER_RADIUS).
+  const warmAheadRadius = Math.min(
+    PAGE_RENDER_RADIUS,
+    Math.max(PRELOAD_RADIUS, reelCachePolicy.preloadAheadCount),
+  )
   const reelVideoPrefetchPlan = useMemo(
     () => buildReelVideoPrefetchPlan(reels, activeIndex, reelCachePolicy),
     [activeIndex, reelCachePolicy, reels],
@@ -835,7 +840,10 @@ export function ReelsViewer({
   // the player's own segment fetches (slow first play) and with episode/context pagination. Keep
   // saving, but only once the viewer has rested on a reel and no page is loading; a swipe pauses
   // it again (queued jobs are dropped, an in-flight one stops before its next segment).
-  const shouldDeferReelVideoCache = isSeriesPlayback || shouldUseReelContext
+  // The public feed needs the same deferral: its background download of the active reel (priority
+  // 0, four parallel segments) otherwise competes with the player's own stream and starves its
+  // short forward buffer, which shows up as a mid-playback freeze on slow links.
+  const shouldDeferReelVideoCache = true
   const [isReelCacheSettled, setIsReelCacheSettled] = useState(false)
   useEffect(() => {
     setIsReelCacheSettled(false)
@@ -2189,9 +2197,15 @@ export function ReelsViewer({
 
       const isCurrentItem = effectiveActiveReelId === item.id
       const isActiveItem = isFocused && isCurrentItem && !isManualRefreshing
+      // Warm players are the only thing that preloads the quality level ExoPlayer/AVPlayer will
+      // actually play (JS fetches never reach the native cache), so the ahead radius follows the
+      // network policy: two reels on Wi-Fi, one otherwise. Behind stays at one for swiping back.
+      const pageDistance = index - activeIndex
       const shouldWarmVideo =
         isCurrentItem ||
-        (isFocused && activeIndex >= 0 && Math.abs(index - activeIndex) <= PRELOAD_RADIUS)
+        (isFocused &&
+          activeIndex >= 0 &&
+          (pageDistance > 0 ? pageDistance <= warmAheadRadius : -pageDistance <= PRELOAD_RADIUS))
       const offlineVideoCachePriority = offlineVideoCachePriorities.get(item.id)
 
       return (
@@ -2337,6 +2351,7 @@ export function ReelsViewer({
       seriesEpisodeCount,
       videoViewportHeight,
       viewportHeight,
+      warmAheadRadius,
     ],
   )
 

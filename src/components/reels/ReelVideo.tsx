@@ -8,7 +8,7 @@ import React, {
   useRef,
   useState,
 } from 'react'
-import { Image as ReactNativeImage, StyleSheet } from 'react-native'
+import { AppState, Image as ReactNativeImage, StyleSheet } from 'react-native'
 
 import {
   getReelPlaybackVideoUri,
@@ -100,6 +100,9 @@ interface ExpoVideoModule {
     duration: number
     playbackRate: number
     timeUpdateEventInterval: number
+    readonly playing: boolean
+    readonly status: string
+    replace: (source: ExpoVideoSource) => void
     seekBy?: (seconds: number) => void
     play: () => void
     pause: () => void
@@ -167,12 +170,30 @@ interface ExpoAvModule {
 
 const isHlsUri = (uri: string) => /\.m3u8($|[?#])/i.test(uri)
 
+// On Android the forward buffer is both the min and max ExoPlayer buffer and the "resume after a
+// stall" threshold equals minBufferForPlayback, so a 5s / 0.35s pair re-stalls right after every
+// rebuffer. The playing reel gets enough runway to ride out short bandwidth dips; warm (paused)
+// neighbours only need the first few 2s segments, and a bigger target there would just compete
+// with the playing reel for bandwidth.
 const REEL_BUFFER_OPTIONS: VideoBufferOptions = {
-  minBufferForPlayback: 0.35,
-  preferredForwardBufferDuration: 5,
+  minBufferForPlayback: 1.5,
+  preferredForwardBufferDuration: 12,
   prioritizeTimeOverSizeThreshold: true,
   waitsToMinimizeStalling: true,
 }
+
+const WARM_REEL_BUFFER_OPTIONS: VideoBufferOptions = {
+  ...REEL_BUFFER_OPTIONS,
+  preferredForwardBufferDuration: 6,
+}
+
+// Feed players are driven by the playback coordinator, which believes a reel is playing once it
+// issued play(). Android can pause a player behind its back (transient audio focus loss never
+// auto-resumes) or leave it buffering forever, so the active feed player watches itself.
+const STALL_WATCHDOG_INTERVAL_MS = 500
+const PAUSED_RECOVERY_DELAY_MS = 1200
+const STUCK_LOADING_RECOVERY_DELAY_MS = 8000
+const MAX_STUCK_LOADING_RECOVERIES = 2
 
 const buildExpoVideoSource = (uri: string): ExpoVideoSource => {
   const playbackUri = getReelPlaybackVideoUri(uri)
@@ -327,7 +348,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
     videoPlayer.loop = loop
     videoPlayer.muted = muted
     videoPlayer.playbackRate = playbackRate
-    videoPlayer.bufferOptions = REEL_BUFFER_OPTIONS
+    videoPlayer.bufferOptions = shouldPlay ? REEL_BUFFER_OPTIONS : WARM_REEL_BUFFER_OPTIONS
     videoPlayer.timeUpdateEventInterval = 0.25
     videoPlayer.pause()
   })
@@ -404,7 +425,7 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
     player.loop = loop
     player.muted = muted
     player.playbackRate = playbackRate
-    player.bufferOptions = REEL_BUFFER_OPTIONS
+    player.bufferOptions = shouldPlay ? REEL_BUFFER_OPTIONS : WARM_REEL_BUFFER_OPTIONS
     player.timeUpdateEventInterval = 0.25
 
     if (externallyManagedPlayback) {
@@ -422,6 +443,67 @@ const ExpoVideoPlayer = forwardRef<ReelVideoHandle, ReelVideoProps>(function Exp
       player.currentTime = 0
     }
   }, [externallyManagedPlayback, loop, muted, playbackRate, player, resetOnPause, shouldPlay])
+
+  useEffect(() => {
+    if (!shouldPlay || !externallyManagedPlayback) {
+      return undefined
+    }
+
+    let notPlayingSince: number | null = null
+    let loadingSince: number | null = null
+    let stuckLoadingRecoveries = 0
+
+    const timer = setInterval(() => {
+      if (AppState.currentState !== 'active') {
+        notPlayingSince = null
+        loadingSince = null
+        return
+      }
+
+      const now = Date.now()
+      const status = player.status
+
+      if (player.playing || status === 'error' || status === 'idle') {
+        notPlayingSince = null
+        loadingSince = null
+        return
+      }
+
+      if (status === 'loading') {
+        notPlayingSince = null
+        loadingSince ??= now
+
+        if (
+          now - loadingSince >= STUCK_LOADING_RECOVERY_DELAY_MS &&
+          stuckLoadingRecoveries < MAX_STUCK_LOADING_RECOVERIES
+        ) {
+          stuckLoadingRecoveries += 1
+          loadingSince = null
+          const resumeAt = player.currentTime
+          console.warn('[ReelVideo] reloading player stuck buffering', { resumeAt })
+          player.replace(videoSource)
+          if (Number.isFinite(resumeAt) && resumeAt > 0.5) {
+            player.currentTime = resumeAt
+          }
+          player.play()
+        }
+        return
+      }
+
+      loadingSince = null
+      notPlayingSince ??= now
+
+      if (now - notPlayingSince >= PAUSED_RECOVERY_DELAY_MS) {
+        notPlayingSince = null
+        console.warn('[ReelVideo] resuming player paused outside the coordinator')
+        player.play()
+      }
+    }, STALL_WATCHDOG_INTERVAL_MS)
+
+    return () => {
+      clearInterval(timer)
+    }
+  }, [externallyManagedPlayback, player, shouldPlay, videoSource])
 
   useEffect(() => {
     const statusSubscription = player.addListener('statusChange', ({ status, error }) => {

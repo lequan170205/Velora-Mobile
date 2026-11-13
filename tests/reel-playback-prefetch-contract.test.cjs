@@ -89,12 +89,9 @@ test('native pager keeps a bounded, scrollable reel window and switches audio at
   assert.match(playbackCoordinator, /this\.pendingSeekTimers\.has\(nextReelId\)/)
 })
 
-test('context viewers defer full-HLS background saving until settled and pause it on swipe', () => {
+test('every viewer defers full-HLS background saving until settled and pauses it on swipe', () => {
   assert.match(reelsViewer, /const REEL_CACHE_SETTLE_MS = 3000/)
-  assert.match(
-    reelsViewer,
-    /const shouldDeferReelVideoCache = isSeriesPlayback \|\| shouldUseReelContext/,
-  )
+  assert.match(reelsViewer, /const shouldDeferReelVideoCache = true/)
   assert.match(reelsViewer, /if \(!shouldDeferReelVideoCache \|\| isFetchingContextPage\)/)
   assert.match(
     reelsViewer,
@@ -187,4 +184,53 @@ test('paged context requests expire their guard, cover both edges, and re-check 
   assert.match(reelsViewer, /isNearEnd && hasNextContextPage/)
   assert.match(reelsViewer, /isNearStart && hasPreviousContextPage/)
   assert.match(reelsViewer, /needsContextPageRecheckRef\.current = true/)
+})
+
+test('feed players recover from stalls the coordinator cannot see', () => {
+  const reelVideo = read('src/components/reels/ReelVideo.tsx')
+  assert.match(reelVideo, /minBufferForPlayback: 1\.5/)
+  assert.match(reelVideo, /preferredForwardBufferDuration: 12/)
+  assert.match(reelVideo, /if \(!shouldPlay \|\| !externallyManagedPlayback\)/)
+  assert.match(reelVideo, /AppState\.currentState !== 'active'/)
+  assert.match(reelVideo, /resuming player paused outside the coordinator/)
+  assert.match(reelVideo, /reloading player stuck buffering/)
+})
+
+test('iOS streams HLS directly unless the localhost proxy is explicitly enabled', () => {
+  const playbackCache = read('src/lib/reelPlaybackVideoCache.ts')
+  assert.match(
+    playbackCache,
+    /IS_IOS_HLS_PROXY_ENABLED = process\.env\.EXPO_PUBLIC_REEL_IOS_HLS_PROXY === 'true'/,
+  )
+  assert.match(
+    playbackCache,
+    /const shouldUseHlsProxy = \(uri: string\) => IS_IOS_HLS_PROXY_ENABLED && isIosRemoteHlsUri\(uri\)/,
+  )
+  assert.match(
+    playbackCache,
+    /IS_IOS_HLS_PROXY_ENABLED\s*\?\s*startServer\([^)]*\)\s*:\s*Promise\.resolve\(\)/,
+  )
+  // expo-video's custom-scheme cache loader must stay off for iOS HLS in both modes.
+  assert.match(
+    playbackCache,
+    /shouldUseNativeReelVideoCaching = \(uri: string\) => !isIosRemoteHlsUri\(uri\)/,
+  )
+})
+
+test('warm players follow the network policy ahead and keep a small buffer while paused', () => {
+  const reelVideo = read('src/components/reels/ReelVideo.tsx')
+  assert.match(
+    reelsViewer,
+    /const warmAheadRadius = Math\.min\(\s*PAGE_RENDER_RADIUS,\s*Math\.max\(PRELOAD_RADIUS, reelCachePolicy\.preloadAheadCount\),?\s*\)/,
+  )
+  assert.match(
+    reelsViewer,
+    /pageDistance > 0 \? pageDistance <= warmAheadRadius : -pageDistance <= PRELOAD_RADIUS/,
+  )
+  assert.match(reelsViewer, /viewportHeight,\s*warmAheadRadius,\s*\],/)
+  assert.match(reelVideo, /WARM_REEL_BUFFER_OPTIONS: VideoBufferOptions = \{[^}]*preferredForwardBufferDuration: 6/)
+  assert.match(
+    reelVideo,
+    /player\.bufferOptions = shouldPlay \? REEL_BUFFER_OPTIONS : WARM_REEL_BUFFER_OPTIONS/,
+  )
 })
