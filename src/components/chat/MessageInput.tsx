@@ -44,6 +44,7 @@ import {
   AttachmentLauncherSheet,
   type AttachmentLauncherSheetHandle,
 } from './AttachmentLauncherSheet'
+import { ComposerSendButton } from './ComposerSendButton'
 
 import type { Message, ReplyPreviewData } from '../../types/conversation.types'
 import type { ImagePickerAsset } from 'expo-image-picker'
@@ -205,8 +206,6 @@ const ComposerAccessorySlot = memo(function ComposerAccessorySlot({
   onAttach,
   onSend,
 }: ComposerAccessorySlotProps) {
-  const sendPressScale = useSharedValue(1)
-
   // useDerivedValue runs entirely on the UI thread — no useEffect, no JS→UI bridge round-trip.
   // The easing is evaluated on the UI thread when hasTextProgress changes.
   const progress = useDerivedValue(() =>
@@ -232,8 +231,8 @@ const ComposerAccessorySlot = memo(function ComposerAccessorySlot({
     opacity: progress.value,
     transform: [
       { translateX: interpolate(progress.value, [0, 1], [8, 0]) },
-      // Combine progress + press scale; when progress=0 button is invisible so scale=0 is correct
-      { scale: progress.value * sendPressScale.value },
+      // When progress=0 the button is invisible, so scale=0 is correct
+      { scale: progress.value },
     ],
   }))
 
@@ -272,34 +271,11 @@ const ComposerAccessorySlot = memo(function ComposerAccessorySlot({
         pointerEvents={hasText ? 'auto' : 'none'}
         style={[{ position: 'absolute', right: 0 }, sendStyle]}
       >
-        <Pressable
+        <ComposerSendButton
           accessibilityLabel="Send message"
-          accessibilityRole="button"
           disabled={!hasText}
-          hitSlop={8}
           onPress={onSend}
-          onPressIn={() => {
-            sendPressScale.value = withTiming(0.88, { duration: 70 })
-          }}
-          onPressOut={() => {
-            sendPressScale.value = withSpring(1, { damping: 15, stiffness: 380 })
-          }}
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: radius.xl,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: BRAND,
-          }}
-        >
-          <MaterialIcons
-            name="send"
-            size={18}
-            color={colors.text.inverse}
-            style={{ marginLeft: 2 }}
-          />
-        </Pressable>
+        />
       </Animated.View>
     </Animated.View>
   )

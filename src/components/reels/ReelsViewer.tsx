@@ -100,6 +100,8 @@ const OFFLINE_END_PULL_DISTANCE = 88
 const OFFLINE_END_REVEAL_HEIGHT = 72
 const OFFLINE_END_TRIGGER_PROGRESS = 0.64
 const OFFLINE_END_LOADING_DURATION_MS = 920
+// Reels swiped past before the top header fades out.
+const HEADER_AUTO_HIDE_AFTER_REELS = 3
 const INITIAL_FEED_TAB_STATE: FeedTabState = { activeIndex: 0, activeReelId: null, scrollOffset: 0 }
 const EMPTY_FEED_FALLBACKS: Record<FeedTab, Reel[]> = { friends: [], 'for-you': [] }
 const shouldShowRecommendationDebugOverlay =
@@ -265,6 +267,7 @@ export function ReelsViewer({
   const [isOfflineAlertVisible, setIsOfflineAlertVisible] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
   const [clearDisplay, setClearDisplay] = useState(false)
+  const [isCommentsOpen, setIsCommentsOpen] = useState(false)
   const [offlineReadyReelIds, setOfflineReadyReelIds] = useState<string[]>([])
   const [isTimelineInteracting, setIsTimelineInteracting] = useState(false)
   const [isActiveReelPausedByUser, setIsActiveReelPausedByUser] = useState(false)
@@ -774,6 +777,18 @@ export function ReelsViewer({
     () => reels.findIndex((reel) => reel.id === effectiveActiveReelId),
     [effectiveActiveReelId, reels],
   )
+  // Like Instagram, the feed tabs get out of the way once the viewer is a few reels deep (and while
+  // comments are open); swiping back toward the top brings them back. Context viewers keep their
+  // back button.
+  const isHeaderHidden =
+    clearDisplay ||
+    isCommentsOpen ||
+    (mode !== 'context' && activeIndex >= HEADER_AUTO_HIDE_AFTER_REELS)
+  const headerOpacity = useSharedValue(1)
+  useEffect(() => {
+    headerOpacity.value = withTiming(isHeaderHidden ? 0 : 1, { duration: 200 })
+  }, [headerOpacity, isHeaderHidden])
+  const headerAnimatedStyle = useAnimatedStyle(() => ({ opacity: headerOpacity.value }))
   const activeTelemetryReel = useMemo(
     () => reels.find((reel) => reel.id === effectiveActiveReelId) ?? null,
     [effectiveActiveReelId, reels],
@@ -2247,6 +2262,7 @@ export function ReelsViewer({
               onPlaybackProgress={handlePlaybackProgress}
               onTimelineInteractionChange={handleTimelineInteractionChange}
               onPlayerChange={handlePlayerChange}
+              onCommentsOpenChange={setIsCommentsOpen}
             />
           </View>
 
@@ -2658,29 +2674,21 @@ export function ReelsViewer({
           </View>
         ) : null}
 
-        {reels.length > 0 && isFetchingPublicNextPage && !clearDisplay && !isOfflineAlertVisible ? (
-          <View
-            pointerEvents="none"
-            className="absolute inset-x-0 z-20 items-center"
-            style={{ top: headerContentBottom + 16, elevation: 20 }}
-          >
-            <ActivityIndicator color={colors.reel.accent} size="small" />
-          </View>
-        ) : null}
-
         {!clearDisplay ? (
           <ReelOfflineAlert topOffset={insets.top + 18} visible={isOfflineAlertVisible} />
         ) : null}
 
-        <View
-          pointerEvents={clearDisplay ? 'none' : 'box-none'}
+        <Animated.View
+          pointerEvents={isHeaderHidden ? 'none' : 'box-none'}
           className="absolute inset-x-0 top-0 z-30"
-          style={{
-            paddingHorizontal: headerHorizontalPadding,
-            paddingTop: insets.top,
-            elevation: 30,
-            opacity: clearDisplay ? 0 : 1,
-          }}
+          style={[
+            {
+              paddingHorizontal: headerHorizontalPadding,
+              paddingTop: insets.top,
+              elevation: 30,
+            },
+            headerAnimatedStyle,
+          ]}
         >
           {mode === 'context' ? (
             <View className="flex-row items-center" style={{ minHeight: headerContentHeight }}>
@@ -2802,7 +2810,7 @@ export function ReelsViewer({
               )}
             </View>
           )}
-        </View>
+        </Animated.View>
       </View>
     </GestureDetector>
   )

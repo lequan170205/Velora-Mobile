@@ -102,37 +102,31 @@ test('reel feed item keeps playback and scrub contracts while making metadata re
   assert.match(reelShareSheet, /onDismiss=\{handleDismiss\}/)
   assert.doesNotMatch(reelShareSheet, /<Modal/)
   assert.match(reelFeedItem, /<DeleteReelModal/)
-  assert.match(reelFeedItem, /flex-row items-start/)
-  assert.match(reelFeedItem, /text-base2 font-medium leading-6 text-white/)
+  assert.match(reelFeedItem, /flex-row items-end/)
   assert.match(reelFeedItem, /min-w-0 flex-1 pr-3/)
   assert.match(reelFeedItem, /left: 16,/)
   assert.match(reelFeedItem, /right: 16,/)
   assert.match(reelFeedItem, /mb-4 h-11 w-11 items-center justify-center/)
-  assert.equal(
-    (reelFeedItem.match(/numberOfLines=\{isCaptionExpanded \? undefined : 1\}/g) ?? []).length,
-    2,
-  )
-  assert.match(
-    reelFeedItem,
-    /const canExpandMetadata = captionText\.length > 44 \|\| hashtagLine\.length > 40/,
-  )
-  assert.doesNotMatch(reelFeedItem, /\.slice\(0, 4\)/)
-  assert.match(reelFeedItem, /Show more reel details/)
-  assert.match(reelFeedItem, /isCaptionExpanded \? 'less' : '… more'/)
+  // Compact caption: one truncated line, with "more" opening the details + comments sheet.
+  assert.match(reelFeedItem, /className="min-w-0 shrink text-sm2 text-white"/)
+  assert.match(reelFeedItem, /numberOfLines=\{canOpenDetails \? 1 : 2\}/)
+  assert.match(reelFeedItem, /accessibilityLabel="Show reel details and comments"/)
+  assert.match(reelFeedItem, /onPress=\{comments\.open\}/)
+  assert.doesNotMatch(reelFeedItem, /isCaptionExpanded/)
   assert.match(
     reelFeedItem,
     /const authorUsernameLine = authorHandle \? `@\$\{authorHandle\}` : authorNameLine/,
   )
-  assert.match(reelFeedItem, /font-semibold text-md text-white/)
+  assert.match(reelFeedItem, /text-sm2 font-semibold text-white/)
   assert.match(
     reelFeedItem,
-    /h-\[42px\] w-\[42px\] items-center justify-center rounded-full bg-\[#2F6FED\]/,
+    /h-8 w-8 items-center justify-center rounded-full bg-\[#2F6FED\]/,
   )
   assert.match(reelFeedItem, /text-\[#FFB18E\]/)
   assert.match(reelFeedItem, /accessibilityLabel="Share reel"/)
   assert.match(reelFeedItem, /accessibilityLabel="More reel actions"/)
-  assert.match(reelFeedItem, /<Ionicons name="paper-plane-outline" size=\{24\} color=\{colors\.text\.inverse\}/)
-  assert.match(reelFeedItem, /<Ionicons name="ellipsis-horizontal" size=\{25\} color=\{colors\.text\.inverse\}/)
+  assert.match(reelFeedItem, /<Ionicons name="paper-plane-outline" size=\{26\} color=\{colors\.text\.inverse\}/)
+  assert.match(reelFeedItem, /<Ionicons name="ellipsis-horizontal" size=\{22\} color=\{colors\.text\.inverse\}/)
   assert.doesNotMatch(
     reelFeedItem,
     /accessibilityLabel="Share reel"[\s\S]{0,220}rounded-full border/,
@@ -204,9 +198,9 @@ test('playback long press keeps one stable surface across pause and tab focus ch
   )
   assert.match(
     reelFeedItem,
-    /\.enabled\(!clearDisplay && playbackState\.isPlayable && !hasPlaybackError\)/,
+    /\.enabled\(\s*!clearDisplay && !isCommentsOpen && playbackState\.isPlayable && !hasPlaybackError,?\s*\)/,
   )
-  assert.match(reelFeedItem, /pointerEvents=\{isActive \? 'auto' : 'none'\}/)
+  assert.match(reelFeedItem, /pointerEvents=\{isActive && !isCommentsOpen \? 'auto' : 'none'\}/)
   assert.doesNotMatch(reelFeedItem, /Gesture\.LongPress\(\)[\s\S]{0,180}\.enabled\(isActive/)
   assert.match(reelFeedItem, /Gesture\.Tap\(\)/)
   assert.match(reelFeedItem, /Gesture\.Exclusive\(playbackLongPressGesture, playbackTapGesture\)/)
@@ -236,11 +230,13 @@ test('transcription uses a direct row action without a native switch animation',
 
 test('clear display hides reel chrome and the next video tap restores it without pausing', () => {
   assert.match(reelsViewer, /const \[clearDisplay, setClearDisplay\] = useState\(false\)/)
-  assert.match(reelsViewer, /pointerEvents=\{clearDisplay \? 'none' : 'box-none'\}/)
-  assert.match(reelsViewer, /opacity: clearDisplay \? 0 : 1/)
-  assert.match(reelFeedItem, /\{!clearDisplay \? \(\s*<LinearGradient/)
+  assert.match(reelsViewer, /pointerEvents=\{isHeaderHidden \? 'none' : 'box-none'\}/)
+  assert.match(reelsViewer, /const isHeaderHidden =\s*clearDisplay \|\|/)
+  assert.match(reelsViewer, /headerOpacity\.value = withTiming\(isHeaderHidden \? 0 : 1/)
+  assert.match(reelFeedItem, /\{!clearDisplay \? \(\s*<Animated\.View[^>]*>\s*<LinearGradient/)
   assert.match(reelFeedItem, /pointerEvents=\{clearDisplay \? 'none' : 'box-none'\}/)
   assert.match(reelFeedItem, /clearDisplay \? \{ opacity: 0 \} : undefined/)
+  assert.match(reelFeedItem, /comments\.overlayStyle/)
   assert.match(reelFeedItem, /if \(clearDisplay\) \{\s*onRestoreDisplay\(\)\s*return/)
 })
 
@@ -265,4 +261,17 @@ test('reel actions reuse the shared animated action sheet without changing edit/
   assert.match(reelActionsMenu, /onPress=\{\(\) => close\(onDelete\)\}/)
   assert.doesNotMatch(reelActionsMenu, /<Modal/)
   assert.doesNotMatch(reelActionsMenu, /useSharedValue/)
+})
+
+test('comments sheet opens through an imperative handle so reopening cannot desync', () => {
+  const sheet = read('src/components/reels/ReelCommentsSheet.tsx')
+  const hook = read('src/components/reels/useReelCommentsSheet.ts')
+  assert.match(sheet, /useImperativeHandle\(/)
+  assert.match(sheet, /onDismiss=\{\(\) => onOpenChange\(false\)\}/)
+  assert.doesNotMatch(sheet, /presented\.current/)
+  assert.doesNotMatch(sheet, /visible: boolean/)
+  assert.match(hook, /const open = useCallback\(\(\) => sheetRef\.current\?\.present\(\)/)
+  assert.match(hook, /if \(isOpenRef\.current\) sheetRef\.current\?\.dismiss\(\)/)
+  assert.match(reelFeedItem, /useReelCommentsSheet\(\{/)
+  assert.doesNotMatch(reelFeedItem, /setShowCommentsSheet/)
 })

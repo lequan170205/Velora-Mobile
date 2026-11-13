@@ -80,7 +80,7 @@ test('contained feed reels keep contain foreground and add a poster immersive ba
     reelFeedItem,
     /styles\.containedMediaFrame, \{ aspectRatio: containedMediaAspectRatio \}/,
   )
-  assert.match(reelFeedItem, /style=\{styles\.mediaStage\}/)
+  assert.match(reelFeedItem, /style=\{\[styles\.mediaStage, comments\.stageStyle\]\}/)
   assert.doesNotMatch(reelFeedItem, /foregroundMediaStyle/)
 })
 

@@ -69,6 +69,7 @@ import { ReelLoadingRail } from './ReelLoadingRail'
 import { ReelPlaybackOptionsSheet } from './ReelPlaybackOptionsSheet'
 import { ReelShareSheet } from './ReelShareSheet'
 import { ReelVideo } from './ReelVideo'
+import { useReelCommentsSheet } from './useReelCommentsSheet'
 
 import type { ReelVideoHandle, ReelVideoProgress } from './ReelVideo'
 import type { ReelPlaybackSpeed } from '../../lib/reelPlaybackPreferences'
@@ -107,6 +108,7 @@ interface ReelFeedItemProps {
     | undefined
   onTimelineInteractionChange?: ((isInteracting: boolean) => void) | undefined
   onPlayerChange?: ((reelId: string, player: ReelVideoHandle | null) => void) | undefined
+  onCommentsOpenChange?: ((open: boolean) => void) | undefined
 }
 
 type ReelWithLocalThumbnail = Reel & {
@@ -277,6 +279,12 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  metadataShadow: {
+    textShadowColor: 'rgba(0, 0, 0, 0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   transcriptOverlay: {
     alignItems: 'flex-start',
@@ -400,6 +408,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   onPlaybackProgress,
   onTimelineInteractionChange,
   onPlayerChange,
+  onCommentsOpenChange,
 }: ReelFeedItemProps) {
   const router = useRouter()
   const { user } = useAuthStore()
@@ -434,11 +443,16 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const [scrubPosition, setScrubPosition] = useState(0)
   const [scrubberWidth, setScrubberWidth] = useState(0)
   const [showActionsMenu, setShowActionsMenu] = useState(false)
-  const [isCaptionExpanded, setIsCaptionExpanded] = useState(false)
   const [metadataCopyHeight, setMetadataCopyHeight] = useState(0)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showShareSheet, setShowShareSheet] = useState(false)
-  const [showCommentsSheet, setShowCommentsSheet] = useState(false)
+  const comments = useReelCommentsSheet({
+    height,
+    isActive,
+    resetKey: user?.id,
+    onOpenChange: onCommentsOpenChange,
+  })
+  const isCommentsOpen = comments.isOpen
   const [authoritativeCommentCount, setAuthoritativeCommentCount] = useState<number>()
   useEffect(() => {
     setAuthoritativeCommentCount(undefined)
@@ -455,7 +469,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
     !reel.id.startsWith(CHAT_SHARED_REEL_FALLBACK_ID_PREFIX) &&
     ((isActive && needsPlaybackRecovery) ||
       (isActive && liveTranscriptionEnabled && !clearDisplay) ||
-      (isActive && showCommentsSheet) ||
+      (isActive && isCommentsOpen) ||
       !reel.author?.username ||
       !reel.author?.avatarUrl ||
       reel.tags.length === 0 ||
@@ -705,14 +719,16 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const authorUsernameLine = authorHandle ? `@${authorHandle}` : authorNameLine
   const canOpenAuthorProfile = Boolean(authorHandle) || displayReel.userId === user?.id
   const captionText = hideCaption ? '' : descriptionText || titleText || 'Shared a new reel.'
-  const hashtagLine = hideCaption
-    ? ''
+  const hashtags = hideCaption
+    ? []
     : displayReel.tags
         .map((tag) => tag.trim().replace(/^#/, ''))
         .filter(Boolean)
         .map((tag) => `#${tag}`)
-        .join(' ')
-  const canExpandMetadata = captionText.length > 44 || hashtagLine.length > 40
+  const hashtagLine = hashtags.join(' ')
+  const canOpenDetails =
+    Boolean(user?.id) && !displayReel.id.startsWith(CHAT_SHARED_REEL_FALLBACK_ID_PREFIX)
+  const canExpandMetadata = captionText.length + (hashtagLine ? hashtagLine.length + 1 : 0) > 36
   const avatarInitials = getInitials(authorDisplayName)
   const pendingSeekPosition =
     pendingSeekRatio !== null && durationSeconds > 0 ? pendingSeekRatio * durationSeconds : null
@@ -720,6 +736,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const showLoadingRail = isActive && offlineVideoSource.isOfflineVideoUnavailable
   const showPausedControls =
     isPausedByUser &&
+    !isCommentsOpen &&
     !isScrubbing &&
     !showLoadingRail &&
     isActive &&
@@ -898,26 +915,33 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const playbackLongPressGesture = useMemo(
     () =>
       Gesture.LongPress()
-        .enabled(!clearDisplay && playbackState.isPlayable && !hasPlaybackError)
+        .enabled(!clearDisplay && !isCommentsOpen && playbackState.isPlayable && !hasPlaybackError)
         .minDuration(450)
         .maxDistance(28)
         .onStart(() => {
           scheduleOnRN(handleOpenPlaybackOptions)
         }),
-    [clearDisplay, handleOpenPlaybackOptions, hasPlaybackError, playbackState.isPlayable],
+    [
+      clearDisplay,
+      handleOpenPlaybackOptions,
+      hasPlaybackError,
+      playbackState.isPlayable,
+      isCommentsOpen,
+    ],
   )
 
   const playbackTapGesture = useMemo(
     () =>
       Gesture.Tap()
-        .enabled(playbackState.isPlayable && !hasPlaybackError)
+        // Taps while the comments sheet is open belong to the sheet backdrop, not the reel.
+        .enabled(playbackState.isPlayable && !hasPlaybackError && !isCommentsOpen)
         .maxDistance(28)
         .onEnd((_event, success) => {
           if (success) {
             scheduleOnRN(handlePlaybackSurfaceTap)
           }
         }),
-    [handlePlaybackSurfaceTap, hasPlaybackError, playbackState.isPlayable],
+    [handlePlaybackSurfaceTap, hasPlaybackError, playbackState.isPlayable, isCommentsOpen],
   )
 
   const playbackSurfaceGesture = useMemo(
@@ -1296,12 +1320,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   }, [resetTimelineState, videoSourceKey])
 
   useEffect(() => {
-    setShowCommentsSheet(false)
-  }, [user?.id])
-
-  useEffect(() => {
     if (!isActive) {
-      setShowCommentsSheet(false)
       if (isPlaybackOptionsPresentedRef.current) {
         playbackOptionsSheetRef.current?.dismiss()
         isPlaybackOptionsPresentedRef.current = false
@@ -1425,7 +1444,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
           </>
         ) : null}
 
-        <View pointerEvents="none" style={styles.mediaStage}>
+        <Animated.View pointerEvents="none" style={[styles.mediaStage, comments.stageStyle]}>
           <View
             style={
               isContainedPlayback
@@ -1504,21 +1523,23 @@ const ReelFeedItemComponent = function ReelFeedItem({
               )
             ) : null}
           </View>
-        </View>
+        </Animated.View>
 
         {!clearDisplay ? (
-          <LinearGradient
-            colors={['rgba(0,0,0,0.10)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.92)']}
-            locations={[0, 0.48, 1]}
-            pointerEvents="none"
-            style={styles.fill}
-          />
+          <Animated.View pointerEvents="none" style={[styles.fill, comments.overlayStyle]}>
+            <LinearGradient
+              colors={['rgba(0,0,0,0.06)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.72)']}
+              locations={[0, 0.6, 1]}
+              pointerEvents="none"
+              style={styles.fill}
+            />
+          </Animated.View>
         ) : null}
 
         {playbackState.isPlayable && !hasPlaybackError ? (
           <GestureDetector gesture={playbackSurfaceGesture}>
             <View
-              pointerEvents={isActive ? 'auto' : 'none'}
+              pointerEvents={isActive && !isCommentsOpen ? 'auto' : 'none'}
               style={[
                 styles.fill,
                 { bottom: clearDisplay ? 0 : scrubRailBottom + SCRUBBER_TOUCH_ZONE_HEIGHT + 10 },
@@ -1561,9 +1582,9 @@ const ReelFeedItemComponent = function ReelFeedItem({
         ) : null}
 
         {isActive && playbackState.isPlayable && !clearDisplay ? (
-          <View
+          <Animated.View
             className="absolute inset-x-0 z-20"
-            style={{ bottom: scrubRailBottom }}
+            style={[{ bottom: scrubRailBottom }, comments.overlayStyle]}
             pointerEvents="box-none"
           >
             <View
@@ -1627,7 +1648,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                 style={{ left: SCRUBBER_EDGE_GUTTER, right: SCRUBBER_EDGE_GUTTER }}
               />
             </GestureDetector>
-          </View>
+          </Animated.View>
         ) : null}
 
         {showLoadingRail && !clearDisplay ? (
@@ -1748,13 +1769,17 @@ const ReelFeedItemComponent = function ReelFeedItem({
         ) : null}
 
         {isActive && liveTranscriptionEnabled && activeTranscriptText && !clearDisplay ? (
-          <View
+          <Animated.View
             pointerEvents="none"
-            style={[styles.transcriptOverlay, { bottom: transcriptOverlayBottom }]}
+            style={[
+              styles.transcriptOverlay,
+              { bottom: transcriptOverlayBottom },
+              comments.overlayStyle,
+            ]}
           >
             <View className="max-w-full self-start rounded-[12px] bg-black/60 px-3 py-2">
               <Text
-                className="text-left text-base font-medium leading-6 text-white"
+                className="text-left text-base2 font-medium leading-5 text-white"
                 style={{
                   textShadowColor: 'rgba(0, 0, 0, 0.48)',
                   textShadowOffset: { width: 0, height: 1 },
@@ -1764,13 +1789,17 @@ const ReelFeedItemComponent = function ReelFeedItem({
                 {activeTranscriptText}
               </Text>
             </View>
-          </View>
+          </Animated.View>
         ) : null}
 
-        <View
+        <Animated.View
           pointerEvents={clearDisplay ? 'none' : 'box-none'}
           className="absolute inset-x-0 z-30"
-          style={[{ bottom: metadataBottom }, clearDisplay ? { opacity: 0 } : undefined]}
+          style={[
+            { bottom: metadataBottom },
+            comments.overlayStyle,
+            clearDisplay ? { opacity: 0 } : undefined,
+          ]}
         >
           <View
             className="px-4"
@@ -1778,7 +1807,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
               setMetadataCopyHeight(nativeEvent.layout.height)
             }}
           >
-            <View className="flex-row items-start">
+            <View className="flex-row items-end">
               <View className="min-w-0 flex-1 pr-3">
                 {displayReel.series && !isSeriesPlayback ? (
                   <TouchableOpacity
@@ -1805,8 +1834,9 @@ const ReelFeedItemComponent = function ReelFeedItem({
                     }
                     accessibilityRole={canOpenAuthorProfile ? 'button' : undefined}
                     activeOpacity={0.84}
-                    className="h-11 w-11 items-center justify-center rounded-full"
+                    className="h-8 w-8 items-center justify-center rounded-full"
                     disabled={!canOpenAuthorProfile}
+                    hitSlop={6}
                     onPress={handleAuthorPress}
                   >
                     {effectiveAuthor?.avatarUrl ? (
@@ -1814,33 +1844,29 @@ const ReelFeedItemComponent = function ReelFeedItem({
                         source={{ uri: effectiveAuthor.avatarUrl }}
                         contentFit="cover"
                         style={{
-                          width: 42,
-                          height: 42,
-                          borderRadius: 21,
+                          width: 32,
+                          height: 32,
+                          borderRadius: 16,
                           backgroundColor: colors.media.surface,
                         }}
                       />
                     ) : (
-                      <View className="h-[42px] w-[42px] items-center justify-center rounded-full bg-[#2F6FED]">
-                        <Text className="font-heading text-sm text-white">{avatarInitials}</Text>
+                      <View className="h-8 w-8 items-center justify-center rounded-full bg-[#2F6FED]">
+                        <Text className="font-heading text-xs2 text-white">{avatarInitials}</Text>
                       </View>
                     )}
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     activeOpacity={0.84}
-                    className="ml-3 min-w-0 flex-1 py-2"
+                    className="ml-2.5 min-w-0 flex-1 py-1.5"
                     disabled={!canOpenAuthorProfile}
                     onPress={handleAuthorPress}
                   >
                     <Text
-                      className="font-semibold text-md text-white"
+                      className="text-sm2 font-semibold text-white"
                       numberOfLines={1}
-                      style={{
-                        textShadowColor: 'rgba(0, 0, 0, 0.7)',
-                        textShadowOffset: { width: 0, height: 1 },
-                        textShadowRadius: 3,
-                      }}
+                      style={styles.metadataShadow}
                     >
                       {authorUsernameLine}
                     </Text>
@@ -1848,53 +1874,46 @@ const ReelFeedItemComponent = function ReelFeedItem({
                 </View>
 
                 {captionText ? (
-                  <View className="mt-2">
+                  <TouchableOpacity
+                    accessibilityLabel="Show reel details and comments"
+                    accessibilityRole="button"
+                    activeOpacity={0.8}
+                    className="mt-2.5 flex-row items-center"
+                    disabled={!canOpenDetails}
+                    onPress={comments.open}
+                  >
                     <Text
-                      className="text-base2 font-medium leading-6 text-white"
-                      numberOfLines={isCaptionExpanded ? undefined : 1}
+                      className="min-w-0 shrink text-sm2 text-white"
+                      numberOfLines={canOpenDetails ? 1 : 2}
+                      style={styles.metadataShadow}
                     >
                       {captionText}
+                      {hashtagLine ? (
+                        <Text className="font-semibold text-[#FFB18E]">{` ${hashtagLine}`}</Text>
+                      ) : null}
                     </Text>
-                    {canExpandMetadata ? (
-                      <TouchableOpacity
-                        accessibilityLabel={
-                          isCaptionExpanded ? 'Show less reel details' : 'Show more reel details'
-                        }
-                        accessibilityRole="button"
-                        activeOpacity={0.76}
-                        className="min-h-7 self-start justify-center"
-                        onPress={() => {
-                          setIsCaptionExpanded((current) => !current)
-                        }}
+                    {canOpenDetails && canExpandMetadata ? (
+                      <Text
+                        className="ml-1 shrink-0 text-sm2 font-semibold text-white/70"
+                        style={styles.metadataShadow}
                       >
-                        <Text className="text-sm2 font-semibold text-white/75">
-                          {isCaptionExpanded ? 'less' : '… more'}
-                        </Text>
-                      </TouchableOpacity>
+                        more
+                      </Text>
                     ) : null}
-                  </View>
-                ) : null}
-
-                {hashtagLine ? (
-                  <Text
-                    className="mt-2 text-sm2 font-semibold leading-5 text-[#FFB18E]"
-                    numberOfLines={isCaptionExpanded ? undefined : 1}
-                  >
-                    {hashtagLine}
-                  </Text>
+                  </TouchableOpacity>
                 ) : null}
               </View>
 
-              <View className="ml-auto shrink-0 items-center gap-2">
+              <View className="ml-auto shrink-0 items-center gap-2.5">
                 {user?.id && !displayReel.id.startsWith(CHAT_SHARED_REEL_FALLBACK_ID_PREFIX) ? (
                   <TouchableOpacity
                     accessibilityLabel="Open comments"
                     accessibilityRole="button"
                     className="min-h-11 min-w-11 items-center justify-center"
                     activeOpacity={0.84}
-                    onPress={() => setShowCommentsSheet(true)}
+                    onPress={comments.open}
                   >
-                    <Ionicons name="chatbubble-outline" size={24} color={colors.text.inverse} />
+                    <Ionicons name="chatbubble-outline" size={26} color={colors.text.inverse} />
                     <Text className="text-xs2 font-semibold text-white">
                       {displayReel.commentCount ?? 0}
                     </Text>
@@ -1909,7 +1928,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                     setShowShareSheet(true)
                   }}
                 >
-                  <Ionicons name="paper-plane-outline" size={24} color={colors.text.inverse} />
+                  <Ionicons name="paper-plane-outline" size={26} color={colors.text.inverse} />
                 </TouchableOpacity>
 
                 {canManageReel ? (
@@ -1922,7 +1941,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                       setShowActionsMenu(true)
                     }}
                   >
-                    <Ionicons name="ellipsis-horizontal" size={25} color={colors.text.inverse} />
+                    <Ionicons name="ellipsis-horizontal" size={22} color={colors.text.inverse} />
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -1963,17 +1982,23 @@ const ReelFeedItemComponent = function ReelFeedItem({
               </TouchableOpacity>
             ) : null}
           </View>
-        </View>
+        </Animated.View>
 
         {user?.id ? (
           <ReelCommentsSheet
             key={`${user.id}:${authTokenSession.getGeneration()}:${displayReel.id}`}
-            visible={showCommentsSheet && isActive}
+            {...comments.sheetProps}
             reelId={displayReel.id}
             viewerId={user.id}
             reelOwnerId={displayReel.userId}
+            details={{
+              authorName: authorUsernameLine,
+              avatarUrl: effectiveAuthor?.avatarUrl,
+              initials: avatarInitials,
+              description: hideCaption ? undefined : descriptionText || titleText,
+              hashtags,
+            }}
             onCommentCountChange={setAuthoritativeCommentCount}
-            onClose={() => setShowCommentsSheet(false)}
           />
         ) : null}
 
@@ -2056,6 +2081,7 @@ const areReelFeedItemPropsEqual = (previous: ReelFeedItemProps, next: ReelFeedIt
   previous.onIntentionalPauseChange === next.onIntentionalPauseChange &&
   previous.onPlaybackProgress === next.onPlaybackProgress &&
   previous.onTimelineInteractionChange === next.onTimelineInteractionChange &&
-  previous.onPlayerChange === next.onPlayerChange
+  previous.onPlayerChange === next.onPlayerChange &&
+  previous.onCommentsOpenChange === next.onCommentsOpenChange
 
 export const ReelFeedItem = memo(ReelFeedItemComponent, areReelFeedItemPropsEqual)
