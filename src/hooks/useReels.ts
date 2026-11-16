@@ -877,20 +877,31 @@ export function useFriendsReelsFeed(params: { enabled?: boolean; limit?: number 
   }
 }
 
+const getReelDetailQueryOptions = (viewerId: string, id: string | undefined) => ({
+  queryKey: queryKeys.reels.detail(viewerId, id || 'unknown'),
+  queryFn: () => {
+    if (!id) {
+      throw new Error('Missing reel id')
+    }
+
+    return reelsApi.getById(id)
+  },
+  staleTime: REELS_QUERY_STALE_TIME_MS,
+})
+
+/**
+ * List responses no longer carry the timed transcript, so captions come from the reel detail.
+ * Warming that detail for the active and next reel keeps captions instant when swiping.
+ */
+export const prefetchReelDetail = (queryClient: QueryClient, viewerId: string, id: string) =>
+  queryClient.prefetchQuery(getReelDetailQueryOptions(viewerId, id))
+
 export function useReelDetail(id?: string, options: { enabled?: boolean } = {}) {
   const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
 
   return useQuery({
-    queryKey: queryKeys.reels.detail(viewerId, id || 'unknown'),
-    queryFn: () => {
-      if (!id) {
-        throw new Error('Missing reel id')
-      }
-
-      return reelsApi.getById(id)
-    },
+    ...getReelDetailQueryOptions(viewerId, id),
     enabled: Boolean(id) && (options.enabled ?? true),
-    staleTime: REELS_QUERY_STALE_TIME_MS,
   })
 }
 

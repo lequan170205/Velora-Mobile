@@ -1,5 +1,6 @@
 import { Ionicons, MaterialIcons } from '@expo/vector-icons'
 import { useIsFocused } from '@react-navigation/native'
+import { useQueryClient } from '@tanstack/react-query'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
@@ -53,7 +54,13 @@ import { reelsApi } from '../../api/reels.api'
 import { DEFAULT_REELS_LIMIT } from '../../constants/reels'
 import { colors, typography } from '../../constants/theme'
 import { useFriends } from '../../hooks/useFriends'
-import { useFriendsReelsFeed, useRecommendedReelsFeed, useReelContext } from '../../hooks/useReels'
+import {
+  prefetchReelDetail,
+  useFriendsReelsFeed,
+  useRecommendedReelsFeed,
+  useReelContext,
+} from '../../hooks/useReels'
+import { CHAT_SHARED_REEL_FALLBACK_ID_PREFIX } from '../../lib/chatReels'
 import { flattenRecommendedReelPages } from '../../lib/recommendationFeed'
 import { useNetworkStatus } from '../../providers/NetworkProvider'
 
@@ -210,6 +217,7 @@ export function ReelsViewer({
   onActiveReelChange,
 }: ReelsViewerProps) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const insets = useSafeAreaInsets()
   const isFocused = useIsFocused()
   const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous')
@@ -1105,6 +1113,26 @@ export function ReelsViewer({
       resetOfflineBoundaryFeedback()
     }
   }, [isAtOfflineBoundary, resetOfflineBoundaryFeedback])
+
+  // Captions come from the reel detail (lists no longer include the transcript), so warm
+  // it for the active and next reel while live captions are on.
+  useEffect(() => {
+    if (!liveTranscriptionEnabled || !isFocused || !isOnline || activeIndex < 0) {
+      return
+    }
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      for (const reel of [reels[activeIndex], reels[activeIndex + 1]]) {
+        if (reel && !reel.id.startsWith(CHAT_SHARED_REEL_FALLBACK_ID_PREFIX)) {
+          void prefetchReelDetail(queryClient, viewerId, reel.id)
+        }
+      }
+    })
+
+    return () => {
+      task.cancel()
+    }
+  }, [activeIndex, isFocused, isOnline, liveTranscriptionEnabled, queryClient, reels, viewerId])
 
   useEffect(() => {
     const allowedReelIds =
