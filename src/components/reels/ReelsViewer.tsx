@@ -60,6 +60,7 @@ import {
   useRecommendedReelsFeed,
   useReelContext,
 } from '../../hooks/useReels'
+import { prefetchReelSubtitles } from '../../hooks/useReelSubtitles'
 import { CHAT_SHARED_REEL_FALLBACK_ID_PREFIX } from '../../lib/chatReels'
 import { flattenRecommendedReelPages } from '../../lib/recommendationFeed'
 import { useNetworkStatus } from '../../providers/NetworkProvider'
@@ -1121,7 +1122,7 @@ export function ReelsViewer({
   }, [isAtOfflineBoundary, resetOfflineBoundaryFeedback])
 
   // Captions come from the reel detail (lists no longer include the transcript), so warm
-  // it for the active and next reel while live captions are on.
+  // it, and the translated captions in the chosen language, for the active and next reel while live captions are on.
   useEffect(() => {
     if (!liveTranscriptionEnabled || !isFocused || !isOnline || activeIndex < 0) {
       return
@@ -1131,6 +1132,7 @@ export function ReelsViewer({
       for (const reel of [reels[activeIndex], reels[activeIndex + 1]]) {
         if (reel && !reel.id.startsWith(CHAT_SHARED_REEL_FALLBACK_ID_PREFIX)) {
           void prefetchReelDetail(queryClient, viewerId, reel.id)
+          void prefetchReelSubtitles(queryClient, viewerId, reel.id, captionLanguage)
         }
       }
     })
@@ -1138,7 +1140,16 @@ export function ReelsViewer({
     return () => {
       task.cancel()
     }
-  }, [activeIndex, isFocused, isOnline, liveTranscriptionEnabled, queryClient, reels, viewerId])
+  }, [
+    activeIndex,
+    captionLanguage,
+    isFocused,
+    isOnline,
+    liveTranscriptionEnabled,
+    queryClient,
+    reels,
+    viewerId,
+  ])
 
   useEffect(() => {
     const allowedReelIds =

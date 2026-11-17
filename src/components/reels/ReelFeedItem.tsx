@@ -769,6 +769,10 @@ const ReelFeedItemComponent = function ReelFeedItem({
         : translatedCaptions.isError
           ? 'unavailable'
           : null
+  const refetchTranslatedCaptions = translatedCaptions.refetch
+  const handleRetryTranslatedCaptions = useCallback(() => {
+    void refetchTranslatedCaptions()
+  }, [refetchTranslatedCaptions])
   const activeTranscriptText =
     isTranslatedCaptions && translatedCaptions.data
       ? getActiveSubtitleText(translatedCaptions.data, timelinePosition)
@@ -2065,6 +2069,14 @@ const ReelFeedItemComponent = function ReelFeedItem({
           onTranscriptionChange={onLiveTranscriptionChange}
           captionLanguage={captionLanguage}
           onCaptionLanguageChange={onCaptionLanguageChange}
+          captionLanguageStatus={
+            captionStatus === 'translating'
+              ? 'loading'
+              : captionStatus === 'unavailable'
+                ? 'error'
+                : null
+          }
+          onRetryCaptionLanguage={handleRetryTranslatedCaptions}
           playbackSpeed={playbackSpeed}
           onPlaybackSpeedChange={onPlaybackSpeedChange}
           onClearDisplay={onClearDisplay}

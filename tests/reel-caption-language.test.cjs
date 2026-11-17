@@ -95,7 +95,7 @@ test('the translated captions request is long enough for a first-time translatio
 
 test('translated captions are only requested while captions are visible', () => {
   const hook = read('src/hooks/useReelSubtitles.ts')
-  assert.match(hook, /translated !== null/)
+  assert.match(hook, /language !== 'original' && \(options\.enabled \?\? true\)/)
   const item = read('src/components/reels/ReelFeedItem.tsx')
   assert.match(
     item,
@@ -122,4 +122,24 @@ test('the caption language is chosen in the playback sheet and reaches the feed 
   const item = read('src/components/reels/ReelFeedItem.tsx')
   assert.match(item, /previous\.captionLanguage === next\.captionLanguage/)
   assert.match(item, /previous\.onCaptionLanguageChange === next\.onCaptionLanguageChange/)
+})
+
+test('translated captions are warmed for the active and next reel, next to the reel detail', () => {
+  const hook = read('src/hooks/useReelSubtitles.ts')
+  assert.match(hook, /export const prefetchReelSubtitles/)
+  assert.match(hook, /language === 'original'/)
+  assert.match(hook, /retry: false/)
+  const viewer = read('src/components/reels/ReelsViewer.tsx')
+  assert.match(
+    viewer,
+    /void prefetchReelSubtitles\(queryClient, viewerId, reel\.id, captionLanguage\)/,
+  )
+})
+
+test('the sheet shows translation progress and offers a retry', () => {
+  const sheet = read('src/components/reels/ReelPlaybackOptionsSheet.tsx')
+  assert.match(sheet, /captionLanguageStatus === 'loading'/)
+  assert.match(sheet, /accessibilityLabel="Retry translation"/)
+  const item = read('src/components/reels/ReelFeedItem.tsx')
+  assert.match(item, /onRetryCaptionLanguage=\{handleRetryTranslatedCaptions\}/)
 })

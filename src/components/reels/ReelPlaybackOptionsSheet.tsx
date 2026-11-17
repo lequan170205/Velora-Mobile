@@ -6,7 +6,7 @@ import {
   type BottomSheetBackdropProps,
 } from '@gorhom/bottom-sheet'
 import React, { useCallback } from 'react'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { colors } from '../../constants/theme'
@@ -21,16 +21,19 @@ interface ReelPlaybackOptionsSheetProps {
   onCaptionLanguageChange: (language: ReelCaptionLanguage) => void
   playbackSpeed: ReelPlaybackSpeed
   onPlaybackSpeedChange: (speed: ReelPlaybackSpeed) => void
+  /** State of the translated captions for the reel on screen; null when nothing is being translated. */
+  captionLanguageStatus?: 'loading' | 'error' | null
+  onRetryCaptionLanguage?: () => void
   onClearDisplay: () => void
   onClose?: () => void
 }
 
 const PLAYBACK_SPEEDS: ReelPlaybackSpeed[] = [0.5, 1, 1.5, 2]
 
-const CAPTION_LANGUAGE_OPTIONS: { value: ReelCaptionLanguage; label: string; hint: string }[] = [
-  { value: 'original', label: 'Original', hint: 'As spoken' },
-  { value: 'vi', label: 'Tiếng Việt', hint: 'Translated' },
-  { value: 'en', label: 'English', hint: 'Translated' },
+const CAPTION_LANGUAGE_OPTIONS: { value: ReelCaptionLanguage; label: string; name: string }[] = [
+  { value: 'original', label: 'Original', name: 'the original language' },
+  { value: 'vi', label: 'Tiếng Việt', name: 'Vietnamese' },
+  { value: 'en', label: 'English', name: 'English' },
 ]
 
 export function ReelPlaybackOptionsSheet({
@@ -41,6 +44,8 @@ export function ReelPlaybackOptionsSheet({
   onCaptionLanguageChange,
   playbackSpeed,
   onPlaybackSpeedChange,
+  captionLanguageStatus = null,
+  onRetryCaptionLanguage,
   onClearDisplay,
   onClose,
 }: ReelPlaybackOptionsSheetProps) {
@@ -64,6 +69,10 @@ export function ReelPlaybackOptionsSheet({
     onClearDisplay()
   }, [onClearDisplay, sheetRef])
 
+  const selectedLanguageName =
+    CAPTION_LANGUAGE_OPTIONS.find((option) => option.value === captionLanguage)?.name ??
+    'the original language'
+
   return (
     <BottomSheetModal
       ref={sheetRef}
@@ -77,133 +86,156 @@ export function ReelPlaybackOptionsSheet({
     >
       <BottomSheetView style={{ paddingBottom: Math.max(insets.bottom, 18) }}>
         <View className="px-5 pb-1">
-          <View className="mt-1 flex-row items-start justify-between">
-            <View className="flex-1 pr-4">
-              <Text className="font-heading text-xl text-text-primary">Playback</Text>
-              <Text className="font-sans mt-1 text-base2 text-text-secondary">
-                Reel viewing controls
-              </Text>
-            </View>
-
+          <View className="flex-row items-center justify-between">
+            <Text className="font-heading text-xl text-text-primary">Playback</Text>
             <Pressable
               accessibilityLabel="Close playback options"
               accessibilityRole="button"
-              className="h-11 w-11 items-center justify-center rounded-full bg-surface-muted"
+              className="h-10 w-10 items-center justify-center rounded-full bg-surface-muted"
+              hitSlop={4}
               onPress={() => sheetRef.current?.dismiss()}
             >
               <MaterialIcons name="close" size={20} color={colors.text.primary} />
             </Pressable>
           </View>
 
-          <Text className="font-sans mb-3 mt-5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
+          <Text className="font-sans mb-2 mt-5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
             Captions
           </Text>
-          <Pressable
-            accessibilityLabel="Live transcription"
-            accessibilityHint="Turns synchronized reel captions on or off"
-            accessibilityRole="button"
-            accessibilityState={{ selected: transcriptionEnabled }}
-            className="flex-row items-center rounded-[24px] bg-surface-muted px-4 py-3.5"
-            onPress={() => onTranscriptionChange(!transcriptionEnabled)}
-          >
-            <View className="h-11 w-11 items-center justify-center rounded-full bg-brand-soft">
-              <MaterialIcons name="subtitles" size={20} color={colors.brand.primary} />
-            </View>
-            <View className="ml-3 flex-1 pr-3">
-              <Text className="font-medium text-md text-text-primary">Live transcription</Text>
-              <Text className="font-sans mt-0.5 text-sm2 text-text-secondary">
-                {transcriptionEnabled
-                  ? 'Captions are on · tap to turn off'
-                  : 'Captions are off · tap to turn on'}
-              </Text>
-            </View>
-            <MaterialIcons
-              name={transcriptionEnabled ? 'check-circle' : 'chevron-right'}
-              size={20}
-              color={transcriptionEnabled ? colors.brand.primary : colors.text.tertiary}
-            />
-          </Pressable>
+          <View className="rounded-[24px] bg-surface-muted p-4">
+            <Pressable
+              accessibilityHint="Turns synchronized reel captions on or off"
+              accessibilityLabel="Live transcription"
+              accessibilityRole="button"
+              accessibilityState={{ selected: transcriptionEnabled }}
+              className="flex-row items-center"
+              onPress={() => onTranscriptionChange(!transcriptionEnabled)}
+            >
+              <View className="h-10 w-10 items-center justify-center rounded-full bg-brand-soft">
+                <MaterialIcons name="subtitles" size={20} color={colors.brand.primary} />
+              </View>
+              <View className="ml-3 flex-1 pr-3">
+                <Text className="font-medium text-md text-text-primary">Live transcription</Text>
+                <Text className="font-sans mt-0.5 text-sm2 text-text-secondary">
+                  {transcriptionEnabled
+                    ? 'Captions are on · tap to turn off'
+                    : 'Captions are off · tap to turn on'}
+                </Text>
+              </View>
+              <View
+                className={
+                  transcriptionEnabled
+                    ? 'h-7 w-12 justify-center rounded-full bg-brand px-1 items-end'
+                    : 'h-7 w-12 justify-center rounded-full bg-border-strong px-1 items-start'
+                }
+              >
+                <View className="h-5 w-5 rounded-full bg-white" />
+              </View>
+            </Pressable>
 
-          <Text className="font-sans mb-3 mt-5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
-            Caption language
-          </Text>
-          <View className="flex-row gap-2">
-            {CAPTION_LANGUAGE_OPTIONS.map((option) => {
-              const selected = captionLanguage === option.value
+            {transcriptionEnabled ? (
+              <View className="mt-4 border-t border-border-default pt-4">
+                <Text className="font-medium mb-2 text-sm2 text-text-secondary">
+                  Caption language
+                </Text>
+                <View className="flex-row rounded-full bg-white p-1">
+                  {CAPTION_LANGUAGE_OPTIONS.map((option) => {
+                    const selected = captionLanguage === option.value
+                    const translating = selected && captionLanguageStatus === 'loading'
 
-              return (
-                <Pressable
-                  key={option.value}
-                  accessibilityLabel={`${option.label} captions`}
-                  accessibilityHint={
-                    option.value === 'original'
-                      ? 'Shows captions in the language spoken in the reel'
-                      : `Translates captions into ${option.label}. The first time can take a moment`
-                  }
-                  accessibilityRole="button"
-                  accessibilityState={{ selected, disabled: !transcriptionEnabled }}
-                  className={
-                    selected
-                      ? 'min-h-[52px] flex-1 items-center justify-center rounded-[20px] bg-brand px-2 py-2'
-                      : 'min-h-[52px] flex-1 items-center justify-center rounded-[20px] bg-surface-muted px-2 py-2'
-                  }
-                  style={transcriptionEnabled ? undefined : styles.disabledOption}
-                  onPress={() => onCaptionLanguageChange(option.value)}
-                >
+                    return (
+                      <Pressable
+                        key={option.value}
+                        accessibilityLabel={`${option.label} captions`}
+                        accessibilityHint={
+                          option.value === 'original'
+                            ? 'Shows captions in the language spoken in the reel'
+                            : `Translates captions into ${option.name}`
+                        }
+                        accessibilityRole="button"
+                        accessibilityState={{ selected, busy: translating }}
+                        className={
+                          selected
+                            ? 'h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-full bg-brand'
+                            : 'h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-full'
+                        }
+                        onPress={() => onCaptionLanguageChange(option.value)}
+                      >
+                        {translating ? <ActivityIndicator color="#FFFFFF" size="small" /> : null}
+                        <Text
+                          className={
+                            selected
+                              ? 'font-semibold text-base2 text-white'
+                              : 'font-medium text-base2 text-text-secondary'
+                          }
+                          numberOfLines={1}
+                        >
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    )
+                  })}
+                </View>
+
+                {captionLanguageStatus === 'loading' ? (
                   <Text
-                    className={
-                      selected
-                        ? 'font-semibold text-base2 text-white'
-                        : 'font-medium text-base2 text-text-primary'
-                    }
+                    accessibilityLiveRegion="polite"
+                    className="font-sans mt-3 text-sm2 text-text-secondary"
                   >
-                    {option.label}
+                    Translating to {selectedLanguageName}… original captions keep showing until it
+                    is ready.
                   </Text>
-                  <Text
-                    className={
-                      selected
-                        ? 'font-sans text-xs2 text-white/80'
-                        : 'font-sans text-xs2 text-text-muted'
-                    }
-                  >
-                    {option.hint}
-                  </Text>
-                </Pressable>
-              )
-            })}
+                ) : null}
+                {captionLanguageStatus === 'error' ? (
+                  <View className="mt-3 flex-row items-center justify-between">
+                    <Text
+                      accessibilityLiveRegion="polite"
+                      className="font-sans flex-1 pr-3 text-sm2 text-text-secondary"
+                    >
+                      Couldn’t translate this reel. Showing original captions.
+                    </Text>
+                    {onRetryCaptionLanguage ? (
+                      <Pressable
+                        accessibilityLabel="Retry translation"
+                        accessibilityRole="button"
+                        className="h-9 items-center justify-center rounded-full bg-brand-soft px-4"
+                        onPress={onRetryCaptionLanguage}
+                      >
+                        <Text className="font-semibold text-sm2 text-brand-text">Retry</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
           </View>
-          {!transcriptionEnabled ? (
-            <Text className="font-sans mt-2 text-sm2 text-text-secondary">
-              Turn on live transcription to see captions.
-            </Text>
-          ) : null}
 
-          <Text className="font-sans mb-3 mt-5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
+          <Text className="font-sans mb-2 mt-5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
             Display
           </Text>
           <Pressable
-            accessibilityLabel="Clear display"
             accessibilityHint="Hides reel controls and text so only the video remains visible"
+            accessibilityLabel="Clear display"
             accessibilityRole="button"
-            className="flex-row items-center rounded-[24px] bg-surface-muted px-4 py-3.5"
+            className="flex-row items-center rounded-[24px] bg-surface-muted p-4"
             onPress={handleClearDisplay}
           >
-            <View className="h-11 w-11 items-center justify-center rounded-full bg-white">
+            <View className="h-10 w-10 items-center justify-center rounded-full bg-white">
               <MaterialIcons name="visibility-off" size={20} color={colors.text.primary} />
             </View>
             <View className="ml-3 flex-1 pr-3">
               <Text className="font-medium text-md text-text-primary">Clear display</Text>
               <Text className="font-sans mt-0.5 text-sm2 text-text-secondary">
-                Hide controls and text to focus on the video
+                Hide controls and text, just the video
               </Text>
             </View>
             <MaterialIcons name="chevron-right" size={20} color={colors.text.tertiary} />
           </Pressable>
 
-          <Text className="font-sans mb-3 mt-5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
+          <Text className="font-sans mb-2 mt-5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
             Playback speed
           </Text>
-          <View className="flex-row gap-2">
+          <View className="flex-row rounded-full bg-surface-muted p-1">
             {PLAYBACK_SPEEDS.map((speed) => {
               const selected = playbackSpeed === speed
 
@@ -215,8 +247,8 @@ export function ReelPlaybackOptionsSheet({
                   accessibilityState={{ selected }}
                   className={
                     selected
-                      ? 'h-11 flex-1 items-center justify-center rounded-full bg-brand'
-                      : 'h-11 flex-1 items-center justify-center rounded-full bg-surface-muted'
+                      ? 'h-10 flex-1 items-center justify-center rounded-full bg-brand'
+                      : 'h-10 flex-1 items-center justify-center rounded-full'
                   }
                   onPress={() => onPlaybackSpeedChange(speed)}
                 >
@@ -224,7 +256,7 @@ export function ReelPlaybackOptionsSheet({
                     className={
                       selected
                         ? 'font-semibold text-base2 text-white'
-                        : 'font-medium text-base2 text-text-primary'
+                        : 'font-medium text-base2 text-text-secondary'
                     }
                   >
                     {speed}x
@@ -240,9 +272,6 @@ export function ReelPlaybackOptionsSheet({
 }
 
 const styles = StyleSheet.create({
-  disabledOption: {
-    opacity: 0.5,
-  },
   handleIndicator: {
     backgroundColor: colors.border.strong,
     width: 56,
