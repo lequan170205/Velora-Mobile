@@ -23,6 +23,7 @@ import Animated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { scheduleOnRN } from 'react-native-worklets'
 
 import { useOfflineReelVideoSource } from '@/hooks/useOfflineReelVideoSource'
@@ -59,6 +60,11 @@ import {
   createPlaybackCandidateAttempts,
   tryPlaybackCandidate,
 } from '../../lib/reelPublishRecovery'
+import {
+  canBoostReelSpeed,
+  getReelTouchZone,
+  REEL_SPEED_BOOST_RATE,
+} from '../../lib/reelSpeedBoost'
 import { getActiveSubtitleText } from '../../lib/reelSubtitles'
 import { useAuthStore } from '../../stores/authStore'
 
@@ -419,9 +425,12 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const router = useRouter()
   const { user } = useAuthStore()
   const { width: windowWidth } = useWindowDimensions()
+  const insets = useSafeAreaInsets()
   const queryClient = useQueryClient()
   const playbackOptionsSheetRef = useRef<BottomSheetModal>(null)
   const isPlaybackOptionsPresentedRef = useRef(false)
+  const [isSpeedBoosted, setIsSpeedBoosted] = useState(false)
+  const effectivePlaybackRate = isSpeedBoosted ? REEL_SPEED_BOOST_RATE : playbackSpeed
   const videoRef = useRef<ReelVideoHandle | null>(null)
   const playerIdentityRef = useRef({ playerGeneration: 0, reelId: reel.id, sourceKey: '' })
   const playbackIdentityRef = useRef('')
@@ -920,6 +929,49 @@ const ReelFeedItemComponent = function ReelFeedItem({
     isPlaybackOptionsPresentedRef.current = false
   }, [])
 
+  // Holding the middle opens the playback options; holding either side plays at 2x until the finger lifts.
+  const handlePlaybackSurfaceHold = useCallback(
+    (x: number) => {
+      if (getReelTouchZone(x, windowWidth) === 'middle') {
+        handleOpenPlaybackOptions()
+        return
+      }
+
+      if (
+        !isActive ||
+        clearDisplay ||
+        !playbackState.isPlayable ||
+        hasPlaybackError ||
+        !canBoostReelSpeed(playbackSpeed, isPausedByUserRef.current)
+      ) {
+        return
+      }
+
+      void Haptics.selectionAsync().catch(() => undefined)
+      setIsSpeedBoosted(true)
+    },
+    [
+      clearDisplay,
+      handleOpenPlaybackOptions,
+      hasPlaybackError,
+      isActive,
+      playbackSpeed,
+      playbackState.isPlayable,
+      windowWidth,
+    ],
+  )
+
+  const handlePlaybackSurfaceRelease = useCallback(() => {
+    setIsSpeedBoosted(false)
+  }, [])
+
+  // Never leave a reel sped up once it is no longer the one being watched.
+  useEffect(() => {
+    if (!isActive || clearDisplay || isCommentsOpen) {
+      setIsSpeedBoosted(false)
+    }
+  }, [clearDisplay, isActive, isCommentsOpen])
+
   const handlePlaybackSurfaceTap = useCallback(() => {
     if (!isActive || !playbackState.isPlayable || hasPlaybackError) {
       return
@@ -946,12 +998,16 @@ const ReelFeedItemComponent = function ReelFeedItem({
         .enabled(!clearDisplay && !isCommentsOpen && playbackState.isPlayable && !hasPlaybackError)
         .minDuration(450)
         .maxDistance(28)
-        .onStart(() => {
-          scheduleOnRN(handleOpenPlaybackOptions)
+        .onStart((event) => {
+          scheduleOnRN(handlePlaybackSurfaceHold, event.x)
+        })
+        .onFinalize(() => {
+          scheduleOnRN(handlePlaybackSurfaceRelease)
         }),
     [
       clearDisplay,
-      handleOpenPlaybackOptions,
+      handlePlaybackSurfaceHold,
+      handlePlaybackSurfaceRelease,
       hasPlaybackError,
       playbackState.isPlayable,
       isCommentsOpen,
@@ -1501,7 +1557,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                     seekRelativeToTrim={Boolean(localPlaybackEdit?.trim)}
                     shouldPlay={isActive && !isPausedByUser && !hasPlaybackError}
                     muted={isMuted || !isActive}
-                    playbackRate={playbackSpeed}
+                    playbackRate={effectivePlaybackRate}
                     uri={resolvedVideoUri}
                     videoRef={setVideoRef}
                     externallyManagedPlayback
@@ -1516,7 +1572,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                   uri={resolvedVideoUri}
                   {...(posterUri ? { posterUri } : {})}
                   shouldPlay={isActive && !isPausedByUser && !hasPlaybackError}
-                  playbackRate={playbackSpeed}
+                  playbackRate={effectivePlaybackRate}
                   loop
                   muted={isMuted || !isActive}
                   contentFit={playbackContentFit}
@@ -1536,7 +1592,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
                   uri={resolvedVideoUri}
                   {...(posterUri ? { posterUri } : {})}
                   shouldPlay={isActive && !isPausedByUser && !hasPlaybackError}
-                  playbackRate={playbackSpeed}
+                  playbackRate={effectivePlaybackRate}
                   loop
                   muted={isMuted || !isActive}
                   contentFit={playbackContentFit}
@@ -1574,6 +1630,26 @@ const ReelFeedItemComponent = function ReelFeedItem({
               ]}
             />
           </GestureDetector>
+        ) : null}
+
+        {isSpeedBoosted ? (
+          <View
+            accessibilityLabel={`Playing at ${REEL_SPEED_BOOST_RATE}x speed`}
+            accessibilityLiveRegion="polite"
+            className="absolute inset-x-0 items-center"
+            pointerEvents="none"
+            style={{ top: insets.top + 72 }}
+          >
+            <View className="flex-row items-center rounded-full bg-black/60 px-3.5 py-1.5">
+              <Text className="text-sm2 font-semibold text-white">{REEL_SPEED_BOOST_RATE}x</Text>
+              <Ionicons
+                name="play-forward"
+                size={14}
+                color={colors.text.inverse}
+                style={{ marginLeft: 6 }}
+              />
+            </View>
+          </View>
         ) : null}
 
         {showPausedControls && !clearDisplay ? (
