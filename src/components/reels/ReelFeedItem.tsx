@@ -1835,14 +1835,12 @@ const ReelFeedItemComponent = function ReelFeedItem({
         <Animated.View
           pointerEvents={clearDisplay ? 'none' : 'box-none'}
           className="absolute inset-x-0 z-30"
-          style={[
-            { bottom: metadataBottom },
-            comments.overlayStyle,
-            clearDisplay ? { opacity: 0 } : undefined,
-          ]}
+          style={[{ bottom: metadataBottom }, comments.overlayStyle]}
         >
+          {/* Hidden here, not on the animated parent: the comments overlay style always sets its own opacity and wins over a static one. */}
           <View
             className="px-4"
+            style={clearDisplay ? { opacity: 0 } : undefined}
             onLayout={({ nativeEvent }) => {
               setMetadataCopyHeight(nativeEvent.layout.height)
             }}

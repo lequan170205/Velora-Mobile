@@ -47,7 +47,10 @@ test('reels viewer keeps the original text tabs and capture controls', () => {
   assert.match(reelsViewer, /accessibilityLabel="Create reel"/)
   assert.match(reelsViewer, /enabled: shouldLoadPublicFeed && shouldShowFriendsTab/)
   assert.match(reelCreatorSharedUi, /active \? 'bg-white' : 'bg-white\/10'/)
-  assert.match(reelCreatorSharedUi, /color: active \? colors\.media\.surface : 'rgba\(255,255,255,0\.86\)'/)
+  assert.match(
+    reelCreatorSharedUi,
+    /color: active \? colors\.media\.surface : 'rgba\(255,255,255,0\.86\)'/,
+  )
   assert.match(reelCreatorSharedUi, /'bg-white\/10'/)
   assert.match(
     reelCreatorSharedUi,
@@ -118,15 +121,18 @@ test('reel feed item keeps playback and scrub contracts while making metadata re
     /const authorUsernameLine = authorHandle \? `@\$\{authorHandle\}` : authorNameLine/,
   )
   assert.match(reelFeedItem, /text-sm2 font-semibold text-white/)
-  assert.match(
-    reelFeedItem,
-    /h-8 w-8 items-center justify-center rounded-full bg-\[#2F6FED\]/,
-  )
+  assert.match(reelFeedItem, /h-8 w-8 items-center justify-center rounded-full bg-\[#2F6FED\]/)
   assert.match(reelFeedItem, /text-\[#FFB18E\]/)
   assert.match(reelFeedItem, /accessibilityLabel="Share reel"/)
   assert.match(reelFeedItem, /accessibilityLabel="More reel actions"/)
-  assert.match(reelFeedItem, /<Ionicons name="paper-plane-outline" size=\{26\} color=\{colors\.text\.inverse\}/)
-  assert.match(reelFeedItem, /<Ionicons name="ellipsis-horizontal" size=\{22\} color=\{colors\.text\.inverse\}/)
+  assert.match(
+    reelFeedItem,
+    /<Ionicons name="paper-plane-outline" size=\{26\} color=\{colors\.text\.inverse\}/,
+  )
+  assert.match(
+    reelFeedItem,
+    /<Ionicons name="ellipsis-horizontal" size=\{22\} color=\{colors\.text\.inverse\}/,
+  )
   assert.doesNotMatch(
     reelFeedItem,
     /accessibilityLabel="Share reel"[\s\S]{0,220}rounded-full border/,
@@ -235,7 +241,13 @@ test('clear display hides reel chrome and the next video tap restores it without
   assert.match(reelsViewer, /headerOpacity\.value = withTiming\(isHeaderHidden \? 0 : 1/)
   assert.match(reelFeedItem, /\{!clearDisplay \? \(\s*<Animated\.View[^>]*>\s*<LinearGradient/)
   assert.match(reelFeedItem, /pointerEvents=\{clearDisplay \? 'none' : 'box-none'\}/)
-  assert.match(reelFeedItem, /clearDisplay \? \{ opacity: 0 \} : undefined/)
+  // The animated comments overlay style always sets opacity and overrides a static one on the same view, so the
+  // hide has to sit on a plain child View.
+  assert.match(
+    reelFeedItem,
+    /<View\s+className="px-4"\s+style=\{clearDisplay \? \{ opacity: 0 \} : undefined\}/,
+  )
+  assert.doesNotMatch(reelFeedItem, /comments\.overlayStyle,\s*clearDisplay/)
   assert.match(reelFeedItem, /comments\.overlayStyle/)
   assert.match(reelFeedItem, /if \(clearDisplay\) \{\s*onRestoreDisplay\(\)\s*return/)
 })
