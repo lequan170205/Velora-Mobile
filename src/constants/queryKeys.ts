@@ -36,6 +36,8 @@ export const queryKeys = {
     pendingCreated: (viewerId: string) => ['reels', viewerId, 'pending-created'] as const,
     detail: (viewerId: string, id: string) => ['reels', viewerId, 'detail', id] as const,
     status: (viewerId: string, id: string) => ['reels', viewerId, 'status', id] as const,
+    subtitles: (viewerId: string, id: string, language: string) =>
+      ['reels', viewerId, 'subtitles', id, language] as const,
     seriesLists: (viewerId: string) => ['reels', viewerId, 'series-list'] as const,
     seriesList: (viewerId: string, params?: Record<string, unknown>) =>
       ['reels', viewerId, 'series-list', params ?? {}] as const,

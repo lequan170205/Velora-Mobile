@@ -224,8 +224,14 @@ export function ReelsViewer({
   const { fontScale, height: windowHeight, width: windowWidth } = useWindowDimensions()
   const { isOnline, networkState } = useNetworkStatus()
   const { isReelSavingModeHydrated, reelSavingModeEnabled } = useReelSavingMode()
-  const { liveTranscriptionEnabled, playbackSpeed, setLiveTranscriptionEnabled, setPlaybackSpeed } =
-    useReelPlaybackPreferences()
+  const {
+    liveTranscriptionEnabled,
+    playbackSpeed,
+    captionLanguage,
+    setLiveTranscriptionEnabled,
+    setPlaybackSpeed,
+    setCaptionLanguage,
+  } = useReelPlaybackPreferences()
   const {
     startReelSession,
     endCurrentReelSession,
@@ -2276,6 +2282,7 @@ export function ReelsViewer({
               clearDisplay={clearDisplay}
               liveTranscriptionEnabled={isActiveItem && liveTranscriptionEnabled}
               playbackSpeed={playbackSpeed}
+              captionLanguage={captionLanguage}
               bottomContentInset={0}
               isSeriesPlayback={isSeriesPlayback}
               onOpenSeriesEpisodes={onOpenSeriesEpisodes}
@@ -2285,6 +2292,7 @@ export function ReelsViewer({
               onRestoreDisplay={handleRestoreDisplay}
               onLiveTranscriptionChange={setLiveTranscriptionEnabled}
               onPlaybackSpeedChange={setPlaybackSpeed}
+              onCaptionLanguageChange={setCaptionLanguage}
               onDeleted={handleReelDeleted}
               onIntentionalPauseChange={handleIntentionalPauseChange}
               onPlaybackProgress={handlePlaybackProgress}
@@ -2385,11 +2393,13 @@ export function ReelsViewer({
       liveTranscriptionEnabled,
       offlineVideoCachePriorities,
       playbackSpeed,
+      captionLanguage,
       recommendedAlgorithmVersion,
       recommendedFeedSessionId,
       handleIntentionalPauseChange,
       setLiveTranscriptionEnabled,
       setPlaybackSpeed,
+      setCaptionLanguage,
       isSeriesPlayback,
       onOpenSeriesEpisodes,
       seriesEpisodeCount,

@@ -164,7 +164,7 @@ test('active reels fetch timed transcript detail and render synchronized caption
   assert.doesNotMatch(reelFeedItem, /segment\.end \+ 0\.12/)
   assert.match(
     reelFeedItem,
-    /\{isActive && liveTranscriptionEnabled && activeTranscriptText && !clearDisplay \? \(/,
+    /\{captionsVisible && \(activeTranscriptText \|\| captionStatus\) \? \(/,
   )
   assert.match(reelFeedItem, /styles\.transcriptOverlay/)
   assert.match(reelFeedItem, /transcriptOverlayBottom/)

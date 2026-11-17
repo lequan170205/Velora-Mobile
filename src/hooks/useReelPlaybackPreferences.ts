@@ -2,17 +2,22 @@ import { useCallback, useEffect, useState } from 'react'
 
 import {
   DEFAULT_LIVE_TRANSCRIPTION_ENABLED,
+  DEFAULT_REEL_CAPTION_LANGUAGE,
   DEFAULT_REEL_PLAYBACK_SPEED,
   getLiveTranscriptionPreference,
+  getReelCaptionLanguagePreference,
   getReelPlaybackSpeedPreference,
+  type ReelCaptionLanguage,
   type ReelPlaybackSpeed,
   setLiveTranscriptionPreference,
+  setReelCaptionLanguagePreference,
   setReelPlaybackSpeedPreference,
 } from '../lib/reelPlaybackPreferences'
 
 interface ReelPlaybackPreferencesState {
   liveTranscriptionEnabled: boolean
   playbackSpeed: ReelPlaybackSpeed
+  captionLanguage: ReelCaptionLanguage
   isReelPlaybackPreferencesHydrated: boolean
 }
 
@@ -23,6 +28,7 @@ let hydrationPromise: Promise<void> | null = null
 let currentState: ReelPlaybackPreferencesState = {
   liveTranscriptionEnabled: DEFAULT_LIVE_TRANSCRIPTION_ENABLED,
   playbackSpeed: DEFAULT_REEL_PLAYBACK_SPEED,
+  captionLanguage: DEFAULT_REEL_CAPTION_LANGUAGE,
   isReelPlaybackPreferencesHydrated: false,
 }
 
@@ -36,6 +42,7 @@ const updateState = (nextState: ReelPlaybackPreferencesState) => {
   if (
     currentState.liveTranscriptionEnabled === nextState.liveTranscriptionEnabled &&
     currentState.playbackSpeed === nextState.playbackSpeed &&
+    currentState.captionLanguage === nextState.captionLanguage &&
     currentState.isReelPlaybackPreferencesHydrated === nextState.isReelPlaybackPreferencesHydrated
   ) {
     return
@@ -60,8 +67,9 @@ const ensureReelPlaybackPreferencesHydrated = async () => {
   hydrationPromise = Promise.all([
     getLiveTranscriptionPreference(),
     getReelPlaybackSpeedPreference(),
+    getReelCaptionLanguagePreference(),
   ])
-    .then(([liveTranscriptionEnabled, playbackSpeed]) => {
+    .then(([liveTranscriptionEnabled, playbackSpeed, captionLanguage]) => {
       if (hydrationVersion !== stateVersion && currentState.isReelPlaybackPreferencesHydrated) {
         return
       }
@@ -69,6 +77,7 @@ const ensureReelPlaybackPreferencesHydrated = async () => {
       updateState({
         liveTranscriptionEnabled,
         playbackSpeed,
+        captionLanguage,
         isReelPlaybackPreferencesHydrated: true,
       })
     })
@@ -121,6 +130,22 @@ const setPlaybackSpeedState = async (playbackSpeed: ReelPlaybackSpeed) => {
   }
 }
 
+const setCaptionLanguageState = async (captionLanguage: ReelCaptionLanguage) => {
+  stateVersion += 1
+
+  updateState({
+    ...currentState,
+    captionLanguage,
+    isReelPlaybackPreferencesHydrated: true,
+  })
+
+  try {
+    await setReelCaptionLanguagePreference(captionLanguage)
+  } catch (error) {
+    console.warn('[Reels] Failed to persist caption language preference', error)
+  }
+}
+
 export function useReelPlaybackPreferences() {
   const [state, setState] = useState(currentState)
 
@@ -141,11 +166,17 @@ export function useReelPlaybackPreferences() {
     void setPlaybackSpeedState(playbackSpeed)
   }, [])
 
+  const setCaptionLanguage = useCallback((captionLanguage: ReelCaptionLanguage) => {
+    void setCaptionLanguageState(captionLanguage)
+  }, [])
+
   return {
     liveTranscriptionEnabled: state.liveTranscriptionEnabled,
     playbackSpeed: state.playbackSpeed,
+    captionLanguage: state.captionLanguage,
     isReelPlaybackPreferencesHydrated: state.isReelPlaybackPreferencesHydrated,
     setLiveTranscriptionEnabled,
     setPlaybackSpeed,
+    setCaptionLanguage,
   }
 }

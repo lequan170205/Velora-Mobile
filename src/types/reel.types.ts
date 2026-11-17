@@ -182,6 +182,24 @@ export interface ReelTranscriptSegment {
   text: string
 }
 
+export interface ReelSubtitleCue {
+  index: number
+  /** Seconds from the start of the reel. */
+  start: number
+  end: number
+  text: string
+}
+
+export interface ReelSubtitles {
+  reelId: string
+  /** Language of the cues. */
+  language: string
+  /** Language spoken in the reel. */
+  sourceLanguage: string
+  translated: boolean
+  cues: ReelSubtitleCue[]
+}
+
 export interface ReelDetail extends Reel {
   description?: string
   transcript?: string

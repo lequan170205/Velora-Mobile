@@ -37,6 +37,7 @@ import {
   useDeleteReel,
   useReprocessReel,
 } from '../../hooks/useReels'
+import { useReelSubtitles } from '../../hooks/useReelSubtitles'
 import { authTokenSession } from '../../lib/auth/tokenSession'
 import { CHAT_SHARED_REEL_FALLBACK_ID_PREFIX } from '../../lib/chatReels'
 import {
@@ -58,6 +59,7 @@ import {
   createPlaybackCandidateAttempts,
   tryPlaybackCandidate,
 } from '../../lib/reelPublishRecovery'
+import { getActiveSubtitleText } from '../../lib/reelSubtitles'
 import { useAuthStore } from '../../stores/authStore'
 
 import { CommittedCropPreview } from './create/crop-preview'
@@ -72,7 +74,7 @@ import { ReelVideo } from './ReelVideo'
 import { useReelCommentsSheet } from './useReelCommentsSheet'
 
 import type { ReelVideoHandle, ReelVideoProgress } from './ReelVideo'
-import type { ReelPlaybackSpeed } from '../../lib/reelPlaybackPreferences'
+import type { ReelCaptionLanguage, ReelPlaybackSpeed } from '../../lib/reelPlaybackPreferences'
 import type { Reel, ReelTranscriptSegment } from '../../types/reel.types'
 
 interface ReelFeedItemProps {
@@ -88,6 +90,7 @@ interface ReelFeedItemProps {
   clearDisplay: boolean
   liveTranscriptionEnabled: boolean
   playbackSpeed: ReelPlaybackSpeed
+  captionLanguage: ReelCaptionLanguage
   bottomContentInset?: number | undefined
   isSeriesPlayback?: boolean | undefined
   onOpenSeriesEpisodes?: (() => void) | undefined
@@ -97,6 +100,7 @@ interface ReelFeedItemProps {
   onRestoreDisplay: () => void
   onLiveTranscriptionChange: (enabled: boolean) => void
   onPlaybackSpeedChange: (speed: ReelPlaybackSpeed) => void
+  onCaptionLanguageChange: (language: ReelCaptionLanguage) => void
   onDeleted?: ((reelId: string) => void) | undefined
   onIntentionalPauseChange?: ((paused: boolean) => void) | undefined
   onPlaybackProgress?:
@@ -394,6 +398,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   clearDisplay,
   liveTranscriptionEnabled,
   playbackSpeed,
+  captionLanguage,
   bottomContentInset = 0,
   isSeriesPlayback = false,
   onOpenSeriesEpisodes,
@@ -403,6 +408,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
   onRestoreDisplay,
   onLiveTranscriptionChange,
   onPlaybackSpeedChange,
+  onCaptionLanguageChange,
   onDeleted,
   onIntentionalPauseChange,
   onPlaybackProgress,
@@ -477,6 +483,10 @@ const ReelFeedItemComponent = function ReelFeedItem({
       (!reel.sourceOrientation && !reel.playbackPresentation))
   const { data: reelDetail } = useReelDetail(reel.id, {
     enabled: shouldFetchReelDetail,
+  })
+  const captionsVisible = isActive && liveTranscriptionEnabled && !clearDisplay
+  const translatedCaptions = useReelSubtitles(reel.id, captionLanguage, {
+    enabled: captionsVisible,
   })
   const deleteReel = useDeleteReel()
   const reprocessReel = useReprocessReel()
@@ -745,10 +755,24 @@ const ReelFeedItemComponent = function ReelFeedItem({
   const shouldRenderVideo = playbackState.isPlayable && shouldWarmVideo
   const effectivePosition = isScrubbing ? scrubPosition : playbackPosition
   const timelinePosition = pendingSeekPosition ?? effectivePosition
-  const activeTranscriptText = getActiveTranscriptText(
+  const spokenTranscriptText = getActiveTranscriptText(
     reelDetail?.transcriptSegments ?? displayReel.transcriptSegments,
     timelinePosition,
   )
+  // Translated captions replace the spoken ones; while they load, or if the translation fails, the spoken ones stay.
+  const isTranslatedCaptions = captionLanguage !== 'original'
+  const captionStatus: 'translating' | 'unavailable' | null =
+    !isTranslatedCaptions || !captionsVisible
+      ? null
+      : translatedCaptions.isLoading
+        ? 'translating'
+        : translatedCaptions.isError
+          ? 'unavailable'
+          : null
+  const activeTranscriptText =
+    isTranslatedCaptions && translatedCaptions.data
+      ? getActiveSubtitleText(translatedCaptions.data, timelinePosition)
+      : spokenTranscriptText
   const bufferedRatio = durationSeconds > 0 ? clamp(bufferedPosition / durationSeconds, 0, 1) : 0
   const safeBottomContentInset = Math.max(0, bottomContentInset)
   const scrubRailBottom = safeBottomContentInset
@@ -1768,7 +1792,7 @@ const ReelFeedItemComponent = function ReelFeedItem({
           </View>
         ) : null}
 
-        {isActive && liveTranscriptionEnabled && activeTranscriptText && !clearDisplay ? (
+        {captionsVisible && (activeTranscriptText || captionStatus) ? (
           <Animated.View
             pointerEvents="none"
             style={[
@@ -1778,16 +1802,28 @@ const ReelFeedItemComponent = function ReelFeedItem({
             ]}
           >
             <View className="max-w-full self-start rounded-[12px] bg-black/60 px-3 py-2">
-              <Text
-                className="text-left text-base2 font-medium leading-5 text-white"
-                style={{
-                  textShadowColor: 'rgba(0, 0, 0, 0.48)',
-                  textShadowOffset: { width: 0, height: 1 },
-                  textShadowRadius: 2,
-                }}
-              >
-                {activeTranscriptText}
-              </Text>
+              {captionStatus ? (
+                <Text
+                  accessibilityLiveRegion="polite"
+                  className="mb-1 text-left text-xs2 font-medium text-white/70"
+                >
+                  {captionStatus === 'translating'
+                    ? 'Translating captions…'
+                    : 'Translation unavailable · showing original'}
+                </Text>
+              ) : null}
+              {activeTranscriptText ? (
+                <Text
+                  className="text-left text-base2 font-medium leading-5 text-white"
+                  style={{
+                    textShadowColor: 'rgba(0, 0, 0, 0.48)',
+                    textShadowOffset: { width: 0, height: 1 },
+                    textShadowRadius: 2,
+                  }}
+                >
+                  {activeTranscriptText}
+                </Text>
+              ) : null}
             </View>
           </Animated.View>
         ) : null}
@@ -2027,6 +2063,8 @@ const ReelFeedItemComponent = function ReelFeedItem({
           sheetRef={playbackOptionsSheetRef}
           transcriptionEnabled={liveTranscriptionEnabled}
           onTranscriptionChange={onLiveTranscriptionChange}
+          captionLanguage={captionLanguage}
+          onCaptionLanguageChange={onCaptionLanguageChange}
           playbackSpeed={playbackSpeed}
           onPlaybackSpeedChange={onPlaybackSpeedChange}
           onClearDisplay={onClearDisplay}
@@ -2068,6 +2106,7 @@ const areReelFeedItemPropsEqual = (previous: ReelFeedItemProps, next: ReelFeedIt
   previous.clearDisplay === next.clearDisplay &&
   previous.liveTranscriptionEnabled === next.liveTranscriptionEnabled &&
   previous.playbackSpeed === next.playbackSpeed &&
+  previous.captionLanguage === next.captionLanguage &&
   previous.bottomContentInset === next.bottomContentInset &&
   previous.isSeriesPlayback === next.isSeriesPlayback &&
   previous.onOpenSeriesEpisodes === next.onOpenSeriesEpisodes &&
@@ -2077,6 +2116,7 @@ const areReelFeedItemPropsEqual = (previous: ReelFeedItemProps, next: ReelFeedIt
   previous.onRestoreDisplay === next.onRestoreDisplay &&
   previous.onLiveTranscriptionChange === next.onLiveTranscriptionChange &&
   previous.onPlaybackSpeedChange === next.onPlaybackSpeedChange &&
+  previous.onCaptionLanguageChange === next.onCaptionLanguageChange &&
   previous.onDeleted === next.onDeleted &&
   previous.onIntentionalPauseChange === next.onIntentionalPauseChange &&
   previous.onPlaybackProgress === next.onPlaybackProgress &&

@@ -26,6 +26,7 @@ import type {
   PaginatedFriendsReels,
   RecommendedReelsPage,
   ReelDetail,
+  ReelSubtitles,
   ReelSeries,
   ReelProcessingStatusResponse,
   RecommendedReelsParams,
@@ -208,6 +209,14 @@ export const reelsApi = {
   getById: async (id: string) => {
     const response = await apiClient.get<ReelDetail>(`/content/reels/${id}`)
     return hydrateMissingReelAuthor(response.data)
+  },
+  /** The first request for a language is translated on the server, which can take a minute. */
+  getSubtitles: async (id: string, language: 'vi' | 'en') => {
+    const response = await apiClient.get<ReelSubtitles>(`/content/reels/${id}/subtitles`, {
+      params: { lang: language },
+      timeout: 120_000,
+    })
+    return response.data
   },
   getContext: async (id: string, params: ReelContextParams = {}) => {
     const response = await apiClient.get<ReelContextResponse>(`/content/reels/${id}/context`, {

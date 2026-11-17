@@ -11,12 +11,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { colors } from '../../constants/theme'
 
-import type { ReelPlaybackSpeed } from '../../lib/reelPlaybackPreferences'
+import type { ReelCaptionLanguage, ReelPlaybackSpeed } from '../../lib/reelPlaybackPreferences'
 
 interface ReelPlaybackOptionsSheetProps {
   sheetRef: React.RefObject<BottomSheetModal | null>
   transcriptionEnabled: boolean
   onTranscriptionChange: (enabled: boolean) => void
+  captionLanguage: ReelCaptionLanguage
+  onCaptionLanguageChange: (language: ReelCaptionLanguage) => void
   playbackSpeed: ReelPlaybackSpeed
   onPlaybackSpeedChange: (speed: ReelPlaybackSpeed) => void
   onClearDisplay: () => void
@@ -25,10 +27,18 @@ interface ReelPlaybackOptionsSheetProps {
 
 const PLAYBACK_SPEEDS: ReelPlaybackSpeed[] = [0.5, 1, 1.5, 2]
 
+const CAPTION_LANGUAGE_OPTIONS: { value: ReelCaptionLanguage; label: string; hint: string }[] = [
+  { value: 'original', label: 'Original', hint: 'As spoken' },
+  { value: 'vi', label: 'Tiếng Việt', hint: 'Translated' },
+  { value: 'en', label: 'English', hint: 'Translated' },
+]
+
 export function ReelPlaybackOptionsSheet({
   sheetRef,
   transcriptionEnabled,
   onTranscriptionChange,
+  captionLanguage,
+  onCaptionLanguageChange,
   playbackSpeed,
   onPlaybackSpeedChange,
   onClearDisplay,
@@ -115,6 +125,60 @@ export function ReelPlaybackOptionsSheet({
           </Pressable>
 
           <Text className="font-sans mb-3 mt-5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
+            Caption language
+          </Text>
+          <View className="flex-row gap-2">
+            {CAPTION_LANGUAGE_OPTIONS.map((option) => {
+              const selected = captionLanguage === option.value
+
+              return (
+                <Pressable
+                  key={option.value}
+                  accessibilityLabel={`${option.label} captions`}
+                  accessibilityHint={
+                    option.value === 'original'
+                      ? 'Shows captions in the language spoken in the reel'
+                      : `Translates captions into ${option.label}. The first time can take a moment`
+                  }
+                  accessibilityRole="button"
+                  accessibilityState={{ selected, disabled: !transcriptionEnabled }}
+                  className={
+                    selected
+                      ? 'min-h-[52px] flex-1 items-center justify-center rounded-[20px] bg-brand px-2 py-2'
+                      : 'min-h-[52px] flex-1 items-center justify-center rounded-[20px] bg-surface-muted px-2 py-2'
+                  }
+                  style={transcriptionEnabled ? undefined : styles.disabledOption}
+                  onPress={() => onCaptionLanguageChange(option.value)}
+                >
+                  <Text
+                    className={
+                      selected
+                        ? 'font-semibold text-base2 text-white'
+                        : 'font-medium text-base2 text-text-primary'
+                    }
+                  >
+                    {option.label}
+                  </Text>
+                  <Text
+                    className={
+                      selected
+                        ? 'font-sans text-xs2 text-white/80'
+                        : 'font-sans text-xs2 text-text-muted'
+                    }
+                  >
+                    {option.hint}
+                  </Text>
+                </Pressable>
+              )
+            })}
+          </View>
+          {!transcriptionEnabled ? (
+            <Text className="font-sans mt-2 text-sm2 text-text-secondary">
+              Turn on live transcription to see captions.
+            </Text>
+          ) : null}
+
+          <Text className="font-sans mb-3 mt-5 text-xs2 uppercase tracking-[1.1px] text-text-muted">
             Display
           </Text>
           <Pressable
@@ -176,6 +240,9 @@ export function ReelPlaybackOptionsSheet({
 }
 
 const styles = StyleSheet.create({
+  disabledOption: {
+    opacity: 0.5,
+  },
   handleIndicator: {
     backgroundColor: colors.border.strong,
     width: 56,
