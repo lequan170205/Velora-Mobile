@@ -21,11 +21,13 @@ import {
   upsertMessageIntoConversationCache,
 } from '../lib/chatMessageCache'
 import { mergeReplyPreview } from '../lib/replyPreview'
+import { sendMessageOverSocket } from '../lib/sendMessageOverSocket'
 import { useAuthStore } from '../stores/authStore'
 import { useChatMediaUploadStore } from '../stores/chatMediaUploadStore'
 import { useChatStore } from '../stores/chatStore'
 
 import { useNetworkStatus } from './NetworkProvider'
+import { useSocket } from './SocketProvider'
 
 import type { ChatMediaUploadJob } from '../stores/chatMediaUploadStore'
 import type { Message, MessageMedia } from '../types/conversation.types'
@@ -194,6 +196,9 @@ const sanitizeConfirmedMedia = (media?: MessageMedia | null): MessageMedia | und
 export function ChatMediaUploadProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient()
   const { isNetworkResolved, isOnline } = useNetworkStatus()
+  const { socket } = useSocket()
+  const socketRef = useRef(socket)
+  socketRef.current = socket
   const uploadTaskRef = useRef<UploadTask | null>(null)
   const thumbnailTaskRef = useRef<UploadTask | null>(null)
   const processingJobIdRef = useRef<string | null>(null)
@@ -686,13 +691,29 @@ export function ChatMediaUploadProvider({ children }: { children: React.ReactNod
         }),
       )
 
-      const savedMessage = await conversationApi.sendMessage(job.conversationId, {
+      const outgoingMessage = {
         clientMessageId,
         content: job.content,
         media: preparedMedia,
         type: job.type,
         ...(job.replyToId ? { replyToId: job.replyToId } : {}),
-      })
+      }
+      let savedMessage: Message
+      // A photo sent to Velora AI goes over the websocket to conversation-service, like a typed
+      // message. There is no HTTP fallback: a socket that is down or silent throws, and the job
+      // is requeued and retried with the same clientMessageId, which the server deduplicates.
+      if (job.type === 'image' && useChatStore.getState().isBotConversation(job.conversationId)) {
+        const activeSocket = socketRef.current
+        if (!activeSocket) {
+          throw new Error('socket is not ready')
+        }
+        savedMessage = await sendMessageOverSocket(activeSocket, {
+          conversationId: job.conversationId,
+          ...outgoingMessage,
+        })
+      } else {
+        savedMessage = await conversationApi.sendMessage(job.conversationId, outgoingMessage)
+      }
       const mergedReplyPreview = mergeReplyPreview(savedMessage.replyPreview, job.replyPreview)
 
       const confirmedMessage: Message = {
