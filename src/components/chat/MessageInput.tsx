@@ -37,6 +37,7 @@ import {
   getResolvedMediaPosterUri,
   getResolvedMediaUri,
   MAX_CHAT_IMAGE_CAPTION_LENGTH,
+  resolveAllowedChatImageType,
 } from '../../lib/chatMedia'
 import {
   getPreferredReelReplyPreviewContent,
@@ -437,6 +438,12 @@ const MessageInputComponent = function MessageInput(
 
       const photo = assets.find((asset) => asset.type !== 'video')
       if (photo) {
+        // Chat photos are JPEG, PNG or WebP; anything else (a RAW camera file) would fail to upload.
+        const knownType = Boolean(photo.mimeType || photo.fileName)
+        if (knownType && !resolveAllowedChatImageType(photo.mimeType, photo.fileName)) {
+          Alert.alert('Unsupported photo', 'Choose a JPEG, PNG or WebP photo.')
+          return
+        }
         attachPhoto(photo)
       }
     },

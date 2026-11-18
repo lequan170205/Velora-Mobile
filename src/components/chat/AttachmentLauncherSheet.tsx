@@ -121,6 +121,16 @@ export const AttachmentLauncherSheet = forwardRef<
           return
         }
 
+        if (Platform.OS === 'android') {
+          // Android reports a photo it cannot open (a RAW camera file, a stale gallery entry) as a
+          // failed write; say what to do instead of blaming the picker.
+          Alert.alert(
+            'Could not open that photo',
+            'Velora could not open that photo. Choose a JPEG, PNG or WebP photo; RAW camera files such as .CR2 are not supported.',
+          )
+          return
+        }
+
         Alert.alert(
           'Could not open library',
           'iOS was unable to open the photo picker for this selection. Please try again.',

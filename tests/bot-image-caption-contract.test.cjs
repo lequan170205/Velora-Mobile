@@ -98,3 +98,14 @@ test('the old modal caption sheet is gone', () => {
   assert.equal(fs.existsSync(path.join(root, 'src/components/chat/ImageCaptionSheet.tsx')), false)
   assert.doesNotMatch(read('src/components/chat/MessageInput.tsx'), /ImageCaptionSheet/)
 })
+
+test('a photo that cannot be opened or is not JPEG, PNG or WebP gets a clear message', () => {
+  const launcher = read('src/components/chat/AttachmentLauncherSheet.tsx')
+  // Android must not be told "iOS was unable to open the photo picker".
+  assert.match(launcher, /if \(Platform\.OS === 'android'\) \{[\s\S]*Could not open that photo[\s\S]*return\s*\}\s*Alert\.alert\(\s*'Could not open library'/)
+  assert.match(launcher, /RAW camera files such as \.CR2 are not supported/)
+
+  const input = read('src/components/chat/MessageInput.tsx')
+  assert.match(input, /resolveAllowedChatImageType\(photo\.mimeType, photo\.fileName\)/)
+  assert.match(input, /Alert\.alert\('Unsupported photo', 'Choose a JPEG, PNG or WebP photo\.'\)/)
+})
