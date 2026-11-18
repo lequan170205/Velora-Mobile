@@ -36,6 +36,7 @@ import {
   BOT_IMAGE_PICK_QUALITY,
   getResolvedMediaPosterUri,
   getResolvedMediaUri,
+  MAX_CHAT_IMAGE_CAPTION_LENGTH,
 } from '../../lib/chatMedia'
 import {
   getPreferredReelReplyPreviewContent,
@@ -51,7 +52,6 @@ import {
 } from './AttachmentLauncherSheet'
 import { getReelThumbnailCacheKey } from './ChatReelCard'
 import { ComposerSendButton } from './ComposerSendButton'
-import { ImageCaptionSheet } from './ImageCaptionSheet'
 
 import type { Message, ReplyPreviewData } from '../../types/conversation.types'
 import type { ImagePickerAsset } from 'expo-image-picker'
@@ -60,7 +60,7 @@ import type { SharedValue } from 'react-native-reanimated'
 interface MessageInputProps {
   onSend: (text: string, replyTo?: Message | null) => void
   onSendMedia?: (assets: ImagePickerAsset[], options?: { caption?: string }) => void | Promise<void>
-  /** In a chat with Velora AI a photo is previewed and captioned first, then sent as one message. */
+  /** In a chat with Velora AI a picked photo waits above the text field for a caption, then sends as one message. */
   captionMedia?: boolean
   onChangeText?: (text: string) => void
   onFocusChange?: (focused: boolean) => void
@@ -305,6 +305,7 @@ const MessageInputComponent = function MessageInput(
   const [text, setText] = useState('')
   // Separate boolean state for hasText — only flips when empty→nonempty or vice versa.
   // This prevents ComposerAccessorySlot from re-rendering on every keystroke.
+  // Also true while a photo waits to be sent, so the send button shows for a photo without a caption.
   const [hasText, setHasText] = useState(false)
   // textRef lets handleSend read the latest text without being listed as a dependency,
   // keeping the callback stable across keystrokes.
@@ -315,7 +316,8 @@ const MessageInputComponent = function MessageInput(
   const inputRef = useRef<TextInput>(null)
   const attachmentSheetRef = useRef<AttachmentLauncherSheetHandle>(null)
   const sendLockRef = useRef(false)
-  const [pendingCaptionAsset, setPendingCaptionAsset] = useState<ImagePickerAsset | null>(null)
+  const [pendingPhoto, setPendingPhoto] = useState<ImagePickerAsset | null>(null)
+  const pendingPhotoRef = useRef<ImagePickerAsset | null>(null)
 
   useImperativeHandle(
     ref,
@@ -330,23 +332,31 @@ const MessageInputComponent = function MessageInput(
     // Read from ref — no dependency on `text` state, so this callback is stable
     // across keystrokes and won't cause ComposerAccessorySlot to re-render.
     const message = textRef.current.trim()
-    if (!message || sendLockRef.current) return
+    const photo = pendingPhotoRef.current
+    if ((!message && !photo) || sendLockRef.current) return
 
     sendLockRef.current = true
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    onSend(message, replyTo ?? null)
+    if (photo) {
+      // The text field holds the photo's caption; an empty one sends the photo alone.
+      pendingPhotoRef.current = null
+      setPendingPhoto(null)
+      void onSendMedia?.([photo], message ? { caption: message } : undefined)
+    } else {
+      onSend(message, replyTo ?? null)
+    }
     textRef.current = ''
     setText('')
     setHasText(false)
     hasTextProgress.value = 0
     onChangeText?.('')
-    onCancelReply?.()
+    if (!photo) onCancelReply?.()
 
     requestAnimationFrame(() => inputRef.current?.focus())
     setTimeout(() => {
       sendLockRef.current = false
     }, 300)
-  }, [hasTextProgress, onCancelReply, onChangeText, onSend, replyTo])
+  }, [hasTextProgress, onCancelReply, onChangeText, onSend, onSendMedia, replyTo])
   // ↑ `text` is intentionally excluded — we read from textRef instead.
 
   const handleTextChange = useCallback(
@@ -357,7 +367,7 @@ const MessageInputComponent = function MessageInput(
 
       // Only flip the boolean state (and trigger slot re-render) when the
       // has-text status actually changes — not on every keystroke.
-      const next = value.trim().length > 0
+      const next = value.trim().length > 0 || pendingPhotoRef.current !== null
       setHasText((prev) => {
         if (prev !== next) {
           hasTextProgress.value = next ? 1 : 0
@@ -397,7 +407,27 @@ const MessageInputComponent = function MessageInput(
     attachmentSheetRef.current?.present()
   }, [waitForKeyboardToHide])
 
-  // With Velora AI the photo waits for its caption; anywhere else it is sent straight away.
+  const attachPhoto = useCallback(
+    (photo: ImagePickerAsset) => {
+      pendingPhotoRef.current = photo
+      setPendingPhoto(photo)
+      setHasText(true)
+      hasTextProgress.value = 1
+      // The caption is typed in the normal text field, so bring the keyboard up for it.
+      requestAnimationFrame(() => inputRef.current?.focus())
+    },
+    [hasTextProgress],
+  )
+
+  const handleRemovePhoto = useCallback(() => {
+    pendingPhotoRef.current = null
+    setPendingPhoto(null)
+    const stillHasText = textRef.current.trim().length > 0
+    setHasText(stillHasText)
+    hasTextProgress.value = stillHasText ? 1 : 0
+  }, [hasTextProgress])
+
+  // With Velora AI the photo waits above the text field for its caption; anywhere else it is sent straight away.
   const deliverPickedAssets = useCallback(
     async (assets: ImagePickerAsset[]) => {
       if (!captionMedia) {
@@ -407,10 +437,10 @@ const MessageInputComponent = function MessageInput(
 
       const photo = assets.find((asset) => asset.type !== 'video')
       if (photo) {
-        setPendingCaptionAsset(photo)
+        attachPhoto(photo)
       }
     },
-    [captionMedia, onSendMedia],
+    [attachPhoto, captionMedia, onSendMedia],
   )
 
   const handleOpenCamera = useCallback(async () => {
@@ -664,6 +694,32 @@ const MessageInputComponent = function MessageInput(
         </Animated.View>
       ) : null}
 
+      {pendingPhoto ? (
+        <Animated.View
+          entering={FadeInDown.duration(170)}
+          exiting={FadeOut.duration(110)}
+          style={styles.photoPreviewRow}
+        >
+          <View style={styles.photoPreviewFrame}>
+            <Image
+              source={{ uri: pendingPhoto.uri }}
+              contentFit="cover"
+              accessibilityLabel="Photo to send"
+              style={styles.photoPreviewImage}
+            />
+            <Pressable
+              accessibilityLabel="Remove photo"
+              accessibilityRole="button"
+              onPress={handleRemovePhoto}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={styles.photoPreviewRemove}
+            >
+              <MaterialIcons name="close" size={16} color={colors.text.inverse} />
+            </Pressable>
+          </View>
+        </Animated.View>
+      ) : null}
+
       <Animated.View
         style={[
           styles.composerPill,
@@ -690,11 +746,11 @@ const MessageInputComponent = function MessageInput(
             ref={inputRef}
             value={text}
             onChangeText={handleTextChange}
-            placeholder="Message"
+            placeholder={pendingPhoto ? 'Add a caption…' : 'Message'}
             placeholderTextColor={TEXT_MUTED}
             multiline
             scrollEnabled
-            maxLength={1000}
+            maxLength={pendingPhoto ? MAX_CHAT_IMAGE_CAPTION_LENGTH : 1000}
             onBlur={() => {
               onFocusChange?.(false)
             }}
@@ -739,17 +795,6 @@ const MessageInputComponent = function MessageInput(
         singleCompressedImage={captionMedia}
         onSelectAssets={deliverPickedAssets}
       />
-      <ImageCaptionSheet
-        asset={pendingCaptionAsset}
-        onCancel={() => setPendingCaptionAsset(null)}
-        onSend={(caption) => {
-          const asset = pendingCaptionAsset
-          setPendingCaptionAsset(null)
-          if (asset) {
-            void onSendMedia?.([asset], caption ? { caption } : undefined)
-          }
-        }}
-      />
     </Animated.View>
   )
 }
@@ -761,6 +806,32 @@ const styles = StyleSheet.create({
   composerPill: {
     backgroundColor: colors.surface.cream,
     borderRadius: radius.xl,
+  },
+  photoPreviewFrame: {
+    height: 96,
+    width: 96,
+  },
+  photoPreviewImage: {
+    backgroundColor: colors.border.default,
+    borderRadius: radius.lg,
+    height: 96,
+    width: 96,
+  },
+  photoPreviewRemove: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    borderRadius: 12,
+    height: 24,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: -6,
+    top: -6,
+    width: 24,
+  },
+  photoPreviewRow: {
+    alignItems: 'flex-start',
+    marginBottom: 8,
+    paddingLeft: 4,
   },
   textInput: {
     color: TEXT_PRIMARY,

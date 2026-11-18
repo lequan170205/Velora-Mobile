@@ -57,8 +57,8 @@ test('only chats with Velora AI preview and caption a photo before sending', () 
 
   const input = read('src/components/chat/MessageInput.tsx')
   assert.match(input, /if \(!captionMedia\) \{\s*await onSendMedia\?\.\(assets\)/)
-  assert.match(input, /setPendingCaptionAsset\(photo\)/)
-  assert.match(input, /onSendMedia\?\.\(\[asset\], caption \? \{ caption \} : undefined\)/)
+  assert.match(input, /attachPhoto\(photo\)/)
+  assert.match(input, /onSendMedia\?\.\(\[photo\], message \? \{ caption: message \} : undefined\)/)
   assert.match(input, /singleCompressedImage=\{captionMedia\}/)
 })
 
@@ -75,10 +75,26 @@ test('a photo caption is shown under the photo, but the placeholder is not', () 
   assert.match(bubble, /if \(!caption\) \{\s*return mediaBubble/)
 })
 
-test('the caption sheet lifts itself by the space the keyboard covers, so Send stays visible', () => {
-  const sheet = read('src/components/chat/ImageCaptionSheet.tsx')
-  // A Modal is its own window: found on an Android emulator, where the keyboard hid the caption box and Send.
-  assert.match(sheet, /Dimensions\.get\('screen'\)\.height - event\.endCoordinates\.screenY/)
-  assert.match(sheet, /keyboardHeight > 0 \? keyboardHeight \+ 12/)
-  assert.doesNotMatch(sheet, /<KeyboardAvoidingView/)
+test('the picked photo sits above the normal text field, which takes the caption and sends it', () => {
+  const input = read('src/components/chat/MessageInput.tsx')
+
+  // The photo preview is rendered before the composer pill, so it is stacked above the text field.
+  const previewAt = input.indexOf('accessibilityLabel="Photo to send"')
+  const pillAt = input.indexOf('styles.composerPill,')
+  assert.ok(previewAt > 0 && pillAt > previewAt, 'the preview must come before the text field')
+  assert.match(input, /accessibilityLabel="Remove photo"/)
+
+  // The same text field and send button carry the caption: no separate sheet, no extra Send.
+  assert.match(input, /placeholder=\{pendingPhoto \? 'Add a caption…' : 'Message'\}/)
+  assert.match(input, /maxLength=\{pendingPhoto \? MAX_CHAT_IMAGE_CAPTION_LENGTH : 1000\}/)
+  // A photo alone is sendable: the send button shows even with an empty text field.
+  assert.match(input, /if \(\(!message && !photo\) \|\| sendLockRef\.current\) return/)
+  assert.match(input, /value\.trim\(\)\.length > 0 \|\| pendingPhotoRef\.current !== null/)
+  // Removing the photo drops back to the text-only send state.
+  assert.match(input, /const stillHasText = textRef\.current\.trim\(\)\.length > 0/)
+})
+
+test('the old modal caption sheet is gone', () => {
+  assert.equal(fs.existsSync(path.join(root, 'src/components/chat/ImageCaptionSheet.tsx')), false)
+  assert.doesNotMatch(read('src/components/chat/MessageInput.tsx'), /ImageCaptionSheet/)
 })
