@@ -93,8 +93,8 @@ function Action({
 
 function FriendRowSkeleton() {
   return (
-    <View className="flex-row items-center px-5 py-3.5">
-      <View className="h-[52px] w-[52px] rounded-[18px] bg-surface-muted" />
+    <View className="flex-row items-center px-5 py-3">
+      <View className="h-12 w-12 rounded-[16px] bg-surface-muted" />
       <View className="ml-3 flex-1 gap-2.5">
         <View className="h-3.5 w-2/5 rounded-full bg-surface-muted" />
         <View className="h-3 w-1/3 rounded-full bg-surface-muted" />
@@ -102,6 +102,11 @@ function FriendRowSkeleton() {
       <View className="h-9 w-[72px] rounded-full bg-surface-muted" />
     </View>
   )
+}
+
+function RowSeparator() {
+  // Inset to line up with the name column (20 padding + 48 avatar + 12 gap).
+  return <View className="ml-[80px] mr-5 h-px bg-border-light" />
 }
 
 function FriendsListSkeleton() {
@@ -570,7 +575,7 @@ export default function FriendsScreen() {
       const removing = item.kind === 'friend' && remove.isPending && remove.variables === user.id
 
       return (
-        <View className="px-5 py-3.5">
+        <View className="px-5 py-3">
           <View className="flex-row items-center">
             <AppPressable
               className="min-w-0 flex-1 flex-row items-center"
@@ -579,9 +584,9 @@ export default function FriendsScreen() {
               accessibilityRole="button"
               accessibilityLabel={`Open ${user.fullName}'s profile`}
             >
-              <ChatAvatar name={user.fullName} picture={user.picture} size={52} />
+              <ChatAvatar name={user.fullName} picture={user.picture} size={48} />
               <View className="ml-3 min-w-0 flex-1 pr-3">
-                <AppText className="font-medium text-md text-text-primary" numberOfLines={1}>
+                <AppText className="text-md font-semibold text-text-primary" numberOfLines={1}>
                   {user.fullName}
                 </AppText>
                 <AppText
@@ -591,7 +596,8 @@ export default function FriendsScreen() {
                   @{user.username}
                 </AppText>
                 {item.kind === 'request' ? (
-                  <AppText className="font-sans mt-1 text-xs2 text-text-muted">
+                  <AppText className="font-sans mt-0.5 text-xs2 text-text-muted">
+                    {section === 'sent' ? 'Pending · ' : ''}
                     {getRelativeDate(item.value.requestedAt)}
                   </AppText>
                 ) : null}
@@ -600,7 +606,7 @@ export default function FriendsScreen() {
 
             {item.kind === 'friend' ? (
               <SafeTouchableOpacity
-                className="h-11 w-11 items-center justify-center overflow-hidden rounded-[16px] bg-surface-muted"
+                className="h-11 w-11 items-center justify-center overflow-hidden rounded-full"
                 onPress={() => openFriendActions(item.value)}
                 activeOpacity={0.75}
                 disabled={removing}
@@ -610,7 +616,7 @@ export default function FriendsScreen() {
                 {removing ? (
                   <ActivityIndicator color={colors.reel.muted} size="small" />
                 ) : (
-                  <MaterialIcons name="more-horiz" size={20} color="#6F6861" />
+                  <MaterialIcons name="more-horiz" size={22} color={colors.text.secondary} />
                 )}
               </SafeTouchableOpacity>
             ) : section === 'received' ? (
@@ -636,15 +642,12 @@ export default function FriendsScreen() {
                 />
               </View>
             ) : (
-              <View className="items-end gap-1.5">
-                <AppText className="text-xs2 font-medium text-text-muted">Pending</AppText>
-                <Action
-                  disabled={requestPending}
-                  label={requestPending ? '...' : 'Cancel'}
-                  onPress={() => cancel.mutate({ requestId: item.value.id, userId: user.id })}
-                  tone="secondary"
-                />
-              </View>
+              <Action
+                disabled={requestPending}
+                label={requestPending ? '...' : 'Cancel'}
+                onPress={() => cancel.mutate({ requestId: item.value.id, userId: user.id })}
+                tone="secondary"
+              />
             )}
           </View>
         </View>
@@ -653,12 +656,12 @@ export default function FriendsScreen() {
     [accept, cancel, isPendingRequest, openFriendActions, openProfile, reject, remove, section],
   )
 
-  const sectionTitle =
-    section === 'friends' ? 'Your friends' : section === 'received' ? 'Requests' : 'Sent requests'
-  const sectionCountLabel =
+  const sectionCaption =
     section === 'friends'
       ? `${items.length} ${items.length === 1 ? 'friend' : 'friends'}`
-      : `${items.length} ${items.length === 1 ? 'request' : 'requests'}`
+      : section === 'received'
+        ? `${items.length} ${items.length === 1 ? 'request' : 'requests'}`
+        : `${items.length} sent`
 
   return (
     <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
@@ -684,7 +687,10 @@ export default function FriendsScreen() {
         </View>
       </View>
 
-      <View className="mx-5 mt-1 flex-row rounded-full bg-surface-muted p-1">
+      <View
+        className="mx-5 mt-1 flex-row rounded-full bg-surface-muted p-1"
+        accessibilityRole="tablist"
+      >
         {(
           [
             ['friends', 'Friends'],
@@ -702,12 +708,10 @@ export default function FriendsScreen() {
               className="h-11 flex-1 flex-row items-center justify-center rounded-full px-2"
               onPress={() => setSection(value)}
               collapsable={false}
-              style={({ pressed }) => ({
-                backgroundColor: isActive ? colors.bg.primary : 'transparent',
-                borderColor: colors.border.light,
-                borderWidth: isActive ? 1 : 0,
-                opacity: pressed ? 0.76 : 1,
-              })}
+              style={({ pressed }) => [
+                isActive ? styles.tabActive : null,
+                { opacity: pressed ? 0.76 : 1 },
+              ]}
               accessibilityRole="tab"
               accessibilityState={{ selected: isActive }}
               accessibilityLabel={`${label} section`}
@@ -715,25 +719,39 @@ export default function FriendsScreen() {
               <AppText
                 className="text-sm2 font-semibold"
                 style={{ color: isActive ? colors.text.primary : colors.text.secondary }}
+                numberOfLines={1}
               >
                 {label}
               </AppText>
               {count !== null && count > 0 ? (
-                <AppText
-                  className="font-sans ml-1.5 text-xs2"
-                  style={{ color: colors.text.tertiary }}
+                <View
+                  className={`ml-1.5 h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 ${
+                    value === 'received' ? 'bg-brand' : 'bg-bg-primary'
+                  }`}
+                  style={value === 'received' || !isActive ? null : styles.countOnActive}
                 >
-                  {count}
-                </AppText>
+                  <AppText
+                    className="text-xs2 font-semibold"
+                    style={{
+                      color: value === 'received' ? colors.text.inverse : colors.text.secondary,
+                    }}
+                  >
+                    {count > 99 ? '99+' : count}
+                  </AppText>
+                </View>
               ) : null}
             </Pressable>
           )
         })}
       </View>
 
-      <View className="flex-row items-center justify-between px-5 pb-1.5 pt-5">
-        <AppText className="font-heading text-lg text-text-primary">{sectionTitle}</AppText>
-        <AppText className="font-sans text-sm2 text-text-muted">{sectionCountLabel}</AppText>
+      <View className="px-5 pb-1 pt-5">
+        <AppText
+          className="text-xs2 font-semibold uppercase tracking-[1.4px] text-text-secondary"
+          accessibilityRole="header"
+        >
+          {sectionCaption}
+        </AppText>
       </View>
 
       {isLoading ? (
@@ -763,6 +781,7 @@ export default function FriendsScreen() {
           data={items}
           keyExtractor={(item) => item.value.id}
           renderItem={renderItem}
+          ItemSeparatorComponent={RowSeparator}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{
             flexGrow: 1,
@@ -808,6 +827,9 @@ export default function FriendsScreen() {
 }
 
 const styles = StyleSheet.create({
+  countOnActive: {
+    backgroundColor: colors.surface.muted,
+  },
   handleIndicator: {
     backgroundColor: colors.border.strong,
     borderRadius: 9999,
@@ -823,5 +845,13 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: -8 },
     shadowOpacity: 1,
     shadowRadius: 24,
+  },
+  tabActive: {
+    backgroundColor: colors.bg.primary,
+    elevation: 2,
+    shadowColor: '#161616',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
 })
