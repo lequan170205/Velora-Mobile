@@ -83,7 +83,9 @@ export const AttachmentLauncherSheet = forwardRef<
           // iPhone photos are HEIC, which chat uploads reject; Compatible makes iOS hand over JPEG.
           preferredAssetRepresentationMode:
             ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
-          quality: singleCompressedImage ? BOT_IMAGE_PICK_QUALITY : 1,
+          // Android's picker re-decodes the photo to compress it and fails on HDR camera photos
+          // (content:// URIs), so only iOS compresses at pick time.
+          quality: singleCompressedImage && Platform.OS === 'ios' ? BOT_IMAGE_PICK_QUALITY : 1,
           videoExportPreset: ImagePicker.VideoExportPreset.MediumQuality,
         })
 

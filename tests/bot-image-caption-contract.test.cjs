@@ -66,7 +66,7 @@ test('the launcher offers a single compressed photo for Velora AI and the usual 
   const launcher = read('src/components/chat/AttachmentLauncherSheet.tsx')
   assert.match(launcher, /singleCompressedImage \? \['images'\] : \['images', 'videos'\]/)
   assert.match(launcher, /allowsMultipleSelection: !singleCompressedImage/)
-  assert.match(launcher, /quality: singleCompressedImage \? BOT_IMAGE_PICK_QUALITY : 1/)
+  assert.match(launcher, /quality: singleCompressedImage && Platform\.OS === 'ios' \? BOT_IMAGE_PICK_QUALITY : 1/)
 })
 
 test('a photo caption is shown under the photo, but the placeholder is not', () => {
