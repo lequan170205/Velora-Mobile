@@ -7,9 +7,9 @@ const read = (...parts) => readFileSync(join(__dirname, '..', ...parts), 'utf8')
 
 test('the chat library picker asks iOS for compatible images so HEIC photos arrive as JPEG', () => {
   const sheet = read('src', 'components', 'chat', 'AttachmentLauncherSheet.tsx')
-  const mainPicker = sheet.slice(sheet.indexOf("mediaTypes: ['images', 'videos']"))
+  const mainPicker = sheet.slice(sheet.indexOf('mediaTypes: singleCompressedImage'))
   assert.match(
-    mainPicker.slice(0, 400),
+    mainPicker.slice(0, 500),
     /preferredAssetRepresentationMode:\s*ImagePicker\.UIImagePickerPreferredAssetRepresentationMode\.Compatible/,
   )
 })

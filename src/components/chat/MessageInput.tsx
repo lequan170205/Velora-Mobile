@@ -32,7 +32,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { colors, radius, typography } from '../../constants/theme'
 import { useReelDetail } from '../../hooks/useReels'
-import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../lib/chatMedia'
+import {
+  BOT_IMAGE_PICK_QUALITY,
+  getResolvedMediaPosterUri,
+  getResolvedMediaUri,
+} from '../../lib/chatMedia'
 import {
   getPreferredReelReplyPreviewContent,
   isReplyPreviewRecalled,
@@ -47,6 +51,7 @@ import {
 } from './AttachmentLauncherSheet'
 import { getReelThumbnailCacheKey } from './ChatReelCard'
 import { ComposerSendButton } from './ComposerSendButton'
+import { ImageCaptionSheet } from './ImageCaptionSheet'
 
 import type { Message, ReplyPreviewData } from '../../types/conversation.types'
 import type { ImagePickerAsset } from 'expo-image-picker'
@@ -54,7 +59,9 @@ import type { SharedValue } from 'react-native-reanimated'
 
 interface MessageInputProps {
   onSend: (text: string, replyTo?: Message | null) => void
-  onSendMedia?: (assets: ImagePickerAsset[]) => void | Promise<void>
+  onSendMedia?: (assets: ImagePickerAsset[], options?: { caption?: string }) => void | Promise<void>
+  /** In a chat with Velora AI a photo is previewed and captioned first, then sent as one message. */
+  captionMedia?: boolean
   onChangeText?: (text: string) => void
   onFocusChange?: (focused: boolean) => void
   replyTo?: Message | null
@@ -284,7 +291,15 @@ const ComposerAccessorySlot = memo(function ComposerAccessorySlot({
 })
 
 const MessageInputComponent = function MessageInput(
-  { onSend, onSendMedia, onChangeText, onFocusChange, replyTo, onCancelReply }: MessageInputProps,
+  {
+    onSend,
+    onSendMedia,
+    captionMedia = false,
+    onChangeText,
+    onFocusChange,
+    replyTo,
+    onCancelReply,
+  }: MessageInputProps,
   ref: React.ForwardedRef<MessageInputHandle>,
 ) {
   const [text, setText] = useState('')
@@ -300,6 +315,7 @@ const MessageInputComponent = function MessageInput(
   const inputRef = useRef<TextInput>(null)
   const attachmentSheetRef = useRef<AttachmentLauncherSheetHandle>(null)
   const sendLockRef = useRef(false)
+  const [pendingCaptionAsset, setPendingCaptionAsset] = useState<ImagePickerAsset | null>(null)
 
   useImperativeHandle(
     ref,
@@ -381,6 +397,22 @@ const MessageInputComponent = function MessageInput(
     attachmentSheetRef.current?.present()
   }, [waitForKeyboardToHide])
 
+  // With Velora AI the photo waits for its caption; anywhere else it is sent straight away.
+  const deliverPickedAssets = useCallback(
+    async (assets: ImagePickerAsset[]) => {
+      if (!captionMedia) {
+        await onSendMedia?.(assets)
+        return
+      }
+
+      const photo = assets.find((asset) => asset.type !== 'video')
+      if (photo) {
+        setPendingCaptionAsset(photo)
+      }
+    },
+    [captionMedia, onSendMedia],
+  )
+
   const handleOpenCamera = useCallback(async () => {
     const wasFocused = inputRef.current?.isFocused() ?? false
     inputRef.current?.blur()
@@ -399,16 +431,16 @@ const MessageInputComponent = function MessageInput(
       mediaTypes: ['images'],
       allowsEditing: false,
       cameraType: ImagePicker.CameraType.back,
-      quality: 0.92,
+      quality: captionMedia ? BOT_IMAGE_PICK_QUALITY : 0.92,
       preferredAssetRepresentationMode:
         ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
     })
 
     if (!result.canceled) {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
-      await onSendMedia?.(result.assets)
+      await deliverPickedAssets(result.assets)
     }
-  }, [onSendMedia, waitForKeyboardToHide])
+  }, [captionMedia, deliverPickedAssets, waitForKeyboardToHide])
 
   const showCharCounter = text.length > 800
   const counterColor = text.length > 950 ? colors.status.error : TEXT_MUTED
@@ -704,8 +736,18 @@ const MessageInputComponent = function MessageInput(
 
       <AttachmentLauncherSheet
         ref={attachmentSheetRef}
-        onSelectAssets={async (assets) => {
-          await onSendMedia?.(assets)
+        singleCompressedImage={captionMedia}
+        onSelectAssets={deliverPickedAssets}
+      />
+      <ImageCaptionSheet
+        asset={pendingCaptionAsset}
+        onCancel={() => setPendingCaptionAsset(null)}
+        onSend={(caption) => {
+          const asset = pendingCaptionAsset
+          setPendingCaptionAsset(null)
+          if (asset) {
+            void onSendMedia?.([asset], caption ? { caption } : undefined)
+          }
         }}
       />
     </Animated.View>

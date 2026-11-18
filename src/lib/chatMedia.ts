@@ -63,6 +63,21 @@ export const clamp = (value: number, min: number, max: number) => {
   return Math.min(max, Math.max(min, value))
 }
 
+/** The caption a user typed under a photo, or '' when the content is only the composer placeholder. */
+export const getChatImageCaption = (content?: string | null) => {
+  const trimmed = content?.trim() ?? ''
+  return trimmed === CHAT_IMAGE_PLACEHOLDER ? '' : trimmed
+}
+
+/** Most characters a caption to Velora AI may carry; the AI reads only the start of a long one. */
+export const MAX_CHAT_IMAGE_CAPTION_LENGTH = 500
+
+/**
+ * JPEG quality for photos picked to ask Velora AI about. Phone photos are several MB at full
+ * quality, and the AI reads photos up to 4 MB; this keeps typical shots well inside it.
+ */
+export const BOT_IMAGE_PICK_QUALITY = 0.7
+
 export const getMediaPlaceholderLabel = (type: 'image' | 'video') => {
   return type === 'video' ? CHAT_VIDEO_PLACEHOLDER : CHAT_IMAGE_PLACEHOLDER
 }

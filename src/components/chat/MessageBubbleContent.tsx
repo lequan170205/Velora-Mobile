@@ -2,7 +2,11 @@ import React from 'react'
 import { Text, View } from 'react-native'
 
 import { colors, radius, typography } from '../../constants/theme'
-import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../lib/chatMedia'
+import {
+  getChatImageCaption,
+  getResolvedMediaPosterUri,
+  getResolvedMediaUri,
+} from '../../lib/chatMedia'
 import { cn } from '../../lib/cn'
 import { formatDurationLabel } from '../../lib/reels'
 import { RECALLED_PREVIEW_TEXT } from '../../lib/replyPreview'
@@ -116,7 +120,31 @@ export function MessageBubbleContent({
         ...(handlers?.onPressOut ? { onPressOut: handlers.onPressOut } : {}),
       }
 
-      return <ChatMediaBubble message={message} {...mediaBubbleHandlers} />
+      const mediaBubble = <ChatMediaBubble message={message} {...mediaBubbleHandlers} />
+      // A photo sent with words (a question to Velora AI) shows them under the photo.
+      const caption = message.type === 'image' ? getChatImageCaption(message.content) : ''
+
+      if (!caption) {
+        return mediaBubble
+      }
+
+      return (
+        <View className={isOwn ? 'items-end' : 'items-start'}>
+          {mediaBubble}
+          <View
+            className={cn('mt-1 rounded-2xl px-3 py-2', isOwn ? 'bg-bubble-out' : 'bg-bubble-in')}
+          >
+            <Text
+              className={cn(
+                'font-sans text-base leading-[22px]',
+                isOwn ? 'text-white' : 'text-text-primary',
+              )}
+            >
+              {caption}
+            </Text>
+          </View>
+        </View>
+      )
     }
 
     const isVideo = message.type === 'video'

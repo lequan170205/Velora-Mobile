@@ -9,6 +9,7 @@ import {
   calculateChatMediaDisplaySize,
   getChatMediaMaxWidth,
   getMediaPlaceholderLabel,
+  MAX_CHAT_IMAGE_CAPTION_LENGTH,
   resolveAllowedChatMediaType,
 } from '../lib/chatMedia'
 import { upsertConversationSummaryInCache } from '../lib/chatMessageCache'
@@ -29,6 +30,8 @@ type EnqueuedMediaBatch = {
 }
 
 type EnqueueMediaAssetsOptions = {
+  /** Words sent with the first photo; other assets and videos keep the placeholder. */
+  caption?: string
   onWillCommitBatch?: (batch: EnqueuedMediaBatch) => void
 }
 
@@ -213,6 +216,7 @@ export function useChatMediaUploads(conversationId: string) {
         return null
       }
 
+      const caption = options?.caption?.trim().slice(0, MAX_CHAT_IMAGE_CAPTION_LENGTH) ?? ''
       const maxBubbleWidth = getChatMediaMaxWidth(screenWidth)
       const batchId = createMediaBatchId()
       const nextOptimisticMessages: Message[] = []
@@ -270,7 +274,8 @@ export function useChatMediaUploads(conversationId: string) {
           ...(asset.width ? { width: asset.width } : {}),
           ...(asset.height ? { height: asset.height } : {}),
         })
-        const content = getMediaPlaceholderLabel(kind)
+        const content =
+          kind === 'image' && assetIndex === 0 && caption ? caption : getMediaPlaceholderLabel(kind)
         const assetWidth = asset.width && asset.width > 0 ? asset.width : null
         const assetHeight = asset.height && asset.height > 0 ? asset.height : null
         const assetDurationMs = asset.duration && asset.duration > 0 ? asset.duration : null

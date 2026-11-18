@@ -153,3 +153,11 @@ test('the socket provider shows the notice and drops it when a real bot reply st
     /markAsBotConversation\(conversationId\)\s*removeBotReplyFailureNotice\(conversationId\)\s*reconcileStreamingBotMessage\(message\)/,
   )
 })
+
+test('an unreadable photo is a known code with its own wording', () => {
+  const failure = normalizeBotReplyFailurePayload(
+    payload({ code: 'IMAGE_UNREADABLE', message: 'server detail' }),
+  )
+  assert.equal(failure.code, 'IMAGE_UNREADABLE')
+  assert.match(describeBotReplyFailure(failure), /couldn't read that photo/)
+})

@@ -70,7 +70,7 @@ export const useConversationComposerRuntime = ({
   }, [conversationId, socket, typingEmitter])
 
   const handleSendMedia = useCallback(
-    async (assets: ImagePickerAsset[]) => {
+    async (assets: ImagePickerAsset[], options?: { caption?: string }) => {
       const timeline = requireTimelineActions(timelineActionsRef)
       const {
         cancelOwnSendBottomFollow,
@@ -81,6 +81,7 @@ export const useConversationComposerRuntime = ({
       prepareOwnSendBottomFollow()
 
       const queuedMediaBatch = await enqueueMediaAssets(assets, {
+        ...(options?.caption ? { caption: options.caption } : {}),
         onWillCommitBatch: registerPendingOwnMediaBatchScrollTransaction,
       })
 

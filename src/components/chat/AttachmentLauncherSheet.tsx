@@ -2,9 +2,13 @@ import * as ImagePicker from 'expo-image-picker'
 import { forwardRef, useImperativeHandle } from 'react'
 import { Alert, Linking, Platform } from 'react-native'
 
+import { BOT_IMAGE_PICK_QUALITY } from '../../lib/chatMedia'
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface AttachmentLauncherSheetProps {
+  /** One photo only, compressed: what a chat with Velora AI can read. */
+  singleCompressedImage?: boolean
   onSelectAssets: (assets: ImagePicker.ImagePickerAsset[]) => Promise<void> | void
 }
 
@@ -18,7 +22,7 @@ export interface AttachmentLauncherSheetHandle {
 export const AttachmentLauncherSheet = forwardRef<
   AttachmentLauncherSheetHandle,
   AttachmentLauncherSheetProps
->(function AttachmentLauncherSheet({ onSelectAssets }, ref) {
+>(function AttachmentLauncherSheet({ onSelectAssets, singleCompressedImage = false }, ref) {
   const isCloudVideoPickerError = (error: unknown) => {
     if (Platform.OS !== 'ios') {
       return false
@@ -72,14 +76,14 @@ export const AttachmentLauncherSheet = forwardRef<
         }
 
         const result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ['images', 'videos'],
-          allowsMultipleSelection: true,
-          selectionLimit: 10,
+          mediaTypes: singleCompressedImage ? ['images'] : ['images', 'videos'],
+          allowsMultipleSelection: !singleCompressedImage,
+          selectionLimit: singleCompressedImage ? 1 : 10,
           orderedSelection: true,
           // iPhone photos are HEIC, which chat uploads reject; Compatible makes iOS hand over JPEG.
           preferredAssetRepresentationMode:
             ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
-          quality: 1,
+          quality: singleCompressedImage ? BOT_IMAGE_PICK_QUALITY : 1,
           videoExportPreset: ImagePicker.VideoExportPreset.MediumQuality,
         })
 

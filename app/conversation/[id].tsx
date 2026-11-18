@@ -82,6 +82,10 @@ export default function ChatScreen() {
   const activeTypers = useChatStore(
     useCallback((state) => state.typingUsers[conversationId] ?? EMPTY_TYPERS, [conversationId]),
   )
+  // Photos sent to Velora AI are previewed and captioned first, since the caption is the question.
+  const isBotConversation = useChatStore(
+    useCallback((state) => state.botConversationIds.has(conversationId), [conversationId]),
+  )
   const isConversationRevoked = useChatStore(
     useCallback((state) => state.revokedConversationIds.has(conversationId), [conversationId]),
   )
@@ -728,6 +732,7 @@ export default function ChatScreen() {
                   ref={messageInputRef}
                   onSend={handleSendText}
                   onSendMedia={handleSendMedia}
+                  captionMedia={isBotConversation}
                   onChangeText={handleTyping}
                   onFocusChange={handleComposerFocusChange}
                   replyTo={replyToMessage}

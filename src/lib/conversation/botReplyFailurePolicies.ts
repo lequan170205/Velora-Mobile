@@ -11,7 +11,7 @@
  */
 
 export type BotReplyFailureCode =
-  'AI_UNAVAILABLE' | 'AI_BUSY' | 'NO_CONTENT' | 'RATE_LIMITED' | 'UNKNOWN'
+  'AI_UNAVAILABLE' | 'AI_BUSY' | 'NO_CONTENT' | 'IMAGE_UNREADABLE' | 'RATE_LIMITED' | 'UNKNOWN'
 
 export interface BotReplyFailure {
   conversationId: string
@@ -25,6 +25,7 @@ const KNOWN_CODES: readonly BotReplyFailureCode[] = [
   'AI_UNAVAILABLE',
   'AI_BUSY',
   'NO_CONTENT',
+  'IMAGE_UNREADABLE',
   'RATE_LIMITED',
   'UNKNOWN',
 ]
@@ -85,6 +86,8 @@ export const describeBotReplyFailure = (failure: BotReplyFailure): string => {
         : 'Velora AI is busy right now. Please try again in a moment.'
     case 'NO_CONTENT':
       return 'No relevant video content found for this query.'
+    case 'IMAGE_UNREADABLE':
+      return "Velora AI couldn't read that photo. Try a different one."
     case 'AI_UNAVAILABLE':
       return 'Velora AI is temporarily unavailable. Please try again.'
     default:
