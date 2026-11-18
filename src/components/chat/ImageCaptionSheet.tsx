@@ -1,7 +1,8 @@
 import { Image } from 'expo-image'
 import React, { useEffect, useState } from 'react'
 import {
-  KeyboardAvoidingView,
+  Dimensions,
+  Keyboard,
   Modal,
   Platform,
   Pressable,
@@ -25,6 +26,8 @@ interface ImageCaptionSheetProps {
 }
 
 const PREVIEW_MAX_HEIGHT = 320
+// Keeps the caption box and Send in view on a short screen with the keyboard open.
+const PREVIEW_MAX_HEIGHT_WITH_KEYBOARD = 180
 
 /**
  * Preview of a photo about to go to Velora AI, with a caption box. The photo and the question
@@ -33,10 +36,32 @@ const PREVIEW_MAX_HEIGHT = 320
 export function ImageCaptionSheet({ asset, onCancel, onSend }: ImageCaptionSheetProps) {
   const insets = useSafeAreaInsets()
   const [caption, setCaption] = useState('')
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
 
   useEffect(() => {
     setCaption('')
   }, [asset?.uri])
+
+  // A Modal is its own window, so neither KeyboardAvoidingView nor the app's keyboard provider
+  // lifts it on Android: the sheet lifts itself by the keyboard's real height.
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow'
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide'
+    const show = Keyboard.addListener(showEvent, (event) => {
+      // The space the keyboard covers is measured from its top edge to the bottom of the screen: its
+      // reported height leaves out the navigation bar, which this full-screen modal also sits under.
+      const covered = Dimensions.get('screen').height - event.endCoordinates.screenY
+      setKeyboardHeight(
+        Number.isFinite(covered) && covered > 0 ? covered : event.endCoordinates.height,
+      )
+    })
+    const hide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0))
+
+    return () => {
+      show.remove()
+      hide.remove()
+    }
+  }, [])
 
   if (!asset) {
     return null
@@ -49,22 +74,34 @@ export function ImageCaptionSheet({ asset, onCancel, onSend }: ImageCaptionSheet
 
   return (
     <Modal animationType="slide" onRequestClose={onCancel} statusBarTranslucent transparent visible>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.scrim}
-      >
+      <View style={styles.scrim}>
         <Pressable
           accessibilityLabel="Close photo preview"
           accessibilityRole="button"
           onPress={onCancel}
           style={StyleSheet.absoluteFill}
         />
-        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 12) + 4 }]}>
+        <View
+          style={[
+            styles.sheet,
+            {
+              paddingBottom:
+                keyboardHeight > 0 ? keyboardHeight + 12 : Math.max(insets.bottom, 12) + 4,
+            },
+          ]}
+        >
           <Image
             accessibilityLabel="Photo to send to Velora AI"
             contentFit="cover"
             source={{ uri: asset.uri }}
-            style={[styles.preview, { aspectRatio, maxHeight: PREVIEW_MAX_HEIGHT }]}
+            style={[
+              styles.preview,
+              {
+                aspectRatio,
+                maxHeight:
+                  keyboardHeight > 0 ? PREVIEW_MAX_HEIGHT_WITH_KEYBOARD : PREVIEW_MAX_HEIGHT,
+              },
+            ]}
           />
           <TextInput
             accessibilityLabel="Caption for the photo"
@@ -97,7 +134,7 @@ export function ImageCaptionSheet({ asset, onCancel, onSend }: ImageCaptionSheet
             </Pressable>
           </View>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   )
 }

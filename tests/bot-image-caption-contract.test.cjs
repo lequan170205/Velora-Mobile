@@ -74,3 +74,11 @@ test('a photo caption is shown under the photo, but the placeholder is not', () 
   assert.match(bubble, /getChatImageCaption\(message\.content\)/)
   assert.match(bubble, /if \(!caption\) \{\s*return mediaBubble/)
 })
+
+test('the caption sheet lifts itself by the space the keyboard covers, so Send stays visible', () => {
+  const sheet = read('src/components/chat/ImageCaptionSheet.tsx')
+  // A Modal is its own window: found on an Android emulator, where the keyboard hid the caption box and Send.
+  assert.match(sheet, /Dimensions\.get\('screen'\)\.height - event\.endCoordinates\.screenY/)
+  assert.match(sheet, /keyboardHeight > 0 \? keyboardHeight \+ 12/)
+  assert.doesNotMatch(sheet, /<KeyboardAvoidingView/)
+})
