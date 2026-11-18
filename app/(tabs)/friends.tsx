@@ -17,6 +17,13 @@ import {
   StyleSheet,
   View,
 } from 'react-native'
+import Animated, {
+  Easing,
+  FadeIn,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { AppPressable, AppText } from '../../src/components/base'
@@ -100,6 +107,97 @@ function FriendRowSkeleton() {
         <View className="h-3 w-1/3 rounded-full bg-surface-muted" />
       </View>
       <View className="h-9 w-[72px] rounded-full bg-surface-muted" />
+    </View>
+  )
+}
+
+const TABS: readonly { value: Section; label: string }[] = [
+  { value: 'friends', label: 'Friends' },
+  { value: 'received', label: 'Requests' },
+  { value: 'sent', label: 'Sent' },
+]
+const INDICATOR_WIDTH = 28
+
+function FriendsTabs({
+  counts,
+  onChange,
+  section,
+}: {
+  counts: Record<Section, number>
+  onChange: (section: Section) => void
+  section: Section
+}) {
+  const [width, setWidth] = useState(0)
+  const activeIndex = TABS.findIndex((tab) => tab.value === section)
+  const tabWidth = width / TABS.length
+  const indicatorX = useSharedValue(0)
+
+  useEffect(() => {
+    if (tabWidth === 0) return
+    indicatorX.value = withTiming(activeIndex * tabWidth + (tabWidth - INDICATOR_WIDTH) / 2, {
+      duration: 240,
+      easing: Easing.out(Easing.cubic),
+    })
+  }, [activeIndex, indicatorX, tabWidth])
+
+  const indicatorStyle = useAnimatedStyle(() => ({ transform: [{ translateX: indicatorX.value }] }))
+
+  return (
+    <View
+      className="mt-2 border-b border-border-default"
+      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+      accessibilityRole="tablist"
+    >
+      <View className="flex-row">
+        {TABS.map(({ value, label }) => {
+          const isActive = section === value
+          const count = counts[value]
+
+          return (
+            <Pressable
+              key={value}
+              className="h-12 flex-1 flex-row items-center justify-center"
+              onPress={() => onChange(value)}
+              collapsable={false}
+              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isActive }}
+              accessibilityLabel={`${label} section`}
+            >
+              <AppText
+                className="font-heading text-[16px]"
+                style={{ color: isActive ? colors.text.primary : colors.text.tertiary }}
+                numberOfLines={1}
+              >
+                {label}
+              </AppText>
+              {count > 0 ? (
+                <View
+                  className="ml-1.5 h-[18px] min-w-[18px] items-center justify-center rounded-full px-1"
+                  style={{
+                    backgroundColor:
+                      value === 'received' ? colors.brand.primary : colors.surface.muted,
+                  }}
+                >
+                  <AppText
+                    className="text-xs2 font-semibold"
+                    style={{
+                      color: value === 'received' ? colors.text.inverse : colors.text.secondary,
+                    }}
+                  >
+                    {count > 99 ? '99+' : count}
+                  </AppText>
+                </View>
+              ) : null}
+            </Pressable>
+          )
+        })}
+      </View>
+      <Animated.View
+        pointerEvents="none"
+        className="absolute bottom-0 h-[3px] rounded-t-full bg-brand"
+        style={[{ width: INDICATOR_WIDTH }, indicatorStyle]}
+      />
     </View>
   )
 }
@@ -687,63 +785,11 @@ export default function FriendsScreen() {
         </View>
       </View>
 
-      <View
-        className="mx-5 mt-1 flex-row rounded-full bg-surface-muted p-1"
-        accessibilityRole="tablist"
-      >
-        {(
-          [
-            ['friends', 'Friends'],
-            ['received', 'Requests'],
-            ['sent', 'Sent'],
-          ] as const
-        ).map(([value, label]) => {
-          const isActive = section === value
-          const count =
-            value === 'friends' ? friends.length : value === 'received' ? incoming.length : null
-
-          return (
-            <Pressable
-              key={value}
-              className="h-11 flex-1 flex-row items-center justify-center rounded-full px-2"
-              onPress={() => setSection(value)}
-              collapsable={false}
-              style={({ pressed }) => [
-                isActive ? styles.tabActive : null,
-                { opacity: pressed ? 0.76 : 1 },
-              ]}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: isActive }}
-              accessibilityLabel={`${label} section`}
-            >
-              <AppText
-                className="text-sm2 font-semibold"
-                style={{ color: isActive ? colors.text.primary : colors.text.secondary }}
-                numberOfLines={1}
-              >
-                {label}
-              </AppText>
-              {count !== null && count > 0 ? (
-                <View
-                  className={`ml-1.5 h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 ${
-                    value === 'received' ? 'bg-brand' : 'bg-bg-primary'
-                  }`}
-                  style={value === 'received' || !isActive ? null : styles.countOnActive}
-                >
-                  <AppText
-                    className="text-xs2 font-semibold"
-                    style={{
-                      color: value === 'received' ? colors.text.inverse : colors.text.secondary,
-                    }}
-                  >
-                    {count > 99 ? '99+' : count}
-                  </AppText>
-                </View>
-              ) : null}
-            </Pressable>
-          )
-        })}
-      </View>
+      <FriendsTabs
+        section={section}
+        onChange={setSection}
+        counts={{ friends: friends.length, received: incoming.length, sent: 0 }}
+      />
 
       <View className="px-5 pb-1 pt-5">
         <AppText
@@ -777,35 +823,37 @@ export default function FriendsScreen() {
           </AppPressable>
         </View>
       ) : (
-        <FlatList
-          data={items}
-          keyExtractor={(item) => item.value.id}
-          renderItem={renderItem}
-          ItemSeparatorComponent={RowSeparator}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{
-            flexGrow: 1,
-            paddingBottom: getDockedTabBarHeight(insets.bottom) + 20,
-          }}
-          refreshControl={
-            <RefreshControl
-              refreshing={activeQuery.isRefetching && !isFetchingNext}
-              onRefresh={refresh}
-              colors={[colors.brand.tertiary]}
-              tintColor={colors.brand.tertiary}
-            />
-          }
-          ListEmptyComponent={<EmptyState section={section} onFindPeople={openContactsSearch} />}
-          ListFooterComponent={
-            isFetchingNext ? (
-              <View className="py-5">
-                <ActivityIndicator color={colors.brand.tertiary} size="small" />
-              </View>
-            ) : null
-          }
-          onEndReached={loadMore}
-          onEndReachedThreshold={0.35}
-        />
+        <Animated.View key={section} entering={FadeIn.duration(200)} className="flex-1">
+          <FlatList
+            data={items}
+            keyExtractor={(item) => item.value.id}
+            renderItem={renderItem}
+            ItemSeparatorComponent={RowSeparator}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{
+              flexGrow: 1,
+              paddingBottom: getDockedTabBarHeight(insets.bottom) + 20,
+            }}
+            refreshControl={
+              <RefreshControl
+                refreshing={activeQuery.isRefetching && !isFetchingNext}
+                onRefresh={refresh}
+                colors={[colors.brand.tertiary]}
+                tintColor={colors.brand.tertiary}
+              />
+            }
+            ListEmptyComponent={<EmptyState section={section} onFindPeople={openContactsSearch} />}
+            ListFooterComponent={
+              isFetchingNext ? (
+                <View className="py-5">
+                  <ActivityIndicator color={colors.brand.tertiary} size="small" />
+                </View>
+              ) : null
+            }
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.35}
+          />
+        </Animated.View>
       )}
 
       <FriendActionsSheet
@@ -827,9 +875,6 @@ export default function FriendsScreen() {
 }
 
 const styles = StyleSheet.create({
-  countOnActive: {
-    backgroundColor: colors.surface.muted,
-  },
   handleIndicator: {
     backgroundColor: colors.border.strong,
     borderRadius: 9999,
@@ -845,13 +890,5 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: -8 },
     shadowOpacity: 1,
     shadowRadius: 24,
-  },
-  tabActive: {
-    backgroundColor: colors.bg.primary,
-    elevation: 2,
-    shadowColor: '#161616',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
   },
 })
