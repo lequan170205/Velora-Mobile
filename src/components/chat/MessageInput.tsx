@@ -67,6 +67,8 @@ interface MessageInputProps {
   onFocusChange?: (focused: boolean) => void
   replyTo?: Message | null
   onCancelReply?: () => void
+  /** Written with the reply card's height so the host list can stay clear of it. */
+  extraHeight?: SharedValue<number>
 }
 
 export interface MessageInputHandle {
@@ -300,6 +302,7 @@ const MessageInputComponent = function MessageInput(
     onFocusChange,
     replyTo,
     onCancelReply,
+    extraHeight,
   }: MessageInputProps,
   ref: React.ForwardedRef<MessageInputHandle>,
 ) {
@@ -530,6 +533,16 @@ const MessageInputComponent = function MessageInput(
         Boolean(candidate.uri) && !failedReplyThumbnails.includes(candidate.uri ?? ''),
     ) ?? null
   const bottomInset = Math.max(insets.bottom, 8)
+  const hasReply = Boolean(replyTo)
+  React.useEffect(() => {
+    if (!hasReply && extraHeight) extraHeight.value = 0
+  }, [extraHeight, hasReply])
+  React.useEffect(
+    () => () => {
+      if (extraHeight) extraHeight.value = 0
+    },
+    [extraHeight],
+  )
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation()
   const ACTIVE_PADDING = 8 // The tight spacing you want when focused
 
@@ -568,6 +581,9 @@ const MessageInputComponent = function MessageInput(
           })}
           exiting={FadeOut.duration(110)}
           style={styles.replyCard}
+          onLayout={(event) => {
+            if (extraHeight) extraHeight.value = event.nativeEvent.layout.height + 6
+          }}
         >
           <View style={styles.replyAccent} />
 

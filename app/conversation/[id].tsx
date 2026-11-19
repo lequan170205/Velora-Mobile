@@ -230,6 +230,7 @@ export default function ChatScreen() {
     handleComposerFocusChange,
     handleMessageViewportLayout,
     keyboardWrapperStyle,
+    composerExtraHeight,
     listSpacerStyle,
     messageInputRef,
     prepareContextMenuKeyboardPreservation,
@@ -737,6 +738,7 @@ export default function ChatScreen() {
                   onFocusChange={handleComposerFocusChange}
                   replyTo={replyToMessage}
                   onCancelReply={handleCancelReply}
+                  extraHeight={composerExtraHeight}
                 />
               </Animated.View>
             </View>

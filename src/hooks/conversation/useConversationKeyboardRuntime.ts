@@ -25,6 +25,9 @@ export const useConversationKeyboardRuntime = ({
   const shouldRestoreComposerFocusRef = useRef(false)
   const [messageViewportHeight, setMessageViewportHeight] = useState(0)
   const preservedKeyboardOffset = useSharedValue(0)
+  // Extra height the composer grows by (e.g. the reply preview card) so the
+  // list can keep the latest message clear of it.
+  const composerExtraHeight = useSharedValue(0)
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation()
 
   const keyboardWrapperStyle = useAnimatedStyle(() => {
@@ -47,7 +50,7 @@ export const useConversationKeyboardRuntime = ({
       Extrapolation.CLAMP,
     )
 
-    return { height: dynamicPadding + 50 }
+    return { height: dynamicPadding + 50 + composerExtraHeight.value }
   })
 
   const getReplyScrollViewPosition = useCallback(() => {
@@ -162,6 +165,7 @@ export const useConversationKeyboardRuntime = ({
     handleComposerFocusChange,
     handleMessageViewportLayout,
     keyboardWrapperStyle,
+    composerExtraHeight,
     listSpacerStyle,
     messageInputRef,
     prepareContextMenuKeyboardPreservation,
