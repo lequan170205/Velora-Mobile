@@ -87,8 +87,14 @@ function CallRow({
               className="font-sans ml-1 flex-shrink text-sm2 text-text-secondary"
               numberOfLines={1}
             >
-              {subtitle}
+              {presentation.title}
             </AppText>
+            {presentation.detail ? (
+              // Kept out of the truncating label so the duration is never the part that gets cut.
+              <AppText className="font-sans flex-shrink-0 text-sm2 text-text-secondary">
+                {` · ${presentation.detail}`}
+              </AppText>
+            ) : null}
           </View>
         </View>
         <AppText className="font-sans mr-3 text-xs2 text-text-muted">

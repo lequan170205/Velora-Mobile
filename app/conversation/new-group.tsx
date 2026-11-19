@@ -21,6 +21,7 @@ import { SafeTouchableOpacity } from '../../src/components/common/SafeTouchableO
 import { queryKeys } from '../../src/constants/queryKeys'
 import { colors } from '../../src/constants/theme'
 import { useFriends } from '../../src/hooks/useFriends'
+import { normalizeSearchText } from '../../src/lib/searchText'
 
 import type { Conversation } from '../../src/types/conversation.types'
 import type { FriendSummary } from '../../src/types/friend.types'
@@ -65,14 +66,13 @@ export default function NewGroupScreen() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
 
   const filteredFriends = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase()
+    const query = normalizeSearchText(searchQuery)
     if (!query) return friends
 
     return friends.filter((friend) => {
-      const searchable = [friend.user.fullName, friend.user.username]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
+      const searchable = normalizeSearchText(
+        [friend.user.fullName, friend.user.username].filter(Boolean).join(' '),
+      )
       return searchable.includes(query)
     })
   }, [friends, searchQuery])

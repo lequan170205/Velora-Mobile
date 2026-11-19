@@ -32,6 +32,7 @@ import {
   prefetchMessagesForConversations,
 } from '../../src/hooks/useMessages'
 import { getNextConversationPreviewRefreshAt } from '../../src/lib/conversationPreviewTime'
+import { normalizeSearchText } from '../../src/lib/searchText'
 import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
 
@@ -171,7 +172,7 @@ export default function ConversationsScreen() {
   const router = useRouter()
   const isFocused = useIsFocused()
   const insets = useSafeAreaInsets()
-  const { data: conversations, isLoading, isError, refetch } = useConversations()
+  const { data: conversations, isLoading, isError, refetch, fetchStatus } = useConversations()
   const { isConnected, requestPresence } = useSocket()
   const { openConversation, prefetchConversation } = useConversationNavigation()
 
@@ -196,12 +197,12 @@ export default function ConversationsScreen() {
   const filteredConversations = useMemo(() => {
     if (!conversations) return []
 
-    const normalizedQuery = deferredSearchQuery.trim().toLowerCase()
+    const normalizedQuery = normalizeSearchText(deferredSearchQuery)
     if (!normalizedQuery) return conversations
 
     return conversations.filter((conversation) => {
       if (conversation.isGroup && conversation.name) {
-        return conversation.name.toLowerCase().includes(normalizedQuery)
+        return normalizeSearchText(conversation.name).includes(normalizedQuery)
       }
 
       const otherParticipant = conversation.participants?.find(
@@ -213,7 +214,7 @@ export default function ConversationsScreen() {
         otherParticipant?.email?.split('@')[0] ||
         ''
 
-      return otherName.toLowerCase().includes(normalizedQuery)
+      return normalizeSearchText(otherName).includes(normalizedQuery)
     })
   }, [conversations, deferredSearchQuery])
 
@@ -332,9 +333,10 @@ export default function ConversationsScreen() {
   }, [filteredConversations, isFocused])
 
   const renderConversationItem = useCallback(
-    ({ item }: { item: Conversation }) => (
-      <ConversationItem conversation={item} relativeTimeTick={relativeTimeTick} />
-    ),
+    // FlashList can briefly hand over an undefined item while the data shrinks or grows (for
+    // example when a search is cleared); rendering it would throw and take the whole tab down.
+    ({ item }: { item: Conversation | undefined }) =>
+      item ? <ConversationItem conversation={item} relativeTimeTick={relativeTimeTick} /> : null,
     [relativeTimeTick],
   )
 
@@ -342,7 +344,11 @@ export default function ConversationsScreen() {
     router.push('/conversation/new-group')
   }, [router])
 
-  if (isLoading) {
+  // While the app believes it is offline the first fetch is paused: there is no data, no error
+  // and `isLoading` is false. Keep the skeleton up instead of claiming the inbox is empty.
+  const isWaitingForFirstFetch = conversations === undefined && !isError && fetchStatus === 'paused'
+
+  if (isLoading || isWaitingForFirstFetch) {
     return (
       <SafeAreaView className="flex-1 bg-bg-primary" edges={['top']}>
         <ConversationsHeader onCreateGroup={openNewGroup} topInset={0} />
@@ -387,7 +393,7 @@ export default function ConversationsScreen() {
         data={filteredConversations}
         extraData={relativeTimeTick}
         renderItem={renderConversationItem}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => item?.id ?? `conversation-${index}`}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentInsetAdjustmentBehavior="never"
