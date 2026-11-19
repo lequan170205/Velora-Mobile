@@ -51,3 +51,11 @@ test('replying to your own message reads "You replied to yourself"', () => {
   )
   assert.doesNotMatch(read('src/components/chat/MessageBubbleImpl.tsx'), /\} replied to \{/)
 })
+
+test('conversation list API rejects a non-array body instead of returning null', () => {
+  const api = read('src/api/conversation.api.ts')
+  assert.match(
+    api,
+    /if \(!Array\.isArray\(response\.data\)\) \{\s*throw new Error\('Invalid conversations response'\)/,
+  )
+})

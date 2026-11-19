@@ -80,6 +80,11 @@ const fallbackGroupMembersFromConversation = (conversation: Conversation): Conve
 export const conversationApi = {
   getAll: async () => {
     const response = await apiClient.get<Conversation[]>('/conversations')
+    // A flaky connection or proxy can hand back a null/odd body. Fail the query so the inbox shows
+    // its retry state, instead of letting `null` reach screens that map over the list.
+    if (!Array.isArray(response.data)) {
+      throw new Error('Invalid conversations response')
+    }
     return response.data
   },
   create: async (data: {
