@@ -1125,7 +1125,10 @@ const MessageBubbleComponent = function MessageBubble({
       Gesture.Pan()
         .enabled(!isRecalled && Boolean(onOpenContextMenu))
         .activateAfterLongPress(CONTEXT_MENU_LONG_PRESS_DELAY_MS)
-        .failOffsetX([-12, 12])
+        // Fail as soon as the finger starts a horizontal swipe, so a slow
+        // swipe-to-reply (which activates at SWIPE_REPLY_ACTIVATION_DISTANCE)
+        // can never turn into a long press that opens the context menu.
+        .failOffsetX([-SWIPE_REPLY_ACTIVATION_DISTANCE + 1, SWIPE_REPLY_ACTIVATION_DISTANCE - 1])
         .failOffsetY([-12, 12])
         .maxPointers(1)
         .onStart((event) => {
