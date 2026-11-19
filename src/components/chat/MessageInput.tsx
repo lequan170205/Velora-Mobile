@@ -503,7 +503,6 @@ const MessageInputComponent = function MessageInput(
           ? normalizeReplyPreviewContent(replyPreviewData.content)
           : normalizeReplyPreviewContent(replyTo?.content)
   const replySenderLabel = getReplySenderLabel({ currentUserId, replyPreviewData, replyTo })
-  const replyInitial = (replyPreviewText?.trim().charAt(0) || '?').toUpperCase()
   const replyThumbnailUri = getComposerReplyThumbnailUri(replyTo, replyPreviewData)
   const isReplyVideo =
     !isReplyRecalled &&
@@ -565,28 +564,20 @@ const MessageInputComponent = function MessageInput(
         <Animated.View
           entering={FadeInDown.duration(170).withInitialValues({
             opacity: 0,
-            transform: [{ translateY: 7 }, { translateX: -8 }],
+            transform: [{ translateY: 7 }],
           })}
           exiting={FadeOut.duration(110)}
-          className="mb-2 flex-row items-center rounded-[16px] border border-border-warm bg-surface-cream py-2.5"
-          style={{
-            paddingLeft: 12,
-            paddingRight: 8,
-            borderLeftWidth: 3,
-            borderLeftColor: BRAND,
-            overflow: 'hidden',
-          }}
+          style={styles.replyCard}
         >
+          <View style={styles.replyAccent} />
+
           {replyThumbnail ? (
             <View
-              style={{
-                width: isReplyReel ? 38 : 36,
-                height: isReplyReel ? 52 : 36,
-                borderRadius: isReplyReel ? 12 : 10,
-                overflow: 'hidden',
-                backgroundColor: isReplyVideo ? colors.media.surface : colors.surface.cream,
-                marginRight: 10,
-              }}
+              style={[
+                styles.replyThumb,
+                isReplyReel ? styles.replyThumbReel : null,
+                { backgroundColor: isReplyVideo ? colors.media.surface : colors.surface.accent },
+              ]}
             >
               <Image
                 source={{
@@ -603,71 +594,42 @@ const MessageInputComponent = function MessageInput(
                     current.includes(failedUri) ? current : [...current, failedUri],
                   )
                 }}
-                style={{ width: isReplyReel ? 38 : 36, height: isReplyReel ? 52 : 36 }}
+                style={StyleSheet.absoluteFill}
               />
               {isReplyVideo ? (
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: 'absolute',
-                    left: 0,
-                    right: 0,
-                    top: 0,
-                    bottom: 0,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: 'rgba(0,0,0,0.18)',
-                  }}
-                >
+                <View pointerEvents="none" style={styles.replyThumbOverlay}>
                   <MaterialIcons name="play-arrow" size={16} color={colors.text.inverse} />
                 </View>
               ) : null}
             </View>
           ) : isReplyReel ? (
             <View
-              style={{
-                width: 38,
-                height: 52,
-                borderRadius: radius.sm,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: colors.media.surface,
-                marginRight: 10,
-                overflow: 'hidden',
-              }}
+              style={[
+                styles.replyThumb,
+                styles.replyThumbReel,
+                styles.replyThumbOverlay,
+                { backgroundColor: colors.media.surface },
+              ]}
             >
               <MaterialIcons name="play-arrow" size={18} color={colors.text.inverse} />
             </View>
-          ) : (
-            <View
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: 14,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: colors.surface.accent,
-                marginRight: 10,
-              }}
-            >
-              <Text style={{ fontSize: 12, fontFamily: typography.fonts.bodyBold, color: BRAND }}>
-                {replyInitial}
-              </Text>
-            </View>
-          )}
+          ) : null}
 
           <View style={{ flex: 1 }}>
-            <Text
-              style={{
-                fontSize: 12,
-                fontFamily: typography.fonts.bodyBold,
-                color: isReplyReel ? TEXT_PRIMARY : BRAND,
-                marginBottom: 2,
-              }}
-              numberOfLines={1}
-            >
-              {replySenderLabel}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
+              <MaterialIcons name="reply" size={14} color={BRAND} style={{ marginRight: 4 }} />
+              <Text
+                style={{
+                  flexShrink: 1,
+                  fontSize: 12,
+                  fontFamily: typography.fonts.bodyBold,
+                  color: BRAND,
+                }}
+                numberOfLines={1}
+              >
+                {replySenderLabel}
+              </Text>
+            </View>
             <Text
               style={{
                 fontFamily: typography.fonts.body,
@@ -687,16 +649,16 @@ const MessageInputComponent = function MessageInput(
             onPress={onCancelReply}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             style={({ pressed }) => ({
-              width: 28,
-              height: 28,
-              borderRadius: 14,
+              width: 24,
+              height: 24,
+              borderRadius: 12,
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: pressed ? colors.border.strong : colors.border.default,
+              backgroundColor: pressed ? colors.border.strong : colors.surface.accent,
               marginLeft: 8,
             })}
           >
-            <MaterialIcons name="close" size={20} color={TEXT_SECONDARY} />
+            <MaterialIcons name="close" size={16} color={TEXT_SECONDARY} />
           </Pressable>
         </Animated.View>
       ) : null}
@@ -839,6 +801,46 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 8,
     paddingLeft: 4,
+  },
+  replyAccent: {
+    alignSelf: 'stretch',
+    backgroundColor: BRAND,
+    borderRadius: 2,
+    marginRight: 10,
+    width: 3,
+  },
+  replyCard: {
+    alignItems: 'center',
+    backgroundColor: colors.surface.cream,
+    borderRadius: radius.xl,
+    flexDirection: 'row',
+    marginBottom: 6,
+    overflow: 'hidden',
+    paddingLeft: 12,
+    paddingRight: 10,
+    paddingVertical: 8,
+  },
+  replyThumb: {
+    borderRadius: 10,
+    height: 36,
+    marginRight: 10,
+    overflow: 'hidden',
+    width: 36,
+  },
+  replyThumbOverlay: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.18)',
+    bottom: 0,
+    justifyContent: 'center',
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  replyThumbReel: {
+    borderRadius: 12,
+    height: 48,
+    width: 36,
   },
   textInput: {
     color: TEXT_PRIMARY,
