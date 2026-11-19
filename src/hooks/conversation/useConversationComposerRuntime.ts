@@ -48,7 +48,12 @@ export const useConversationComposerRuntime = ({
   socket,
   timelineActionsRef,
 }: UseConversationComposerRuntimeInput) => {
-  const replyToMessage = useChatStore((state) => state.replyToMessage)
+  // The reply target lives in a global store, so only honour it while it
+  // belongs to this conversation; otherwise a reply picked in another chat
+  // would leak into this composer.
+  const replyToMessage = useChatStore((state) =>
+    state.replyToMessage?.conversationId === conversationId ? state.replyToMessage : null,
+  )
   const setReplyToMessage = useChatStore((state) => state.setReplyToMessage)
   const { mutate: sendMessage } = useSendMessage(conversationId)
   const { enqueueMediaAssets } = useChatMediaUploads(conversationId)
@@ -61,6 +66,15 @@ export const useConversationComposerRuntime = ({
       }),
     [conversationId, socket],
   )
+
+  useEffect(() => {
+    return () => {
+      // Drop any pending reply when leaving this conversation.
+      if (useChatStore.getState().replyToMessage?.conversationId === conversationId) {
+        useChatStore.getState().setReplyToMessage(null)
+      }
+    }
+  }, [conversationId])
 
   useEffect(() => {
     return () => {
