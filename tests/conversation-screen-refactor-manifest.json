@@ -18,7 +18,7 @@
     "confirmMessage": 1,
     "dequeueOfflineMessage": 1,
     "resetConversationUi": 1,
-    "setReplyToMessage": 2
+    "setReplyToMessage": 3
   },
   "queryOperations": {
     "queryClient.cancelQueries": 1,

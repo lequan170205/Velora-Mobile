@@ -48,6 +48,7 @@ import {
 } from '../../src/lib/conversation/conversationPresentationPolicies'
 import { getMessageIdentityKey } from '../../src/lib/messageIdentity'
 import { DEFAULT_MESSAGE_LAYOUT } from '../../src/lib/messageListState'
+import { getReplyPreviewSenderName } from '../../src/lib/replyPreview'
 import { useCall } from '../../src/providers/CallProvider'
 import { useSocket } from '../../src/providers/SocketProvider'
 import { useAuthStore } from '../../src/stores/authStore'
@@ -453,6 +454,26 @@ export default function ChatScreen() {
     transitionDone,
   })
 
+  // The store keeps the snapshot taken when the reply started; resolve the live
+  // message so edits such as a recall show up in the composer preview.
+  const liveReplyToMessage = useMemo(
+    () => (replyToMessage ? (messageById.get(replyToMessage.id) ?? replyToMessage) : null),
+    [messageById, replyToMessage],
+  )
+
+  const replySenderName = useMemo(
+    () =>
+      liveReplyToMessage
+        ? getReplyPreviewSenderName({
+            conversation: currentConversation ?? null,
+            currentUserId: user?.id ?? null,
+            senderEmail: liveReplyToMessage.sender?.email ?? null,
+            senderId: liveReplyToMessage.senderId,
+          })
+        : null,
+    [currentConversation, liveReplyToMessage, user?.id],
+  )
+
   const renderListHeader = useCallback(() => {
     return (
       <View>
@@ -736,9 +757,10 @@ export default function ChatScreen() {
                   captionMedia={isBotConversation}
                   onChangeText={handleTyping}
                   onFocusChange={handleComposerFocusChange}
-                  replyTo={replyToMessage}
+                  replyTo={liveReplyToMessage}
                   onCancelReply={handleCancelReply}
                   extraHeight={composerExtraHeight}
+                  replySenderName={replySenderName}
                 />
               </Animated.View>
             </View>

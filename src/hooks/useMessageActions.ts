@@ -6,6 +6,7 @@ import { queryKeys } from '../constants/queryKeys'
 import { markMessageRecalled } from '../database/messageSync'
 import { patchConversationMessageCollectionsInCache } from '../lib/chatMessageCache'
 import { useAuthStore } from '../stores/authStore'
+import { useChatStore } from '../stores/chatStore'
 
 import type { Message } from '../types/conversation.types'
 
@@ -67,6 +68,7 @@ export function useRecallMessage(conversationId: string) {
     },
     onMutate: async (messageId) => {
       const now = new Date().toISOString()
+      useChatStore.getState().markReplyTargetRecalled(messageId)
       patchConversationMessageCollectionsInCache(queryClient, conversationId, (msg) =>
         msg.id === messageId ? redactRecalledMessage(msg, now) : msg,
       )

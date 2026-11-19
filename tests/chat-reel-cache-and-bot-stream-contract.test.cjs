@@ -61,14 +61,15 @@ test('the long-press menu reel preview uses the cached thumbnail pipeline', () =
   assert.match(menu, /cacheKey: getReelThumbnailCacheKey\(reelId, thumbnail\.key, thumbnail\.uri\)/)
 })
 
-test('the composer reply card uses a real border colour token, not the black default', () => {
+test('the composer reply card is borderless and every reply type carries the same accent bar', () => {
   const input = read('src/components/chat/MessageInput.tsx')
 
-  assert.match(input, /border border-border-warm bg-surface-cream/)
-  // Reel replies carry the same left accent as text replies.
-  assert.match(input, /borderLeftWidth: 3,/)
-  assert.doesNotMatch(input, /borderLeftWidth: isReplyReel/)
+  // No default (black) border: the card sits on the same cream surface as the composer pill.
+  assert.match(input, /style=\{styles\.replyCard\}/)
   assert.doesNotMatch(input, /border border-warm\b/)
+  assert.doesNotMatch(input, /borderLeftWidth/)
+  // Reel replies carry the same left accent bar as text replies.
+  assert.match(input, /<View style=\{styles\.replyAccent\} \/>/)
 })
 
 test('late bot stream tokens cannot start a second bubble after the final reply', () => {

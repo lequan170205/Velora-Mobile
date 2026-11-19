@@ -1765,6 +1765,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }) => {
         const now = recalledAt || new Date().toISOString()
         const conversationIds = new Set<string>()
+        useChatStore.getState().markReplyTargetRecalled(messageId)
 
         if (conversationId) {
           conversationIds.add(conversationId)

@@ -70,6 +70,8 @@ interface ChatState {
   setMessageAsSeen: (conversationId: string, messageId: string) => void
   isMessageSeen: (conversationId: string, messageId: string) => boolean
   setReplyToMessage: (message: Message | null) => void
+  /** Redacts the pending reply target when that message gets recalled. */
+  markReplyTargetRecalled: (messageId: string) => void
   markAsBotConversation: (conversationId: string) => void
   isBotConversation: (conversationId: string) => boolean
   markConversationRevoked: (conversationId: string) => void
@@ -563,6 +565,29 @@ export const useChatStore = create<ChatState>()(
         set(() => ({
           replyToMessage: message,
         })),
+
+      markReplyTargetRecalled: (messageId) =>
+        set((state) => {
+          const target = state.replyToMessage
+          if (!target || target.id !== messageId) return {}
+
+          const {
+            media: _media,
+            metadata: _metadata,
+            replyPreview: _replyPreview,
+            reply_preview: _replyPreviewSnakeCase,
+            ...safeTarget
+          } = target
+
+          return {
+            replyToMessage: {
+              ...safeTarget,
+              isRecalled: true,
+              is_recalled: true,
+              content: 'Tin nhắn đã thu hồi',
+            },
+          }
+        }),
 
       markAsBotConversation: (conversationId) =>
         set((state) => {

@@ -69,6 +69,8 @@ interface MessageInputProps {
   onCancelReply?: () => void
   /** Written with the reply card's height so the host list can stay clear of it. */
   extraHeight?: SharedValue<number>
+  /** Sender label resolved with the conversation's participants (matches the sent bubble). */
+  replySenderName?: string | null
 }
 
 export interface MessageInputHandle {
@@ -303,6 +305,7 @@ const MessageInputComponent = function MessageInput(
     replyTo,
     onCancelReply,
     extraHeight,
+    replySenderName,
   }: MessageInputProps,
   ref: React.ForwardedRef<MessageInputHandle>,
 ) {
@@ -505,7 +508,8 @@ const MessageInputComponent = function MessageInput(
         : replyPreviewData
           ? normalizeReplyPreviewContent(replyPreviewData.content)
           : normalizeReplyPreviewContent(replyTo?.content)
-  const replySenderLabel = getReplySenderLabel({ currentUserId, replyPreviewData, replyTo })
+  const replySenderLabel =
+    replySenderName || getReplySenderLabel({ currentUserId, replyPreviewData, replyTo })
   const replyThumbnailUri = getComposerReplyThumbnailUri(replyTo, replyPreviewData)
   const isReplyVideo =
     !isReplyRecalled &&
