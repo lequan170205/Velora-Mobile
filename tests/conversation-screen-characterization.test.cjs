@@ -591,7 +591,7 @@ test('metadata, receipt and presence hooks preserve their original ownership bou
   assert.ok(receipt)
   assert.ok(presence)
 
-  assert.match(metadata, /queryKey: queryKeys\.conversations\.all/)
+  assert.match(metadata, /\.\.\.getConversationsQueryOptions\(\)/)
   assert.match(metadata, /allConversations\.find/)
   assert.match(metadata, /getConversationHeaderIdentity/)
   assert.match(metadata, /currentConversation\?\.participants\?\.forEach/)

@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 
-import { queryKeys } from '../../constants/queryKeys'
 import { getConversationHeaderIdentity } from '../../lib/conversation/conversationPresentationPolicies'
+import { getConversationsQueryOptions } from '../useConversations'
 
 import type { ChatParticipant, Conversation } from '../../types/conversation.types'
 
@@ -15,16 +15,19 @@ export const useConversationMetadata = ({
   conversationId,
   currentUserId,
 }: UseConversationMetadataInput) => {
+  // Read-only observer of the shared conversation list. It must reuse the real query options: an
+  // observer with its own placeholder `queryFn` (e.g. `() => Promise.resolve(null)`) overwrites the
+  // query's fetcher on every render, so a later invalidate/refetch resolved `null` into the cache and
+  // crashed list consumers such as the reel share sheet.
   const { data: conversationsCacheData } = useQuery({
-    queryKey: queryKeys.conversations.all,
-    queryFn: () => Promise.resolve(null),
+    ...getConversationsQueryOptions(),
     enabled: false,
   })
 
   const allConversations = useMemo(() => {
     if (!conversationsCacheData) return []
     if (Array.isArray(conversationsCacheData)) {
-      return conversationsCacheData as Conversation[]
+      return conversationsCacheData
     }
     return (conversationsCacheData as { pages?: Conversation[][] })?.pages?.flat() || []
   }, [conversationsCacheData])
