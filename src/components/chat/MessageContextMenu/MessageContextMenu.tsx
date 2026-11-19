@@ -36,7 +36,7 @@ import { colors, radius, typography } from '../../../constants/theme'
 import { useAddReaction, useRemoveReaction } from '../../../hooks/useMessageActions'
 import { useReelDetail } from '../../../hooks/useReels'
 import { getResolvedMediaPosterUri, getResolvedMediaUri } from '../../../lib/chatMedia'
-import { RECALLED_PREVIEW_TEXT } from '../../../lib/replyPreview'
+import { getReplyHeaderText, RECALLED_PREVIEW_TEXT } from '../../../lib/replyPreview'
 import { useAuthStore } from '../../../stores/authStore'
 import { getReelThumbnailCacheKey, stripSignedQuery } from '../ChatReelCard'
 import { MessageBubbleContent } from '../MessageBubbleContent'
@@ -1064,7 +1064,7 @@ function ContextMessagePreview({
               style={[styles.contextReplyHeaderText, { color: tokens.textSecondary }]}
               numberOfLines={1}
             >
-              {currentSenderLabel} replied to {replyPreview.senderLabel}
+              {getReplyHeaderText(currentSenderLabel, replyPreview.senderLabel)}
             </Text>
           </View>
 

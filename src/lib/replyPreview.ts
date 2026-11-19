@@ -270,3 +270,12 @@ export const buildReplyPreviewFromMessage = ({
     type: (message.type === 'voice' ? 'text' : message.type) as ReplyPreviewData['type'],
   }
 }
+
+/**
+ * "Alice replied to Bob". Replying to your own message reads "You replied to yourself"
+ * instead of the awkward "You replied to You".
+ */
+export const getReplyHeaderText = (senderLabel: string, targetLabel: string) =>
+  senderLabel === 'You' && targetLabel === 'You'
+    ? 'You replied to yourself'
+    : `${senderLabel} replied to ${targetLabel}`

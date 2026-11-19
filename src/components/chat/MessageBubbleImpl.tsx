@@ -36,6 +36,7 @@ import {
 import { cn } from '../../lib/cn'
 import {
   getPreferredReelReplyPreviewContent,
+  getReplyHeaderText,
   RECALLED_PREVIEW_TEXT,
   isReplyPreviewRecalled,
   normalizeReplyPreview,
@@ -1322,7 +1323,7 @@ const MessageBubbleComponent = function MessageBubble({
                         <View className="mb-1 flex-row items-center px-1">
                           <MaterialIcons name="reply" size={15} color={colors.text.tertiary} />
                           <Text className="ml-1.5 text-sm2 font-medium text-text-secondary">
-                            {senderDisplayName} replied to {replyPreviewMeta.senderLabel}
+                            {getReplyHeaderText(senderDisplayName, replyPreviewMeta.senderLabel)}
                           </Text>
                         </View>
 

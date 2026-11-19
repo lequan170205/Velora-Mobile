@@ -39,3 +39,15 @@ test('inbox keeps the skeleton while the first conversations fetch is paused off
   assert.match(inbox, /fetchStatus === 'paused'/)
   assert.match(inbox, /if \(isLoading \|\| isWaitingForFirstFetch\)/)
 })
+
+test('replying to your own message reads "You replied to yourself"', () => {
+  const source = read('src/lib/replyPreview.ts')
+  assert.match(source, /export const getReplyHeaderText/)
+  assert.match(source, /'You replied to yourself'/)
+  assert.match(read('src/components/chat/MessageBubbleImpl.tsx'), /getReplyHeaderText\(/)
+  assert.match(
+    read('src/components/chat/MessageContextMenu/MessageContextMenu.tsx'),
+    /getReplyHeaderText\(/,
+  )
+  assert.doesNotMatch(read('src/components/chat/MessageBubbleImpl.tsx'), /\} replied to \{/)
+})
