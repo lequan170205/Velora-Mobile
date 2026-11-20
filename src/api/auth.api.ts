@@ -20,6 +20,14 @@ type LogoutPushToken = {
   lifecycleVersion?: number
 }
 
+/** No refresh token is stored, so the server has no session left to revoke. */
+export class MissingRefreshTokenError extends Error {
+  constructor() {
+    super('Cannot logout without a refresh token')
+    this.name = 'MissingRefreshTokenError'
+  }
+}
+
 const splitFullName = (fullName?: string) => {
   const tokens = fullName?.trim().split(/\s+/).filter(Boolean) ?? []
 
@@ -78,7 +86,7 @@ export const authApi = {
       if (authTokenSession.getGeneration() !== generation) throw new Error('Auth session changed')
 
       if (!refreshToken) {
-        throw new Error('Cannot logout without a refresh token')
+        throw new MissingRefreshTokenError()
       }
 
       const response = await apiClient.post<MessageResponse>(

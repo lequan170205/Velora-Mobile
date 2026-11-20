@@ -1,4 +1,6 @@
-import { authApi } from '../../api/auth.api'
+import { isAxiosError } from 'axios'
+
+import { authApi, MissingRefreshTokenError } from '../../api/auth.api'
 import { deleteValueFor, getValueFor, save } from '../../utils/storage'
 import { authTokenSession } from '../auth/tokenSession'
 import { veloraSystemCalls } from '../systemCalls/veloraSystemCalls'
@@ -172,6 +174,10 @@ const getCurrentVoipToken = () => {
 const hasPushTokens = (cleanup: LogoutPushTokenCleanup) =>
   Boolean(cleanup.fcmToken || cleanup.voipToken)
 
+const isSessionAlreadyGone = (error: unknown) =>
+  error instanceof MissingRefreshTokenError ||
+  (isAxiosError(error) && (error.response?.status === 401 || error.response?.status === 403))
+
 const toLogoutPayload = (cleanup: LogoutPushTokenCleanup) => {
   const pushTokens = [
     ...(cleanup.fcmToken
@@ -266,6 +272,23 @@ export const performLogoutPushTokenCleanup = async () => {
 
     return { ok: true, cleanup }
   } catch (error) {
+    // An expired or revoked session cannot be revoked again, so a retry can
+    // never succeed. Sign out locally instead of leaving a dead session on screen.
+    // The local FCM token is already deleted, so the server's copy stops working.
+    if (isSessionAlreadyGone(error) && authTokenSession.getGeneration() === generation) {
+      try {
+        await authTokenSession.clear(generation)
+      } catch (clearError) {
+        devWarn(`${logPrefix} failed to clear an expired session`, clearError)
+      }
+      if (authTokenSession.getGeneration() === generation + 1) {
+        if (hasPushTokens(cleanup)) {
+          await clearPendingLogoutPushTokenCleanup()
+        }
+        return { ok: true, cleanup }
+      }
+    }
+
     devWarn(`${logPrefix} logout request failed`, {
       error,
       maskedFcmToken: maskNotificationToken(cleanup.fcmToken),
