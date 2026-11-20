@@ -43,6 +43,9 @@ const debugCall = (...args: Parameters<typeof console.warn>) => {
   if (__DEV__) console.warn(...args)
 }
 
+const isJoinedGroupPhase = (phase: string) =>
+  phase === 'connecting' || phase === 'active' || phase === 'reconnecting'
+
 const drainNativeJournal = async (
   processAction: (action: NativeCallAction) => Promise<void>,
   completedActionIds: Set<string>,
@@ -127,7 +130,16 @@ export const useNativeCallActions = ({
           // unrelated in-app call for the current account.
           veloraSystemCalls.dismissIncomingCall(action.callId, action.invitationId)
           if (belongsToCurrentAccount && isCurrentCall(action.callId)) {
-            await teardownOnce('native_remote_end')
+            const live = useCallStore.getState()
+            // A native end does not prove the server dropped this device from a
+            // group room it joined. Leave it, or the server keeps the seat and
+            // nobody can rejoin until the socket disconnects. A leave after the
+            // room ended is a no-op.
+            if (live.isGroupCall && isJoinedGroupPhase(live.phase)) {
+              await endCall('ended')
+            } else {
+              await teardownOnce('native_remote_end')
+            }
           }
           completeNativeCallAction(action.actionId)
         } finally {
@@ -539,6 +551,12 @@ export const useNativeCallActions = ({
           callId: shortCallId(pendingAction.callId),
           action: pendingAction.action,
           actionId: shortCallId(pendingAction.actionId),
+          ...('reason' in pendingAction && pendingAction.reason
+            ? { reason: pendingAction.reason }
+            : {}),
+          ...('status' in pendingAction && pendingAction.status
+            ? { status: pendingAction.status }
+            : {}),
         }),
       )
       await drainNativeJournal(processNativeCallAction, completedNativeActionIdsRef.current)
